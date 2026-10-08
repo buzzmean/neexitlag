@@ -1,0 +1,42 @@
+name: Verify
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: neexitlag
+          POSTGRES_DB: neexitlag
+          POSTGRES_PASSWORD: ci-only-test-password
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U neexitlag -d neexitlag"
+          --health-interval 2s --health-timeout 2s --health-retries 30
+    env:
+      NEEXITLAG_TEST_DATABASE_URL: postgres://neexitlag:ci-only-test-password@127.0.0.1:5432/neexitlag?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version: '1.25.x'}
+      - run: go build ./...
+      - run: go test -race -timeout 120s ./...
+      - run: go vet ./...
+      - run: go run ./tools/lab
+      - run: go build ./...
+        env: {GOOS: windows, GOARCH: amd64, CGO_ENABLED: '0'}
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version: '1.25.x'}
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: '8.0.x'}
+      - run: go build ./...
+      - run: go test ./core/... ./platform/windows ./services/client-service
+      - run: dotnet build apps/desktop/Neexitlag.Desktop.csproj --nologo
+      # No WinDivert binary or live interception is provisioned in this job.
