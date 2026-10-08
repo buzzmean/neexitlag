@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"bytes"
+	"fmt"
 	"net/netip"
 	"testing"
 )
@@ -43,4 +44,32 @@ func FuzzDecode(f *testing.F) {
 			}
 		}
 	})
+}
+
+func FuzzReadOpen(f *testing.F) {
+	var b bytes.Buffer
+	(Open{UDP, 1, netip.MustParseAddrPort("[::1]:1234")}).Write(&b)
+	f.Add(b.Bytes())
+	f.Fuzz(func(t *testing.T, b []byte) {
+		o, e := ReadOpen(bytes.NewReader(b))
+		if e == nil {
+			var out bytes.Buffer
+			if e = o.Write(&out); e != nil || !bytes.Equal(out.Bytes(), b[:OpenSize]) {
+				t.Fatal("OPEN roundtrip")
+			}
+		}
+	})
+}
+func BenchmarkFrame(b *testing.B) {
+	for _, size := range []int{64, 512, 1100} {
+		b.Run(fmt.Sprint(size), func(b *testing.B) {
+			p := make([]byte, size)
+			b.SetBytes(int64(size))
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				f, _ := Encode(1, p)
+				Decode(f)
+			}
+		})
+	}
 }

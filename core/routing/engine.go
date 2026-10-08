@@ -1,0 +1,274 @@
+package routing
+
+import (
+	"context"
+	"errors"
+	"github.com/buzzmean/neexitlag/core/protocol"
+	"net"
+	"net/netip"
+	"sync"
+	"time"
+)
+
+var ErrFlowExists = errors.New("flow already pinned")
+var ErrLimit = errors.New("flow limit reached")
+
+type Datagram interface {
+	Send([]byte) error
+	Receive(context.Context) ([]byte, error)
+	Close() error
+}
+type Relay interface {
+	OpenDatagram(context.Context, netip.AddrPort) (Datagram, error)
+	OpenTCP(context.Context, netip.AddrPort) (net.Conn, error)
+}
+type Policy struct {
+	Route          Route
+	BlockOnFailure bool
+}
+type Key struct {
+	Protocol            string
+	Source, Destination netip.AddrPort
+	PID                 uint32
+}
+type Engine struct {
+	mu       sync.Mutex
+	policies map[string]Policy
+	relays   map[string]Relay
+	flows    map[Key]Flow
+	limit    int
+}
+
+func New(limit int) *Engine {
+	if limit <= 0 {
+		limit = 4096
+	}
+	return &Engine{policies: make(map[string]Policy), relays: make(map[string]Relay), flows: make(map[Key]Flow), limit: limit}
+}
+func (e *Engine) SetPolicy(app string, p Policy) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.policies[app] = p
+}
+func (e *Engine) SetRelay(id string, r Relay) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if r == nil {
+		delete(e.relays, id)
+	} else {
+		e.relays[id] = r
+	}
+}
+func key(f Flow) Key { return Key{f.Protocol, f.Source, f.Destination, f.PID} }
+func (e *Engine) reserve(f Flow) (Key, Policy, Relay, error) {
+	if !f.Destination.IsValid() || f.Destination.Port() == 0 || !f.Source.IsValid() || f.Source.Port() == 0 {
+		return Key{}, Policy{}, nil, errors.New("invalid flow tuple")
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	k := key(f)
+	if _, ok := e.flows[k]; ok {
+		return k, Policy{}, nil, ErrFlowExists
+	}
+	if len(e.flows) >= e.limit {
+		return k, Policy{}, nil, ErrLimit
+	}
+	p := e.policies[f.ApplicationID]
+	// Unidentified processes always bypass optimization, including matching app labels.
+	if f.PID == 0 || f.ProcessPath == "" || f.ApplicationID == "" {
+		p = Policy{}
+	}
+	f.Route = p.Route
+	f.CreatedAt = time.Now()
+	f.LastActivity = f.CreatedAt
+	e.flows[k] = f
+	return k, p, e.relays[p.Route.RelayID], nil
+}
+func (e *Engine) remove(k Key) { e.mu.Lock(); delete(e.flows, k); e.mu.Unlock() }
+func (e *Engine) touch(k Key) {
+	e.mu.Lock()
+	if f, ok := e.flows[k]; ok {
+		f.LastActivity = time.Now()
+		e.flows[k] = f
+	}
+	e.mu.Unlock()
+}
+func (e *Engine) direct(k Key) {
+	e.mu.Lock()
+	f := e.flows[k]
+	f.Route = Route{}
+	e.flows[k] = f
+	e.mu.Unlock()
+}
+func (e *Engine) Snapshot() []Flow {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	out := make([]Flow, 0, len(e.flows))
+	for _, f := range e.flows {
+		out = append(out, f)
+	}
+	return out
+}
+func (e *Engine) OpenUDP(ctx context.Context, f Flow) (Datagram, error) {
+	f.Protocol = "udp"
+	k, p, r, err := e.reserve(f)
+	if err != nil {
+		return nil, err
+	}
+	var d Datagram
+	if !p.Route.Direct() {
+		if r != nil {
+			d, err = r.OpenDatagram(ctx, f.Destination)
+		} else {
+			err = errors.New("relay unavailable")
+		}
+		if err != nil && p.BlockOnFailure {
+			e.remove(k)
+			return nil, err
+		}
+	}
+	if d == nil {
+		e.direct(k)
+		c, er := (&net.Dialer{}).DialContext(ctx, "udp", f.Destination.String())
+		err = er
+		if err == nil {
+			d = &directUDP{c: c}
+		}
+	}
+	if err != nil {
+		e.remove(k)
+		return nil, err
+	}
+	return &trackedUDP{Datagram: d, e: e, k: k}, nil
+}
+func (e *Engine) OpenTCP(ctx context.Context, f Flow) (net.Conn, error) {
+	f.Protocol = "tcp"
+	k, p, r, err := e.reserve(f)
+	if err != nil {
+		return nil, err
+	}
+	var c net.Conn
+	if !p.Route.Direct() {
+		if r != nil {
+			c, err = r.OpenTCP(ctx, f.Destination)
+		} else {
+			err = errors.New("relay unavailable")
+		}
+		if err != nil && p.BlockOnFailure {
+			e.remove(k)
+			return nil, err
+		}
+	}
+	if c == nil {
+		e.direct(k)
+		c, err = (&net.Dialer{}).DialContext(ctx, "tcp", f.Destination.String())
+	}
+	if err != nil {
+		e.remove(k)
+		return nil, err
+	}
+	return &trackedTCP{Conn: c, e: e, k: k}, nil
+}
+
+type trackedUDP struct {
+	Datagram
+	e    *Engine
+	k    Key
+	once sync.Once
+}
+
+func (f *trackedUDP) Send(b []byte) error {
+	err := f.Datagram.Send(b)
+	if err == nil {
+		f.e.touch(f.k)
+	}
+	return err
+}
+func (f *trackedUDP) Receive(ctx context.Context) ([]byte, error) {
+	b, err := f.Datagram.Receive(ctx)
+	if err == nil {
+		f.e.touch(f.k)
+	}
+	return b, err
+}
+func (f *trackedUDP) Close() error {
+	err := f.Datagram.Close()
+	f.once.Do(func() { f.e.remove(f.k) })
+	return err
+}
+
+type directUDP struct {
+	c      net.Conn
+	readMu sync.Mutex
+}
+
+func (f *directUDP) Send(b []byte) error {
+	if len(b) > protocol.MaxPayload {
+		return protocol.ErrFrame
+	}
+	_, err := f.c.Write(b)
+	return err
+}
+func (f *directUDP) Receive(ctx context.Context) ([]byte, error) {
+	f.readMu.Lock()
+	defer f.readMu.Unlock()
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	d := time.Time{}
+	if t, ok := ctx.Deadline(); ok {
+		d = t
+	}
+	f.c.SetReadDeadline(d)
+	finished := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() { f.c.SetReadDeadline(time.Now()); close(finished) })
+	defer func() {
+		if !stop() {
+			<-finished
+		}
+		f.c.SetReadDeadline(time.Time{})
+	}()
+	b := make([]byte, protocol.MaxPayload+1)
+	n, err := f.c.Read(b)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if n > protocol.MaxPayload {
+		return nil, protocol.ErrFrame
+	}
+	return b[:n], err
+}
+func (f *directUDP) Close() error { return f.c.Close() }
+
+type trackedTCP struct {
+	net.Conn
+	e    *Engine
+	k    Key
+	once sync.Once
+}
+
+func (f *trackedTCP) Read(b []byte) (int, error) {
+	n, err := f.Conn.Read(b)
+	if n > 0 {
+		f.e.touch(f.k)
+	}
+	return n, err
+}
+func (f *trackedTCP) Write(b []byte) (int, error) {
+	n, err := f.Conn.Write(b)
+	if n > 0 {
+		f.e.touch(f.k)
+	}
+	return n, err
+}
+func (f *trackedTCP) Close() error {
+	err := f.Conn.Close()
+	f.once.Do(func() { f.e.remove(f.k) })
+	return err
+}
+func (f *trackedTCP) CloseWrite() error {
+	if h, ok := f.Conn.(interface{ CloseWrite() error }); ok {
+		return h.CloseWrite()
+	}
+	return errors.New("half-close unsupported")
+}
