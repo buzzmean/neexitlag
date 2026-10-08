@@ -10,7 +10,7 @@ flowchart TD
  Relay --> Destination[Destination]
  CP[Control plane / PostgreSQL] -->|Signed config and tickets| Service
 ```
-Go is shared by core, relay and planned control plane. UI never forwards packets.
+Go is shared by core, relay and control plane. UI never forwards packets.
 Unknown process, invalid measurement or unavailable relay defaults to DIRECT.
 Already established TCP connections never migrate. Control plane is outside the data path.
 See ADRs and docs/STATUS.md for implemented boundaries.

@@ -3,3 +3,14 @@ bin/
 *.exe
 *.test
 .lab/
+
+apps/desktop/bin/
+apps/desktop/obj/
+
+tests/desktop-bindings/bin/
+tests/desktop-bindings/obj/
+
+.dev/
+
+*.dll
+*.sys

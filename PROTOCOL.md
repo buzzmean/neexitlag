@@ -30,3 +30,14 @@ ACK/control coalescing varies: transport may reject or defer a datagram.
 quic-go PMTU discovery is enabled; oversized application packets are rejected,
 not fragmented by this framing layer. Destination-leg UDP PMTU support is future
 work. Client cannot infer end-to-end game PMTU just from client-relay PMTU.
+
+## Ticket-authenticated session v2
+
+ALPN `neexitlag/2` adds one first bidirectional AUTH stream before flows.
+AUTH is a four-byte big-endian length (<=8192) followed by a signed ticket JSON
+envelope. Relay returns status byte 0 only after validating signature, time,
+audience, revocation, certificate key binding and single-use ticket ID.
+After successful AUTH, the existing v1 flow OPEN and UDP/TCP framing above is
+unchanged. Relay lease is 30 minutes; ticket expiry governs new authentication.
+Legacy ALPN v1 remains available only on explicitly mTLS-only configured servers.
+See [security](docs/SECURITY.md) for replay persistence and rotation.

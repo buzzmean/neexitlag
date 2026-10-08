@@ -25,6 +25,9 @@ type Relay interface {
 type Policy struct {
 	Route          Route
 	BlockOnFailure bool
+	Auto           bool
+	Block          bool
+	Backups        []Route
 }
 type Key struct {
 	Protocol            string
@@ -32,11 +35,12 @@ type Key struct {
 	PID                 uint32
 }
 type Engine struct {
-	mu       sync.Mutex
-	policies map[string]Policy
-	relays   map[string]Relay
-	flows    map[Key]Flow
-	limit    int
+	mu           sync.Mutex
+	policies     map[string]Policy
+	relays       map[string]Relay
+	flows        map[Key]Flow
+	limit        int
+	selectPolicy func(Flow) Policy
 }
 
 func New(limit int) *Engine {
@@ -44,6 +48,11 @@ func New(limit int) *Engine {
 		limit = 4096
 	}
 	return &Engine{policies: make(map[string]Policy), relays: make(map[string]Relay), flows: make(map[Key]Flow), limit: limit}
+}
+func (e *Engine) SetAutoSelector(pick func(Flow) Policy) {
+	e.mu.Lock()
+	e.selectPolicy = pick
+	e.mu.Unlock()
 }
 func (e *Engine) SetPolicy(app string, p Policy) {
 	e.mu.Lock()
@@ -78,6 +87,14 @@ func (e *Engine) reserve(f Flow) (Key, Policy, Relay, error) {
 	if f.PID == 0 || f.ProcessPath == "" || f.ApplicationID == "" {
 		p = Policy{}
 	}
+	if p.Auto && e.selectPolicy != nil {
+		selected := e.selectPolicy(f)
+		selected.BlockOnFailure = p.BlockOnFailure
+		p = selected
+	}
+	if p.Block {
+		return k, p, nil, errors.New("application blocked by policy")
+	}
 	f.Route = p.Route
 	f.CreatedAt = time.Now()
 	f.LastActivity = f.CreatedAt
@@ -91,6 +108,13 @@ func (e *Engine) touch(k Key) {
 		f.LastActivity = time.Now()
 		e.flows[k] = f
 	}
+	e.mu.Unlock()
+}
+func (e *Engine) pinRoute(k Key, r Route) {
+	e.mu.Lock()
+	f := e.flows[k]
+	f.Route = r
+	e.flows[k] = f
 	e.mu.Unlock()
 }
 func (e *Engine) direct(k Key) {
@@ -117,12 +141,31 @@ func (e *Engine) OpenUDP(ctx context.Context, f Flow) (Datagram, error) {
 	}
 	var d Datagram
 	if !p.Route.Direct() {
-		if r != nil {
-			d, err = r.OpenDatagram(ctx, f.Destination)
-		} else {
-			err = errors.New("relay unavailable")
+		routes := append([]Route{p.Route}, p.Backups...)
+		for i, route := range routes {
+			if i >= 3 || route.Direct() {
+				break
+			}
+			provider := r
+			if i > 0 {
+				e.mu.Lock()
+				provider = e.relays[route.RelayID]
+				e.mu.Unlock()
+			}
+			if provider == nil {
+				err = errors.New("relay unavailable")
+				continue
+			}
+			attempt, stop := context.WithTimeout(ctx, 3*time.Second)
+			d, err = provider.OpenDatagram(attempt, f.Destination)
+			stop()
+			if err == nil && d != nil {
+				e.pinRoute(k, route)
+				break
+			}
+			d = nil
 		}
-		if err != nil && p.BlockOnFailure {
+		if d == nil && p.BlockOnFailure {
 			e.remove(k)
 			return nil, err
 		}
@@ -149,12 +192,31 @@ func (e *Engine) OpenTCP(ctx context.Context, f Flow) (net.Conn, error) {
 	}
 	var c net.Conn
 	if !p.Route.Direct() {
-		if r != nil {
-			c, err = r.OpenTCP(ctx, f.Destination)
-		} else {
-			err = errors.New("relay unavailable")
+		routes := append([]Route{p.Route}, p.Backups...)
+		for i, route := range routes {
+			if i >= 3 || route.Direct() {
+				break
+			}
+			provider := r
+			if i > 0 {
+				e.mu.Lock()
+				provider = e.relays[route.RelayID]
+				e.mu.Unlock()
+			}
+			if provider == nil {
+				err = errors.New("relay unavailable")
+				continue
+			}
+			attempt, stop := context.WithTimeout(ctx, 3*time.Second)
+			c, err = provider.OpenTCP(attempt, f.Destination)
+			stop()
+			if err == nil && c != nil {
+				e.pinRoute(k, route)
+				break
+			}
+			c = nil
 		}
-		if err != nil && p.BlockOnFailure {
+		if c == nil && p.BlockOnFailure {
 			e.remove(k)
 			return nil, err
 		}

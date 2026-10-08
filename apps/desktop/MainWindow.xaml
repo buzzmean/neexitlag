@@ -1,0 +1,168 @@
+<?xml version="1.0" ?>
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:Class="Neexitlag.Desktop.MainWindow" Title="neexitlag" Width="1180" Height="780" MinWidth="900" MinHeight="650" Background="#101318" FontFamily="Segoe UI" WindowStartupLocation="CenterScreen">
+  <Grid>
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition Width="220"/>
+      <ColumnDefinition Width="*"/>
+    </Grid.ColumnDefinitions>
+    <Border Background="#15191F" BorderBrush="#2A323E" BorderThickness="0,0,1,0">
+      <DockPanel Margin="18,30">
+        <StackPanel DockPanel.Dock="Top">
+          <TextBlock Text="neexitlag" FontSize="28" FontWeight="Bold" Margin="10,0,0,8"/>
+          <TextBlock Text="APPLICATION-AWARE ROUTING" Foreground="#B7F46E" FontSize="10" Margin="10,0,0,30"/>
+          <Button Content="Home" Tag="Home" Click="Navigate"/>
+          <Button Content="Applications" Tag="Applications" Click="Navigate"/>
+          <Button Content="Routes" Tag="Routes" Click="Navigate"/>
+          <Button Content="Statistics" Tag="Statistics" Click="Navigate"/>
+          <Button Content="Diagnostics" Tag="Diagnostics" Click="Navigate"/>
+          <Button Content="Settings" Tag="Settings" Click="Navigate"/>
+        </StackPanel>
+        <TextBlock DockPanel.Dock="Bottom" Text="Windows client · v0.3.0-dev" Foreground="#9AA8B9" Margin="10,20"/>
+      </DockPanel>
+    </Border>
+    <DockPanel Grid.Column="1" Margin="34,30">
+      <StackPanel DockPanel.Dock="Top">
+        <DockPanel>
+          <TextBlock x:Name="PageTitle" Text="Home" FontSize="30" FontWeight="SemiBold"/>
+          <TextBlock x:Name="Connection" Text="Service unavailable" DockPanel.Dock="Right" HorizontalAlignment="Right" Foreground="#B7F46E" VerticalAlignment="Center"/>
+        </DockPanel>
+        <TextBlock x:Name="Error" Foreground="#FFB29D" TextWrapping="Wrap" Margin="0,12,0,10"/>
+        <TextBlock x:Name="Backend" Foreground="#9AA8B9" TextWrapping="Wrap" Margin="0,0,0,20"/>
+      </StackPanel>
+      <Grid>
+        <ScrollViewer x:Name="Home" VerticalScrollBarVisibility="Auto">
+          <StackPanel>
+            <Border Background="#1D2821" BorderBrush="#344934" BorderThickness="1" CornerRadius="14" Padding="26">
+              <DockPanel>
+                <StackPanel>
+                  <TextBlock Text="CURRENT ROUTE" Foreground="#9AA8B9" FontSize="11"/>
+                  <TextBlock x:Name="Primary" Text="DIRECT" FontSize="30" FontWeight="SemiBold" Margin="0,10"/>
+                  <TextBlock x:Name="Standby" Foreground="#9AA8B9"/>
+                </StackPanel>
+                <Button x:Name="Optimize" Content="Optimize" Background="#B7F46E" Foreground="#172311" HorizontalAlignment="Right" VerticalAlignment="Center" Click="ToggleOptimize"/>
+              </DockPanel>
+            </Border>
+            <UniformGrid Columns="3" Margin="0,18,0,0">
+              <Border Background="{StaticResource Panel}" CornerRadius="10" Margin="4" Padding="18">
+                <StackPanel>
+                  <TextBlock Text="DIRECT RTT" Foreground="#9AA8B9"/>
+                  <TextBlock x:Name="DirectRTT" Text="—" FontSize="28" Margin="0,10"/>
+                </StackPanel>
+              </Border>
+              <Border Background="{StaticResource Panel}" CornerRadius="10" Margin="4" Padding="18">
+                <StackPanel>
+                  <TextBlock Text="OPTIMIZED RTT" Foreground="#9AA8B9"/>
+                  <TextBlock x:Name="OptimizedRTT" Text="—" FontSize="28" Margin="0,10"/>
+                </StackPanel>
+              </Border>
+              <Border Background="{StaticResource Panel}" CornerRadius="10" Margin="4" Padding="18">
+                <StackPanel>
+                  <TextBlock Text="JITTER" Foreground="#9AA8B9"/>
+                  <TextBlock x:Name="Jitter" Text="—" FontSize="28" Margin="0,10"/>
+                </StackPanel>
+              </Border>
+              <Border Background="{StaticResource Panel}" CornerRadius="10" Margin="4" Padding="18">
+                <StackPanel>
+                  <TextBlock Text="PACKET LOSS" Foreground="#9AA8B9"/>
+                  <TextBlock x:Name="Loss" Text="—" FontSize="28" Margin="0,10"/>
+                </StackPanel>
+              </Border>
+              <Border Background="{StaticResource Panel}" CornerRadius="10" Margin="4" Padding="18">
+                <StackPanel>
+                  <TextBlock Text="RX / TX" Foreground="#9AA8B9"/>
+                  <TextBlock x:Name="Traffic" Text="0 / 0 B" FontSize="24" Margin="0,10"/>
+                </StackPanel>
+              </Border>
+              <Border Background="{StaticResource Panel}" CornerRadius="10" Margin="4" Padding="18">
+                <StackPanel>
+                  <TextBlock Text="OPTIMIZED APPLICATIONS" Foreground="#9AA8B9"/>
+                  <TextBlock x:Name="ActiveApps" Text="None" FontSize="18" Margin="0,10" TextWrapping="Wrap"/>
+                </StackPanel>
+              </Border>
+            </UniformGrid>
+            <TextBlock Text="RTT is measured to the configured UDP echo probe target. Game traffic uses pinned flows." Foreground="#9AA8B9" TextWrapping="Wrap" Margin="4,22"/>
+          </StackPanel>
+        </ScrollViewer>
+        <DockPanel x:Name="Applications" Visibility="Collapsed">
+          <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,15">
+            <Button Content="Add application" Click="AddApplication"/>
+            <ComboBox x:Name="Mode" SelectedIndex="0">
+              <ComboBoxItem Content="AUTO"/>
+              <ComboBoxItem Content="DIRECT"/>
+              <ComboBoxItem Content="MANUAL"/>
+              <ComboBoxItem Content="BLOCK"/>
+            </ComboBox>
+            <Button Content="Apply mode to selected app" Click="ApplyMode"/>
+          </StackPanel>
+          <DataGrid x:Name="AppGrid">
+            <DataGrid.Columns>
+              <DataGridTextColumn Header="Application" Binding="{Binding name}" Width="*"/>
+              <DataGridTextColumn Header="Executable" Binding="{Binding Executable}" Width="2*"/>
+              <DataGridTextColumn Header="Mode" Binding="{Binding mode}" Width="100"/>
+              <DataGridTextColumn Header="Relay" Binding="{Binding relay_id}" Width="110"/>
+            </DataGrid.Columns>
+          </DataGrid>
+        </DockPanel>
+        <DockPanel x:Name="Routes" Visibility="Collapsed">
+          <TextBlock DockPanel.Dock="Top" Text="DIRECT competes with every relay. Lower score is better; stale or failed paths are excluded." Foreground="#9AA8B9" TextWrapping="Wrap" Margin="0,0,0,16"/>
+          <DataGrid x:Name="RouteGrid">
+            <DataGrid.Columns>
+              <DataGridTextColumn Header="Route" Binding="{Binding id}" Width="*"/>
+              <DataGridTextColumn Header="RTT" Binding="{Binding RTT}" Width="110"/>
+              <DataGridTextColumn Header="Jitter" Binding="{Binding Jitter}" Width="110"/>
+              <DataGridTextColumn Header="Loss" Binding="{Binding Loss}" Width="90"/>
+              <DataGridTextColumn Header="Score" Binding="{Binding score,StringFormat=F1}" Width="90"/>
+              <DataGridTextColumn Header="Status" Binding="{Binding status}" Width="130"/>
+            </DataGrid.Columns>
+          </DataGrid>
+        </DockPanel>
+        <ScrollViewer x:Name="Statistics" Visibility="Collapsed" VerticalScrollBarVisibility="Auto"><StackPanel>
+          <TextBlock Text="Measured latency history" FontSize="20" Margin="0,0,0,15"/>
+          <Canvas x:Name="Chart" Height="220" Background="#191E25"/>
+          <TextBlock Text="Recent observations" FontSize="20" Margin="0,24,0,12"/>
+          <DataGrid x:Name="MeasurementGrid" Height="180">
+            <DataGrid.Columns>
+              <DataGridTextColumn Header="Time" Binding="{Binding Time}" Width="100"/>
+              <DataGridTextColumn Header="Route" Binding="{Binding Route}" Width="*"/>
+              <DataGridTextColumn Header="Latency" Binding="{Binding RTT}" Width="110"/>
+              <DataGridTextColumn Header="Jitter" Binding="{Binding Jitter}" Width="110"/>
+              <DataGridTextColumn Header="Loss" Binding="{Binding Loss}" Width="100"/>
+            </DataGrid.Columns>
+          </DataGrid>
+          <TextBlock Text="Route changes" FontSize="20" Margin="0,24,0,12"/>
+          <ListBox x:Name="Changes" Height="180" Background="#191E25" Foreground="#EDF2F6"/>
+        </StackPanel></ScrollViewer>
+        <DockPanel x:Name="Diagnostics" Visibility="Collapsed">
+          <Button Content="Run diagnostics" DockPanel.Dock="Top" HorizontalAlignment="Left" Margin="0,0,0,20" Click="RunDiagnostics"/>
+          <DataGrid x:Name="Checks">
+            <DataGrid.Columns>
+              <DataGridTextColumn Header="Check" Binding="{Binding name}" Width="150"/>
+              <DataGridTextColumn Header="Status" Binding="{Binding status}" Width="130"/>
+              <DataGridTextColumn Header="Detail" Binding="{Binding detail}" Width="*"/>
+            </DataGrid.Columns>
+          </DataGrid>
+        </DockPanel>
+        <StackPanel x:Name="Settings" Visibility="Collapsed">
+          <CheckBox x:Name="Launch" Content="Launch GUI on Windows sign-in"/>
+          <CheckBox x:Name="Automatic" Content="Automatic optimization preference"/>
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="Failover" VerticalAlignment="Center" Width="120"/>
+            <ComboBox x:Name="Fallback" SelectedIndex="0">
+              <ComboBoxItem Content="DIRECT"/>
+              <ComboBoxItem Content="BLOCK"/>
+            </ComboBox>
+          </StackPanel>
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="Update channel" VerticalAlignment="Center" Width="120"/>
+            <ComboBox x:Name="Channel" SelectedIndex="0">
+              <ComboBoxItem Content="stable"/>
+              <ComboBoxItem Content="preview"/>
+            </ComboBox>
+          </StackPanel>
+          <Button Content="Save settings" HorizontalAlignment="Left" Click="SaveSettings"/>
+          <TextBlock Text="Service policies apply to new flows. Signed software updating is not available in this build. TCP and IPv6 capture remain DIRECT in the WinDivert MVP." Foreground="#9AA8B9" TextWrapping="Wrap" Margin="8,24"/>
+        </StackPanel>
+      </Grid>
+    </DockPanel>
+  </Grid>
+</Window>

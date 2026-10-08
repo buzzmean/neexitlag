@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/buzzmean/neexitlag/core/protocol"
+	"github.com/buzzmean/neexitlag/core/security"
 	"github.com/buzzmean/neexitlag/core/transport"
 	"github.com/quic-go/quic-go"
 	"io"
@@ -24,10 +25,11 @@ type Config struct {
 	IdleTimeout           time.Duration
 	Allow                 []netip.Prefix
 	PacketsPerSecond      int
+	TicketVerifier        *security.TicketVerifier
 }
 type Metrics struct {
-	Sessions, Flows                                                    atomic.Int64
-	UDPPackets, TCPConnections, RXBytes, TXBytes, Drops, RejectedFlows atomic.Uint64
+	Sessions, Flows                                                                  atomic.Int64
+	UDPPackets, TCPConnections, RXBytes, TXBytes, Drops, RejectedFlows, AuthFailures atomic.Uint64
 }
 type Server struct {
 	listener    *quic.Listener
@@ -62,6 +64,10 @@ func Listen(addr string, c Config) (*Server, error) {
 	}
 	q := transport.QUICConfig()
 	q.MaxIncomingStreams = int64(c.MaxFlows)
+	if c.TicketVerifier != nil {
+		c.TLS = c.TLS.Clone()
+		c.TLS.NextProtos = []string{protocol.TicketALPN}
+	}
 	l, e := quic.ListenAddr(addr, c.TLS, q)
 	if e != nil {
 		return nil, e
@@ -172,16 +178,25 @@ func (f *flow) close() {
 }
 
 type session struct {
-	server *Server
-	conn   *quic.Conn
-	mu     sync.Mutex
-	flows  map[uint32]*flow
-	wg     sync.WaitGroup
-	tokens float64
-	refill time.Time
+	server       *Server
+	conn         *quic.Conn
+	mu           sync.Mutex
+	flows        map[uint32]*flow
+	wg           sync.WaitGroup
+	tokens       float64
+	refill       time.Time
+	deviceID     string
+	leaseExpires time.Time
 }
 
 func (x *session) run() {
+	if x.server.config.TicketVerifier != nil {
+		if e := x.authenticate(); e != nil {
+			x.server.Metrics.AuthFailures.Add(1)
+			x.conn.CloseWithError(1, "ticket rejected")
+			return
+		}
+	}
 	x.wg.Add(2)
 	go func() { defer x.wg.Done(); x.datagrams() }()
 	go func() { defer x.wg.Done(); x.expire() }()
@@ -376,6 +391,10 @@ func (x *session) expire() {
 		case <-x.conn.Context().Done():
 			return
 		case now := <-t.C:
+			if x.server.config.TicketVerifier != nil && (now.After(x.leaseExpires) || x.server.config.TicketVerifier.Revoked(x.deviceID)) {
+				x.conn.CloseWithError(1, "session lease expired or revoked")
+				return
+			}
 			x.mu.Lock()
 			for _, f := range x.flows {
 				if (f.udp != nil || f.tcp != nil) && now.Sub(time.Unix(0, f.last.Load())) > x.server.config.IdleTimeout {
@@ -398,7 +417,7 @@ func (s *Server) Handler() http.Handler {
 	})
 	m.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-		fmt.Fprintf(w, "neexitlag_active_sessions %d\nneexitlag_active_flows %d\nneexitlag_udp_packets_total %d\nneexitlag_tcp_connections_total %d\nneexitlag_rx_bytes_total %d\nneexitlag_tx_bytes_total %d\nneexitlag_packet_drops_total %d\nneexitlag_rejected_flows_total %d\n", s.Metrics.Sessions.Load(), s.Metrics.Flows.Load(), s.Metrics.UDPPackets.Load(), s.Metrics.TCPConnections.Load(), s.Metrics.RXBytes.Load(), s.Metrics.TXBytes.Load(), s.Metrics.Drops.Load(), s.Metrics.RejectedFlows.Load())
+		fmt.Fprintf(w, "neexitlag_relay_health 1\nneexitlag_active_sessions %d\nneexitlag_active_flows %d\nneexitlag_udp_packets_total %d\nneexitlag_tcp_connections_total %d\nneexitlag_rx_bytes_total %d\nneexitlag_tx_bytes_total %d\nneexitlag_packet_drops_total %d\nneexitlag_rejected_flows_total %d\nneexitlag_auth_failures_total %d\n", s.Metrics.Sessions.Load(), s.Metrics.Flows.Load(), s.Metrics.UDPPackets.Load(), s.Metrics.TCPConnections.Load(), s.Metrics.RXBytes.Load(), s.Metrics.TXBytes.Load(), s.Metrics.Drops.Load(), s.Metrics.RejectedFlows.Load(), s.Metrics.AuthFailures.Load())
 	})
 	return m
 }

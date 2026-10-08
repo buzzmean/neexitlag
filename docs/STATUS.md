@@ -1,32 +1,19 @@
-# Status
+# Implementation and verification status
 
-## Implemented
-- Phase 0 (b74718d): toolchain, four ADRs, protocol and backend boundary.
-- Phase 1 (14a93d1): mTLS persistent QUIC sessions, UDP DATAGRAM/TCP streams,
-  echo tools, flow/session limits, cleanup, destination policy and metrics.
-- Phase 2: DIRECT/RELAY flow handles, route pinning, concurrent forwarding,
-  policy changes for new flows, default DIRECT fallback and optional BLOCK.
+Phase 0–2 commits remain ancestors of this work: b74718d, 14a93d1,
+7967f8352e810d39dea6c793b0bf8cfa20d027f8. Pre-change checkpoint: aa33a03.
 
-## Verified on Linux
-`go build ./...`, `go test -race -timeout 60s ./...`, `go vet ./...`,
-`go run ./tools/lab` all passed after the fallback fix.
-Real UDP/TCP E2E, simultaneous DIRECT/RELAY, route pinning, unknown-process
-DIRECT, BLOCK fallback, relay-shutdown fallback, mTLS rejection, special-address
-policy, UDP idle cleanup and deterministic 50% destination loss tests passed.
-Request/reply ordering was checked; UDP transport does not guarantee ordering.
-Local RTT measurements are not evidence of Internet route improvement.
+| Area | Implemented | Verification / remaining work |
+|---|---|---|
+| Original data plane | mTLS QUIC UDP/TCP, pinned DIRECT/RELAY, limits and fallback | Existing Go integration suite and original lab retained |
+| Phase 4 | Scoring, PRIMARY/SECONDARY/TERTIARY, hysteresis, bounded history, adaptive real UDP probes | Deterministic selection tests; real echo/failover tests |
+| Phase 5 | PostgreSQL migration/entities/APIs, registration, signed ticket, heartbeat, signed configs/LKG, profiles | Actual PostgreSQL integration and Docker UDP/TCP ticket flow |
+| Phase 3 | Process path/PID/creation identity, FLOW association, WinDivert loader, IPv4 UDP reinjection, SCM, authenticated named pipes | Windows cross-build and cross-compiled Windows tests; native runtime unverified |
+| WFP | Separate explicit unavailable backend boundary | Kernel driver not implemented |
+| Phase 6 | Dark six-page WPF desktop, .exe picker, real service bindings; portable browser lab | WPF build, shared C# client runtime test, browser E2E passed; WPF window unverified |
+| Observability | Relay/CP Prometheus endpoints, probe/health demo metrics, optional Grafana provisioning | Local metrics and real heartbeat/lease tests |
 
-## Outstanding
-Phase 3: no Windows process discovery, WinDivert/WFP interception, driver or
-privileged service. Flow metadata is supplied by the caller in the current API.
-Per-process Windows behavior cannot be verified on this Linux worker.
-Phases 4–10: multi-relay measurement/scoring/hysteresis, PostgreSQL control plane,
-signed config/tickets, WPF GUI, production tuning, full security hardening,
-Grafana/alerts and deployment/update pipeline are not implemented.
-Only framing microbenchmarks are supplied; no relay throughput claim.
-No remote push or deployment was performed. No default routes or adapters changed.
-
-## Parser fuzzing
-`FuzzDecode` and `FuzzReadOpen` each ran for 5 seconds with two workers and passed:
-31,802 and 29,862 inputs respectively. This is a short smoke fuzz run, not a
-complete protocol security audit. Framing microbenchmark results: BENCHMARKS.md.
+No benchmark or Internet latency improvement claim. No external Windows runtime
+was available. Transparent TCP/IPv6 interception and service-crash/driver behavior
+remain acceptance blockers. GitHub Windows CI is configured without a capture
+driver; its result must be checked on the PR, not inferred from local cross-build.

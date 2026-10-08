@@ -1,0 +1,99 @@
+// Package windowsplatform isolates Windows identity and capture from the portable core.
+package windowsplatform
+
+import (
+	"context"
+	"errors"
+	"github.com/buzzmean/neexitlag/core/profiles"
+	"github.com/buzzmean/neexitlag/core/routing"
+	"net/netip"
+	"sync"
+)
+
+var ErrUnavailable = errors.New("Windows capture backend unavailable on this platform")
+
+type Tuple struct {
+	Protocol            string
+	Source, Destination netip.AddrPort
+}
+type ProcessIdentity = profiles.Identity
+type Capabilities struct {
+	UDP         bool `json:"udp"`
+	TCP         bool `json:"tcp"`
+	IPv6        bool `json:"ipv6"`
+	Transparent bool `json:"transparent"`
+}
+type CaptureStatus struct {
+	Backend      string       `json:"backend"`
+	Ready        bool         `json:"ready"`
+	Error        string       `json:"error,omitempty"`
+	Capabilities Capabilities `json:"capabilities"`
+}
+type Decision struct {
+	Flow           routing.Flow
+	Route          routing.Route
+	Block          bool
+	BlockOnFailure bool
+}
+type Classifier func(ProcessIdentity, Tuple) Decision
+type WindowsCaptureBackend interface {
+	Start(context.Context, Classifier) error
+	Stop() error
+	Status() CaptureStatus
+}
+type Discovery interface {
+	Lookup(uint32) (ProcessIdentity, error)
+	List() ([]ProcessIdentity, error)
+}
+type Association struct {
+	Identity ProcessIdentity
+	Tuple    Tuple
+	Endpoint uint64
+}
+type FlowAssociations struct {
+	mu    sync.RWMutex
+	items map[Tuple]Association
+	limit int
+}
+
+func NewAssociations(limit int) *FlowAssociations {
+	if limit <= 0 {
+		limit = 8192
+	}
+	return &FlowAssociations{items: make(map[Tuple]Association), limit: limit}
+}
+func (a *FlowAssociations) Put(v Association) bool {
+	if v.Identity.PID == 0 || v.Identity.CreationTime == 0 {
+		return false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if _, ok := a.items[v.Tuple]; !ok && len(a.items) >= a.limit {
+		return false
+	}
+	a.items[v.Tuple] = v
+	return true
+}
+func (a *FlowAssociations) Delete(t Tuple, endpoint uint64) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if old, ok := a.items[t]; ok && old.Endpoint == endpoint {
+		delete(a.items, t)
+	}
+}
+func (a *FlowAssociations) Get(t Tuple, current ProcessIdentity) (Association, bool) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	v, ok := a.items[t]
+	return v, ok && v.Identity.PID == current.PID && v.Identity.CreationTime == current.CreationTime && v.Identity.Path == current.Path
+}
+
+type WFPBackend struct{}
+
+func (*WFPBackend) Start(context.Context, Classifier) error {
+	return errors.New("WFP callout driver is not installed; signed driver and WDK implementation required")
+}
+func (*WFPBackend) Stop() error { return nil }
+func (*WFPBackend) Status() CaptureStatus {
+	return CaptureStatus{Backend: "WFP", Error: "WFP callout driver not implemented; networking remains DIRECT"}
+}
