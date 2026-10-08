@@ -1,0 +1,5 @@
+work/
+bin/
+*.exe
+*.test
+.lab/
