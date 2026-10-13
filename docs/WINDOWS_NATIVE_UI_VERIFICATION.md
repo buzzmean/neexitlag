@@ -14,6 +14,7 @@
 | Все Go-пакеты: Windows amd64 CGO0 build | PASS |
 | PowerShell parser | PASS, build-desktop и desktop-smoke включены |
 | Настоящее окно, DPI, трей, HKCU startup в этой среде | NOT RUN: здесь нет Windows desktop runtime |
+| Windows CI: настоящий опубликованный EXE, русская навигация, single-instance, missing-service и завершение | PASS (Windows Server 2025, run 38445510144) |
 | GUI + уже установленная Windows Service на машине оператора | NOT RUN здесь |
 
 .NET tests включают настоящий обмен через NamedPipeServerStream с частичным
@@ -27,8 +28,7 @@
 
 В Windows CI добавлен запуск настоящего опубликованного EXE с UI Automation:
 окно NeExitLag, русская навигация, активация первого экземпляра вторым,
-состояние отсутствующей службы и корректное завершение. Здесь smoke только
-синтаксически проверен; результат Windows workflow нужно смотреть в GitHub.
+состояние отсутствующей службы и корректное завершение. Smoke успешно выполнен в Windows CI, а не только синтаксически проверен.
 CI также сохраняет опубликованный EXE как артефакт `NeExitLag-win-x64`.
 
 Production GUI не содержит HTTP/browser transport. HTTP adapter старого демо
@@ -40,3 +40,11 @@ process discovery и measurement принадлежат Go-службе. Доб�
 свидетельство маршрутизации, а не runtime-проверка нового WPF-окна.
 
 [Сборка одной командой и запуск](../apps/desktop/README.md).
+
+Windows job первого запуска прошёл build/test/publish/native-window smoke,
+но завершился на старой проверке `RTT > 0` в authenticated loopback echo test:
+Windows clock может вернуть 0 для ответа в пределах одного тика. Регрессии
+теперь допускают реальный нулевой RTT, по-прежнему требуют успешные ответы,
+число проб и отсутствие потерь; authenticated test дополнительно проверяет
+ровно 3 реально принятых сервером запроса. Production timers/telemetry не менялись,
+искусственные задержки или положительные RTT не добавлялись.
