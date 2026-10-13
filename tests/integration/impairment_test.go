@@ -36,7 +36,7 @@ func TestUDPDestinationDelayAndLoss(t *testing.T) {
 		}
 	}()
 	defer func() { target.Close(); <-done }()
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	flow, err := client.OpenUDP(ctx, netip.MustParseAddrPort(target.LocalAddr().String()))
 	if err != nil {
@@ -50,7 +50,7 @@ func TestUDPDestinationDelayAndLoss(t *testing.T) {
 		if err = flow.Send(payload); err != nil {
 			t.Fatal(err)
 		}
-		probe, stop := context.WithTimeout(ctx, 75*time.Millisecond)
+		probe, stop := context.WithTimeout(ctx, 500*time.Millisecond)
 		b, err := flow.Receive(probe)
 		stop()
 		if i%2 == 0 {

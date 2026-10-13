@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"github.com/buzzmean/neexitlag/core/protocol"
+	"github.com/buzzmean/neexitlag/core/telemetry"
 	"github.com/quic-go/quic-go"
 	"io"
 	"net"
@@ -18,12 +19,14 @@ import (
 var ErrClosed = errors.New("flow or session closed")
 
 type Client struct {
-	conn  *quic.Conn
-	next  atomic.Uint32
-	mu    sync.Mutex
-	flows map[uint32]*UDPFlow
-	done  chan struct{}
-	drops atomic.Uint64
+	conn       *quic.Conn
+	next       atomic.Uint32
+	mu         sync.Mutex
+	flows      map[uint32]*UDPFlow
+	done       chan struct{}
+	drops      atomic.Uint64
+	LocalDrops telemetry.Counters
+	onFailure  func(string)
 }
 type UDPFlow struct {
 	client *Client
@@ -50,6 +53,21 @@ func Dial(ctx context.Context, addr string, t *tls.Config) (*Client, error) {
 func (c *Client) Close() error          { return c.conn.CloseWithError(0, "shutdown") }
 func (c *Client) Done() <-chan struct{} { return c.done }
 func (c *Client) Dropped() uint64       { return c.drops.Load() }
+
+// SetFailureHandler observes real relay I/O failures without retrying game packets.
+func (c *Client) SetFailureHandler(handler func(string)) {
+	c.mu.Lock()
+	c.onFailure = handler
+	c.mu.Unlock()
+}
+func (c *Client) reportFailure(reason string) {
+	c.mu.Lock()
+	handler := c.onFailure
+	c.mu.Unlock()
+	if handler != nil {
+		handler(reason)
+	}
+}
 func (c *Client) open(ctx context.Context, kind byte, dst netip.AddrPort) (*quic.Stream, uint32, error) {
 	id := c.next.Add(1)
 	if id == 0 {
@@ -85,6 +103,9 @@ func (c *Client) open(ctx context.Context, kind byte, dst netip.AddrPort) (*quic
 func (c *Client) OpenUDP(ctx context.Context, dst netip.AddrPort) (*UDPFlow, error) {
 	s, id, e := c.open(ctx, protocol.UDP, dst)
 	if e != nil {
+		if !errors.Is(ctx.Err(), context.Canceled) && !telemetry.IsLocal(e) {
+			c.reportFailure("transport_open_failed")
+		}
 		return nil, e
 	}
 	f := &UDPFlow{client: c, id: id, stream: s, queue: make(chan []byte, 32), done: make(chan struct{})}
@@ -127,9 +148,12 @@ func (c *Client) receive() {
 		if e != nil {
 			return
 		}
+		c.LocalDrops.Attempt(telemetry.Decode)
+		c.LocalDrops.Attempt(telemetry.UnknownFlow)
 		id, p, e := protocol.Decode(b)
 		if e != nil {
 			c.drops.Add(1)
+			c.LocalDrops.Drop(telemetry.Decode)
 			continue
 		}
 		c.mu.Lock()
@@ -137,11 +161,10 @@ func (c *Client) receive() {
 		c.mu.Unlock()
 		if f == nil {
 			c.drops.Add(1)
+			c.LocalDrops.Drop(telemetry.UnknownFlow)
 			continue
 		}
-		select {
-		case f.queue <- p:
-		default:
+		if !c.LocalDrops.TryEnqueue(f.queue, p, telemetry.TransportQueue) {
 			c.drops.Add(1)
 		}
 	}
@@ -156,9 +179,19 @@ func (f *UDPFlow) Send(p []byte) error {
 	}
 	b, e := protocol.Encode(f.id, p)
 	if e != nil {
-		return e
+		return &telemetry.LocalError{Category: telemetry.CaptureProcessing, Cause: e}
 	}
-	return f.client.conn.SendDatagram(b)
+	f.client.LocalDrops.Attempt(telemetry.SocketSend)
+	err := f.client.conn.SendDatagram(b)
+	if err != nil {
+		f.client.LocalDrops.Drop(telemetry.SocketSend)
+		var tooLarge *quic.DatagramTooLargeError
+		if errors.As(err, &tooLarge) {
+			return &telemetry.LocalError{Category: telemetry.SocketSend, Cause: err}
+		}
+		f.client.reportFailure("transport_send_failed")
+	}
+	return err
 }
 func (f *UDPFlow) Receive(ctx context.Context) ([]byte, error) {
 	select {

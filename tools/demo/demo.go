@@ -52,6 +52,7 @@ func New(parent context.Context) (*Lab, error) {
 	c.Demo = true
 	c.Selector = optimizer.New(optimizer.Parameters{MinimumImprovement: 5, MinimumLifetime: 4 * time.Second, ConfirmationPeriod: 2 * time.Second, MaxAge: 15 * time.Second})
 	c.Measurements = measurement.New(measurement.Settings{ActiveInterval: time.Second, IdleInterval: 10 * time.Second, Timeout: 150 * time.Millisecond, Spacing: 20 * time.Millisecond, Samples: 3, Concurrency: 3})
+	c.Measurements.OnFailure = c.Selector.ReportProbeFailure
 	token, e := security.NewID()
 	if e != nil {
 		cancel()

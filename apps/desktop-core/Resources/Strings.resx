@@ -405,4 +405,70 @@
   <data name="LocalSettingsSaved">
     <value>Настройки окна сохранены. Сетевые настройки не изменены: нет связи со службой.</value>
   </data>
+  <data name="BurstLoss">
+    <value>Серия потерь</value>
+  </data>
+  <data name="Stability">
+    <value>Стабильность</value>
+  </data>
+  <data name="Samples">
+    <value>Количество измерений</value>
+  </data>
+  <data name="MedianPing">
+    <value>Медианная задержка</value>
+  </data>
+  <data name="P95Ping">
+    <value>Задержка p95</value>
+  </data>
+  <data name="CaptureQueueDrops">
+    <value>Потери локальной очереди</value>
+  </data>
+  <data name="WorkerDrops">
+    <value>Потери при перегрузке обработчиков</value>
+  </data>
+  <data name="TransportDrops">
+    <value>Потери очереди транспорта</value>
+  </data>
+  <data name="DecodeDrops">
+    <value>Ошибки декодирования</value>
+  </data>
+  <data name="UnknownFlowDrops">
+    <value>Неизвестные потоки</value>
+  </data>
+  <data name="SocketDrops">
+    <value>Ошибки отправки</value>
+  </data>
+  <data name="ReinjectDrops">
+    <value>Ошибки возврата пакетов</value>
+  </data>
+  <data name="KernelDrops">
+    <value>Потери очереди драйвера</value>
+  </data>
+  <data name="CaptureErrors">
+    <value>Ошибки чтения перехвата</value>
+  </data>
+  <data name="PolicyDrops">
+    <value>Блокировка по правилу</value>
+  </data>
+  <data name="CaptureDrops">
+    <value>Потери обработки</value>
+  </data>
+  <data name="Packets">
+    <value>пакетов</value>
+  </data>
+  <data name="Events">
+    <value>событий</value>
+  </data>
+  <data name="FractionUnknown">
+    <value>доля неизвестна</value>
+  </data>
+  <data name="RemoteDrops">
+    <value>Потери на сервере</value>
+  </data>
+  <data name="RemoteDropsHint">
+    <value>Счётчики сервера доступны в его диагностике. Клиент не знает их значения.</value>
+  </data>
+  <data name="QualityScope">
+    <value>Качество контрольных проб за последние 60 секунд; это не оценка потерь игрового протокола.</value>
+  </data>
 </root>

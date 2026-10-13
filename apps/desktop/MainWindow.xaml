@@ -66,6 +66,11 @@
       <DataGridTextColumn Header="{ui:Tr PacketLoss}" Binding="{Binding Loss}" Width="115"/>
       <DataGridTextColumn Header="{ui:Tr Score}" Binding="{Binding Score}" Width="95"/>
       <DataGridTextColumn Header="{ui:Tr RouteRole}" Binding="{Binding Role}" Width="125"/>
+      <DataGridTextColumn Header="{ui:Tr BurstLoss}" Binding="{Binding Burst}" Width="110"/>
+      <DataGridTextColumn Header="{ui:Tr Stability}" Binding="{Binding Stability}" Width="125"/>
+      <DataGridTextColumn Header="{ui:Tr Samples}" Binding="{Binding SampleCount}" Width="160"/>
+      <DataGridTextColumn Header="{ui:Tr MedianPing}" Binding="{Binding Median}" Width="155"/>
+      <DataGridTextColumn Header="{ui:Tr P95Ping}" Binding="{Binding P95}" Width="130"/>
      </DataGrid.Columns></DataGrid>
     </DockPanel>
     <DockPanel x:Name="Statistics" Visibility="Collapsed"><StackPanel DockPanel.Dock="Top">
@@ -75,7 +80,11 @@
       <StackPanel Margin="4,0,24,0"><TextBlock Text="{ui:Tr PacketLoss}" Style="{StaticResource Caption}"/><TextBlock Text="{Binding Loss}" FontSize="18"/></StackPanel>
       <StackPanel Margin="4,0,24,0"><TextBlock Text="{ui:Tr Received}" Style="{StaticResource Caption}"/><TextBlock Text="{Binding Rx}" FontSize="18"/></StackPanel>
       <StackPanel Margin="4,0,24,0"><TextBlock Text="{ui:Tr Sent}" Style="{StaticResource Caption}"/><TextBlock Text="{Binding Tx}" FontSize="18"/></StackPanel>
-     </WrapPanel><TextBlock Text="{ui:Tr RecentMeasurements}" FontSize="20"/><TextBlock Text="{ui:Tr MeasurementsHint}" Style="{StaticResource Hint}"/></StackPanel>
+     </WrapPanel><WrapPanel>
+      <StackPanel Margin="4,0,24,0"><TextBlock Text="{ui:Tr BurstLoss}" Style="{StaticResource Caption}"/><TextBlock Text="{Binding CurrentBurst}" FontSize="18"/></StackPanel>
+      <StackPanel Margin="4,0,24,0"><TextBlock Text="{ui:Tr Stability}" Style="{StaticResource Caption}"/><TextBlock Text="{Binding CurrentStability}" FontSize="18"/></StackPanel>
+      <StackPanel Margin="4,0,24,0"><TextBlock Text="{ui:Tr Samples}" Style="{StaticResource Caption}"/><TextBlock Text="{Binding CurrentSamples}" FontSize="18"/></StackPanel>
+     </WrapPanel><TextBlock Text="{ui:Tr QualityScope}" Style="{StaticResource Hint}"/><TextBlock Text="{ui:Tr RecentMeasurements}" FontSize="20"/><TextBlock Text="{ui:Tr MeasurementsHint}" Style="{StaticResource Hint}"/></StackPanel>
      <StackPanel DockPanel.Dock="Bottom" Margin="0,16,0,0"><TextBlock Text="{ui:Tr RouteChanges}" FontSize="20"/><ListBox ItemsSource="{Binding Changes}" Height="130" Background="#191E25" Foreground="#EDF2F6" BorderBrush="#293442"/></StackPanel>
      <DataGrid ItemsSource="{Binding Measurements}"><DataGrid.Columns>
       <DataGridTextColumn Header="{ui:Tr Time}" Binding="{Binding Time}" Width="110"/>

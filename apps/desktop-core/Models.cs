@@ -36,6 +36,10 @@ public sealed class Profile
 }
 public sealed class Route
 {
+    public QualityMetrics? Quality
+    {
+        get; set;
+    }
     public string Id { get; set; } = ""; public double RttMs
     {
         get; set;
@@ -165,6 +169,99 @@ public sealed class CaptureFlow
         get; set;
     }
     public DateTimeOffset LastSeen
+    {
+        get; set;
+    }
+}
+
+public sealed class QualityMetrics
+{
+    public long LatestRtt
+    {
+        get; set;
+    }
+    public long MedianRtt
+    {
+        get; set;
+    }
+    public long P95Rtt
+    {
+        get; set;
+    }
+    public long Jitter
+    {
+        get; set;
+    }
+    public long EwmaRtt
+    {
+        get; set;
+    }
+    public long EwmaJitter
+    {
+        get; set;
+    }
+    public double ProbeLoss
+    {
+        get; set;
+    }
+    public double EwmaLoss
+    {
+        get; set;
+    }
+    public double Stability
+    {
+        get; set;
+    }
+    public int ConsecutiveLoss
+    {
+        get; set;
+    }
+    public int MaxLossBurst
+    {
+        get; set;
+    }
+    public int SampleCount
+    {
+        get; set;
+    }
+    public int NetworkSampleCount
+    {
+        get; set;
+    }
+    public bool PercentilesAvailable
+    {
+        get; set;
+    }
+    public string Health { get; set; } = "";
+}
+public sealed class DropMetric
+{
+    public ulong Count
+    {
+        get; set;
+    }
+    public ulong Attempts
+    {
+        get; set;
+    }
+    public double? Fraction
+    {
+        get; set;
+    }
+    public bool Available
+    {
+        get; set;
+    }
+    public string Unit { get; set; } = "";
+}
+public sealed class DropDiagnostics
+{
+    public Dictionary<string, DropMetric>? Capture
+    {
+        get; set;
+    }
+    public Dictionary<string, Dictionary<string, DropMetric>> Transport { get; set; } = [];
+    public bool RemoteRelayAvailable
     {
         get; set;
     }

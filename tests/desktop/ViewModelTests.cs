@@ -18,6 +18,7 @@ public sealed class FakeService : IServiceClient
             "capture.diagnostics" => new CaptureEvidence(),
             "profile.set" or "profile.delete" => State.Profiles,
             "settings.set" => payload!,
+            "quality.diagnostics" => new DropDiagnostics(),
             "diagnostics" => new[] { new Check { Name = "UDP", Status = "healthy" }, new Check { Name = "TCP", Status = "not configured" }, new Check { Name = "Relay", Status = "unavailable" } },
             _ => throw new Exception(method)
         };
@@ -287,5 +288,45 @@ public sealed class CommandDisconnectionTests
         Assert.Equal("Нет данных", vm.CurrentLatency);
         Assert.Empty(vm.Applications);
         Assert.Equal("Не удалось подключиться к службе", vm.Connection);
+    }
+}
+public sealed class QualityPresentationTests
+{
+    [Fact]
+    public void OptionalQualityFieldsPreserveOldServiceCompatibility()
+    {
+        var service = new FakeService();
+        var vm = new DesktopViewModel(service);
+        vm.Apply(service.State);
+        Assert.Equal("Нет данных", vm.Routes[0].Burst);
+        Assert.Equal("Нет данных", vm.CurrentSamples);
+        service.State.Routes[0].Quality = new()
+        {
+            MaxLossBurst = 5,
+            SampleCount = 50,
+            NetworkSampleCount = 50,
+            Stability = .8,
+            ProbeLoss = .1,
+            PercentilesAvailable = true,
+            MedianRtt = 20000000,
+            P95Rtt = 80000000
+        };
+        service.State.Routes[0].Status = "unhealthy";
+        vm.Apply(service.State);
+        Assert.Equal("5", vm.Routes[0].Burst);
+        Assert.Equal("50", vm.CurrentSamples);
+        Assert.Equal("20,0 мс", vm.Routes[0].Median);
+        Assert.Equal("80,0 мс", vm.Routes[0].P95);
+        Assert.Equal(Text.Percent(.1), vm.Routes[0].Loss);
+        Assert.Equal(Text.Percent(.1), vm.Loss);
+    }
+    [Fact]
+    public void QualityJsonUsesRealNanosecondDurations()
+    {
+        var route = JsonSerializer.Deserialize<Route>(
+            """{"id":"DIRECT","quality":{"sample_count":50,"network_sample_count":50,"max_loss_burst":3,"ewma_rtt":12000000,"p95_rtt":25000000,"percentiles_available":true}}""",
+            WireJson.Options)!;
+        Assert.Equal(12000000, route.Quality!.EwmaRtt);
+        Assert.Equal(3, route.Quality.MaxLossBurst);
     }
 }

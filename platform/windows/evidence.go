@@ -2,6 +2,7 @@ package windowsplatform
 
 import (
 	"encoding/json"
+	"github.com/buzzmean/neexitlag/core/telemetry"
 	"sort"
 	"sync"
 	"time"
@@ -28,9 +29,10 @@ type FlowEvidence struct {
 	LastSeen     time.Time       `json:"last_seen"`
 }
 type CaptureEvidence struct {
-	Counters  CaptureCounters `json:"counters"`
-	Flows     []FlowEvidence  `json:"flows"`
-	Truncated bool            `json:"truncated"`
+	Counters   CaptureCounters             `json:"counters"`
+	Flows      []FlowEvidence              `json:"flows"`
+	Truncated  bool                        `json:"truncated"`
+	LocalDrops map[string]telemetry.Metric `json:"local_drops,omitempty"`
 }
 type evidenceKey struct {
 	PID     uint32

@@ -58,6 +58,12 @@ jobs:
         shell: pwsh
       - run: ./tests/windows-tools/acceptance-checks.ps1
         shell: pwsh
+      - run: ./tests/windows-tools/reinstall-checks.ps1
+        shell: pwsh
+      - run: ./tests/windows-tools/acceptance-checks.ps1
+        shell: powershell
+      - run: ./tests/windows-tools/reinstall-checks.ps1
+        shell: powershell
       - run: ./tests/windows-tools/ipc-smoke.ps1
         shell: pwsh
       - run: go test ./tools/windows-test-client ./internal/e2eprobe ./tools/vps-provision

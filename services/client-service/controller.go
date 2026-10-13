@@ -12,6 +12,7 @@ import (
 	"github.com/buzzmean/neexitlag/core/profiles"
 	"github.com/buzzmean/neexitlag/core/routing"
 	"github.com/buzzmean/neexitlag/core/security"
+	"github.com/buzzmean/neexitlag/core/telemetry"
 	windowsplatform "github.com/buzzmean/neexitlag/platform/windows"
 	"net"
 	"net/http"
@@ -26,14 +27,15 @@ import (
 )
 
 type RouteView struct {
-	ID          string    `json:"id"`
-	RTTMS       float64   `json:"rtt_ms"`
-	JitterMS    float64   `json:"jitter_ms"`
-	Loss        float64   `json:"loss"`
-	FailureRate float64   `json:"failure_rate"`
-	Score       *float64  `json:"score,omitempty"`
-	Status      string    `json:"status"`
-	ObservedAt  time.Time `json:"observed_at"`
+	ID          string             `json:"id"`
+	RTTMS       float64            `json:"rtt_ms"`
+	JitterMS    float64            `json:"jitter_ms"`
+	Loss        float64            `json:"loss"`
+	FailureRate float64            `json:"failure_rate"`
+	Score       *float64           `json:"score,omitempty"`
+	Status      string             `json:"status"`
+	ObservedAt  time.Time          `json:"observed_at"`
+	Quality     *optimizer.Quality `json:"quality,omitempty"`
 }
 type Settings struct {
 	Automatic     bool   `json:"automatic"`
@@ -41,23 +43,24 @@ type Settings struct {
 	UpdateChannel string `json:"update_channel"`
 }
 type Snapshot struct {
-	Version      string                        `json:"version"`
-	Connected    bool                          `json:"connected"`
-	Optimizing   bool                          `json:"optimizing"`
-	Demo         bool                          `json:"demo"`
-	Backend      windowsplatform.CaptureStatus `json:"backend"`
-	Primary      string                        `json:"primary"`
-	Secondary    string                        `json:"secondary"`
-	Tertiary     string                        `json:"tertiary"`
-	Routes       []RouteView                   `json:"routes"`
-	Profiles     []profiles.Profile            `json:"profiles"`
-	RXBytes      uint64                        `json:"rx_bytes"`
-	TXBytes      uint64                        `json:"tx_bytes"`
-	History      optimizer.RouteHistory        `json:"history"`
-	Flows        []routing.Flow                `json:"flows"`
-	Settings     Settings                      `json:"settings"`
-	ControlPlane string                        `json:"control_plane"`
-	ActiveApps   []string                      `json:"active_apps"`
+	RelayTransport *RelayTransportReadiness      `json:"relay_transport,omitempty"`
+	Version        string                        `json:"version"`
+	Connected      bool                          `json:"connected"`
+	Optimizing     bool                          `json:"optimizing"`
+	Demo           bool                          `json:"demo"`
+	Backend        windowsplatform.CaptureStatus `json:"backend"`
+	Primary        string                        `json:"primary"`
+	Secondary      string                        `json:"secondary"`
+	Tertiary       string                        `json:"tertiary"`
+	Routes         []RouteView                   `json:"routes"`
+	Profiles       []profiles.Profile            `json:"profiles"`
+	RXBytes        uint64                        `json:"rx_bytes"`
+	TXBytes        uint64                        `json:"tx_bytes"`
+	History        optimizer.RouteHistory        `json:"history"`
+	Flows          []routing.Flow                `json:"flows"`
+	Settings       Settings                      `json:"settings"`
+	ControlPlane   string                        `json:"control_plane"`
+	ActiveApps     []string                      `json:"active_apps"`
 }
 type Controller struct {
 	Engine                      *routing.Engine
@@ -76,6 +79,8 @@ type Controller struct {
 	customPath                  string
 	recentApps                  map[string]time.Time
 	localProfiles               map[string]profiles.Profile
+	acceptanceRelays            map[string]acceptanceRelaySource
+	transportDrops              map[string]func() map[string]telemetry.Metric
 	ctx                         context.Context
 	cancel                      context.CancelFunc
 	wg                          sync.WaitGroup
@@ -84,7 +89,8 @@ type Controller struct {
 
 func New(ctx context.Context) *Controller {
 	ctx, cancel := context.WithCancel(ctx)
-	c := &Controller{Engine: routing.New(4096), Selector: optimizer.New(optimizer.DefaultParameters()), Measurements: measurement.New(measurement.Defaults()), Profiles: profiles.New(profiles.Defaults()), recentApps: make(map[string]time.Time), localProfiles: make(map[string]profiles.Profile), settings: Settings{Automatic: true, Failover: "DIRECT", UpdateChannel: "stable"}, ctx: ctx, cancel: cancel}
+	c := &Controller{Engine: routing.New(4096), Selector: optimizer.New(optimizer.DefaultParameters()), Measurements: measurement.New(measurement.Defaults()), Profiles: profiles.New(profiles.Defaults()), recentApps: make(map[string]time.Time), localProfiles: make(map[string]profiles.Profile), acceptanceRelays: make(map[string]acceptanceRelaySource), transportDrops: make(map[string]func() map[string]telemetry.Metric), settings: Settings{Automatic: true, Failover: "DIRECT", UpdateChannel: "stable"}, ctx: ctx, cancel: cancel}
+	c.Measurements.OnFailure = c.Selector.ReportProbeFailure
 	c.Engine.SetAutoSelector(func(f routing.Flow) routing.Policy {
 		c.mu.Lock()
 		automatic := c.settings.Automatic
@@ -247,13 +253,35 @@ func (c *Controller) Classify(identity windowsplatform.ProcessIdentity, t window
 func (c *Controller) Snapshot() Snapshot {
 	selection := c.Selector.Select(time.Now())
 	history := c.Selector.History()
+	if len(history.Measurements) > 48 {
+		history.Measurements = history.Measurements[len(history.Measurements)-48:]
+	}
+	if len(history.Changes) > 32 {
+		history.Changes = history.Changes[len(history.Changes)-32:]
+	}
 	latest := map[string]optimizer.RouteMeasurement{}
 	for _, m := range history.Measurements {
 		latest[m.RouteID] = m
 	}
+	qualities := c.Selector.Qualities(time.Now())
+	// Route state must not disappear when display history is truncated, or while
+	// a newly failed route has not yet completed its first probe round.
+	for id, q := range qualities {
+		if _, ok := latest[id]; !ok {
+			latest[id] = optimizer.RouteMeasurement{RouteID: id, ObservedAt: q.ObservedAt}
+		}
+	}
 	views := []RouteView{}
 	for _, m := range latest {
 		view := RouteView{ID: m.RouteID, RTTMS: float64(m.RTT) / float64(time.Millisecond), JitterMS: float64(m.Jitter) / float64(time.Millisecond), Loss: m.Loss, FailureRate: m.FailureRate, Status: "unavailable", ObservedAt: m.ObservedAt}
+		if q, ok := qualities[m.RouteID]; ok {
+			view.Quality = &q
+			view.RTTMS = float64(q.LatestRTT) / float64(time.Millisecond)
+			view.Loss = q.Loss
+			view.FailureRate = q.FailureRate
+			view.JitterMS = float64(q.Jitter) / float64(time.Millisecond)
+			view.Status = q.Health
+		}
 		for _, r := range selection.Ranked {
 			if r.ID == m.RouteID {
 				score := r.Score
@@ -308,10 +336,44 @@ func (c *Controller) Snapshot() Snapshot {
 		rx += brx
 		tx += btx
 	}
-	return Snapshot{Version: "0.3.0-dev", Connected: c.Demo || backend.Ready, Optimizing: enabled && (c.Demo || backend.Ready), Demo: c.Demo, Backend: backend, Primary: selection.Primary, Secondary: selection.Secondary, Tertiary: selection.Tertiary, Routes: views, Profiles: c.Profiles.List(), RXBytes: rx, TXBytes: tx, History: history, Flows: flows, Settings: settings, ControlPlane: c.ControlPlaneURL, ActiveApps: apps}
+	snapshot := Snapshot{Version: "0.3.0-dev", Connected: c.Demo || backend.Ready, Optimizing: enabled && (c.Demo || backend.Ready), Demo: c.Demo, Backend: backend, Primary: selection.Primary, Secondary: selection.Secondary, Tertiary: selection.Tertiary, Routes: views, Profiles: c.Profiles.List(), RXBytes: rx, TXBytes: tx, History: history, Flows: flows, Settings: settings, ControlPlane: c.ControlPlaneURL, ActiveApps: apps}
+	// Keep mandatory profile/quality fields; shorten display history to the IPC frame.
+	for {
+		raw, _ := json.Marshal(snapshot)
+		if len(raw) <= 60000 {
+			break
+		}
+		if len(snapshot.History.Measurements) > 0 {
+			snapshot.History.Measurements = snapshot.History.Measurements[1:]
+			continue
+		}
+		if len(snapshot.History.Changes) > 0 {
+			snapshot.History.Changes = snapshot.History.Changes[1:]
+			continue
+		}
+		if len(snapshot.Flows) > 0 {
+			snapshot.Flows = snapshot.Flows[:len(snapshot.Flows)-1]
+			continue
+		}
+		break
+	}
+	return snapshot
 }
 func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMessage) (any, error) {
 	switch method {
+	case "acceptance.readiness":
+		var query struct {
+			RelayID string `json:"relay_id"`
+		}
+		if err := security.Parse(raw, &query); err != nil {
+			return nil, err
+		}
+		if query.RelayID == "" || len(query.RelayID) > 128 {
+			return nil, errors.New("configured relay ID required")
+		}
+		return c.acceptanceReadiness(ctx, query.RelayID), nil
+	case "quality.diagnostics":
+		return c.DropDiagnostics(), nil
 	case "capture.diagnostics":
 		var query struct {
 			PID uint32 `json:"pid"`

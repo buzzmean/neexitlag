@@ -8,6 +8,7 @@ import (
 	"errors"
 	"github.com/buzzmean/neexitlag/core/optimizer"
 	"github.com/buzzmean/neexitlag/core/routing"
+	"github.com/buzzmean/neexitlag/core/telemetry"
 	"net"
 	"net/netip"
 	"sync"
@@ -38,6 +39,7 @@ type Engine struct {
 	candidates []Candidate
 	wg         sync.WaitGroup
 	slots      chan struct{}
+	OnFailure  func(string, string, time.Time)
 }
 
 func New(s Settings) *Engine {
@@ -75,7 +77,8 @@ func (e *Engine) SetCandidates(c []Candidate) {
 	}
 	e.candidates = append([]Candidate(nil), c...)
 }
-func (e *Engine) Round(ctx context.Context) []optimizer.RouteMeasurement {
+func (e *Engine) Round(ctx context.Context) []optimizer.RouteMeasurement { return e.round(ctx, nil) }
+func (e *Engine) round(ctx context.Context, observe func(optimizer.RouteMeasurement)) []optimizer.RouteMeasurement {
 	e.mu.Lock()
 	all := append([]Candidate(nil), e.candidates...)
 	e.mu.Unlock()
@@ -90,18 +93,21 @@ launch:
 		case sem <- struct{}{}:
 		}
 		wg.Add(1)
-		go func() { defer wg.Done(); defer func() { <-sem }(); out[i] = e.Probe(ctx, c) }()
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			out[i] = e.Probe(ctx, c)
+			if observe != nil && out[i].RouteID != "" {
+				observe(out[i])
+			}
+		}()
 	}
 	wg.Wait()
 	return out
 }
 func (e *Engine) Run(ctx context.Context, observe func(optimizer.RouteMeasurement)) {
 	for {
-		for _, m := range e.Round(ctx) {
-			if m.RouteID != "" {
-				observe(m)
-			}
-		}
+		e.round(ctx, observe)
 		interval := e.Settings.IdleInterval
 		if e.Active.Load() {
 			interval = e.Settings.ActiveInterval
@@ -131,7 +137,14 @@ func (e *Engine) Probe(ctx context.Context, c Candidate) optimizer.RouteMeasurem
 	flow, err := c.Open(openCtx, c.Target)
 	cancel()
 	if err != nil {
+		if ctx.Err() != nil {
+			return optimizer.RouteMeasurement{}
+		}
 		m.FailureRate = 1
+		m.TransportError = "open_failed"
+		if e.OnFailure != nil && !telemetry.IsLocal(err) && ctx.Err() == nil {
+			e.OnFailure(c.Metadata.ID, "transport_open_failed", time.Now())
+		}
 		return m
 	}
 	defer flow.Close()
@@ -145,11 +158,14 @@ func (e *Engine) Probe(ctx context.Context, c Candidate) optimizer.RouteMeasurem
 		payload := make([]byte, 32)
 		if _, err = rand.Read(payload); err != nil {
 			failed++
+			m.Probes = append(m.Probes, optimizer.ProbeSample{At: time.Now(), Outcome: optimizer.LocalFailure})
 			continue
 		}
 		start := time.Now()
+		sample := optimizer.ProbeSample{At: start}
 		probe, stop := context.WithTimeout(ctx, e.Settings.Timeout)
 		err = flow.Send(payload)
+		sent := err == nil
 		if err == nil {
 			for {
 				var b []byte
@@ -161,11 +177,35 @@ func (e *Engine) Probe(ctx context.Context, c Candidate) optimizer.RouteMeasurem
 		}
 		stop()
 		if err != nil {
+			if ctx.Err() != nil {
+				m.Samples--
+				break
+			}
+			switch {
+			case telemetry.IsLocal(err):
+				sample.Outcome = optimizer.LocalFailure
+			case sent && errors.Is(err, context.DeadlineExceeded):
+				sample.Outcome = optimizer.Timeout
+				m.ConsecutiveLoss++
+				m.MaxLossBurst = max(m.MaxLossBurst, m.ConsecutiveLoss)
+			default:
+				sample.Outcome = optimizer.TransportFailure
+				m.TransportError = "transport_io_failed"
+			}
+			if e.OnFailure != nil && ctx.Err() == nil && (m.ConsecutiveLoss >= 3 || sample.Outcome == optimizer.TransportFailure) {
+				e.OnFailure(c.Metadata.ID, "probe_unresponsive", time.Now())
+			}
+			if sample.Outcome != optimizer.Timeout {
+				m.ConsecutiveLoss = 0
+			}
 			if !errors.Is(err, context.DeadlineExceeded) {
 				failed++
 			}
 		} else {
 			rtt := time.Since(start)
+			sample.Outcome = optimizer.Reply
+			sample.RTT = rtt
+			m.ConsecutiveLoss = 0
 			total += rtt
 			if received > 0 {
 				delta := rtt - previous
@@ -177,6 +217,7 @@ func (e *Engine) Probe(ctx context.Context, c Candidate) optimizer.RouteMeasurem
 			previous = rtt
 			received++
 		}
+		m.Probes = append(m.Probes, sample)
 		if i+1 < e.Settings.Samples {
 			timer := time.NewTimer(e.Settings.Spacing)
 			select {

@@ -207,7 +207,27 @@ func (s *remoteState) apply(ctx context.Context, cfg security.Config) error {
 			}
 			s.clients[node.ID] = client
 			s.all = append(s.all, client)
+			// Invalidate evidence before publishing a replacement routing provider.
+			c.mu.Lock()
+			delete(c.acceptanceRelays, node.ID)
+			c.mu.Unlock()
 			c.Engine.SetRelay(node.ID, client)
+			c.mu.Lock()
+			c.transportDrops[node.ID] = client.LocalDrops.Snapshot
+			c.mu.Unlock()
+			generation := c.Selector.RegisterTransport(node.ID)
+			c.mu.Lock()
+			c.acceptanceRelays[node.ID] = acceptanceRelaySource{session: client, target: s.target, generation: generation}
+			c.mu.Unlock()
+			id := node.ID
+			client.SetFailureHandler(func(reason string) { c.Selector.ReportTransportFailure(id, generation, reason, time.Now()) })
+			go func(id string, client *transport.Client, generation uint64) {
+				select {
+				case <-client.Done():
+					c.Selector.ReportTransportFailure(id, generation, "session_closed", time.Now())
+				case <-c.ctx.Done():
+				}
+			}(node.ID, client, generation)
 		}
 		s.lastConnect = time.Now()
 	}

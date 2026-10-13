@@ -17,7 +17,14 @@ public abstract class Observable : INotifyPropertyChanged
     }
 }
 public sealed record Choice(string Value, string Label);
-public sealed record RouteRow(string Id, string Name, string Status, string Rtt, string Jitter, string Loss, string Score, string Role);
+public sealed record RouteRow(string Id, string Name, string Status, string Rtt, string Jitter, string Loss, string Score, string Role, QualityMetrics? Quality = null)
+{
+    public string Burst => Quality is null ? Text.Get("NoData") : Quality.MaxLossBurst.ToString(Text.Russian);
+    public string Stability => Quality is null ? Text.Get("NoData") : Text.Percent(Quality.Stability);
+    public string SampleCount => Quality is null ? Text.Get("NoData") : Quality.SampleCount.ToString(Text.Russian);
+    public string Median => Quality?.PercentilesAvailable == true ? Text.Milliseconds(Quality.MedianRtt / 1e6) : Text.Get("NoData");
+    public string P95 => Quality?.PercentilesAvailable == true ? Text.Milliseconds(Quality.P95Rtt / 1e6) : Text.Get("NoData");
+}
 public sealed record DiagnosticRow(string Name, string Status, string Detail);
 public sealed record MeasurementRow(string Time, string Route, string Rtt, string Jitter, string Loss);
 public sealed class ApplicationRow : Observable
@@ -86,7 +93,10 @@ public sealed class DesktopViewModel : Observable
     public string Rx => Available && Snapshot is { } s ? Text.Bytes(s.RxBytes) : Text.Get("NoData"); public string Tx => Available && Snapshot is { } s ? Text.Bytes(s.TxBytes) : Text.Get("NoData");
     Route? Current => Snapshot?.Routes.FirstOrDefault(r => r.Id == Snapshot.Primary); public string CurrentLatency => Metric(Current, r => Text.Milliseconds(r.RttMs));
     public string DirectLatency => Metric(Snapshot?.Routes.FirstOrDefault(r => r.Id == "DIRECT"), r => Text.Milliseconds(r.RttMs));
-    public string RelayLatency => Metric(Snapshot?.Routes.Where(r => r.Id != "DIRECT" && Fresh(r)).OrderBy(r => r.Id == Snapshot.Primary ? 0 : 1).ThenBy(r => r.Score ?? double.MaxValue).FirstOrDefault(), r => Text.Milliseconds(r.RttMs)); public string Jitter => Metric(Current, r => Text.Milliseconds(r.JitterMs)); public string Loss => Metric(Current, r => Text.Percent(r.Loss));
+    public string RelayLatency => Metric(Snapshot?.Routes.Where(r => r.Id != "DIRECT" && Fresh(r)).OrderBy(r => r.Id == Snapshot.Primary ? 0 : 1).ThenBy(r => r.Score ?? double.MaxValue).FirstOrDefault(), r => Text.Milliseconds(r.RttMs)); public string Jitter => Metric(Current, r => Text.Milliseconds(r.JitterMs)); public string Loss => Available && Current?.Quality?.NetworkSampleCount > 0 ? Text.Percent(Current.Quality.ProbeLoss) : Metric(Current, r => Text.Percent(r.Loss));
+    public string CurrentBurst => Available && Current?.Quality is { } q ? q.MaxLossBurst.ToString(Text.Russian) : Text.Get("NoData");
+    public string CurrentStability => Available && Current?.Quality is { } q ? Text.Percent(q.Stability) : Text.Get("NoData");
+    public string CurrentSamples => Available && Current?.Quality is { } q ? q.SampleCount.ToString(Text.Russian) : Text.Get("NoData");
     public DesktopViewModel(IServiceClient client)
     {
         this.client = client;
@@ -162,7 +172,7 @@ public sealed class DesktopViewModel : Observable
             }
             row.Update(profile, processes, capture);
         }
-        Replace(Routes, status.Routes.Select(r => new RouteRow(r.Id, Text.Route(r.Id), Text.Get(Fresh(r) ? "Available" : "Unavailable"), Metric(r, x => Text.Milliseconds(x.RttMs)), Metric(r, x => Text.Milliseconds(x.JitterMs)), Metric(r, x => Text.Percent(x.Loss)), Fresh(r) && r.Score.HasValue ? r.Score.Value.ToString("F1", Text.Russian) : Text.Get("NoData"), r.Id == status.Primary ? Text.Get("Primary") : r.Id == status.Secondary || r.Id == status.Tertiary ? Text.Get("Backup") : "")));
+        Replace(Routes, status.Routes.Select(r => new RouteRow(r.Id, Text.Route(r.Id), Text.Get(Fresh(r) ? "Available" : "Unavailable"), Metric(r, x => Text.Milliseconds(x.RttMs)), Metric(r, x => Text.Milliseconds(x.JitterMs)), r.Quality?.NetworkSampleCount > 0 ? Text.Percent(r.Quality.ProbeLoss) : Metric(r, x => Text.Percent(x.Loss)), Fresh(r) && r.Score.HasValue ? r.Score.Value.ToString("F1", Text.Russian) : Text.Get("NoData"), r.Id == status.Primary ? Text.Get("Primary") : r.Id == status.Secondary || r.Id == status.Tertiary ? Text.Get("Backup") : "", r.Quality)));
         var availableRelays = status.Routes.Where(r => r.Id != "DIRECT" && Fresh(r)).Select(r => new Choice(r.Id, Text.Route(r.Id))).ToArray();
         if (!Relays.SequenceEqual(availableRelays))
             Replace(Relays, availableRelays);
@@ -319,7 +329,43 @@ public sealed class DesktopViewModel : Observable
             }
             var direct = checks.FirstOrDefault(c => c.Name == "UDP");
             rows.Add(new(Text.Get("DirectCheck"), Text.Status(direct?.Status ?? "not configured"), Text.Get(direct?.Status == "healthy" ? "DiagnosticHealthy" : direct?.Status == "not configured" || direct is null ? "DiagnosticUnconfigured" : "DiagnosticUnavailable")));
+            try
+            {
+                var drops = await client.Call<DropDiagnostics>("quality.diagnostics", cancellationToken: ct);
+                foreach (var metric in drops.Capture ?? [])
+                {
+                    rows.Add(RenderDrop("WinDivert", metric.Key, metric.Value));
+                }
+                foreach (var route in drops.Transport)
+                    foreach (var metric in route.Value)
+                    {
+                        rows.Add(RenderDrop(route.Key, metric.Key, metric.Value));
+                    }
+                if (!drops.RemoteRelayAvailable)
+                    rows.Add(new(Text.Get("RemoteDrops"), Text.Get("NoData"), Text.Get("RemoteDropsHint")));
+            }
+            catch (ServiceException) {/* Older IPC v1 service has no optional endpoint. */}
             Replace(Diagnostics, rows);
         }, ct);
     }
+    static DiagnosticRow RenderDrop(string scope, string key, DropMetric metric)
+    {
+        string resource = key switch
+        {
+            "capture_queue_drops" => "CaptureQueueDrops",
+            "worker_saturation_drops" => "WorkerDrops",
+            "transport_queue_drops" => "TransportDrops",
+            "quic_decode_drops" => "DecodeDrops",
+            "unknown_flow_drops" => "UnknownFlowDrops",
+            "relay_socket_send_drops" => "SocketDrops",
+            "reply_reinjection_failures" => "ReinjectDrops",
+            "capture_kernel_queue_drops" => "KernelDrops",
+            "capture_receive_errors" => "CaptureErrors",
+            "policy_drops" => "PolicyDrops",
+            _ => "CaptureDrops"
+        };
+        string detail = !metric.Available ? Text.Get("NoData") : metric.Count.ToString(Text.Russian) + " " + Text.Get(metric.Unit == "events" ? "Events" : "Packets") + (metric.Fraction.HasValue ? " (" + Text.Percent(metric.Fraction.Value) + ")" : "; " + Text.Get("FractionUnknown"));
+        return new(scope + " · " + Text.Get(resource), Text.Get(!metric.Available ? "NotAvailable" : metric.Count > 0 ? "Error" : "Working"), detail);
+    }
+
 }

@@ -34,9 +34,12 @@ func TestServiceUnavailableProfilesAndAuthenticatedCommandsBoundary(t *testing.T
 	c.mu.Unlock()
 	now := time.Now()
 	c.Selector = optimizer.New(optimizer.Parameters{MinimumImprovement: 5, MaxAge: time.Minute})
-	c.Selector.Observe(optimizer.RouteMeasurement{RouteID: optimizer.Direct, RTT: 50 * time.Millisecond, Stability: 1, Available: true, Samples: 3, ObservedAt: now})
-	c.Selector.Observe(optimizer.RouteMeasurement{RouteID: "FRA", RTT: 20 * time.Millisecond, Stability: 1, Available: true, Samples: 3, ObservedAt: now})
-	c.Selector.Select(now)
+	for i := 0; i < 5; i++ {
+		at := now.Add(time.Duration(i-4) * time.Second)
+		c.Selector.Observe(optimizer.RouteMeasurement{RouteID: optimizer.Direct, RTT: 50 * time.Millisecond, Stability: 1, Available: true, Samples: 10, ObservedAt: at})
+		c.Selector.Observe(optimizer.RouteMeasurement{RouteID: "FRA", RTT: 20 * time.Millisecond, Stability: 1, Available: true, Samples: 10, ObservedAt: at})
+		c.Selector.Select(at)
+	}
 	tuple := windowsplatform.Tuple{Protocol: "udp", Source: netip.MustParseAddrPort("10.0.0.1:123"), Destination: netip.MustParseAddrPort("1.1.1.1:456")}
 	identity := windowsplatform.ProcessIdentity{PID: 42, Path: `C:\Games\Game.exe`, CreationTime: 123}
 	decision := c.Classify(identity, tuple)
