@@ -70,12 +70,18 @@ func TestAuthenticatedMeasurementUsesRealEcho(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	stats := &EchoStats{}
-	go Serve(ctx, server, key, stats)
+	done := make(chan error, 1)
+	go func() { done <- Serve(ctx, server, key, stats) }()
 	engine := measurement.New(measurement.Settings{Samples: 3, Timeout: time.Second, Spacing: 20 * time.Millisecond, Concurrency: 1})
 	result := engine.Probe(ctx, measurement.Candidate{Metadata: optimizer.RelayCandidate{ID: optimizer.Direct}, Target: netip.MustParseAddrPort(server.LocalAddr().String()), Open: ProbeOpener(measurement.OpenDirect, key)})
 	// Sub-clock-resolution loopback replies can legitimately have zero RTT on Windows.
 	if !result.Available || result.Samples != 3 || result.Loss != 0 || result.RTT < 0 {
 		t.Fatal("authenticated measurement failed", result)
+	}
+	// Wait for the server to finish accounting for its last successful write.
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 	if stats.Accepted.Load() != 3 || stats.Rejected.Load() != 0 {
 		t.Fatal("authenticated traffic counters", stats.Accepted.Load(), stats.Rejected.Load())
