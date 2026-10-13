@@ -1,9 +1,107 @@
-# WPF desktop
+# Нативный клиент NeExitLag
 
-.NET 8 WPF, six dark views and real authenticated service bindings. Build with
-`dotnet build apps/desktop/Neexitlag.Desktop.csproj` from the repository root.
-See [root README](../../README.md) for Windows installation and loopback demo flags.
-The UI contains no privileged networking code. Service absence, version errors,
-invalid frames and timeouts produce an unavailable/disconnected state.
-WPF cross-build and shared C# binding smoke pass on Linux; native WPF runtime
-and named-pipe integration still require Windows acceptance.
+WPF / .NET 8, Windows 10/11 x64. Основной интерфейс — отдельное окно
+`NeExitLag.exe`, полностью на русском языке. Браузер, localhost и Electron
+не используются. Служба `neexitlag-service.exe` работает отдельно: GUI не
+перехватывает пакеты и не устанавливает драйверы.
+
+## Сборка одной командой
+
+Из корня репозитория, с установленным .NET SDK 8:
+
+```powershell
+.\tools\windows\build-desktop.ps1
+```
+
+Результат: `bin\release\NeExitLag.exe`. Это self-contained win-x64 single-file
+сборка, без требования отдельно устанавливать .NET Runtime. Первый запуск может
+распаковать нативные библиотеки в пользовательский каталог временных файлов.
+Сборку можно выполнять без прав администратора.
+
+Запуск:
+
+```powershell
+.\bin\release\NeExitLag.exe
+```
+
+Запускайте от обычного пользователя, чей SID разрешён установщиком службы.
+Манифест `asInvoker` не запрашивает повышение привилегий. Существующая установка
+службы и приватная папка `.e2e` сохраняются; для GUI их переустановка не нужна.
+Установку драйвера/службы выполняет администратор по
+[инструкции Windows E2E](../../docs/WINDOWS_REAL_E2E.md).
+
+Обычные команды .NET из корня:
+
+```powershell
+dotnet build
+dotnet test
+dotnet publish apps/desktop/Neexitlag.Desktop.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -p:DebugType=None -p:DebugSymbols=false -o bin/release
+```
+
+## Работа интерфейса
+
+- Главная: реальное состояние оптимизации, маршрут автооптимизации, свежие
+  задержка/джиттер/потери, счётчики принятого/отправленного трафика, приложения.
+- Приложения: выбор существующего `.exe` через Windows file picker; режимы
+  «Авто», «Напрямую», «Через сервер», при поддержке полного TCP/UDP backend —
+  «Блокировать». Ручной выбор ограничен свежими доступными серверами службы.
+  Изменяются новые соединения; активные потоки остаются закреплены за маршрутом.
+- Маршруты: фактические измерения, оценки, основной/резервный маршруты.
+- Статистика: история измерений и переключений службы; никаких случайных данных.
+- Диагностика: Windows Service, WinDivert, управляющий сервер, прямое соединение,
+  сервер, UDP/TCP, MTU и DNS. Короткие русские объяснения. MTU-проверка службы
+  не является определением PMTU всего интернет-маршрута.
+- Настройки: HKCU-автозапуск, запуск свёрнутым, трей, настройки оптимизации,
+  отказа сервера и канала обновлений. Канал — сохраняемая настройка; автоматический
+  установщик обновлений пока не реализован.
+
+Закрытие окна при работающей службе по умолчанию скрывает его в трей. Меню трея:
+открыть, включить/выключить оптимизацию, выход. Выход из GUI не останавливает
+службу. Повторный запуск активирует имеющееся окно. Параметры окна находятся в
+`%LOCALAPPDATA%\NeExitLag\desktop.json`; автозапуск — в HKCU Run.
+
+Отсутствующая/остановленная/несовместимая служба и недоступный IPC отображаются
+по-русски; есть повторное подключение. При потере IPC старые показатели очищаются.
+Нет измерений или данные устарели — «Нет данных», а не нулевой/выдуманный ping.
+
+## Архитектура и локализация
+
+`apps/desktop-core` — DTO, bounded authenticated named-pipe client, модели
+представления, форматирование и ресурсы, без WPF и сетевой маршрутизации.
+`apps/desktop` — окно, нативный file picker, tray, HKCU, SCM query и single-instance.
+IPC остаётся v1, `neexitlag-v1`, с токеном из `%PROGRAMDATA%\neexitlag\ipc.token`.
+Клиент проверяет длину кадра, версию и обязательное совпадение ID ответа.
+
+Русские строки находятся в `apps/desktop-core/Resources/Strings.resx`, нейтральная
+культура — `ru-RU`; XAML использует `Tr`, код — `Text.Get`. Для будущего English
+добавьте `Strings.en.resx`, выберите `Text.UICulture` перед созданием окна и
+соответствующую культуру форматирования. Сейчас язык по умолчанию только русский.
+Системный file picker и меню Windows используют язык самой ОС; названия выбранных
+приложений и идентификаторы серверов сохраняются.
+
+HTTP-adapter сохранён только в `tests/desktop-bindings` для старого dev/demo.
+Production-клиент HTTP-кода не содержит; старый Go web demo остаётся dev/test tool.
+
+## Проверка
+
+`dotnet test` покрывает настоящие framed named-pipe обмены, несовместимость,
+таймауты, отмену, DTO, view models, профильные команды, исчезновение службы,
+маршруты, ресурсы и историю. Модельные фикстуры не являются runtime E2E.
+
+Windows CI также выполняет `tests/windows-tools/desktop-smoke.ps1`: запускает
+опубликованный EXE, через UI Automation проверяет настоящее WPF-окно и русскую
+навигацию, повторный запуск и корректное поведение без службы. CI публикует
+артефакт `NeExitLag-win-x64`. Этот smoke не проверяет маршрутизацию WinDivert.
+
+На Linux проверены build/test/publish и PE-формат Windows x64 GUI. Здесь нет
+Windows desktop session: взаимодействие с реальной установленной службой,
+DPI, трей и автозапуск требуют Windows runtime проверки. Уже доказанный
+оператором ручной DIRECT/RELAY E2E не выдаётся за проверку нового окна.
+
+Отдельный исправленный service health-check использует ту же приватную CA, что
+и подключение к управляющему серверу. Служба также поддерживает необязательный фильтр `processes` по исполняемым
+файлам профилей, чтобы список посторонних процессов не переполнял IPC.
+Чтобы получить эти исправления диагностики и фильтрации,
+нужно обновить бинарник службы стандартной процедурой; GUI работает и с
+предыдущим IPC v1. На старой службе её проверка HTTPS с приватной CA может
+ошибочно показывать недоступность управляющего сервера.

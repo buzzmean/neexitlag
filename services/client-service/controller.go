@@ -67,6 +67,7 @@ type Controller struct {
 	Backend                     windowsplatform.WindowsCaptureBackend
 	Demo                        bool
 	ConfigPath, ControlPlaneURL string
+	DiagnosticHTTPClient        *http.Client
 	TCPDiagnosticTarget         string
 	RX, TX                      atomic.Uint64
 	mu                          sync.Mutex
@@ -331,7 +332,7 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 	case "profiles":
 		return c.Profiles.List(), nil
 	case "processes":
-		return windowsplatform.NewDiscovery().List()
+		return listProcesses(raw)
 	case "profile.delete":
 		var query struct {
 			ID string `json:"id"`
@@ -458,7 +459,13 @@ func (c *Controller) Diagnostics(ctx context.Context) []Check {
 		req, e := http.NewRequestWithContext(ctx, "GET", c.ControlPlaneURL+"/healthz", nil)
 		status := "unavailable"
 		if e == nil {
-			response, e := (&http.Client{Timeout: time.Second}).Do(req)
+			client := c.DiagnosticHTTPClient
+			if client == nil {
+				client = &http.Client{Timeout: time.Second}
+			}
+			probe, stop := context.WithTimeout(ctx, time.Second)
+			response, e := client.Do(req.WithContext(probe))
+			stop()
 			if e == nil {
 				response.Body.Close()
 				if response.StatusCode == 200 {

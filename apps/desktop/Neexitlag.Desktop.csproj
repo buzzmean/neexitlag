@@ -1,11 +1,8 @@
-<?xml version="1.0" ?>
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
-    <UseWPF>true</UseWPF>
-    <EnableWindowsTargeting>true</EnableWindowsTargeting>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-  </PropertyGroup>
+ <PropertyGroup>
+  <OutputType>WinExe</OutputType><TargetFramework>net8.0-windows</TargetFramework><UseWPF>true</UseWPF><UseWindowsForms>true</UseWindowsForms><EnableWindowsTargeting>true</EnableWindowsTargeting>
+  <Nullable>enable</Nullable><ImplicitUsings>disable</ImplicitUsings><AssemblyName>NeExitLag</AssemblyName><RootNamespace>Neexitlag.Desktop</RootNamespace><Product>NeExitLag</Product><Description>Клиент оптимизации соединения NeExitLag</Description>
+  <ApplicationIcon>Assets/NeExitLag.ico</ApplicationIcon><ApplicationManifest>app.manifest</ApplicationManifest>
+ </PropertyGroup>
+ <ItemGroup><ProjectReference Include="../desktop-core/NeExitLag.Client.csproj"/><Resource Include="Assets/NeExitLag.ico"/></ItemGroup>
 </Project>
