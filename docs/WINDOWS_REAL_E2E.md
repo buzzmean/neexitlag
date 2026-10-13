@@ -67,19 +67,45 @@ failure; it is not treated as route proof.
 
 ## Rerun on the already installed Windows/VPS pair
 
-Use elevated PowerShell from the repository root, retaining the existing private
-`.e2e/bundle`, service installation and actual `$VPS_PUBLIC_IP`, `$SSH_USER`,
-`$SSH_PORT` values. Rebuild the test executables: the new acceptance requires the
-new warm-up flag. No service reinstall or manual script editing is required.
+Use elevated PowerShell from the repository root and the existing private bundle
+and `$VPS_PUBLIC_IP`, `$SSH_USER`, `$SSH_PORT`. This readiness update adds service
+IPC, so rebuild/reinstall the service, preserving credentials and state:
 
 ```powershell
-git pull --ff-only origin codex/windows-real-e2e
-.\tools\windows\build-e2e.ps1
+git switch codex/network-quality-v1
+git pull --ff-only origin codex/network-quality-v1
+if ($LASTEXITCODE -ne 0) { throw "git pull failed" }
+.\tools\windows\uninstall.ps1
+.\tools\windows\setup-e2e.ps1 -Reinstall -VpsPublicIP $VPS_PUBLIC_IP -SSHUser $SSH_USER -SSHPort $SSH_PORT
 .\tools\windows\acceptance.ps1 -VpsPublicIP $VPS_PUBLIC_IP -SSHUser $SSH_USER -SSHPort $SSH_PORT
 ```
 
-Acceptance waits up to 60 seconds for optimizing/capture, the effective temporary
-profiles and a healthy relay, requiring three stable snapshots. The concurrent
+MANUAL A/B/C waits up to 60 seconds for service connected, optimizing, capture,
+effective temporary selected/control profiles and a **real relay session/open
+ACK**, independently of rolling quality. The additive owner-authenticated
+`acceptance.readiness` IPC returns the normal snapshot plus `relay_transport`:
+connected, flow_open, checked_at and failure reason. It opens/closes one UDP flow
+on the current authenticated relay, using only the configured probe destination;
+no echo packets, artificial RTT/loss or arbitrary destination probes are sent.
+A closed/replaced session cannot certify readiness. Ordinary `status` does not
+invent or cache flow-open evidence, and old services need upgrading for this gate.
+
+AUTO D instead has a 135-second total startup/selection budget and requires the
+same base/session proof, healthy rolling quality with at least 20 network samples
+and 3 rounds, eligible finite score, automatic routing enabled and **natural
+optimizer primary VPS-01**. It never forces a winner; a healthy relay losing to
+DIRECT remains NOT EXERCISED. Returning to MANUAL after relay restoration uses
+MANUAL readiness again.
+
+Polling uses a monotonic deadline with a final fresh check at/after the boundary;
+ready evidence at that check passes without requiring three more GUI polls.
+A final IPC call can finish beyond the nominal budget (bounded flow-open timeout
+3s and IPC timeout). A false final check names backend/profile/transport/quality/
+AUTO eligibility blockers. Diagnostics retain both the exact last readiness
+snapshot/conditions/mode and a separate current status snapshot, avoiding confusion
+when state changes just after timeout.
+
+The concurrent
 route proof uses 10 unmeasured warm-up datagrams on the **same PID and UDP socket**,
 then 100 measured datagrams at 200ms intervals with 3 seconds final reply grace.
 Separate run nonces exclude late warm-up replies from measured statistics.

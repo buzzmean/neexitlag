@@ -28,7 +28,7 @@ $data.Received=26;$data.Loss=1-26/30;Reject {Assert-AcceptanceLoss $data}
 $data.Loss=0;Reject {Assert-AcceptanceLoss $data}
 $selected=[pscustomobject]@{id='!selected';mode='MANUAL';relay_id='VPS-01';custom=$true;executables=@('C:\test-game.exe')}
 $control=[pscustomobject]@{id='!control';mode='DIRECT';custom=$true;executables=@('C:\control-client.exe')}
-$snapshot=[pscustomobject]@{optimizing=$true;backend=@{ready=$true};profiles=@($selected,$control);routes=@(@{id='VPS-01';status='healthy'})}
+$snapshot=[pscustomobject]@{connected=$true;relay_transport=@{relay_id='VPS-01';connected=$true;flow_open=$true};optimizing=$true;backend=@{ready=$true};profiles=@($selected,$control);routes=@(@{id='VPS-01';status='healthy'})}
 if(!(Test-AcceptanceReady $snapshot 'C:\test-game.exe' 'C:\control-client.exe' '!selected' '!control' 'MANUAL')){throw 'Valid readiness rejected'}
 $snapshot.backend.ready=$false
 if(Test-AcceptanceReady $snapshot 'C:\test-game.exe' 'C:\control-client.exe' '!selected' '!control' 'MANUAL'){throw 'Capture startup was ignored'}
@@ -54,11 +54,11 @@ foreach($name in @('Stage','Ensure','Save-UTF8','Complete','Evidence','Save-Diag
  $definition=$ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name},$true)
  Invoke-Expression $definition.Extent.Text
 }
-$run='fixture';$game='C:\test-game.exe';$control='C:\control-client.exe';$selectedId='!selected';$controlId='!control';$profileMode='MANUAL'
+$lastReadiness=$null;$lastReadinessState=$null;$run='fixture';$game='C:\test-game.exe';$control='C:\control-client.exe';$selectedId='!selected';$controlId='!control';$profileMode='MANUAL'
 $snapshot.profiles=@($selected,$snapshot.profiles[1]);$snapshot.backend.ready=$true
 $script:polls=0
 function Invoke-ServiceIPC([string]$Method,$Payload) {
- if($Method -eq 'status') {
+ if($Method -eq 'status' -or $Method -eq 'acceptance.readiness') {
   $script:polls++
   if($script:polls -eq 1){throw 'fixture transient IPC startup'}
   $script:snapshot.backend.ready=($script:polls -ge 3)
@@ -68,7 +68,7 @@ function Invoke-ServiceIPC([string]$Method,$Payload) {
  throw 'Unexpected fixture method'
 }
 $ready=Wait-Relay
-if($polls -ne 5 -or !$ready.backend.ready){throw 'Readiness did not retry startup or require stable snapshots'}
+if($polls -ne 3 -or !$ready.backend.ready){throw 'Readiness did not retry startup or return actual ready evidence'}
 $temp=Join-Path ([IO.Path]::GetTempPath()) ('neexitlag-artifacts-'+[Guid]::NewGuid().ToString('N'))
 try {
  New-Item $temp -ItemType Directory|Out-Null
@@ -173,3 +173,64 @@ exit $ExitStatus
  }
 }finally{Remove-Item $temp -Recurse -Force}
 Write-Output 'PASS real redirected Start-Process success/failure with spaces, exact exit status and complete stdout/stderr'
+
+# Readiness has separate MANUAL session and AUTO optimizer contracts.
+$snapshot.routes=@([pscustomobject]@{id='VPS-01';status='unhealthy';score=$null;quality=[pscustomobject]@{health='unhealthy';network_sample_count=45;round_count=9}})
+$snapshot|Add-Member NoteProperty primary 'DIRECT' -Force
+$snapshot|Add-Member NoteProperty settings @{automatic=$true} -Force
+foreach($health in @('unhealthy','degraded','warming_up')) {
+ $snapshot.routes[0].status=$health;$snapshot.routes[0].quality.health=$health
+ if(!(Test-AcceptanceReady $snapshot $game $control $selectedId $controlId 'MANUAL')){throw "MANUAL waited for $health quality instead of real transport evidence"}
+}
+$snapshot.relay_transport.flow_open=$false
+if(Test-AcceptanceReady $snapshot $game $control $selectedId $controlId 'MANUAL'){throw 'Connected session alone proved flow-open readiness'}
+$snapshot.relay_transport.flow_open=$true
+$snapshot.connected=$false
+if(Test-AcceptanceReady $snapshot $game $control $selectedId $controlId 'MANUAL'){throw 'Disconnected service accepted'}
+$snapshot.connected=$true
+$snapshot.profiles[0].mode='AUTO'
+$snapshot.routes[0].status='healthy';$snapshot.routes[0].score=42;$snapshot.routes[0].quality.health='healthy';$snapshot.primary='VPS-01'
+if(!(Test-AcceptanceReady $snapshot $game $control $selectedId $controlId 'AUTO')){throw 'Naturally selected eligible AUTO relay rejected'}
+foreach($condition in @('samples','rounds','health','score','primary','automatic')) {
+ switch($condition){
+  'samples' {$snapshot.routes[0].quality.network_sample_count=19}
+  'rounds' {$snapshot.routes[0].quality.round_count=2}
+  'health' {$snapshot.routes[0].quality.health='unhealthy'}
+  'score' {$snapshot.routes[0].score=$null}
+  'primary' {$snapshot.primary='DIRECT'}
+  'automatic' {$snapshot.settings.automatic=$false}
+ }
+ if(Test-AcceptanceReady $snapshot $game $control $selectedId $controlId 'AUTO'){throw "AUTO ignored $condition eligibility"}
+ $snapshot.routes[0].quality.network_sample_count=45;$snapshot.routes[0].quality.round_count=9;$snapshot.routes[0].quality.health='healthy';$snapshot.routes[0].score=42;$snapshot.primary='VPS-01';$snapshot.settings.automatic=$true
+}
+$snapshot.profiles[0].mode='MANUAL'
+Write-Output 'PASS MANUAL transport readiness independent of quality; AUTO requires history, eligibility and natural selection'
+
+# Deterministic deadline tests use a virtual monotonic clock, never scheduler timing.
+foreach($boundary in @('exact','sleep-overshoot','inflight-check')) {
+ $clock=@{ms=0;calls=0}
+ $get={
+  $clock.calls++
+  if($boundary -eq 'inflight-check' -and $clock.calls -eq 1){$snapshot.backend.ready=$false;$clock.ms=1001}
+  else{$snapshot.backend.ready=($clock.ms -ge 1000)}
+  return $snapshot
+ }
+ $delay={param($ms) $clock.ms+=$ms;if($boundary -eq 'sleep-overshoot'){$clock.ms+=3}}
+ $result=Wait-AcceptanceReadiness -TimeoutMS 1000 -PollMS 500 -Now {return $clock.ms} -Delay $delay -GetSnapshot $get -Evaluate {param($s) Get-AcceptanceReadiness $s $game $control $selectedId $controlId 'MANUAL'}
+ if(!$result.backend.ready -or $clock.ms -lt 1000 -or $clock.calls -lt 2){throw "Ready at $boundary boundary was falsely rejected"}
+}
+# The final false check reports concrete blockers; a later diagnostics snapshot
+# cannot retroactively replace the exact evidence used for the timeout decision.
+$clock=@{ms=0;calls=0};$snapshot.backend.ready=$false;$snapshot.relay_transport.flow_open=$false
+$message=$null
+try {
+ Wait-AcceptanceReadiness -TimeoutMS 1000 -PollMS 500 -Now {return $clock.ms} -Delay {param($ms) $clock.ms+=$ms} -GetSnapshot {$clock.calls++;return $snapshot} -Evaluate {param($s) Get-AcceptanceReadiness $s $game $control $selectedId $controlId 'MANUAL'}|Out-Null
+}catch{$message=$_.Exception.Message}
+if($null -eq $message -or $message -notlike '*backend*relay transport*' -or $clock.calls -ne 3 -or $clock.ms -ne 1000){throw "Final timeout check/blockers missing: $message"}
+$snapshot.backend.ready=$true;$snapshot.relay_transport.flow_open=$true
+Write-Output 'PASS readiness exact deadline, sleep overshoot, in-flight completion and concrete final timeout blockers'
+
+$missingSnapshot=[pscustomobject]@{connected=$true;optimizing=$true;backend=@{ready=$true};profiles=@();routes=@();primary='DIRECT';settings=@{automatic=$true};relay_transport=$snapshot.relay_transport}
+$state=Get-AcceptanceReadiness $missingSnapshot $game $control $selectedId $controlId 'AUTO'
+if($state.ready -or ($state.missing -join ';') -notlike '*selected profile*control profile*quality*AUTO eligibility*'){throw 'Missing profiles/history did not give specific blockers'}
+Write-Output 'PASS absent profiles and quality produce specific readiness blockers'

@@ -15,7 +15,7 @@ $results=[Collections.Generic.List[object]]::new()
 $children=[Collections.Generic.List[object]]::new()
 $run=[Guid]::NewGuid().ToString('N')
 $selectedId='!e2e-selected-'+$run;$controlId='!e2e-control-'+$run
-$originalSettings=$null;$originalManifest=$null;$originalOptimizing=$null;$remoteRelayStopped=$false;$remoteCPStopped=$false;$profileMode='MANUAL'
+$lastReadiness=$null;$lastReadinessState=$null;$originalSettings=$null;$originalManifest=$null;$originalOptimizing=$null;$remoteRelayStopped=$false;$remoteCPStopped=$false;$profileMode='MANUAL'
 function Stage([string]$Name,[scriptblock]$Body){
  try {$data=& $Body;$results.Add([pscustomobject]@{name=$Name;status='PASS';data=$data});Write-Host "PASS $Name";return $true}
  catch {$message=$_.Exception.Message;$diagnostics=Save-Diagnostics $Name;$results.Add([pscustomobject]@{name=$Name;status='FAIL';error=$message;diagnostics=$diagnostics});Write-Host "FAIL $Name : $message";return $false}
@@ -62,19 +62,15 @@ function Save-Diagnostics([string]$Label) {
   try {$entry.capture=Evidence $child}catch{$errors+="PID $($child.process.Id): $($_.Exception.Message)"}
   $capture+=$entry
  }
- try {Save-UTF8 $path (@{status=$snapshot;clients=$capture;diagnostic_errors=$errors}|ConvertTo-Json -Depth 18);return $path}catch{return "Diagnostic persistence failed: $($_.Exception.Message)"}
+ try {Save-UTF8 $path (@{status=$snapshot;last_readiness=$lastReadiness;readiness_conditions=$lastReadinessState;readiness_mode=$profileMode;clients=$capture;diagnostic_errors=$errors}|ConvertTo-Json -Depth 18);return $path}catch{return "Diagnostic persistence failed: $($_.Exception.Message)"}
 }
 function Wait-Relay {
- $deadline=[DateTime]::UtcNow.AddSeconds(60);$stable=0;$lastError=''
- do {
-  try {
-   $snapshot=Invoke-ServiceIPC 'status'
-   if(Test-AcceptanceReady $snapshot $game $control $selectedId $controlId $profileMode){$stable++}else{$stable=0}
-   if($stable -ge 3){return $snapshot}
-  }catch{$stable=0;$lastError=$_.Exception.Message}
-  Start-Sleep -Milliseconds 500
- }while([DateTime]::UtcNow -lt $deadline)
- throw "Profile/capture/relay readiness timeout: $lastError (inspect persisted status, competing profiles and capture diagnostics)"
+ $budget=if($profileMode -eq 'AUTO'){135000}else{60000}
+ return Wait-AcceptanceReadiness -TimeoutMS $budget -GetSnapshot {
+  $script:lastReadiness=$null;$script:lastReadinessState=$null
+  $script:lastReadiness=Invoke-ServiceIPC 'acceptance.readiness' @{relay_id='VPS-01'}
+  return $script:lastReadiness
+ } -Evaluate {param($snapshot) $script:lastReadinessState=Get-AcceptanceReadiness $snapshot $game $control $selectedId $controlId $profileMode;return $script:lastReadinessState}
 }
 
 try {
@@ -138,9 +134,7 @@ try {
  [void](Stage 'D AUTO relay failure DIRECT fallback' {
   Profile 'AUTO'
   $state=Wait-Relay
-  $deadline=[DateTime]::UtcNow.AddSeconds(75)
-  while($state.primary -ne 'VPS-01' -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Seconds 1;$state=Invoke-ServiceIPC 'status'}
-  if($state.primary -ne 'VPS-01'){throw 'NOT EXERCISED: real scoring chose DIRECT. No synthetic impairment or forced AUTO winner is permitted; this fallback transition remains unverified.'}
+  # Wait-Relay AUTO requires eligible quality and a natural VPS-01 primary.
   $d=Launch $game 'auto-failover' 200
   Start-Sleep -Seconds 3
   $before=Evidence $d
@@ -152,7 +146,7 @@ try {
   Ensure (($after.flows|ForEach-Object {$_.counters.direct_packets}|Measure-Object -Sum).Sum -gt 0) 'No native DIRECT fallback packets'
   @{client=$fallback;before=$before;after=$after}
  })
- if($remoteRelayStopped){Invoke-VpsCommand $VpsPublicIP $SSHUser $SSHPort 'sudo -n systemctl start neexitlag-relay';$remoteRelayStopped=$false;Restart-Local;[void](Wait-Relay)}
+ if($remoteRelayStopped){Invoke-VpsCommand $VpsPublicIP $SSHUser $SSHPort 'sudo -n systemctl start neexitlag-relay';$remoteRelayStopped=$false;Restart-Local}
  Profile 'MANUAL'
  [void](Wait-Relay)
  [void](Stage 'Config outage valid LKG and ordinary networking' {

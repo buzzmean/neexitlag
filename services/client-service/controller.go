@@ -43,23 +43,24 @@ type Settings struct {
 	UpdateChannel string `json:"update_channel"`
 }
 type Snapshot struct {
-	Version      string                        `json:"version"`
-	Connected    bool                          `json:"connected"`
-	Optimizing   bool                          `json:"optimizing"`
-	Demo         bool                          `json:"demo"`
-	Backend      windowsplatform.CaptureStatus `json:"backend"`
-	Primary      string                        `json:"primary"`
-	Secondary    string                        `json:"secondary"`
-	Tertiary     string                        `json:"tertiary"`
-	Routes       []RouteView                   `json:"routes"`
-	Profiles     []profiles.Profile            `json:"profiles"`
-	RXBytes      uint64                        `json:"rx_bytes"`
-	TXBytes      uint64                        `json:"tx_bytes"`
-	History      optimizer.RouteHistory        `json:"history"`
-	Flows        []routing.Flow                `json:"flows"`
-	Settings     Settings                      `json:"settings"`
-	ControlPlane string                        `json:"control_plane"`
-	ActiveApps   []string                      `json:"active_apps"`
+	RelayTransport *RelayTransportReadiness      `json:"relay_transport,omitempty"`
+	Version        string                        `json:"version"`
+	Connected      bool                          `json:"connected"`
+	Optimizing     bool                          `json:"optimizing"`
+	Demo           bool                          `json:"demo"`
+	Backend        windowsplatform.CaptureStatus `json:"backend"`
+	Primary        string                        `json:"primary"`
+	Secondary      string                        `json:"secondary"`
+	Tertiary       string                        `json:"tertiary"`
+	Routes         []RouteView                   `json:"routes"`
+	Profiles       []profiles.Profile            `json:"profiles"`
+	RXBytes        uint64                        `json:"rx_bytes"`
+	TXBytes        uint64                        `json:"tx_bytes"`
+	History        optimizer.RouteHistory        `json:"history"`
+	Flows          []routing.Flow                `json:"flows"`
+	Settings       Settings                      `json:"settings"`
+	ControlPlane   string                        `json:"control_plane"`
+	ActiveApps     []string                      `json:"active_apps"`
 }
 type Controller struct {
 	Engine                      *routing.Engine
@@ -78,6 +79,7 @@ type Controller struct {
 	customPath                  string
 	recentApps                  map[string]time.Time
 	localProfiles               map[string]profiles.Profile
+	acceptanceRelays            map[string]acceptanceRelaySource
 	transportDrops              map[string]func() map[string]telemetry.Metric
 	ctx                         context.Context
 	cancel                      context.CancelFunc
@@ -87,7 +89,7 @@ type Controller struct {
 
 func New(ctx context.Context) *Controller {
 	ctx, cancel := context.WithCancel(ctx)
-	c := &Controller{Engine: routing.New(4096), Selector: optimizer.New(optimizer.DefaultParameters()), Measurements: measurement.New(measurement.Defaults()), Profiles: profiles.New(profiles.Defaults()), recentApps: make(map[string]time.Time), localProfiles: make(map[string]profiles.Profile), transportDrops: make(map[string]func() map[string]telemetry.Metric), settings: Settings{Automatic: true, Failover: "DIRECT", UpdateChannel: "stable"}, ctx: ctx, cancel: cancel}
+	c := &Controller{Engine: routing.New(4096), Selector: optimizer.New(optimizer.DefaultParameters()), Measurements: measurement.New(measurement.Defaults()), Profiles: profiles.New(profiles.Defaults()), recentApps: make(map[string]time.Time), localProfiles: make(map[string]profiles.Profile), acceptanceRelays: make(map[string]acceptanceRelaySource), transportDrops: make(map[string]func() map[string]telemetry.Metric), settings: Settings{Automatic: true, Failover: "DIRECT", UpdateChannel: "stable"}, ctx: ctx, cancel: cancel}
 	c.Measurements.OnFailure = c.Selector.ReportProbeFailure
 	c.Engine.SetAutoSelector(func(f routing.Flow) routing.Policy {
 		c.mu.Lock()
@@ -359,6 +361,17 @@ func (c *Controller) Snapshot() Snapshot {
 }
 func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMessage) (any, error) {
 	switch method {
+	case "acceptance.readiness":
+		var query struct {
+			RelayID string `json:"relay_id"`
+		}
+		if err := security.Parse(raw, &query); err != nil {
+			return nil, err
+		}
+		if query.RelayID == "" || len(query.RelayID) > 128 {
+			return nil, errors.New("configured relay ID required")
+		}
+		return c.acceptanceReadiness(ctx, query.RelayID), nil
 	case "quality.diagnostics":
 		return c.DropDiagnostics(), nil
 	case "capture.diagnostics":
