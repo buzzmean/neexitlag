@@ -33,6 +33,7 @@ func main() {
 	cpURL := flag.String("control-plane", "", "signed config/revocation endpoint")
 	heartbeatFile := flag.String("heartbeat-token-file", "", "relay-specific heartbeat token")
 	allowHTTP := flag.Bool("allow-http-development", false, "allow HTTP on isolated development network")
+	cpCA := flag.String("control-plane-ca", "", "explicit private TLS CA for control plane")
 	flag.Parse()
 	fail := func(e error) { slog.Error("relay startup failed", "error", e); os.Exit(1) }
 	t, e := transport.TLS(*cert, *key, *ca, true)
@@ -77,6 +78,12 @@ func main() {
 			cache := security.NewConfigCache(keys, filepath.Join(filepath.Dir(*replayFile), "signed-config.json"))
 			_ = cache.Load(time.Now())
 			cp = &controlclient.Client{BaseURL: *cpURL, Cache: cache, AllowHTTPDevelopment: *allowHTTP}
+			if *cpCA != "" {
+				cp.HTTP, e = controlclient.HTTPSClient(*cpCA)
+				if e != nil {
+					fail(e)
+				}
+			}
 		}
 	}
 	if *heartbeatFile != "" {

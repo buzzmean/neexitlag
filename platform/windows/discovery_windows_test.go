@@ -68,3 +68,15 @@ func TestNativeUDPOwnerOfCurrentSocket(t *testing.T) {
 		t.Fatal("native identity", identity, e)
 	}
 }
+func TestNativeDualStackUDPOwner(t *testing.T) {
+	socket, e := net.ListenUDP("udp", nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer socket.Close()
+	source := netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), uint16(socket.LocalAddr().(*net.UDPAddr).Port))
+	pid, e := resolveUDPOwner(source)
+	if e != nil || pid != uint32(os.Getpid()) {
+		t.Fatal("native dual-stack owner", pid, e)
+	}
+}

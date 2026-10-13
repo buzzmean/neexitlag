@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"flag"
@@ -51,7 +52,13 @@ func main() {
 	seedRelayID := flag.String("seed-relay-id", "", "development relay registry seed ID")
 	seedRelayAddress := flag.String("seed-relay-address", "", "development relay registry seed address")
 	seedHeartbeatFile := flag.String("seed-heartbeat-token-file", "", "relay-specific heartbeat token seed file")
+	tlsCert := flag.String("tls-cert", "", "TLS server certificate; required for remote listener")
+	tlsKey := flag.String("tls-key", "", "TLS server private key")
 	flag.Parse()
+	if (*tlsCert == "") != (*tlsKey == "") {
+		slog.Error("both TLS certificate and key are required")
+		os.Exit(1)
+	}
 	fail := func(e error) { slog.Error("control plane startup failed", "error", e); os.Exit(1) }
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -133,7 +140,7 @@ func main() {
 	if e = api.Initialize(ctx); e != nil {
 		fail(e)
 	}
-	server := &http.Server{Addr: *addr, Handler: api.Handler(), ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 * 1024}
+	server := &http.Server{Addr: *addr, Handler: api.Handler(), ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 * 1024, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS13}}
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -143,7 +150,12 @@ func main() {
 		server.Shutdown(ctx)
 	}()
 	slog.Info("control plane listening", "address", *addr)
-	if e = server.ListenAndServe(); e != nil && e != http.ErrServerClosed {
+	if *tlsCert != "" {
+		e = server.ListenAndServeTLS(*tlsCert, *tlsKey)
+	} else {
+		e = server.ListenAndServe()
+	}
+	if e != nil && e != http.ErrServerClosed {
 		fail(e)
 	}
 }

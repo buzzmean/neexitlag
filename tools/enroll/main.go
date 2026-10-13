@@ -19,6 +19,7 @@ func main() {
 	dir := flag.String("state", ".dev/device", "device state directory")
 	name := flag.String("name", "Development device", "device name")
 	tokenFile := flag.String("admin-token-file", "", "bootstrap token file (or NEEXITLAG_ADMIN_TOKEN)")
+	ca := flag.String("ca", "", "explicit private TLS CA for control plane")
 	flag.Parse()
 	token := os.Getenv("NEEXITLAG_ADMIN_TOKEN")
 	if *tokenFile != "" {
@@ -35,6 +36,13 @@ func main() {
 		os.Exit(1)
 	}
 	client := controlclient.Client{BaseURL: *url, DeviceID: id.ID, DeviceKey: key}
+	if *ca != "" {
+		client.HTTP, e = controlclient.HTTPSClient(*ca)
+		if e != nil {
+			fmt.Fprintln(os.Stderr, e)
+			os.Exit(1)
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	cert, e := client.Register(ctx, *name, base64.RawURLEncoding.EncodeToString(key.Public().(ed25519.PublicKey)), token)

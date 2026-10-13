@@ -72,5 +72,5 @@ func IsCurrent(id ProcessIdentity) bool {
 	if e = windows.GetProcessTimes(h, &creation, &exit, &kernel, &user); e != nil {
 		return false
 	}
-	return uint64(creation.HighDateTime)<<32|uint64(creation.LowDateTime) == id.CreationTime
+	return exit.HighDateTime == 0 && exit.LowDateTime == 0 && (uint64(creation.HighDateTime)<<32|uint64(creation.LowDateTime)) == id.CreationTime
 }

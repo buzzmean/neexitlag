@@ -14,3 +14,5 @@ tests/desktop-bindings/obj/
 
 *.dll
 *.sys
+
+.e2e/

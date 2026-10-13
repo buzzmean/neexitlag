@@ -95,3 +95,27 @@ func TestServiceExclusionAndEvidence(t *testing.T) {
 		t.Fatal("evidence cleanup changed totals")
 	}
 }
+func TestIPv4OwnershipThroughDualStackAndCrossFamilyAmbiguity(t *testing.T) {
+	source := netip.MustParseAddrPort("192.0.2.9:55000")
+	b := make([]byte, 32)
+	binary.LittleEndian.PutUint32(b, 1)
+	binary.BigEndian.PutUint16(b[24:26], source.Port())
+	binary.LittleEndian.PutUint32(b[28:32], 42)
+	owners, e := udpOwners(b, source, true)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if pid, e := uniqueUDPOwner(owners); e != nil || pid != 42 {
+		t.Fatal("dual-stack wildcard owner", pid, e)
+	}
+	owners[43] = true
+	if _, e = uniqueUDPOwner(owners); e == nil {
+		t.Fatal("cross-family port ambiguity accepted")
+	}
+	ip := netip.MustParseAddr("::ffff:192.0.2.9").As16()
+	copy(b[4:20], ip[:])
+	owners, e = udpOwners(b, source, true)
+	if e != nil || !owners[42] {
+		t.Fatal("mapped IPv4 owner", owners, e)
+	}
+}

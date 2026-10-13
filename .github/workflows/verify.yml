@@ -39,4 +39,15 @@ jobs:
       - run: go build ./...
       - run: go test ./core/... ./platform/windows ./services/client-service
       - run: dotnet build apps/desktop/Neexitlag.Desktop.csproj --nologo
-      # No WinDivert binary or live interception is provisioned in this job.
+      - run: ./tools/windows/parse-scripts.ps1
+        shell: pwsh
+      - run: ./tools/windows/build-e2e.ps1
+        shell: pwsh
+      - run: ./tests/windows-tools/ipc-smoke.ps1
+        shell: pwsh
+      - run: go test ./tools/windows-test-client ./internal/e2eprobe ./tools/vps-provision
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-real-e2e-tools
+          path: bin/windows-e2e/
+      # These are unit/build checks, not live WinDivert or public-Internet acceptance.
