@@ -6,6 +6,20 @@ load and stability, and changes the route of **new flows** only when improvement
 survives hysteresis. Better Internet latency depends on your destination and relay
 placement; this project makes no throughput or Internet improvement claim.
 
+## Нативный Windows-клиент
+
+Русский WPF-клиент запускается отдельным `NeExitLag.exe` без прав администратора.
+Браузер не нужен; служба продолжает выполнять перехват и маршрутизацию.
+
+```powershell
+.\tools\windows\build-desktop.ps1
+.\bin\release\NeExitLag.exe
+```
+
+.NET SDK 8 требуется для сборки; опубликованный EXE включает runtime.
+[Интерфейс, IPC, сборка и ограничения](apps/desktop/README.md).
+Старый web demo предназначен для разработки и тестов.
+
 ## Architecture
 
 ```text

@@ -1,149 +1,168 @@
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Media;
-using System.Windows.Shapes;
 using System.Windows.Threading;
 using Microsoft.Win32;
 namespace Neexitlag.Desktop;
 public partial class MainWindow : Window
 {
-    private readonly ServiceClient client = new(); private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromSeconds(2) }; private Snapshot? snapshot; private bool busy; private string page = "Home";
+    readonly DesktopViewModel model = new(new WindowsServiceClient()); readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromSeconds(2) }; readonly CancellationTokenSource lifetime = new();
+    readonly LocalPreferences preferences = LocalPreferences.Load(); readonly System.Windows.Forms.NotifyIcon tray; readonly System.Drawing.Icon trayImage; bool exiting, settingsLoaded;
     public MainWindow()
     {
         InitializeComponent();
-        Launch.IsChecked = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run")?.GetValue("neexitlag") != null;
-        Loaded += async (_, _) => await Refresh();
+        DataContext = model;
+        Launch.IsChecked = LocalPreferences.AutoStart;
+        StartMinimized.IsChecked = preferences.StartMinimized;
+        MinimizeToTray.IsChecked = preferences.MinimizeToTray;
+        Channel.ItemsSource = new[] { new Choice("stable", Text.Get("Stable")), new Choice("preview", Text.Get("Preview")) };
+        Channel.SelectedValue = "stable";
+        Fallback.ItemsSource = new[] { new Choice("DIRECT", Text.Get("Direct")) };
+        Fallback.SelectedValue = "DIRECT";
+        using var iconStream = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/Assets/NeExitLag.ico"))!.Stream;
+        using var loadedIcon = new System.Drawing.Icon(iconStream);
+        trayImage = (System.Drawing.Icon)loadedIcon.Clone();
+        tray = new()
+        {
+            Icon = trayImage,
+            Text = "NeExitLag",
+            Visible = true
+        };
+        var menu = new System.Windows.Forms.ContextMenuStrip();
+        menu.Items.Add(Text.Get("OpenApp"), null, (_, _) => Dispatcher.Invoke(ShowFromTray));
+        var enable = menu.Items.Add(Text.Get("TrayEnable"), null, async (_, _) => await Execute(() => model.OptimizeAsync(true, lifetime.Token)));
+        var disable = menu.Items.Add(Text.Get("TrayDisable"), null, async (_, _) => await Execute(() => model.OptimizeAsync(false, lifetime.Token)));
+        menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+        menu.Items.Add(Text.Get("Exit"), null, (_, _) => Dispatcher.Invoke(Exit));
+        menu.Opening += (_, _) => { enable.Enabled = model.Available && !model.Busy && !model.Optimizing; disable.Enabled = model.Available && !model.Busy && model.Optimizing; };
+        tray.ContextMenuStrip = menu;
+        tray.DoubleClick += (_, _) => Dispatcher.Invoke(ShowFromTray);
+        Loaded += async (_, _) => { if (preferences.StartMinimized) Hide(); await Refresh(); };
         timer.Tick += async (_, _) => await Refresh();
         timer.Start();
-        Closed += (_, _) => timer.Stop();
+        Closing += OnClosing;
+        StateChanged += (_, _) => { if (WindowState == WindowState.Minimized && preferences.MinimizeToTray) Hide(); };
+        Closed += (_, _) => { timer.Stop(); lifetime.Cancel(); tray.Visible = false; tray.ContextMenuStrip?.Dispose(); tray.Dispose(); trayImage.Dispose(); System.Windows.Application.Current.Shutdown(); };
     }
-    private void Navigate(object sender, RoutedEventArgs e)
+    public void ShowFromTray()
     {
-        page = ((Button)sender).Tag.ToString()!;
-        PageTitle.Text = page;
-        foreach (var name in new[] { "Home", "Applications", "Routes", "Statistics", "Diagnostics", "Settings" })
-            ((FrameworkElement)FindName(name)).Visibility = name == page ? Visibility.Visible : Visibility.Collapsed;
+        Show();
+        if (WindowState == WindowState.Minimized)
+            WindowState = WindowState.Normal;
+        Activate();
     }
-    private async Task Refresh()
+    void Exit()
     {
-        if (busy)
-            return;
-        busy = true;
-        try
+        exiting = true;
+        Close();
+    }
+    void OnClosing(object? sender, CancelEventArgs e)
+    {
+        if (!exiting && preferences.MinimizeToTray && (model.Available || WindowsServiceClient.IsRunning()))
         {
-            var s = await client.Call<Snapshot>("status");
-            snapshot = s;
-            Connection.Text = s.connected ? s.demo ? "Connected · Local lab" : "Connected · Windows service" : "Disconnected";
-            Backend.Text = s.demo ? "Portable demo: real relay traffic, no Windows interception" : s.backend.ready ? "WinDivert active · IPv4 UDP · TCP / IPv6 DIRECT" : s.backend.error ?? "Capture backend unavailable; networking is DIRECT";
-            Primary.Text = s.Primary;
-            Standby.Text = $"Standby: {s.Secondary} / {s.Tertiary}";
-            Optimize.Content = s.optimizing ? "Pause optimization" : "Optimize";
-            var direct = s.routes.FirstOrDefault(r => r.id == "DIRECT");
-            var selected = s.routes.FirstOrDefault(r => r.id == s.Primary);
-            DirectRTT.Text = direct?.RTT ?? "—";
-            OptimizedRTT.Text = selected?.RTT ?? "—";
-            Jitter.Text = selected?.Jitter ?? "—";
-            Loss.Text = selected?.Loss ?? "—";
-            Traffic.Text = $"{s.rx_bytes:N0} / {s.tx_bytes:N0} B";
-            ActiveApps.Text = s.active_apps.Length == 0 ? "None" : string.Join(", ", s.active_apps);
-            if (page != "Applications" || AppGrid.SelectedItem == null)
-                AppGrid.ItemsSource = s.profiles;
-            RouteGrid.ItemsSource = s.routes;
-            if (page != "Settings")
-            {
-                Automatic.IsChecked = s.settings.GetProperty("automatic").GetBoolean();
-                Fallback.SelectedIndex = s.settings.GetProperty("failover").GetString() == "BLOCK" ? 1 : 0;
-                Channel.SelectedIndex = s.settings.GetProperty("update_channel").GetString() == "preview" ? 1 : 0;
-            }
-            Plot(s);
-            Error.Text = "";
+            e.Cancel = true;
+            Hide();
         }
-        catch (Exception e) { Connection.Text = "Disconnected"; Error.Text = e is OperationCanceledException ? "Service timeout: networking remains DIRECT." : e.Message; }
-        finally { busy = false; }
     }
-    private async Task Act(Func<Task> action)
+    async Task Execute(Func<Task> action)
     {
-        if (busy)
-            return;
-        busy = true;
         try
         {
             await action();
-            Error.Text = "";
         }
-        catch (Exception e) { Error.Text = e.Message; }
-        finally { busy = false; }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+        catch (Exception e) { model.SetUnavailable(e); }
     }
-    private async void ToggleOptimize(object sender, RoutedEventArgs e)
+    async Task Refresh()
     {
-        await Act(async () => { snapshot = await client.Call<Snapshot>("optimize", new { enabled = !(snapshot?.optimizing ?? false) }); });
-        await Refresh();
-    }
-    private async void AddApplication(object sender, RoutedEventArgs e)
-    {
-        var picker = new OpenFileDialog { Title = "Choose application executable", Filter = "Windows applications (*.exe)|*.exe", CheckFileExists = true };
-        if (picker.ShowDialog() != true)
-            return;
-        var profile = new Profile { id = "custom-" + Guid.NewGuid().ToString("N"), name = System.IO.Path.GetFileNameWithoutExtension(picker.FileName), executables = [picker.FileName], mode = "AUTO", custom = true };
-        await Act(async () => { AppGrid.ItemsSource = await client.Call<Profile[]>("profile.set", ProfileRequest(profile)); });
-    }
-    private static object ProfileRequest(Profile p) => new { p.id, p.name, p.executables, p.mode, p.relay_id, p.custom, p.publisher, p.signature_sha256, p.protocol_hints, p.port_hints };
-    private async void ApplyMode(object sender, RoutedEventArgs e)
-    {
-        if (AppGrid.SelectedItem is not Profile p)
-            return;
-        p.mode = ((ComboBoxItem)Mode.SelectedItem).Content.ToString()!;
-        if (p.mode == "MANUAL")
+        await Execute(() => model.RefreshAsync(lifetime.Token));
+        if (!settingsLoaded && model.Snapshot is { } snapshot)
         {
-            if (RouteGrid.SelectedItem is Route r && r.id != "DIRECT")
-                p.relay_id = r.id;
-            else
-                p.relay_id = snapshot?.routes.FirstOrDefault(r => r.id != "DIRECT" && r.status == "healthy")?.id;
-            if (p.relay_id == null)
+            LoadSettings(snapshot);
+            settingsLoaded = true;
+        }
+    }
+    void LoadSettings(Snapshot snapshot)
+    {
+        Automatic.IsChecked = snapshot.Settings.Automatic;
+        Channel.SelectedValue = snapshot.Settings.UpdateChannel;
+        Fallback.ItemsSource = snapshot.Backend.Capabilities.Tcp ? new[] { new Choice("DIRECT", Text.Get("Direct")), new Choice("BLOCK", Text.Get("Block")) } : new[] { new Choice("DIRECT", Text.Get("Direct")) };
+        Fallback.SelectedValue = snapshot.Settings.Failover == "BLOCK" && snapshot.Backend.Capabilities.Tcp ? "BLOCK" : "DIRECT";
+    }
+    void Navigate(object sender, RoutedEventArgs e)
+    {
+        string page = (string)((Button)sender).Tag;
+        PageTitle.Text = Text.Get(page);
+        foreach (string name in new[] { "Home", "Applications", "Routes", "Statistics", "Diagnostics", "Settings" })
+            ((FrameworkElement)FindName(name)).Visibility = name == page ? Visibility.Visible : Visibility.Collapsed;
+        if (page == "Settings" && model.Snapshot is { } snapshot)
+            LoadSettings(snapshot);
+    }
+    async void Reconnect(object sender, RoutedEventArgs e) => await Refresh();
+    async void ToggleOptimize(object sender, RoutedEventArgs e) => await Execute(() => model.OptimizeAsync(!model.Optimizing, lifetime.Token));
+    async void AddApplication(object sender, RoutedEventArgs e)
+    {
+        var picker = new OpenFileDialog { Title = Text.Get("ChooseExecutable"), Filter = Text.Get("ExecutableFilter"), CheckFileExists = true, Multiselect = false };
+        if (picker.ShowDialog(this) == true)
+            await Execute(async () => { await model.AddApplicationAsync(picker.FileName, lifetime.Token); });
+    }
+    void ApplicationSelected(object sender, SelectionChangedEventArgs e)
+    {
+        if (AppGrid.SelectedItem is ApplicationRow row)
+        {
+            Mode.SelectedValue = row.Profile.Mode;
+            RelayChoice.SelectedValue = row.Profile.RelayId;
+        }
+    }
+    void ModeChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (RelayChoice is not null)
+            RelayChoice.IsEnabled = (string?)Mode.SelectedValue == "MANUAL";
+    }
+    async void ApplyMode(object sender, RoutedEventArgs e)
+    {
+        if (AppGrid.SelectedItem is not ApplicationRow row)
+        {
+            ShowMessage("SelectApplication");
+            return;
+        }
+        await Execute(async () => { await model.SetProfileAsync(row.Profile, (string?)Mode.SelectedValue ?? "AUTO", (string?)RelayChoice.SelectedValue, lifetime.Token); });
+    }
+    async void DeleteApplication(object sender, RoutedEventArgs e)
+    {
+        if (AppGrid.SelectedItem is not ApplicationRow row)
+        {
+            ShowMessage("SelectApplication");
+            return;
+        }
+        if (!row.Profile.Custom)
+        {
+            ShowMessage("DefaultProfile");
+            return;
+        }
+        if (PromptWindow.Show(this, "DeleteConfirm", true))
+            await Execute(() => model.DeleteApplicationAsync(row.Profile, lifetime.Token));
+    }
+    async void RunDiagnostics(object sender, RoutedEventArgs e) => await Execute(() => model.DiagnoseAsync(lifetime.Token));
+    async void SaveSettings(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (model.Available && !await model.SaveServiceSettingsAsync(new()
             {
-                Error.Text = "Choose an available relay before using MANUAL mode.";
+                Automatic = Automatic.IsChecked == true,
+                Failover = (string?)Fallback.SelectedValue ?? "DIRECT",
+                UpdateChannel = (string?)Channel.SelectedValue ?? "stable"
+            }, lifetime.Token))
                 return;
-            }
+            LocalPreferences.SetAutoStart(Launch.IsChecked == true);
+            preferences.StartMinimized = StartMinimized.IsChecked == true;
+            preferences.MinimizeToTray = MinimizeToTray.IsChecked == true;
+            preferences.Save();
+            ShowMessage(model.Available ? "SettingsSaved" : "LocalSettingsSaved");
         }
-        await Act(async () => { AppGrid.ItemsSource = await client.Call<Profile[]>("profile.set", ProfileRequest(p)); });
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+        catch { ShowMessage("SettingsFailed"); }
     }
-    private async void RunDiagnostics(object sender, RoutedEventArgs e)
-    {
-        await Act(async () => { Checks.ItemsSource = await client.Call<Check[]>("diagnostics"); });
-    }
-    private async void SaveSettings(object sender, RoutedEventArgs e)
-    {
-        await Act(async () => { await client.Call<System.Text.Json.JsonElement>("settings.set", new { automatic = Automatic.IsChecked == true, failover = ((ComboBoxItem)Fallback.SelectedItem).Content.ToString(), update_channel = ((ComboBoxItem)Channel.SelectedItem).Content.ToString() }); using var run = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run"); if (Launch.IsChecked == true && Environment.ProcessPath is string path) run.SetValue("neexitlag", '"' + path + '"'); else run.DeleteValue("neexitlag", false); });
-    }
-    private void Plot(Snapshot s)
-    {
-        Chart.Children.Clear();
-        if (!s.history.TryGetProperty("measurements", out var measurements) || measurements.ValueKind != System.Text.Json.JsonValueKind.Array)
-            return;
-        MeasurementGrid.ItemsSource = measurements.EnumerateArray().TakeLast(16).Reverse().Select(x => new {
-            Time = x.GetProperty("observed_at").GetDateTime().ToLocalTime().ToString("T"),
-            Route = x.GetProperty("route_id").GetString(),
-            RTT = x.GetProperty("available").GetBoolean() ? $"{x.GetProperty("rtt").GetDouble() / 1e6:F1} ms" : "—",
-            Jitter = $"{x.GetProperty("jitter").GetDouble() / 1e6:F1} ms",
-            Loss = $"{x.GetProperty("loss").GetDouble():P1}"
-        }).ToArray();
-        var all = measurements.EnumerateArray().Where(x => x.GetProperty("available").GetBoolean()).ToArray();
-        double width = Math.Max(600, Chart.ActualWidth), max = Math.Max(1, all.Select(x => x.GetProperty("rtt").GetDouble() / 1e6).DefaultIfEmpty(1).Max());
-        var ids = all.Select(x => x.GetProperty("route_id").GetString()).Distinct().ToArray();
-        Color[] colors = [Color.FromRgb(183, 244, 110), Color.FromRgb(112, 183, 255), Color.FromRgb(244, 185, 110), Color.FromRgb(181, 148, 239)];
-        for (int n = 0; n < ids.Length; n++)
-        {
-            var points = all.Where(x => x.GetProperty("route_id").GetString() == ids[n]).ToArray();
-            var line = new Polyline { Stroke = new SolidColorBrush(colors[n % colors.Length]), StrokeThickness = 2 };
-            for (int i = 0; i < points.Length; i++)
-                line.Points.Add(new Point(20 + (width - 40) * i / Math.Max(1, points.Length - 1), 200 - 170 * (points[i].GetProperty("rtt").GetDouble() / 1e6) / max));
-            Chart.Children.Add(line);
-            var label = new TextBlock { Text = ids[n], Foreground = line.Stroke };
-            Canvas.SetLeft(label, 20 + n * 150);
-            Canvas.SetTop(label, 5);
-            Chart.Children.Add(label);
-        }
-        if (s.history.TryGetProperty("changes", out var changes) && changes.ValueKind == System.Text.Json.JsonValueKind.Array)
-            Changes.ItemsSource = changes.EnumerateArray().Select(c => $"{c.GetProperty("At").GetDateTime():T}  {c.GetProperty("From").GetString()} → {c.GetProperty("To").GetString()}").ToArray();
-    }
+    void ShowMessage(string key) => PromptWindow.Show(this, key, false);
 }

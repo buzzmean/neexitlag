@@ -107,6 +107,7 @@ func (c *Controller) ConnectRemote(ctx context.Context, m Manifest) error {
 			return e
 		}
 	}
+	c.DiagnosticHTTPClient = cp.HTTP
 	c.ControlPlaneURL = m.ControlPlaneURL
 	c.TCPDiagnosticTarget = m.TCPProbeTarget
 	target, e := netip.ParseAddrPort(m.ProbeTarget)

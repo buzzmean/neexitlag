@@ -22,7 +22,8 @@ func TestRealEchoAndCancellation(t *testing.T) {
 	e := New(Settings{Samples: 3, Timeout: 100 * time.Millisecond, Spacing: 20 * time.Millisecond, Concurrency: 1})
 	c := Candidate{Metadata: optimizer.RelayCandidate{ID: optimizer.Direct}, Target: netip.MustParseAddrPort(a.String()), Open: OpenDirect}
 	m := e.Probe(context.Background(), c)
-	if !m.Available || m.Loss != 0 || m.RTT <= 0 || m.Samples != 3 {
+	// Windows loopback may complete within a single clock tick; preserve measured zero.
+	if !m.Available || m.Loss != 0 || m.RTT < 0 || m.Samples != 3 {
 		t.Fatal(m)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
