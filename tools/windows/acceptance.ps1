@@ -9,31 +9,35 @@ param(
 )
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
+. (Join-Path $PSScriptRoot 'acceptance-checks.ps1')
 $results=[Collections.Generic.List[object]]::new()
 $children=[Collections.Generic.List[object]]::new()
 $run=[Guid]::NewGuid().ToString('N')
-$selectedId='e2e-selected-'+$run;$controlId='e2e-control-'+$run
-$originalSettings=$null;$originalManifest=$null;$originalOptimizing=$null;$remoteRelayStopped=$false;$remoteCPStopped=$false
+$selectedId='!e2e-selected-'+$run;$controlId='!e2e-control-'+$run
+$originalSettings=$null;$originalManifest=$null;$originalOptimizing=$null;$remoteRelayStopped=$false;$remoteCPStopped=$false;$profileMode='MANUAL'
 function Stage([string]$Name,[scriptblock]$Body){
  try {$data=& $Body;$results.Add([pscustomobject]@{name=$Name;status='PASS';data=$data});Write-Host "PASS $Name";return $true}
- catch {$results.Add([pscustomobject]@{name=$Name;status='FAIL';error=$_.Exception.Message});Write-Host "FAIL $Name : $($_.Exception.Message)";return $false}
+ catch {$message=$_.Exception.Message;$diagnostics=Save-Diagnostics $Name;$results.Add([pscustomobject]@{name=$Name;status='FAIL';error=$message;diagnostics=$diagnostics});Write-Host "FAIL $Name : $message";return $false}
 }
 function Ensure([bool]$Condition,[string]$Message){if(!$Condition){throw $Message}}
 function Save-UTF8([string]$Path,[string]$Text){[IO.File]::WriteAllText($Path,$Text,[Text.UTF8Encoding]::new($false))}
-function Profile([string]$Mode){$payload=@{id=$selectedId;name='Real E2E selected process';executables=@($game);mode=$Mode;custom=$true};if($Mode -eq 'MANUAL'){$payload.relay_id='VPS-01'};[void](Invoke-ServiceIPC 'profile.set' $payload)}
-function Launch([string]$Exe,[string]$Label,[int]$Count=100){
+function Profile([string]$Mode){$script:profileMode=$Mode;$payload=@{id=$selectedId;name='Real E2E selected process';executables=@($game);mode=$Mode;custom=$true};if($Mode -eq 'MANUAL'){$payload.relay_id='VPS-01'};[void](Invoke-ServiceIPC 'profile.set' $payload)}
+function Launch([string]$Exe,[string]$Label,[int]$Count=100,[int]$Warmup=0){
  $path=Join-Path $ReportDirectory "$run-$Label.json"
  $token=Join-Path $Bundle 'windows\echo.token'
- $args="-target ${VpsPublicIP}:40000 -token-file `"$token`" -count $Count -interval 100ms -timeout 1s -quiet -report `"$path`""
+ $args="-target ${VpsPublicIP}:40000 -token-file `"$token`" -count $Count -warmup-count $Warmup -interval 200ms -timeout 3s -quiet -report `"$path`""
  $proc=Start-Process -FilePath $Exe -ArgumentList $args -PassThru -RedirectStandardOutput ($path+'.stdout') -RedirectStandardError ($path+'.stderr')
- $value=[pscustomobject]@{process=$proc;report=$path;exe=$Exe};$children.Add($value);return $value
+ $value=[pscustomobject]@{process=$proc;report=$path;exe=$Exe;timeout_ms=(($Count+$Warmup)*200+15000)};$children.Add($value);return $value
 }
 function Complete($Client){
- if(!$Client.process.WaitForExit(35000)){Stop-Process -Id $Client.process.Id -ErrorAction SilentlyContinue;throw 'Test client timeout'}
- $Client.process.Refresh();Ensure ($Client.process.ExitCode -eq 0) 'Client received no authenticated echo replies or failed'
- $data=Get-Content $Client.report -Raw|ConvertFrom-Json
+ if(!$Client.process.WaitForExit($Client.timeout_ms)){Stop-Process -Id $Client.process.Id -ErrorAction SilentlyContinue;throw 'Test client timeout'}
+ $Client.process.Refresh()
+ Ensure (Test-Path $Client.report) 'Client produced no report; inspect stdout/stderr'
+ $raw=Get-Content $Client.report -Raw|ConvertFrom-Json
+ if($Client.process.ExitCode -ne 0){throw "Client failed: $($raw.error); report/stdout/stderr retained at $($Client.report)"}
+ $data=$raw
  Ensure ($data.pid -eq $Client.process.Id -and $data.creation_time -gt 0 -and $data.exe -ieq $Client.exe) 'Client did not report its real Windows identity'
- Ensure ($data.Sent -gt 0 -and $data.Received -gt 0 -and $data.Loss -le 0.1) 'Echo loss exceeds the acceptance limit (10%)'
+ Assert-AcceptanceLoss $data
  return $data
 }
 function Evidence($Client){return Invoke-ServiceIPC 'capture.diagnostics' @{pid=$Client.process.Id}}
@@ -42,11 +46,30 @@ function Restart-Local {
  (Get-Service neexitlag).WaitForStatus('Running',[TimeSpan]::FromSeconds(30))
 }
 function Control-Proof([string]$Label){$client=Launch $control $Label;$data=Complete $client;Ensure (@($data.observed_sources).Count -gt 0 -and $data.observed_sources -notcontains $relayEgress) 'Control source is indistinguishable from relay source';return $data}
-function Wait-Relay {
- $deadline=[DateTime]::UtcNow.AddSeconds(45)
- do {$snapshot=Invoke-ServiceIPC 'status';if(@($snapshot.routes|Where-Object{$_.id -eq 'VPS-01' -and $_.status -eq 'healthy'}).Count -gt 0){return $snapshot};Start-Sleep -Milliseconds 500}while([DateTime]::UtcNow -lt $deadline)
- throw 'Authenticated relay echo path is not healthy; check UDP firewall, certificate and ticket configuration'
+function Save-Diagnostics([string]$Label) {
+ $path=Join-Path $ReportDirectory ("$run-"+($Label -replace '[^a-zA-Z0-9-]','_')+'-diagnostics.json')
+ $capture=@();$snapshot=$null;$errors=@()
+ try {$snapshot=Invoke-ServiceIPC 'status'}catch{$errors+="status: $($_.Exception.Message)"}
+ foreach($child in $children){
+  $entry=@{pid=$child.process.Id;exe=$child.exe;report=$child.report;stdout=($child.report+'.stdout');stderr=($child.report+'.stderr');capture=$null}
+  try {$entry.capture=Evidence $child}catch{$errors+="PID $($child.process.Id): $($_.Exception.Message)"}
+  $capture+=$entry
+ }
+ try {Save-UTF8 $path (@{status=$snapshot;clients=$capture;diagnostic_errors=$errors}|ConvertTo-Json -Depth 18);return $path}catch{return "Diagnostic persistence failed: $($_.Exception.Message)"}
 }
+function Wait-Relay {
+ $deadline=[DateTime]::UtcNow.AddSeconds(60);$stable=0;$lastError=''
+ do {
+  try {
+   $snapshot=Invoke-ServiceIPC 'status'
+   if(Test-AcceptanceReady $snapshot $game $control $selectedId $controlId $profileMode){$stable++}else{$stable=0}
+   if($stable -ge 3){return $snapshot}
+  }catch{$stable=0;$lastError=$_.Exception.Message}
+  Start-Sleep -Milliseconds 500
+ }while([DateTime]::UtcNow -lt $deadline)
+ throw "Profile/capture/relay readiness timeout: $lastError (inspect persisted status, competing profiles and capture diagnostics)"
+}
+
 try {
  New-Item -ItemType Directory -Force $ReportDirectory|Out-Null
  $prereq=Stage 'Prerequisites' {
@@ -66,7 +89,6 @@ try {
   $snapshot=Invoke-ServiceIPC 'status';$script:originalSettings=$snapshot.settings;$script:originalOptimizing=$snapshot.optimizing
   [void](Invoke-ServiceIPC 'settings.set' @{automatic=$true;failover='DIRECT';update_channel=$snapshot.settings.update_channel})
   [void](Invoke-ServiceIPC 'optimize' @{enabled=$true})
-  Ensure (Invoke-ServiceIPC 'status').backend.ready 'Capture failed to start'
   [void](Invoke-ServiceIPC 'profile.set' @{id=$controlId;name='Real E2E direct control';executables=@($control);mode='DIRECT';custom=$true})
   Profile 'MANUAL'
   $script:routesBefore=Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0'|Select-Object InterfaceIndex,NextHop,RouteMetric|Sort-Object InterfaceIndex,NextHop|ConvertTo-Json -Compress
@@ -79,29 +101,23 @@ try {
  }
  if(!$prereq){throw 'Prerequisites failed; real Windows E2E was not exercised'}
  # Both are ordinary UDP programs running concurrently on this PC.
- $a=Launch $game 'selected';$b=Launch $control 'direct'
+ $a=Launch $game 'selected' 100 10;$b=Launch $control 'direct' 100 10
  $dataA=$null;$dataB=$null;$proofA=$null;$proofB=$null
  [void](Stage 'A selected.exe RELAY' {
   $script:dataA=Complete $a;$script:proofA=Evidence $a
-  $flows=@($proofA.flows|Where-Object{$_.creation_time -eq $dataA.creation_time -and $_.exe -ieq $game -and $_.destination -eq "${VpsPublicIP}:40000"})
-  Ensure (@($dataA.observed_sources).Count -eq 1 -and $dataA.observed_sources -contains $relayEgress) 'Echo did not observe VPS relay egress'
-  Ensure (($flows|ForEach-Object {$_.counters.relayed_packets}|Measure-Object -Sum).Sum -gt 0) 'No actual selected-process relayed packet counters'
-  Ensure (($flows|ForEach-Object {$_.counters.relay_reply_packets}|Measure-Object -Sum).Sum -gt 0) 'No actual selected-process reply reinjection counters'
-  @{client=$dataA;capture=$proofA;binary_sha256=(Get-FileHash $game -Algorithm SHA256).Hash}
+  $counts=Assert-AcceptanceRoute $dataA $proofA $game "${VpsPublicIP}:40000" 'RELAY' $relayEgress
+  @{client=$dataA;capture=$proofA;verified_counters=$counts;binary_sha256=(Get-FileHash $game -Algorithm SHA256).Hash}
  })
  [void](Stage 'B control-client.exe DIRECT' {
   $script:dataB=Complete $b;$script:proofB=Evidence $b
-  $flows=@($proofB.flows|Where-Object{$_.creation_time -eq $dataB.creation_time -and $_.exe -ieq $control})
-  Ensure (@($dataB.observed_sources).Count -eq 1 -and $dataB.observed_sources -notcontains $relayEgress) 'Echo did not distinguish control source from relay'
-  Ensure (($flows|ForEach-Object {$_.counters.direct_packets}|Measure-Object -Sum).Sum -gt 0) 'No actual control-process DIRECT counters'
-  Ensure (($flows|ForEach-Object {$_.counters.relayed_packets}|Measure-Object -Sum).Sum -eq 0) 'Control process was relayed'
-  @{client=$dataB;capture=$proofB;binary_sha256=(Get-FileHash $control -Algorithm SHA256).Hash}
+  $counts=Assert-AcceptanceRoute $dataB $proofB $control "${VpsPublicIP}:40000" 'DIRECT' $relayEgress
+  @{client=$dataB;capture=$proofB;verified_counters=$counts;binary_sha256=(Get-FileHash $control -Algorithm SHA256).Hash}
  })
  [void](Stage 'C simultaneous selected/control' {
   Ensure ($null -ne $dataA -and $null -ne $dataB) 'Prior traffic reports missing'
-  Ensure (($results|Where-Object{$_.name -like 'A *' -or $_.name -like 'B *'}|Where-Object{$_.status -ne 'PASS'}).Count -eq 0) 'A/B route proof failed'
-  Ensure ($a.process.StartTime -lt $b.process.ExitTime -and $b.process.StartTime -lt $a.process.ExitTime) 'Process lifetimes did not overlap'
-  @{selected_pid=$dataA.pid;direct_pid=$dataB.pid;overlap=$true}
+  Ensure (@($results|Where-Object{$_.name -like 'A *' -or $_.name -like 'B *'}|Where-Object{$_.status -ne 'PASS'}).Count -eq 0) 'A/B route proof failed'
+  Assert-AcceptanceOverlap $dataA $dataB
+  @{selected_pid=$dataA.pid;direct_pid=$dataB.pid;overlap=$true;selected_start=$dataA.measurement_started;selected_end=$dataA.measurement_finished;direct_start=$dataB.measurement_started;direct_end=$dataB.measurement_finished}
  })
  [void](Stage 'F service transport loop prevention' {
   $servicePID=(Get-CimInstance Win32_Service -Filter "Name='neexitlag'").ProcessId
@@ -131,11 +147,12 @@ try {
  })
  if($remoteRelayStopped){Invoke-VpsCommand $VpsPublicIP $SSHUser $SSHPort 'sudo -n systemctl start neexitlag-relay';$remoteRelayStopped=$false;Restart-Local;[void](Wait-Relay)}
  Profile 'MANUAL'
+ [void](Wait-Relay)
  [void](Stage 'Config outage valid LKG and ordinary networking' {
   $script:remoteCPStopped=$true
   Invoke-VpsCommand $VpsPublicIP $SSHUser $SSHPort 'sudo -n systemctl stop neexitlag-control-plane && ! sudo -n systemctl is-active --quiet neexitlag-control-plane'
   # Existing authenticated relay session is independent of control-plane forwarding.
-  $selected=Launch $game 'cp-outage-selected';$ctrl=Launch $control 'cp-outage-control'
+  $selected=Launch $game 'cp-outage-selected' 100 10;$ctrl=Launch $control 'cp-outage-control' 100 10
   $selectedData=Complete $selected;$directData=Complete $ctrl
   Ensure ($selectedData.observed_sources -contains $relayEgress) 'Existing authenticated session did not survive CP outage'
   Ensure ($directData.observed_sources -notcontains $relayEgress) 'Ordinary networking broke during CP outage'
@@ -176,7 +193,7 @@ try {
   Ensure ($after -eq $routesBefore) 'Default routes changed during acceptance; inspect network configuration'
   $after
  })
-} catch {$results.Add([pscustomobject]@{name='Execution';status='FAIL';error=$_.Exception.Message})}
+} catch {$message=$_.Exception.Message;$diagnostics=Save-Diagnostics 'Execution';$results.Add([pscustomobject]@{name='Execution';status='FAIL';error=$message;diagnostics=$diagnostics})}
 finally {
  foreach($child in $children){if(!$child.process.HasExited){Stop-Process -Id $child.process.Id -ErrorAction SilentlyContinue}}
  try {
@@ -189,7 +206,7 @@ finally {
   if(@($results|Where-Object{$_.name -eq $required}).Count -eq 0){$results.Add([pscustomobject]@{name=$required;status='FAIL';error='NOT RUN due to failed prerequisite or execution error'});Write-Host "FAIL $required : NOT RUN"}
  }
  $passed=@($results|Where-Object{$_.status -ne 'PASS'}).Count -eq 0
- $report=[ordered]@{schema=1;run_id=$run;generated_at=[DateTimeOffset]::UtcNow.ToString('o');real_windows=($env:OS -eq 'Windows_NT');real_public_internet=(@($results|Where-Object{($_.name -like 'A *' -or $_.name -like 'B *') -and $_.status -eq 'PASS'}).Count -eq 2);synthetic_impairment=$false;overall=$(if($passed){'PASS'}else{'FAIL'});vps_public_ip=$VpsPublicIP;tests=$results.ToArray()}
+ $report=[ordered]@{schema=1;run_id=$run;generated_at=[DateTimeOffset]::UtcNow.ToString('o');real_windows=($env:OS -eq 'Windows_NT');real_public_internet=(@($results|Where-Object{($_.name -like 'A *' -or $_.name -like 'B *') -and $_.status -eq 'PASS'}).Count -eq 2);synthetic_impairment=$false;overall=$(if($passed){'PASS'}else{'FAIL'});vps_public_ip=$VpsPublicIP;artifacts=@($children|ForEach-Object {@{pid=$_.process.Id;exe=$_.exe;report=$_.report;stdout=($_.report+'.stdout');stderr=($_.report+'.stderr')}});tests=$results.ToArray()}
  $path=Join-Path $ReportDirectory "$run-acceptance.json"
  New-Item -ItemType Directory -Force $ReportDirectory|Out-Null
  Save-UTF8 $path ($report|ConvertTo-Json -Depth 14)

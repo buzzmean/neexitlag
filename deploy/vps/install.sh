@@ -7,7 +7,7 @@ vps_public_ip=${2:?actual public IPv4 required}
 [[ $vps_public_ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
 [[ ! -e /etc/neexitlag ]] || { echo 'Existing deployment detected; refusing to overwrite identities.' >&2; exit 1; }
 apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql ca-certificates curl
+DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql ca-certificates curl python3
 systemctl enable --now postgresql
 for role in relay control echo; do
  id "neexitlag-$role" >/dev/null 2>&1 || useradd --system --user-group --home /var/lib/neexitlag --shell /usr/sbin/nologin "neexitlag-$role"
@@ -29,14 +29,10 @@ chmod 0644 /etc/neexitlag/public/relay.env
 # Password is supplied to psql through a private temporary file, never argv/stdout.
 db_sql=$(mktemp /tmp/neexitlag-db.XXXXXX)
 trap 'rm -f "$db_sql"' EXIT
-{
- printf 'CREATE ROLE neexitlag LOGIN PASSWORD '\'''
- tr -d '\r\n' < /etc/neexitlag/control/database.password
- printf '\'';\nCREATE DATABASE neexitlag OWNER neexitlag;\n'
-} > "$db_sql"
+python3 "$bundle_dir/units/database-sql.py" /etc/neexitlag/control/database.password > "$db_sql"
 chown postgres:postgres "$db_sql"
 chmod 0600 "$db_sql"
-runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -f "$db_sql" >/dev/null
+runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -f "$db_sql" >/dev/null 2>&1 || { echo 'Database provisioning failed (private SQL suppressed).' >&2; exit 1; }
 install -m 0644 "$bundle_dir"/units/*.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now neexitlag-control-plane neexitlag-echo neexitlag-relay

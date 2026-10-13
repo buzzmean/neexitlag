@@ -49,3 +49,11 @@ function Invoke-VpsCommand([string]$Address,[string]$User,[int]$Port,[string]$Co
  & ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -p $Port "$User@$Address" $Command
  if($LASTEXITCODE -ne 0){throw 'SSH command failed; configure key/agent, verified known_hosts and noninteractive sudo.'}
 }
+
+# Normalize only staged deployment source, never binary or credential files.
+function Convert-DeploymentToLF([string]$Directory) {
+ foreach($file in Get-ChildItem $Directory -Recurse -File | Where-Object {$_.Extension -in @('.sh','.py','.service')}) {
+  $text=[IO.File]::ReadAllText($file.FullName).Replace("`r`n","`n").Replace("`r","`n")
+  [IO.File]::WriteAllText($file.FullName,$text,[Text.UTF8Encoding]::new($false))
+ }
+}

@@ -1,8 +1,12 @@
 # Real Windows / public-Internet acceptance
 
-**Status: READY FOR VPS. Actual Windows capture and Internet acceptance have not
-been performed.** Cloud has no Windows runtime, public VPS address, SSH binding or
-permitted VPS TCP destination. A successful build or local lab is not acceptance.
+**Status: manual simultaneous Windows DIRECT/RELAY E2E confirmed by the operator.**
+The operator reports test-game.exe: 30 captured, 30 relayed, 0 direct, 27 relay
+replies, RELAY/VPS-01, echo source = VPS public IP; concurrently control-client.exe:
+30 captured, 0 relayed, 30 direct, 30 replies, DIRECT, echo source = client public IP.
+These are operator-reported real results, not a cloud execution. The revised
+automated acceptance still needs its Windows/VPS rerun. Cloud has no Windows
+runtime, VPS address or SSH binding; local regression checks do not replace it.
 Phase 0–6 checkpoint fa7cdc1 is preserved; pre-work checkpoint is 80eef79.
 
 This stage changes Windows IPv4 UDP capture/discovery, diagnostics, ordinary test
@@ -60,6 +64,47 @@ The public echo endpoint must also be reachable from the VPS itself. Acceptance
 measures actual VPS echo egress rather than guessing its source IP, accommodating
 provider NAT when public-IP hairpin works. Unsupported hairpin produces a clear
 failure; it is not treated as route proof.
+
+## Rerun on the already installed Windows/VPS pair
+
+Use elevated PowerShell from the repository root, retaining the existing private
+`.e2e/bundle`, service installation and actual `$VPS_PUBLIC_IP`, `$SSH_USER`,
+`$SSH_PORT` values. Rebuild the test executables: the new acceptance requires the
+new warm-up flag. No service reinstall or manual script editing is required.
+
+```powershell
+git pull --ff-only origin codex/windows-real-e2e
+.\tools\windows\build-e2e.ps1
+.\tools\windows\acceptance.ps1 -VpsPublicIP $VPS_PUBLIC_IP -SSHUser $SSH_USER -SSHPort $SSH_PORT
+```
+
+Acceptance waits up to 60 seconds for optimizing/capture, the effective temporary
+profiles and a healthy relay, requiring three stable snapshots. The concurrent
+route proof uses 10 unmeasured warm-up datagrams on the **same PID and UDP socket**,
+then 100 measured datagrams at 200ms intervals with 3 seconds final reply grace.
+Separate run nonces exclude late warm-up replies from measured statistics.
+Warm-up counts/loss remain visible in the reports; measured loss above 10% fails,
+and measured traffic is never retried to obtain a pass. Capture counters include
+warm-up; exclusive DIRECT/RELAY assertions apply to all captured test traffic.
+Actual measured send windows must overlap, not just process lifetimes.
+
+A and B independently require the exact PID/creation time/path/destination,
+`observed_sources`, `selected_route`, `relay_id`, `captured_packets`,
+`relayed_packets`, `direct_packets`, and `relay_reply_packets`. Truncated capture
+proof fails. Existing profiles are retained; temporary profiles have priority and
+the readiness check verifies they are effective before sending traffic.
+
+Reports live under `.e2e/reports/<run>-*`: each child has JSON, `.stdout` and
+`.stderr`; each failed stage saves status and per-PID capture diagnostics before
+restoration. IPC errors are recorded if the service is unavailable. The final
+report links child artifacts even when a client returns zero replies. Existing
+fault/failover stages remain strict: a naturally DIRECT AUTO winner is still
+NOT EXERCISED, so the full suite can fail even when A/B/C pass.
+
+For fresh deployments `.gitattributes` forces LF for shell/Python/systemd files;
+setup also normalizes only staged deployment source, protecting older CRLF
+checkouts without modifying credentials/binaries. SQL uses explicit standard
+strings and doubled apostrophes; password input and generated SQL stay private.
 
 ## Evidence and acceptance results
 

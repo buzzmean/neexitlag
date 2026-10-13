@@ -1,7 +1,10 @@
 # Windows E2E preparation: cloud verification
 
 Linux x64, Go1.25.1, PowerShell7.4.6, actual PostgreSQL17.
-No real Windows runtime or operator VPS was available. Status: **READY FOR VPS**.
+No real Windows runtime or operator VPS was available **in cloud**. The operator
+has since confirmed manual simultaneous per-process DIRECT/RELAY on Windows;
+see [reported evidence and exact rerun](WINDOWS_REAL_E2E.md). The updated automated
+suite has not been executed against that Windows/VPS pair here.
 
 | Check | Result / actual scope |
 |---|---|
@@ -42,3 +45,29 @@ three scenarios subsequently passed. The new service-LKG integration fixture
 initially checked an uninitialized helper cache; it now loads and checks the
 actual signed cache persisted by the service. These were resolved before the
 final regression. No saved report is represented as a Windows runtime PASS.
+
+## Deployment / acceptance reproducibility fixes
+
+The full Go race suite with PostgreSQL17, go vet and Windows amd64 cross-build
+passed again after these fixes. Actual build-e2e.ps1, PowerShell parsing and the
+existing framed-IPC round-trip/rejection/timeout fixtures passed.
+
+Additional regression checks:
+
+- Python deployment tests: core.autocrlf=true checkout still produces LF shell,
+  Python and systemd source; bash -n passes on the exported installer. Password
+  generation preserves quotes, backslashes, injection-shaped text and newlines.
+- Actual PostgreSQL: execute generated SET/CREATE ROLE/CREATE DATABASE and then
+  authenticate with the exact password for five special-character cases.
+- Actual loopback UDP socket: retain the same source socket across warm-up and
+  measurement; discard late warm-up nonce replies; deliberately lost measured
+  packets remain in measured loss.
+- PowerShell regression fixtures: reject wrong routes, relay IDs, counters,
+  recycled PID creation times, truncated proof and excess/inconsistent loss;
+  retry transient startup IPC and require three stable readiness snapshots;
+  retain status/capture/report/stdout/stderr for zero-reply failures and client
+  artifact paths even when IPC is unavailable; reject nonoverlapping measured
+  windows. Staged CRLF source is normalized while binary bytes are unchanged.
+
+These tests exercise the published functions, SQL generator and ordinary socket
+client; they do not create a real Windows PASS report. No GUI changes were made.

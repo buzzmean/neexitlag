@@ -28,18 +28,44 @@ type Report struct {
 	Run                   string `json:"run_id"`
 	Sent, Received        uint64
 	RTTMS, JitterMS, Loss float64
-	ObservedSources       []string `json:"observed_sources"`
-	Error                 string   `json:"error,omitempty"`
+	ObservedSources       []string  `json:"observed_sources"`
+	MeasurementStarted    time.Time `json:"measurement_started"`
+	MeasurementFinished   time.Time `json:"measurement_finished"`
+	Warmup                *Report   `json:"warmup,omitempty"`
+	Error                 string    `json:"error,omitempty"`
 }
 
 func run(target netip.AddrPort, key []byte, count int, interval, timeout time.Duration, quiet bool) (Report, error) {
+	return runWithWarmup(target, key, count, 0, interval, timeout, quiet)
+}
+
+func runWithWarmup(target netip.AddrPort, key []byte, count, warmup int, interval, timeout time.Duration, quiet bool) (Report, error) {
+	conn, e := net.DialUDP("udp4", nil, net.UDPAddrFromAddrPort(target))
+	if e != nil {
+		return Report{}, e
+	}
+	defer conn.Close()
+	var warm *Report
+	if warmup > 0 {
+		w, err := runPhase(conn, target, key, warmup, interval, timeout, quiet)
+		warm = &w
+		if err != nil {
+			return Report{Warmup: warm}, fmt.Errorf("warm-up: %w", err)
+		}
+	}
+	r, err := runPhase(conn, target, key, count, interval, timeout, quiet)
+	r.Warmup = warm
+	return r, err
+}
+
+func runPhase(conn *net.UDPConn, target netip.AddrPort, key []byte, count int, interval, timeout time.Duration, quiet bool) (Report, error) {
 	exe, e := os.Executable()
 	if e != nil {
 		return Report{}, e
 	}
 	exe, _ = filepath.Abs(exe)
 	r := Report{PID: uint32(os.Getpid()), Exe: exe, Destination: target.String(), ObservedSources: []string{}}
-	if id, e := windowsplatform.NewDiscovery().Lookup(r.PID); e == nil {
+	if id, err := windowsplatform.NewDiscovery().Lookup(r.PID); err == nil {
 		r.CreationTime = id.CreationTime
 		r.Exe = id.Path
 	}
@@ -48,11 +74,6 @@ func run(target netip.AddrPort, key []byte, count int, interval, timeout time.Du
 		return r, e
 	}
 	r.Run = hex.EncodeToString(runID[:])
-	conn, e := net.DialUDP("udp4", nil, net.UDPAddrFromAddrPort(target))
-	if e != nil {
-		return r, e
-	}
-	defer conn.Close()
 	var mu sync.Mutex
 	sent := map[uint32]time.Time{}
 	received := map[uint32]bool{}
@@ -103,6 +124,7 @@ func run(target netip.AddrPort, key []byte, count int, interval, timeout time.Du
 			mu.Unlock()
 		}
 	}()
+	r.MeasurementStarted = time.Now().UTC()
 	for i := 1; i <= count; i++ {
 		seq := uint32(i)
 		mu.Lock()
@@ -122,9 +144,9 @@ func run(target netip.AddrPort, key []byte, count int, interval, timeout time.Du
 		}
 		time.Sleep(interval)
 	}
+	r.MeasurementFinished = time.Now().UTC()
 	time.Sleep(timeout)
 	cancel()
-	conn.Close()
 	<-done
 	if r.Received > 0 {
 		r.RTTMS = float64(total) / float64(r.Received) / 1e6
@@ -145,6 +167,7 @@ func run(target netip.AddrPort, key []byte, count int, interval, timeout time.Du
 func main() {
 	dst := flag.String("target", "", "literal IPv4:port")
 	token := flag.String("token-file", "", "echo token file")
+	warmup := flag.Int("warmup-count", 0, "unmeasured warm-up datagrams on the same socket, 0..100")
 	count := flag.Int("count", 100, "datagrams, 1..100000")
 	interval := flag.Duration("interval", 100*time.Millisecond, "minimum 20ms")
 	timeout := flag.Duration("timeout", time.Second, "final response grace, max10s")
@@ -152,7 +175,7 @@ func main() {
 	quiet := flag.Bool("quiet", false, "omit per-packet sequence output")
 	flag.Parse()
 	target, e := netip.ParseAddrPort(*dst)
-	if e != nil || !target.Addr().Is4() || target.Port() == 0 || *count < 1 || *count > 100000 || *interval < 20*time.Millisecond || *timeout <= 0 || *timeout > 10*time.Second {
+	if e != nil || !target.Addr().Is4() || target.Port() == 0 || *warmup < 0 || *warmup > 100 || *count < 1 || *count > 100000 || *interval < 20*time.Millisecond || *timeout <= 0 || *timeout > 10*time.Second {
 		fmt.Fprintln(os.Stderr, "invalid target or bounded probe parameters")
 		os.Exit(2)
 	}
@@ -161,7 +184,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, e)
 		os.Exit(2)
 	}
-	r, e := run(target, key, *count, *interval, *timeout, *quiet)
+	r, e := runWithWarmup(target, key, *count, *warmup, *interval, *timeout, *quiet)
 	if e != nil {
 		r.Error = e.Error()
 	}

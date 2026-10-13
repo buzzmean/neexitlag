@@ -16,3 +16,5 @@ tests/desktop-bindings/obj/
 *.sys
 
 .e2e/
+
+__pycache__/

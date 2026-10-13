@@ -40,6 +40,7 @@ if($remoteState -contains 'NEW'){
   Copy-Item (Join-Path $bundle 'server') $tempUpload -Recurse
   Copy-Item (Join-Path $output 'linux') (Join-Path $tempUpload 'bin') -Recurse
   Copy-Item (Join-Path $root 'deploy\vps') (Join-Path $tempUpload 'units') -Recurse
+  Convert-DeploymentToLF (Join-Path $tempUpload 'units')
   & scp -o BatchMode=yes -o StrictHostKeyChecking=yes -P $SSHPort -r "$tempUpload/." "${SSHUser}@${VpsPublicIP}:$upload/"
   if($LASTEXITCODE){throw 'Private upload failed; verify SSH authentication and host key'}
   Invoke-VpsCommand $VpsPublicIP $SSHUser $SSHPort "sudo -n bash $upload/units/install.sh $upload $VpsPublicIP"
