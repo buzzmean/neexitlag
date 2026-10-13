@@ -36,7 +36,11 @@ for name in "${names[@]}"; do
  chmod 0640 "/etc/neexitlag/relay/$name"
  chown root:neexitlag-relay "/etc/neexitlag/relay/$name"
 done
-install -m 0640 -o root -g neexitlag-relay "$env_file" /etc/neexitlag/relay/relay.env
+if [[ ! -e /etc/neexitlag/relay/relay.env ]]; then
+ install -m 0640 -o root -g neexitlag-relay "$env_file" /etc/neexitlag/relay/relay.env
+fi
+chmod 0640 /etc/neexitlag/relay/relay.env
+chown root:neexitlag-relay /etc/neexitlag/relay/relay.env
 # Use the same atomic, health-checked lifecycle for first install and repeat install.
 bash "$here/update.sh" "$binary"
 systemctl enable neexitlag-relay
