@@ -1,0 +1,117 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:ui="clr-namespace:Neexitlag.Desktop" x:Class="Neexitlag.Desktop.MainWindow" Title="NeExitLag" Icon="Assets/NeExitLag.ico" Width="1240" Height="820" MinWidth="920" MinHeight="620" Background="#10151C" FontFamily="Segoe UI" FontSize="14" Language="ru-RU" WindowStartupLocation="CenterScreen">
+ <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="220"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+  <Border Background="#151C25" BorderBrush="#27313E" BorderThickness="0,0,1,0">
+   <DockPanel Margin="16,26">
+    <StackPanel DockPanel.Dock="Top">
+     <TextBlock Text="NeExitLag" FontSize="28" FontWeight="Bold" Margin="12,0,0,4"/>
+     <TextBlock Text="{ui:Tr AppSubtitle}" Foreground="#9CEB8A" FontSize="12" Margin="12,0,0,28"/>
+     <Button Content="{ui:Tr Home}" Tag="Home" Click="Navigate" HorizontalContentAlignment="Left"/>
+     <Button Content="{ui:Tr Applications}" Tag="Applications" Click="Navigate"/>
+     <Button Content="{ui:Tr Routes}" Tag="Routes" Click="Navigate"/>
+     <Button Content="{ui:Tr Statistics}" Tag="Statistics" Click="Navigate"/>
+     <Button Content="{ui:Tr Diagnostics}" Tag="Diagnostics" Click="Navigate"/>
+     <Button Content="{ui:Tr Settings}" Tag="Settings" Click="Navigate"/>
+    </StackPanel>
+    <TextBlock DockPanel.Dock="Bottom" Text="{ui:Tr ServiceHint}" TextWrapping="Wrap" Foreground="#91A0B2" FontSize="12" Margin="12,24,12,0" VerticalAlignment="Bottom"/>
+   </DockPanel>
+  </Border>
+  <DockPanel Grid.Column="1" Margin="30,24">
+   <StackPanel DockPanel.Dock="Top">
+    <DockPanel><TextBlock x:Name="PageTitle" Text="{ui:Tr Home}" FontSize="30" FontWeight="SemiBold"/><TextBlock Text="{Binding Connection}" Foreground="#9CEB8A" HorizontalAlignment="Right" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="480"/></DockPanel>
+    <DockPanel Margin="0,10,0,0"><Button Content="{ui:Tr Retry}" Click="Reconnect" DockPanel.Dock="Right" HorizontalAlignment="Right"/><TextBlock Text="{Binding Error}" Foreground="#FFB49D" TextWrapping="Wrap" VerticalAlignment="Center"/></DockPanel>
+    <TextBlock Text="{Binding Notice}" Foreground="#91A0B2" TextWrapping="Wrap" Margin="0,4,0,12"/>
+   </StackPanel>
+   <Grid>
+    <ScrollViewer x:Name="Home" VerticalScrollBarVisibility="Auto"><StackPanel>
+     <Border Background="#1C2B25" BorderBrush="#365746" BorderThickness="1" CornerRadius="16" Padding="24">
+      <StackPanel><TextBlock Text="{Binding OptimizationStatus}" FontSize="18"/><TextBlock Text="{ui:Tr CurrentRoute}" Foreground="#A1B3AD" Margin="0,18,0,4"/><TextBlock Text="{Binding Primary}" FontSize="32" FontWeight="SemiBold"/>
+       <TextBlock Text="{ui:Tr RouteScopeHint}" Foreground="#A1B3AD" TextWrapping="Wrap" Margin="0,8,0,14"/>
+       <Button Content="{Binding OptimizeLabel}" Background="#36653D" BorderBrush="#5C8F60" HorizontalAlignment="Left" IsEnabled="{Binding CanControl}" Click="ToggleOptimize"/>
+      </StackPanel>
+     </Border>
+     <UniformGrid Columns="2" Margin="0,14,0,0">
+      <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="{ui:Tr DirectLatency}" Style="{StaticResource Caption}"/><TextBlock Text="{Binding DirectLatency}" Style="{StaticResource Metric}"/></StackPanel></Border>
+      <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="{ui:Tr RelayLatency}" Style="{StaticResource Caption}"/><TextBlock Text="{Binding RelayLatency}" Style="{StaticResource Metric}"/></StackPanel></Border>
+      <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="{ui:Tr Jitter}" Style="{StaticResource Caption}"/><TextBlock Text="{Binding Jitter}" Style="{StaticResource Metric}"/></StackPanel></Border>
+      <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="{ui:Tr PacketLoss}" Style="{StaticResource Caption}"/><TextBlock Text="{Binding Loss}" Style="{StaticResource Metric}"/></StackPanel></Border>
+      <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="{ui:Tr Received}" Style="{StaticResource Caption}"/><TextBlock Text="{Binding Rx}" Style="{StaticResource Metric}"/></StackPanel></Border>
+      <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="{ui:Tr Sent}" Style="{StaticResource Caption}"/><TextBlock Text="{Binding Tx}" Style="{StaticResource Metric}"/></StackPanel></Border>
+     </UniformGrid>
+     <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="{ui:Tr ActiveApps}" Style="{StaticResource Caption}"/><TextBlock Text="{Binding ActiveApps}" FontSize="18" TextWrapping="Wrap" Margin="0,12,0,0"/></StackPanel></Border>
+     <TextBlock Text="{ui:Tr MeasurementsHint}" Style="{StaticResource Hint}"/><TextBlock Text="{ui:Tr CaptureHint}" Style="{StaticResource Hint}"/>
+    </StackPanel></ScrollViewer>
+    <DockPanel x:Name="Applications" Visibility="Collapsed">
+     <StackPanel DockPanel.Dock="Top"><WrapPanel>
+      <Button Content="{ui:Tr AddApplication}" Click="AddApplication" IsEnabled="{Binding CanControl}"/>
+      <Button Content="{ui:Tr RemoveApplication}" Click="DeleteApplication" IsEnabled="{Binding CanControl}"/>
+     </WrapPanel><WrapPanel>
+      <ComboBox x:Name="Mode" ItemsSource="{Binding Modes}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedIndex="0" SelectionChanged="ModeChanged"/>
+      <ComboBox x:Name="RelayChoice" ItemsSource="{Binding Relays}" DisplayMemberPath="Label" SelectedValuePath="Value" MinWidth="190" IsEnabled="False"/>
+      <Button Content="{ui:Tr Apply}" Click="ApplyMode" IsEnabled="{Binding CanControl}"/>
+     </WrapPanel><TextBlock Text="{ui:Tr ApplicationSelectionHint}" Style="{StaticResource Hint}"/></StackPanel>
+     <DataGrid x:Name="AppGrid" ItemsSource="{Binding Applications}" SelectionChanged="ApplicationSelected" SelectionMode="Single"><DataGrid.Columns>
+      <DataGridTextColumn Header="{ui:Tr Application}" Binding="{Binding Name}" Width="150"/>
+      <DataGridTextColumn Header="{ui:Tr Executable}" Binding="{Binding Path}" Width="2*"/>
+      <DataGridTextColumn Header="{ui:Tr Mode}" Binding="{Binding Mode}" Width="120"/>
+      <DataGridTextColumn Header="{ui:Tr ProcessStatus}" Binding="{Binding ProcessStatus}" Width="130"/>
+      <DataGridTextColumn Header="{ui:Tr CurrentRoute}" Binding="{Binding Route}" Width="150"/>
+     </DataGrid.Columns></DataGrid>
+    </DockPanel>
+    <DockPanel x:Name="Routes" Visibility="Collapsed"><TextBlock DockPanel.Dock="Top" Text="{ui:Tr RoutesHint}" Style="{StaticResource Hint}"/>
+     <DataGrid ItemsSource="{Binding Routes}"><DataGrid.Columns>
+      <DataGridTextColumn Header="{ui:Tr CurrentRoute}" Binding="{Binding Name}" Width="*"/>
+      <DataGridTextColumn Header="{ui:Tr RouteStatus}" Binding="{Binding Status}" Width="125"/>
+      <DataGridTextColumn Header="{ui:Tr Latency}" Binding="{Binding Rtt}" Width="110"/>
+      <DataGridTextColumn Header="{ui:Tr Jitter}" Binding="{Binding Jitter}" Width="100"/>
+      <DataGridTextColumn Header="{ui:Tr PacketLoss}" Binding="{Binding Loss}" Width="115"/>
+      <DataGridTextColumn Header="{ui:Tr Score}" Binding="{Binding Score}" Width="95"/>
+      <DataGridTextColumn Header="{ui:Tr RouteRole}" Binding="{Binding Role}" Width="125"/>
+      <DataGridTextColumn Header="{ui:Tr BurstLoss}" Binding="{Binding Burst}" Width="110"/>
+      <DataGridTextColumn Header="{ui:Tr Stability}" Binding="{Binding Stability}" Width="125"/>
+      <DataGridTextColumn Header="{ui:Tr Samples}" Binding="{Binding SampleCount}" Width="160"/>
+      <DataGridTextColumn Header="{ui:Tr MedianPing}" Binding="{Binding Median}" Width="155"/>
+      <DataGridTextColumn Header="{ui:Tr P95Ping}" Binding="{Binding P95}" Width="130"/>
+     </DataGrid.Columns></DataGrid>
+    </DockPanel>
+    <DockPanel x:Name="Statistics" Visibility="Collapsed"><StackPanel DockPanel.Dock="Top">
+     <WrapPanel Margin="0,0,0,16">
+      <StackPanel Margin="4,0,24,0"><TextBlock Text="{ui:Tr Latency}" Style="{StaticResource Caption}"/><TextBlock Text="{Binding CurrentLatency}" FontSize="18"/></StackPanel>
+      <StackPanel Margin="4,0,24,0"><TextBlock Text="{ui:Tr Jitter}" Style="{StaticResource Caption}"/><TextBlock Text="{Binding Jitter}" FontSize="18"/></StackPanel>
+      <StackPanel Margin="4,0,24,0"><TextBlock Text="{ui:Tr PacketLoss}" Style="{StaticResource Caption}"/><TextBlock Text="{Binding Loss}" FontSize="18"/></StackPanel>
+      <StackPanel Margin="4,0,24,0"><TextBlock Text="{ui:Tr Received}" Style="{StaticResource Caption}"/><TextBlock Text="{Binding Rx}" FontSize="18"/></StackPanel>
+      <StackPanel Margin="4,0,24,0"><TextBlock Text="{ui:Tr Sent}" Style="{StaticResource Caption}"/><TextBlock Text="{Binding Tx}" FontSize="18"/></StackPanel>
+     </WrapPanel><WrapPanel>
+      <StackPanel Margin="4,0,24,0"><TextBlock Text="{ui:Tr BurstLoss}" Style="{StaticResource Caption}"/><TextBlock Text="{Binding CurrentBurst}" FontSize="18"/></StackPanel>
+      <StackPanel Margin="4,0,24,0"><TextBlock Text="{ui:Tr Stability}" Style="{StaticResource Caption}"/><TextBlock Text="{Binding CurrentStability}" FontSize="18"/></StackPanel>
+      <StackPanel Margin="4,0,24,0"><TextBlock Text="{ui:Tr Samples}" Style="{StaticResource Caption}"/><TextBlock Text="{Binding CurrentSamples}" FontSize="18"/></StackPanel>
+     </WrapPanel><TextBlock Text="{ui:Tr QualityScope}" Style="{StaticResource Hint}"/><TextBlock Text="{ui:Tr RecentMeasurements}" FontSize="20"/><TextBlock Text="{ui:Tr MeasurementsHint}" Style="{StaticResource Hint}"/></StackPanel>
+     <StackPanel DockPanel.Dock="Bottom" Margin="0,16,0,0"><TextBlock Text="{ui:Tr RouteChanges}" FontSize="20"/><ListBox ItemsSource="{Binding Changes}" Height="130" Background="#191E25" Foreground="#EDF2F6" BorderBrush="#293442"/></StackPanel>
+     <DataGrid ItemsSource="{Binding Measurements}"><DataGrid.Columns>
+      <DataGridTextColumn Header="{ui:Tr Time}" Binding="{Binding Time}" Width="110"/>
+      <DataGridTextColumn Header="{ui:Tr CurrentRoute}" Binding="{Binding Route}" Width="*"/>
+      <DataGridTextColumn Header="{ui:Tr Latency}" Binding="{Binding Rtt}" Width="130"/>
+      <DataGridTextColumn Header="{ui:Tr Jitter}" Binding="{Binding Jitter}" Width="130"/>
+      <DataGridTextColumn Header="{ui:Tr PacketLoss}" Binding="{Binding Loss}" Width="130"/>
+     </DataGrid.Columns></DataGrid>
+    </DockPanel>
+    <DockPanel x:Name="Diagnostics" Visibility="Collapsed"><StackPanel DockPanel.Dock="Top"><Button Content="{ui:Tr RunDiagnostics}" HorizontalAlignment="Left" Click="RunDiagnostics" IsEnabled="{Binding CanControl}"/><TextBlock Text="{ui:Tr DiagnosticMtu}" Style="{StaticResource Hint}"/></StackPanel>
+     <DataGrid ItemsSource="{Binding Diagnostics}"><DataGrid.Columns>
+      <DataGridTextColumn Header="{ui:Tr Check}" Binding="{Binding Name}" Width="180"/>
+      <DataGridTextColumn Header="{ui:Tr Result}" Binding="{Binding Status}" Width="140"/>
+      <DataGridTextColumn Header="{ui:Tr Details}" Binding="{Binding Detail}" Width="*"/>
+     </DataGrid.Columns></DataGrid>
+    </DockPanel>
+    <ScrollViewer x:Name="Settings" Visibility="Collapsed" VerticalScrollBarVisibility="Auto"><StackPanel>
+     <CheckBox x:Name="Launch" Content="{ui:Tr AutoStart}"/>
+     <CheckBox x:Name="StartMinimized" Content="{ui:Tr StartMinimized}"/>
+     <CheckBox x:Name="MinimizeToTray" Content="{ui:Tr MinimizeToTray}"/>
+     <CheckBox x:Name="Automatic" Content="{ui:Tr AutoOptimization}" IsEnabled="{Binding Available}"/>
+     <WrapPanel Margin="8,8"><TextBlock Text="{ui:Tr FailureBehavior}" VerticalAlignment="Center" Width="220"/><ComboBox x:Name="Fallback" IsEnabled="{Binding Available}" DisplayMemberPath="Label" SelectedValuePath="Value" MinWidth="200"/></WrapPanel>
+     <WrapPanel Margin="8,8"><TextBlock Text="{ui:Tr UpdateChannel}" VerticalAlignment="Center" Width="220"/><ComboBox x:Name="Channel" IsEnabled="{Binding Available}" DisplayMemberPath="Label" SelectedValuePath="Value" MinWidth="200"/></WrapPanel>
+     <Button Content="{ui:Tr SaveSettings}" HorizontalAlignment="Left" Click="SaveSettings"/>
+     <TextBlock Text="{ui:Tr SettingsScope}" Style="{StaticResource Hint}"/><TextBlock Text="{ui:Tr UpdatesHint}" Style="{StaticResource Hint}"/>
+    </StackPanel></ScrollViewer>
+   </Grid>
+  </DockPanel>
+ </Grid>
+</Window>

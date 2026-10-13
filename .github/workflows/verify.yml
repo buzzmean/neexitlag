@@ -1,0 +1,74 @@
+name: Verify
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: neexitlag
+          POSTGRES_DB: neexitlag
+          POSTGRES_PASSWORD: ci-only-test-password
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U neexitlag -d neexitlag"
+          --health-interval 2s --health-timeout 2s --health-retries 30
+    env:
+      NEEXITLAG_TEST_DATABASE_URL: postgres://neexitlag:ci-only-test-password@127.0.0.1:5432/neexitlag?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version: '1.25.x'}
+      - run: python3 -m unittest discover -s tests/deployment -v
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: '8.0.x'}
+      - run: dotnet test tests/desktop/NeExitLag.Client.Tests.csproj --nologo
+      - run: go build ./...
+      - run: go test -race -timeout 120s ./...
+      - run: go vet ./...
+      - run: go run ./tools/lab
+      - run: go build ./...
+        env: {GOOS: windows, GOARCH: amd64, CGO_ENABLED: '0'}
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version: '1.25.x'}
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: '8.0.x'}
+      - run: go build ./...
+      - run: go test ./core/... ./platform/windows ./services/client-service
+      - run: dotnet build --nologo
+      - run: dotnet test --nologo
+      - run: ./tools/windows/build-desktop.ps1
+        shell: pwsh
+      - run: ./tests/windows-tools/desktop-smoke.ps1
+        shell: pwsh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NeExitLag-win-x64
+          path: bin/release/NeExitLag.exe
+      - run: ./tools/windows/parse-scripts.ps1
+        shell: pwsh
+      - run: ./tools/windows/build-e2e.ps1
+        shell: pwsh
+      - run: ./tests/windows-tools/acceptance-checks.ps1
+        shell: pwsh
+      - run: ./tests/windows-tools/reinstall-checks.ps1
+        shell: pwsh
+      - run: ./tests/windows-tools/acceptance-checks.ps1
+        shell: powershell
+      - run: ./tests/windows-tools/reinstall-checks.ps1
+        shell: powershell
+      - run: ./tests/windows-tools/ipc-smoke.ps1
+        shell: pwsh
+      - run: go test ./tools/windows-test-client ./internal/e2eprobe ./tools/vps-provision ./tools/route-test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-real-e2e-tools
+          path: bin/windows-e2e/
+      # These are unit/build checks, not live WinDivert or public-Internet acceptance.

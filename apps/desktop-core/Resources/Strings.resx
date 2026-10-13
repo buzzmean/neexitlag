@@ -1,0 +1,474 @@
+<?xml version='1.0' encoding='utf-8'?>
+<root>
+  <data name="Home" xml:space="preserve">
+    <value>Главная</value>
+  </data>
+  <data name="Applications" xml:space="preserve">
+    <value>Приложения</value>
+  </data>
+  <data name="Routes" xml:space="preserve">
+    <value>Маршруты</value>
+  </data>
+  <data name="Statistics" xml:space="preserve">
+    <value>Статистика</value>
+  </data>
+  <data name="Diagnostics" xml:space="preserve">
+    <value>Диагностика</value>
+  </data>
+  <data name="Settings" xml:space="preserve">
+    <value>Настройки</value>
+  </data>
+  <data name="AppSubtitle" xml:space="preserve">
+    <value>Оптимизация соединения</value>
+  </data>
+  <data name="Connected" xml:space="preserve">
+    <value>Подключено</value>
+  </data>
+  <data name="Connecting" xml:space="preserve">
+    <value>Подключение к службе…</value>
+  </data>
+  <data name="NoData" xml:space="preserve">
+    <value>Нет данных</value>
+  </data>
+  <data name="Direct" xml:space="preserve">
+    <value>Напрямую</value>
+  </data>
+  <data name="OptimizationOn" xml:space="preserve">
+    <value>Оптимизация включена</value>
+  </data>
+  <data name="OptimizationOff" xml:space="preserve">
+    <value>Оптимизация выключена</value>
+  </data>
+  <data name="EnableOptimization" xml:space="preserve">
+    <value>ВКЛЮЧИТЬ ОПТИМИЗАЦИЮ</value>
+  </data>
+  <data name="DisableOptimization" xml:space="preserve">
+    <value>ВЫКЛЮЧИТЬ ОПТИМИЗАЦИЮ</value>
+  </data>
+  <data name="CurrentRoute" xml:space="preserve">
+    <value>Текущий маршрут</value>
+  </data>
+  <data name="Primary" xml:space="preserve">
+    <value>Основной</value>
+  </data>
+  <data name="Backup" xml:space="preserve">
+    <value>Резервный</value>
+  </data>
+  <data name="Unavailable" xml:space="preserve">
+    <value>Недоступен</value>
+  </data>
+  <data name="Available" xml:space="preserve">
+    <value>Доступен</value>
+  </data>
+  <data name="ActiveApps" xml:space="preserve">
+    <value>Активные приложения</value>
+  </data>
+  <data name="DirectLatency" xml:space="preserve">
+    <value>Задержка напрямую</value>
+  </data>
+  <data name="RelayLatency" xml:space="preserve">
+    <value>Задержка через сервер</value>
+  </data>
+  <data name="Latency" xml:space="preserve">
+    <value>Задержка</value>
+  </data>
+  <data name="Jitter" xml:space="preserve">
+    <value>Джиттер</value>
+  </data>
+  <data name="PacketLoss" xml:space="preserve">
+    <value>Потери пакетов</value>
+  </data>
+  <data name="Received" xml:space="preserve">
+    <value>Принято</value>
+  </data>
+  <data name="Sent" xml:space="preserve">
+    <value>Отправлено</value>
+  </data>
+  <data name="Traffic" xml:space="preserve">
+    <value>Трафик</value>
+  </data>
+  <data name="Auto" xml:space="preserve">
+    <value>Авто</value>
+  </data>
+  <data name="ViaServer" xml:space="preserve">
+    <value>Через сервер</value>
+  </data>
+  <data name="Block" xml:space="preserve">
+    <value>Блокировать</value>
+  </data>
+  <data name="AddApplication" xml:space="preserve">
+    <value>Добавить приложение</value>
+  </data>
+  <data name="RemoveApplication" xml:space="preserve">
+    <value>Удалить приложение</value>
+  </data>
+  <data name="Apply" xml:space="preserve">
+    <value>Применить</value>
+  </data>
+  <data name="Executable" xml:space="preserve">
+    <value>Путь к приложению</value>
+  </data>
+  <data name="Application" xml:space="preserve">
+    <value>Приложение</value>
+  </data>
+  <data name="Mode" xml:space="preserve">
+    <value>Режим</value>
+  </data>
+  <data name="Relay" xml:space="preserve">
+    <value>Сервер</value>
+  </data>
+  <data name="ProcessStatus" xml:space="preserve">
+    <value>Состояние процесса</value>
+  </data>
+  <data name="Active" xml:space="preserve">
+    <value>Активен</value>
+  </data>
+  <data name="NotRunning" xml:space="preserve">
+    <value>Не запущен</value>
+  </data>
+  <data name="Unknown" xml:space="preserve">
+    <value>Нет данных</value>
+  </data>
+  <data name="ChooseExecutable" xml:space="preserve">
+    <value>Выберите приложение</value>
+  </data>
+  <data name="ExecutableFilter" xml:space="preserve">
+    <value>Приложения Windows (*.exe)|*.exe</value>
+  </data>
+  <data name="ChooseRelay" xml:space="preserve">
+    <value>Выберите доступный сервер</value>
+  </data>
+  <data name="SelectApplication" xml:space="preserve">
+    <value>Выберите приложение в списке</value>
+  </data>
+  <data name="BlockUnsupported" xml:space="preserve">
+    <value>Этот режим недоступен: служба не поддерживает полную блокировку UDP и TCP.</value>
+  </data>
+  <data name="NoRelay" xml:space="preserve">
+    <value>Нет доступных серверов. Дождитесь подключения и измерений.</value>
+  </data>
+  <data name="InvalidExecutable" xml:space="preserve">
+    <value>Выберите существующий файл с расширением .exe.</value>
+  </data>
+  <data name="DefaultProfile" xml:space="preserve">
+    <value>Можно удалить только пользовательское приложение.</value>
+  </data>
+  <data name="ProfileSaved" xml:space="preserve">
+    <value>Режим сохранён. Изменение применяется к новым соединениям.</value>
+  </data>
+  <data name="RouteStatus" xml:space="preserve">
+    <value>Состояние</value>
+  </data>
+  <data name="Score" xml:space="preserve">
+    <value>Оценка</value>
+  </data>
+  <data name="RouteRole" xml:space="preserve">
+    <value>Назначение</value>
+  </data>
+  <data name="RoutesHint" xml:space="preserve">
+    <value>Маршруты и оценки поступают из службы. Сервер без успешного измерения недоступен для ручного выбора.</value>
+  </data>
+  <data name="LatencyHistory" xml:space="preserve">
+    <value>История измерений</value>
+  </data>
+  <data name="RecentMeasurements" xml:space="preserve">
+    <value>Последние измерения</value>
+  </data>
+  <data name="Time" xml:space="preserve">
+    <value>Время</value>
+  </data>
+  <data name="RouteChanges" xml:space="preserve">
+    <value>Переключения маршрута</value>
+  </data>
+  <data name="NoChanges" xml:space="preserve">
+    <value>Переключений пока нет</value>
+  </data>
+  <data name="RunDiagnostics" xml:space="preserve">
+    <value>Запустить диагностику</value>
+  </data>
+  <data name="Check" xml:space="preserve">
+    <value>Проверка</value>
+  </data>
+  <data name="Result" xml:space="preserve">
+    <value>Результат</value>
+  </data>
+  <data name="Details" xml:space="preserve">
+    <value>Описание</value>
+  </data>
+  <data name="Working" xml:space="preserve">
+    <value>Работает</value>
+  </data>
+  <data name="Error" xml:space="preserve">
+    <value>Ошибка</value>
+  </data>
+  <data name="NotConfigured" xml:space="preserve">
+    <value>Не настроено</value>
+  </data>
+  <data name="NotAvailable" xml:space="preserve">
+    <value>Недоступно</value>
+  </data>
+  <data name="ServiceName" xml:space="preserve">
+    <value>Служба Windows</value>
+  </data>
+  <data name="ControlPlane" xml:space="preserve">
+    <value>Управляющий сервер</value>
+  </data>
+  <data name="DriverName" xml:space="preserve">
+    <value>Драйвер WinDivert</value>
+  </data>
+  <data name="DirectCheck" xml:space="preserve">
+    <value>Прямое соединение</value>
+  </data>
+  <data name="RelayCheck" xml:space="preserve">
+    <value>Соединение через сервер</value>
+  </data>
+  <data name="LatencyCheck" xml:space="preserve">
+    <value>Задержка и потери</value>
+  </data>
+  <data name="ServiceWorking" xml:space="preserve">
+    <value>Соединение со службой установлено.</value>
+  </data>
+  <data name="ServiceMissing" xml:space="preserve">
+    <value>Служба NeExitLag не установлена</value>
+  </data>
+  <data name="ServiceStopped" xml:space="preserve">
+    <value>Служба NeExitLag остановлена</value>
+  </data>
+  <data name="ServiceIncompatible" xml:space="preserve">
+    <value>Несовместимая версия службы</value>
+  </data>
+  <data name="ServiceUnavailable" xml:space="preserve">
+    <value>Не удалось подключиться к службе</value>
+  </data>
+  <data name="ServiceDenied" xml:space="preserve">
+    <value>Нет доступа к службе. Обратитесь к пользователю, который установил её.</value>
+  </data>
+  <data name="Retry" xml:space="preserve">
+    <value>Повторить подключение</value>
+  </data>
+  <data name="CommandRejected" xml:space="preserve">
+    <value>Служба отклонила команду. Проверьте выбранный режим и доступность сервера.</value>
+  </data>
+  <data name="UnexpectedError" xml:space="preserve">
+    <value>Не удалось выполнить действие. Повторите попытку.</value>
+  </data>
+  <data name="DriverReady" xml:space="preserve">
+    <value>Драйвер готов к перехвату пакетов.</value>
+  </data>
+  <data name="DriverIdle" xml:space="preserve">
+    <value>Перехват выключен. Включите оптимизацию.</value>
+  </data>
+  <data name="DriverFailure" xml:space="preserve">
+    <value>Драйвер не запущен. Проверьте установку и целостность WinDivert.</value>
+  </data>
+  <data name="CaptureUnsupported" xml:space="preserve">
+    <value>Этот вид перехвата не поддерживается установленным драйвером.</value>
+  </data>
+  <data name="DiagnosticHealthy" xml:space="preserve">
+    <value>Проверка соединения выполнена успешно.</value>
+  </data>
+  <data name="DiagnosticUnavailable" xml:space="preserve">
+    <value>Ответ не получен. Проверьте соединение и настройки службы.</value>
+  </data>
+  <data name="DiagnosticUnconfigured" xml:space="preserve">
+    <value>Цель проверки не настроена в службе.</value>
+  </data>
+  <data name="DiagnosticDns" xml:space="preserve">
+    <value>Разрешение имени управляющего сервера.</value>
+  </data>
+  <data name="DiagnosticMtu" xml:space="preserve">
+    <value>Проверка ответа на пакет размером 1100 байт; это не определение MTU всего интернет-маршрута.</value>
+  </data>
+  <data name="AutoStart" xml:space="preserve">
+    <value>Автозапуск с Windows</value>
+  </data>
+  <data name="AutoOptimization" xml:space="preserve">
+    <value>Автоматическая оптимизация</value>
+  </data>
+  <data name="FailureBehavior" xml:space="preserve">
+    <value>При сбое сервера</value>
+  </data>
+  <data name="StartMinimized" xml:space="preserve">
+    <value>Запуск свёрнутым</value>
+  </data>
+  <data name="MinimizeToTray" xml:space="preserve">
+    <value>Сворачивать в трей</value>
+  </data>
+  <data name="UpdateChannel" xml:space="preserve">
+    <value>Канал обновлений</value>
+  </data>
+  <data name="Stable" xml:space="preserve">
+    <value>Стабильный</value>
+  </data>
+  <data name="Preview" xml:space="preserve">
+    <value>Предварительный</value>
+  </data>
+  <data name="SaveSettings" xml:space="preserve">
+    <value>Сохранить настройки</value>
+  </data>
+  <data name="SettingsSaved" xml:space="preserve">
+    <value>Настройки сохранены</value>
+  </data>
+  <data name="SettingsFailed" xml:space="preserve">
+    <value>Не удалось сохранить настройки. Проверьте доступ к службе и к настройкам Windows.</value>
+  </data>
+  <data name="UpdatesHint" xml:space="preserve">
+    <value>Автоматическая установка обновлений пока недоступна.</value>
+  </data>
+  <data name="OpenApp" xml:space="preserve">
+    <value>Открыть NeExitLag</value>
+  </data>
+  <data name="TrayEnable" xml:space="preserve">
+    <value>Включить оптимизацию</value>
+  </data>
+  <data name="TrayDisable" xml:space="preserve">
+    <value>Выключить оптимизацию</value>
+  </data>
+  <data name="Exit" xml:space="preserve">
+    <value>Выход</value>
+  </data>
+  <data name="TrayHint" xml:space="preserve">
+    <value>NeExitLag работает в области уведомлений</value>
+  </data>
+  <data name="NoActiveApps" xml:space="preserve">
+    <value>Нет активных приложений</value>
+  </data>
+  <data name="CaptureHint" xml:space="preserve">
+    <value>Служба управляет IPv4 UDP. Остальной трафик идёт напрямую.</value>
+  </data>
+  <data name="MeasurementsHint" xml:space="preserve">
+    <value>Задержка измеряется до настроенной контрольной точки, а не до игрового сервера.</value>
+  </data>
+  <data name="RouteScopeHint" xml:space="preserve">
+    <value>Маршрут автооптимизации. Фактический маршрут каждого приложения показан в разделе «Приложения».</value>
+  </data>
+  <data name="ClearMeasurements" xml:space="preserve">
+    <value>Нет свежих измерений</value>
+  </data>
+  <data name="SettingsScope" xml:space="preserve">
+    <value>Настройки окна сохраняются для текущего пользователя. Сетевые настройки применяет служба.</value>
+  </data>
+  <data name="Millisecond" xml:space="preserve">
+    <value>мс</value>
+  </data>
+  <data name="Byte" xml:space="preserve">
+    <value>Б</value>
+  </data>
+  <data name="Kilobyte" xml:space="preserve">
+    <value>КБ</value>
+  </data>
+  <data name="Megabyte" xml:space="preserve">
+    <value>МБ</value>
+  </data>
+  <data name="Gigabyte" xml:space="preserve">
+    <value>ГБ</value>
+  </data>
+  <data name="MixedRoutes" xml:space="preserve">
+    <value>Несколько маршрутов</value>
+  </data>
+  <data name="DiagnosticsPending" xml:space="preserve">
+    <value>Диагностика ещё не запускалась</value>
+  </data>
+  <data name="ApplicationSelectionHint" xml:space="preserve">
+    <value>Выберите приложение, режим и сервер, затем нажмите «Применить».</value>
+  </data>
+  <data name="DeleteConfirm" xml:space="preserve">
+    <value>Удалить выбранное приложение из списка?</value>
+  </data>
+  <data name="ConfirmTitle" xml:space="preserve">
+    <value>NeExitLag</value>
+  </data>
+  <data name="ProcessUnavailable" xml:space="preserve">
+    <value>Не удалось получить список процессов</value>
+  </data>
+  <data name="StaleMeasurements" xml:space="preserve">
+    <value>Измерения устарели</value>
+  </data>
+  <data name="ServiceHint" xml:space="preserve">
+    <value>Интерфейс работает без прав администратора. Установку и запуск службы выполняет администратор.</value>
+  </data>
+  <data name="Freshness" xml:space="preserve">
+    <value>Измерения обновляются автоматически</value>
+  </data>
+  <data name="Cancel">
+    <value>Отмена</value>
+  </data>
+  <data name="Ok">
+    <value>Понятно</value>
+  </data>
+  <data name="Remove">
+    <value>Удалить</value>
+  </data>
+  <data name="AlreadyAdded">
+    <value>Это приложение уже добавлено. Выберите его в списке.</value>
+  </data>
+  <data name="LocalSettingsSaved">
+    <value>Настройки окна сохранены. Сетевые настройки не изменены: нет связи со службой.</value>
+  </data>
+  <data name="BurstLoss">
+    <value>Серия потерь</value>
+  </data>
+  <data name="Stability">
+    <value>Стабильность</value>
+  </data>
+  <data name="Samples">
+    <value>Количество измерений</value>
+  </data>
+  <data name="MedianPing">
+    <value>Медианная задержка</value>
+  </data>
+  <data name="P95Ping">
+    <value>Задержка p95</value>
+  </data>
+  <data name="CaptureQueueDrops">
+    <value>Потери локальной очереди</value>
+  </data>
+  <data name="WorkerDrops">
+    <value>Потери при перегрузке обработчиков</value>
+  </data>
+  <data name="TransportDrops">
+    <value>Потери очереди транспорта</value>
+  </data>
+  <data name="DecodeDrops">
+    <value>Ошибки декодирования</value>
+  </data>
+  <data name="UnknownFlowDrops">
+    <value>Неизвестные потоки</value>
+  </data>
+  <data name="SocketDrops">
+    <value>Ошибки отправки</value>
+  </data>
+  <data name="ReinjectDrops">
+    <value>Ошибки возврата пакетов</value>
+  </data>
+  <data name="KernelDrops">
+    <value>Потери очереди драйвера</value>
+  </data>
+  <data name="CaptureErrors">
+    <value>Ошибки чтения перехвата</value>
+  </data>
+  <data name="PolicyDrops">
+    <value>Блокировка по правилу</value>
+  </data>
+  <data name="CaptureDrops">
+    <value>Потери обработки</value>
+  </data>
+  <data name="Packets">
+    <value>пакетов</value>
+  </data>
+  <data name="Events">
+    <value>событий</value>
+  </data>
+  <data name="FractionUnknown">
+    <value>доля неизвестна</value>
+  </data>
+  <data name="RemoteDrops">
+    <value>Потери на сервере</value>
+  </data>
+  <data name="RemoteDropsHint">
+    <value>Счётчики сервера доступны в его диагностике. Клиент не знает их значения.</value>
+  </data>
+  <data name="QualityScope">
+    <value>Качество контрольных проб за последние 60 секунд; это не оценка потерь игрового протокола.</value>
+  </data>
+</root>
