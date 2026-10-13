@@ -151,6 +151,14 @@ That token belongs only to the current local demo instance. Native desktop bindi
 were exercised on Linux by `tests/desktop-bindings` using the same C# client source;
 this is not evidence that a native WPF window or named-pipe driver session ran.
 
+## Network quality v1
+
+AUTO compares 60-second rolling route history, with sustained loss and burst loss
+penalties, confirmed improvements and flow pinning. Native route/statistics views
+show available quality metrics; diagnostics distinguish observable local drops
+from unanswered probes. See [policy, metrics and validation](docs/NETWORK_QUALITY_V1.md)
+and [destination quality / disabled FEC design](docs/design/DESTINATION_QUALITY_AND_FEC.md).
+
 ## Known limitations
 
 Probe quality describes the configured echo destination, not every game server.

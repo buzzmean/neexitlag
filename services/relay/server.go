@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/buzzmean/neexitlag/core/protocol"
 	"github.com/buzzmean/neexitlag/core/security"
+	"github.com/buzzmean/neexitlag/core/telemetry"
 	"github.com/buzzmean/neexitlag/core/transport"
 	"github.com/quic-go/quic-go"
 	"io"
@@ -30,6 +31,7 @@ type Config struct {
 type Metrics struct {
 	Sessions, Flows                                                                  atomic.Int64
 	UDPPackets, TCPConnections, RXBytes, TXBytes, Drops, RejectedFlows, AuthFailures atomic.Uint64
+	LocalDrops                                                                       telemetry.Counters
 }
 type Server struct {
 	listener    *quic.Listener
@@ -316,17 +318,21 @@ func (x *session) readUDP(id uint32, f *flow) {
 	b := make([]byte, protocol.MaxPayload+1)
 	for {
 		n, e := f.udp.Read(b)
+		x.server.Metrics.LocalDrops.Attempt(telemetry.CaptureProcessing)
 		if e != nil {
 			return
 		}
 		if n > protocol.MaxPayload {
 			x.server.Metrics.Drops.Add(1)
+			x.server.Metrics.LocalDrops.Drop(telemetry.CaptureProcessing)
 			continue
 		}
 		f.last.Store(time.Now().UnixNano())
 		p, _ := protocol.Encode(id, b[:n])
+		x.server.Metrics.LocalDrops.Attempt(telemetry.SocketSend)
 		if e = x.conn.SendDatagram(p); e != nil {
 			x.server.Metrics.Drops.Add(1)
+			x.server.Metrics.LocalDrops.Drop(telemetry.SocketSend)
 		} else {
 			x.server.Metrics.TXBytes.Add(uint64(n))
 		}
@@ -338,9 +344,12 @@ func (x *session) datagrams() {
 		if e != nil {
 			return
 		}
+		x.server.Metrics.LocalDrops.Attempt(telemetry.Decode)
+		x.server.Metrics.LocalDrops.Attempt(telemetry.UnknownFlow)
 		id, p, e := protocol.Decode(b)
 		if e != nil {
 			x.server.Metrics.Drops.Add(1)
+			x.server.Metrics.LocalDrops.Drop(telemetry.Decode)
 			continue
 		}
 		now := time.Now()
@@ -350,8 +359,10 @@ func (x *session) datagrams() {
 		if x.tokens > float64(x.server.config.PacketsPerSecond) {
 			x.tokens = float64(x.server.config.PacketsPerSecond)
 		}
+		x.server.Metrics.LocalDrops.Attempt(telemetry.Policy)
 		if x.tokens < 1 {
 			x.server.Metrics.Drops.Add(1)
+			x.server.Metrics.LocalDrops.Drop(telemetry.Policy)
 			continue
 		}
 		x.tokens--
@@ -364,11 +375,14 @@ func (x *session) datagrams() {
 		x.mu.Unlock()
 		if c == nil {
 			x.server.Metrics.Drops.Add(1)
+			x.server.Metrics.LocalDrops.Drop(telemetry.UnknownFlow)
 			continue
 		}
 		c.SetWriteDeadline(time.Now().Add(20 * time.Millisecond))
+		x.server.Metrics.LocalDrops.Attempt(telemetry.SocketSend)
 		if _, e = c.Write(p); e != nil {
 			x.server.Metrics.Drops.Add(1)
+			x.server.Metrics.LocalDrops.Drop(telemetry.SocketSend)
 			continue
 		}
 		f.last.Store(now.UnixNano())
@@ -418,6 +432,9 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 		fmt.Fprintf(w, "neexitlag_relay_health 1\nneexitlag_active_sessions %d\nneexitlag_active_flows %d\nneexitlag_udp_packets_total %d\nneexitlag_tcp_connections_total %d\nneexitlag_rx_bytes_total %d\nneexitlag_tx_bytes_total %d\nneexitlag_packet_drops_total %d\nneexitlag_rejected_flows_total %d\nneexitlag_auth_failures_total %d\n", s.Metrics.Sessions.Load(), s.Metrics.Flows.Load(), s.Metrics.UDPPackets.Load(), s.Metrics.TCPConnections.Load(), s.Metrics.RXBytes.Load(), s.Metrics.TXBytes.Load(), s.Metrics.Drops.Load(), s.Metrics.RejectedFlows.Load(), s.Metrics.AuthFailures.Load())
+		for name, metric := range s.Metrics.LocalDrops.Snapshot() {
+			fmt.Fprintf(w, "neexitlag_relay_%s_total %d\n", name, metric.Count)
+		}
 	})
 	return m
 }

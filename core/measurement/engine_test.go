@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/buzzmean/neexitlag/core/optimizer"
 	"github.com/buzzmean/neexitlag/core/routing"
+	"github.com/buzzmean/neexitlag/core/telemetry"
 	"github.com/buzzmean/neexitlag/tools/echo"
 	"net/netip"
 	"sync"
@@ -85,5 +86,55 @@ func TestConcurrentRoundsShareProbeBudgetAndCancel(t *testing.T) {
 	}
 	if peak.Load() > 2 || active.Load() != 0 {
 		t.Fatal("probe budget leaked", peak.Load(), active.Load())
+	}
+}
+
+type failingProbe struct {
+	err    error
+	cancel context.CancelFunc
+}
+
+func (f *failingProbe) Send([]byte) error { return nil }
+func (f *failingProbe) Receive(context.Context) ([]byte, error) {
+	if f.cancel != nil {
+		f.cancel()
+	}
+	return nil, f.err
+}
+func (f *failingProbe) Close() error { return nil }
+func TestFastProbeFailureAndLocalCancellationClassification(t *testing.T) {
+	for _, kind := range []string{"timeout", "local", "cancel"} {
+		t.Run(kind, func(t *testing.T) {
+			e := New(Settings{Samples: 3, Timeout: time.Second, Spacing: time.Nanosecond, Concurrency: 1})
+			failures := 0
+			e.OnFailure = func(string, string, time.Time) { failures++ }
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			flow := &failingProbe{err: context.DeadlineExceeded}
+			if kind == "local" {
+				flow.err = &telemetry.LocalError{Category: telemetry.TransportQueue, Cause: context.DeadlineExceeded}
+			}
+			if kind == "cancel" {
+				flow.cancel = cancel
+			}
+			m := e.Probe(ctx, Candidate{Metadata: optimizer.RelayCandidate{ID: "R"}, Target: netip.MustParseAddrPort("127.0.0.1:9000"), Open: func(context.Context, netip.AddrPort) (routing.Datagram, error) { return flow, nil }})
+			if kind == "timeout" {
+				if failures != 1 || m.ConsecutiveLoss != 3 || m.MaxLossBurst != 3 {
+					t.Fatal(failures, m)
+				}
+			} else if failures != 0 {
+				t.Fatal("local/cancel failure poisoned relay health")
+			}
+			if kind == "local" {
+				for _, p := range m.Probes {
+					if p.Outcome != optimizer.LocalFailure {
+						t.Fatal(p)
+					}
+				}
+			}
+			if kind == "cancel" && m.Samples != 0 {
+				t.Fatal("cancelled sample counted as loss", m)
+			}
+		})
 	}
 }

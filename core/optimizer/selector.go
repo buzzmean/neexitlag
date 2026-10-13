@@ -19,16 +19,20 @@ type RelayCandidate struct {
 	Load    float64 `json:"load,omitempty"`
 }
 type RouteMeasurement struct {
-	RouteID     string        `json:"route_id"`
-	RTT         time.Duration `json:"rtt"`
-	Jitter      time.Duration `json:"jitter"`
-	Loss        float64       `json:"loss"`
-	FailureRate float64       `json:"failure_rate"`
-	Load        float64       `json:"load"`
-	Stability   float64       `json:"stability"`
-	Available   bool          `json:"available"`
-	ObservedAt  time.Time     `json:"observed_at"`
-	Samples     int           `json:"samples"`
+	RouteID         string        `json:"route_id"`
+	RTT             time.Duration `json:"rtt"`
+	Jitter          time.Duration `json:"jitter"`
+	Loss            float64       `json:"loss"`
+	FailureRate     float64       `json:"failure_rate"`
+	Load            float64       `json:"load"`
+	Stability       float64       `json:"stability"`
+	Available       bool          `json:"available"`
+	ObservedAt      time.Time     `json:"observed_at"`
+	Samples         int           `json:"samples"`
+	Probes          []ProbeSample `json:"-"`
+	ConsecutiveLoss int           `json:"consecutive_loss,omitempty"`
+	MaxLossBurst    int           `json:"max_loss_burst,omitempty"`
+	TransportError  string        `json:"transport_error,omitempty"`
 }
 type RouteScore struct {
 	ID          string           `json:"id"`
@@ -60,7 +64,7 @@ func Score(m RouteMeasurement) float64 {
 	if !m.Available || m.Samples < 1 || m.RTT < 0 || m.Jitter < 0 || !validFraction(m.Loss) || !validFraction(m.FailureRate) || !validFraction(m.Load) || !validFraction(m.Stability) {
 		return math.Inf(1)
 	}
-	return float64(m.RTT)/float64(time.Millisecond) + 2*float64(m.Jitter)/float64(time.Millisecond) + 1000*m.Loss + 2000*m.FailureRate + 15*m.Load + 20*(1-m.Stability)
+	return float64(m.RTT)/float64(time.Millisecond) + 2*float64(m.Jitter)/float64(time.Millisecond) + 4000*m.Loss + 2000*m.FailureRate + 15*m.Load + 20*(1-m.Stability)
 }
 
 type Selection struct {
@@ -71,12 +75,15 @@ type Selection struct {
 	Changed   bool         `json:"changed"`
 }
 type RouteSelector struct {
-	mu                  sync.Mutex
-	p                   Parameters
-	measurements        map[string]RouteMeasurement
-	history             RouteHistory
-	current, pending    string
-	since, pendingSince time.Time
+	mu                                   sync.Mutex
+	p                                    Parameters
+	measurements                         map[string]RouteMeasurement
+	quality                              map[string]*qualityState
+	pendingRounds                        int
+	pendingCandidateAt, pendingCurrentAt time.Time
+	history                              RouteHistory
+	current, pending                     string
+	since, pendingSince                  time.Time
 }
 
 func New(p Parameters) *RouteSelector {
@@ -92,7 +99,7 @@ func New(p Parameters) *RouteSelector {
 	if p.MaxAge <= 0 {
 		p.MaxAge = 90 * time.Second
 	}
-	return &RouteSelector{p: p, measurements: make(map[string]RouteMeasurement), current: Direct}
+	return &RouteSelector{p: p, measurements: make(map[string]RouteMeasurement), quality: make(map[string]*qualityState), current: Direct}
 }
 func (s *RouteSelector) Observe(m RouteMeasurement) {
 	s.mu.Lock()
@@ -101,18 +108,79 @@ func (s *RouteSelector) Observe(m RouteMeasurement) {
 		return
 	}
 	old, ok := s.measurements[m.RouteID]
-	if ok && m.ObservedAt.Before(old.ObservedAt) {
+	if ok && !m.ObservedAt.After(old.ObservedAt) {
 		return
 	}
 	if !ok && len(s.measurements) >= 64 {
 		return
 	}
-	if ok && validFraction(old.Stability) && validFraction(m.Stability) {
-		drift := math.Abs(float64(m.RTT-old.RTT)) / float64(50*time.Millisecond)
-		m.Stability = math.Max(0, .75*old.Stability+.25*m.Stability-.1*math.Min(1, drift))
+	if !validFraction(m.Loss) || !validFraction(m.FailureRate) || !validFraction(m.Load) || m.Samples < 0 || m.RTT < 0 || m.Jitter < 0 {
+		return
+	}
+	state := s.quality[m.RouteID]
+	if state == nil {
+		state = &qualityState{}
+		s.quality[m.RouteID] = state
+	}
+	m.Probes = append([]ProbeSample(nil), m.Probes...)
+	state.rounds = append(state.rounds, m)
+	cutoff := m.ObservedAt.Add(-QualityWindow)
+	for len(state.rounds) > 0 && state.rounds[0].ObservedAt.Before(cutoff) {
+		state.rounds = state.rounds[1:]
+	}
+	if len(state.rounds) > 128 {
+		state.rounds = state.rounds[len(state.rounds)-128:]
+	}
+	incomingBurst := 0
+	for _, p := range m.Probes {
+		if !state.lastPacketAt.IsZero() && p.At.Before(state.lastPacketAt) {
+			continue
+		}
+		if p.At.Sub(state.lastPacketAt) > QualityWindow {
+			state.trailingLoss = 0
+		}
+		if p.Outcome == Timeout {
+			state.trailingLoss++
+		} else {
+			state.trailingLoss = 0
+		}
+		incomingBurst = max(incomingBurst, state.trailingLoss)
+		state.lastPacketAt = p.At
+	}
+	q := aggregate(state.rounds, m.ObservedAt)
+	badRounds := 0
+	for _, round := range state.rounds {
+		if round.Loss >= .1-1e-9 {
+			badRounds++
+		}
+	}
+	hard := m.TransportError != "" || (!m.Available && m.Samples > 0) || m.ConsecutiveLoss >= 3 || m.MaxLossBurst >= 5 || incomingBurst >= 5 || (q.Samples >= 40 && q.Loss >= .1 && badRounds >= 2 && m.Loss >= .1-1e-9)
+	if hard {
+		state.fault = true
+		state.reason = "probe_failure"
+		if m.TransportError != "" {
+			state.reason = m.TransportError
+		}
+		state.goodSince = time.Time{}
+		state.goodRounds = 0
+	}
+	if state.fault && !hard && m.Available && m.Loss <= .02 && m.MaxLossBurst <= 1 {
+		if state.goodSince.IsZero() {
+			state.goodSince = m.ObservedAt
+		}
+		state.goodRounds++
+		if state.goodRounds >= 3 && m.ObservedAt.Sub(state.goodSince) >= RecoveryConfirmation {
+			state.fault = false
+			state.reason = ""
+		}
+	} else if state.fault && !hard {
+		state.goodSince = time.Time{}
+		state.goodRounds = 0
 	}
 	s.measurements[m.RouteID] = m
-	s.history.Measurements = append(s.history.Measurements, m)
+	summary := m
+	summary.Probes = nil
+	s.history.Measurements = append(s.history.Measurements, summary)
 	if len(s.history.Measurements) > 256 {
 		s.history.Measurements = s.history.Measurements[len(s.history.Measurements)-256:]
 	}
@@ -125,10 +193,11 @@ func (s *RouteSelector) Select(now time.Time) Selection {
 	}
 	ranked := make([]RouteScore, 0, len(s.measurements))
 	for id, m := range s.measurements {
-		if now.Sub(m.ObservedAt) > s.p.MaxAge || m.ObservedAt.After(now) {
+		if now.Sub(m.ObservedAt) > min(s.p.MaxAge, QualityWindow) || m.ObservedAt.After(now) {
 			continue
 		}
-		v := Score(m)
+		q := s.qualityLocked(id, now)
+		v := QualityScore(q, m.Load)
 		if !math.IsInf(v, 1) {
 			ranked = append(ranked, RouteScore{id, v, m})
 		}
@@ -164,8 +233,20 @@ func (s *RouteSelector) Select(now time.Time) Selection {
 			if s.pending != best {
 				s.pending = best
 				s.pendingSince = now
+				s.pendingRounds = 1
+				s.pendingCandidateAt = s.measurements[best].ObservedAt
+				s.pendingCurrentAt = s.measurements[s.current].ObservedAt
 			}
-			if now.Sub(s.since) >= s.p.MinimumLifetime && now.Sub(s.pendingSince) >= s.p.ConfirmationPeriod {
+			candidateAt, currentAt := s.measurements[best].ObservedAt, s.measurements[s.current].ObservedAt
+			if candidateAt.After(s.pendingCandidateAt) && currentAt.After(s.pendingCurrentAt) {
+				s.pendingRounds++
+				s.pendingCandidateAt = candidateAt
+				s.pendingCurrentAt = currentAt
+			}
+			// A lone lossy round is visible in statistics, but is not sustained evidence.
+			currentQuality, candidateQuality := s.qualityLocked(s.current, now), s.qualityLocked(best, now)
+			sustainedLossEvidence := currentQuality.Loss <= candidateQuality.Loss || currentQuality.LossRounds >= 2
+			if now.Sub(s.since) >= s.p.MinimumLifetime && now.Sub(s.pendingSince) >= s.p.ConfirmationPeriod && s.pendingRounds >= 3 && sustainedLossEvidence {
 				out.Changed = true
 			}
 		}

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/buzzmean/neexitlag/core/routing"
+	"github.com/buzzmean/neexitlag/core/telemetry"
 	"golang.org/x/sys/windows"
 	"net/netip"
 	"os"
@@ -18,21 +19,23 @@ import (
 )
 
 type captureFlow struct {
-	decision Decision
-	queue    chan []byte
-	done     chan struct{}
-	once     sync.Once
-	datagram routing.Datagram
-	template []byte
-	address  [80]byte
-	identity ProcessIdentity
-	endpoint uint64
-	lastSeen time.Time
+	decision  Decision
+	dropCause telemetry.Category
+	queue     chan []byte
+	done      chan struct{}
+	once      sync.Once
+	datagram  routing.Datagram
+	template  []byte
+	address   [80]byte
+	identity  ProcessIdentity
+	endpoint  uint64
+	lastSeen  time.Time
 }
 type WinDivertBackend struct {
 	Files         DriverFiles
 	Engine        *routing.Engine
 	RX, TX, Drops atomic.Uint64
+	LocalDrops    telemetry.Counters
 	mu            sync.Mutex
 	life          sync.Mutex
 	status        CaptureStatus
@@ -239,11 +242,13 @@ func (b *WinDivertBackend) packets(classify Classifier) {
 		ok, _, e := d.recv.Call(b.network, uintptr(unsafe.Pointer(&buffer[0])), uintptr(len(buffer)), uintptr(unsafe.Pointer(&n)), uintptr(unsafe.Pointer(&address[0])))
 		if ok == 0 {
 			if b.ctx.Err() == nil {
+				b.LocalDrops.Drop(telemetry.CaptureReceiveErrors)
 				b.fail(fmt.Errorf("WinDivert packet receive: %w", e))
 			}
 			return
 		}
 		if n == 0 || n > uint32(len(buffer)) {
+			b.LocalDrops.Drop(telemetry.CaptureProcessing)
 			b.fail(errors.New("invalid WinDivert packet size"))
 			return
 		}
@@ -309,7 +314,7 @@ func (b *WinDivertBackend) packets(classify Classifier) {
 				}
 				continue
 			}
-			f = &captureFlow{decision: decision, identity: identity, endpoint: association.Endpoint, done: make(chan struct{}), address: address}
+			f = &captureFlow{decision: decision, dropCause: telemetry.Policy, identity: identity, endpoint: association.Endpoint, done: make(chan struct{}), address: address}
 			if !decision.Route.Direct() && !decision.Block {
 				f.queue = make(chan []byte, 32)
 				f.template = append([]byte(nil), packet...)
@@ -322,6 +327,7 @@ func (b *WinDivertBackend) packets(classify Classifier) {
 					go b.forward(tuple, f, d)
 				default:
 					if f.decision.BlockOnFailure {
+						f.dropCause = telemetry.WorkerSaturation
 						f.decision.Block = true
 					} else {
 						f.decision.Route = routing.Route{}
@@ -334,6 +340,8 @@ func (b *WinDivertBackend) packets(classify Classifier) {
 		b.mu.Unlock()
 		// An expired identity must not retain a previous process's BLOCK decision.
 		if decision.Block && known {
+			b.LocalDrops.Attempt(f.dropCause)
+			b.LocalDrops.Drop(f.dropCause)
 			b.drop(identity, tuple)
 			continue
 		}
@@ -346,6 +354,8 @@ func (b *WinDivertBackend) packets(classify Classifier) {
 			continue
 		}
 		if len(payload) > 1100 {
+			b.LocalDrops.Attempt(telemetry.CaptureProcessing)
+			b.LocalDrops.Drop(telemetry.CaptureProcessing)
 			b.drop(identity, tuple)
 			continue
 		}
@@ -354,21 +364,27 @@ func (b *WinDivertBackend) packets(classify Classifier) {
 		latest := f.decision
 		if latest.Block {
 			b.mu.Unlock()
+			b.LocalDrops.Attempt(telemetry.Policy)
+			b.LocalDrops.Drop(telemetry.Policy)
 			b.drop(identity, tuple)
 			continue
 		}
 		if latest.Route.Direct() {
 			b.mu.Unlock()
+			b.LocalDrops.Attempt(telemetry.CaptureProcessing)
 			if err := b.inject(d, packet, address); err != nil {
+				b.LocalDrops.Drop(telemetry.CaptureProcessing)
 				b.fail(err)
 				return
 			}
 			b.evidence.Record(identity, tuple, "direct", "")
 			continue
 		}
+		b.LocalDrops.Attempt(telemetry.CaptureQueue)
 		select {
 		case f.queue <- append([]byte(nil), payload...):
 		default:
+			b.LocalDrops.Drop(telemetry.CaptureQueue)
 			b.drop(identity, tuple)
 		}
 		b.mu.Unlock()
@@ -425,12 +441,16 @@ func (b *WinDivertBackend) forward(tuple Tuple, f *captureFlow, d *divertDLL) {
 			}
 			packet, e := ReplyUDP(f.template, payload)
 			if e != nil {
+				b.LocalDrops.Attempt(telemetry.ReplyReinjection)
+				b.LocalDrops.Drop(telemetry.ReplyReinjection)
 				b.drop(f.identity, tuple)
 				continue
 			}
 			address := f.address
 			address[10] &= ^byte(2)
+			b.LocalDrops.Attempt(telemetry.ReplyReinjection)
 			if err := b.inject(d, packet, address); err != nil {
+				b.LocalDrops.Drop(telemetry.ReplyReinjection)
 				b.fail(err)
 				return
 			}
@@ -475,6 +495,8 @@ func (b *WinDivertBackend) Traffic() (uint64, uint64) { return b.RX.Load(), b.TX
 func (b *WinDivertBackend) Diagnostics(pid uint32) CaptureEvidence {
 	out := b.evidence.Snapshot(pid)
 	out.Counters.Dropped = b.Drops.Load()
+	out.LocalDrops = b.LocalDrops.Snapshot()
+	out.LocalDrops["capture_kernel_queue_drops"] = telemetry.Metric{Available: false, Unit: "packets"}
 	return out
 }
 func (b *WinDivertBackend) fallback(tuple Tuple, f *captureFlow, d *divertDLL, failed []byte) {
