@@ -15,6 +15,7 @@ import (
 
 func main() {
 	listen := flag.String("listen", "0.0.0.0:40000", "authenticated IPv4 UDP echo")
+	tcpListen := flag.String("tcp-listen", "", "optional authenticated TCP echo on the controlled test target")
 	token := flag.String("token-file", "", "private echo token")
 	metrics := flag.String("metrics", "127.0.0.1:9092", "local metrics/health")
 	flag.Parse()
@@ -37,6 +38,19 @@ func main() {
 	defer stop()
 	defer conn.Close()
 	stats := &e2eprobe.EchoStats{}
+	if *tcpListen != "" {
+		listener, err := net.Listen("tcp4", *tcpListen)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		defer listener.Close()
+		go func() {
+			if err := e2eprobe.ServeTCP(ctx, listener, key, stats); err != nil {
+				fmt.Fprintln(os.Stderr, "TCP echo listener failed")
+			}
+		}()
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok\n")) })
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {

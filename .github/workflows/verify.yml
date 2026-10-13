@@ -66,7 +66,7 @@ jobs:
         shell: powershell
       - run: ./tests/windows-tools/ipc-smoke.ps1
         shell: pwsh
-      - run: go test ./tools/windows-test-client ./internal/e2eprobe ./tools/vps-provision
+      - run: go test ./tools/windows-test-client ./internal/e2eprobe ./tools/vps-provision ./tools/route-test
       - uses: actions/upload-artifact@v4
         with:
           name: windows-real-e2e-tools

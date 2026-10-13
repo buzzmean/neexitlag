@@ -54,6 +54,14 @@ and [official pinned WinDivert dependency](docs/WINDIVERT_DEPENDENCY.md).
 `acceptance.ps1` checks two actual processes, route evidence, relay failure and
 service stop/crash. A local demo or cross-build does not satisfy that acceptance.
 
+## Existing VPS relay benchmark
+
+[First real relay test](docs/FIRST_REAL_RELAY_TEST.md) documents secure relay
+install/update/uninstall on the existing VPS and a standalone Windows/Linux
+`tools/route-test` DIRECT/RELAY benchmark. GitHub Actions publishes Linux relay
+and Windows executable artifacts after successful tests. UDP/TCP and ticket
+rejection smoke use real authenticated traffic; local CI is not Internet proof.
+
 ## Run the local demo
 
 Install Go 1.25+ and run:

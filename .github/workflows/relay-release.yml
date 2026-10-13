@@ -1,0 +1,61 @@
+name: Relay release and route test
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  test-and-release:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: neexitlag
+          POSTGRES_DB: neexitlag
+          POSTGRES_PASSWORD: ci-only-test-password
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U neexitlag -d neexitlag"
+          --health-interval 2s --health-timeout 2s --health-retries 30
+    env:
+      NEEXITLAG_TEST_DATABASE_URL: postgres://neexitlag:ci-only-test-password@127.0.0.1:5432/neexitlag?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-go@v5
+        with: {go-version: '1.25.x'}
+      - run: go build ./...
+      - run: go test -race -timeout 120s ./...
+      - run: go vet ./...
+      - run: python3 -m unittest discover -s tests/deployment -v
+      - name: Build Linux amd64 relay and controlled-test tools
+        env: {GOOS: linux, GOARCH: amd64, CGO_ENABLED: '0'}
+        run: |
+          mkdir -p dist/relay/bin dist/relay/deploy
+          go build -trimpath -ldflags='-s -w' -o dist/relay/bin/relay ./services/relay/cmd/relay
+          go build -trimpath -ldflags='-s -w' -o dist/relay/bin/control-plane ./services/control-plane/cmd/control-plane
+          go build -trimpath -ldflags='-s -w' -o dist/relay/bin/remote-echo ./tools/remote-echo
+          go build -trimpath -ldflags='-s -w' -o dist/relay/bin/vps-provision ./tools/vps-provision
+          go build -trimpath -ldflags='-s -w' -o dist/relay/bin/enroll ./tools/enroll
+          go build -trimpath -ldflags='-s -w' -o dist/relay/bin/probe-client ./tools/windows-test-client
+          go build -trimpath -ldflags='-s -w' -o dist/relay/bin/neexitlag-route-test-linux-amd64 ./tools/route-test
+          cp -r deploy/vps dist/relay/deploy/vps
+          cp docs/FIRST_REAL_RELAY_TEST.md dist/relay/
+          git rev-parse HEAD > dist/relay/HEAD_COMMIT
+          cd dist/relay
+          sha256sum bin/* deploy/vps/*.sh deploy/vps/*.py deploy/vps/*.service deploy/vps/example.env > SHA256SUMS
+      - name: Build Windows amd64 standalone route-test
+        env: {GOOS: windows, GOARCH: amd64, CGO_ENABLED: '0'}
+        run: |
+          mkdir -p dist/windows
+          go build -trimpath -ldflags='-s -w' -o dist/windows/neexitlag-route-test-windows-amd64.exe ./tools/route-test
+          cd dist/windows
+          sha256sum *.exe > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neexitlag-relay-linux-amd64
+          path: dist/relay/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neexitlag-route-test-windows-amd64
+          path: dist/windows/
