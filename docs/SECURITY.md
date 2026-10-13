@@ -25,7 +25,7 @@ Control plane bootstrap administration uses a random >=24-character secret;
 relay heartbeat tokens are independent, scoped and stored as SHA256 hashes.
 Device private seeds persist only in private local files. Windows installer ACLs
 protect service identity, manifest, trust, state and driver files. Loader requires
-trusted SHA256 pins and DLL Authenticode validation and restricts DLL search.
+trusted SHA256 pins and signed SYS Authenticode validation and restricts DLL search.
 IPC owner/token authentication, timestamps, replay limits and bounded frames keep
 networking privilege out of the GUI. Optional publisher/signature profiles do not
 match when verification data is absent.

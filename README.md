@@ -31,6 +31,15 @@ Transparent TCP/IPv6 and the production WFP driver remain outstanding.
 See [status](docs/STATUS.md), [Windows acceptance](docs/BLOCKERS.md) and
 [security](docs/SECURITY.md).
 
+## Real Windows / remote relay E2E
+
+The next acceptance stage is prepared, **READY FOR VPS**. No real Windows/public
+Internet capture PASS is claimed. See [exact setup and acceptance commands](docs/WINDOWS_REAL_E2E.md)
+and [official pinned WinDivert dependency](docs/WINDIVERT_DEPENDENCY.md).
+`tools/windows/setup-e2e.ps1` provisions the remote backend and Windows service;
+`acceptance.ps1` checks two actual processes, route evidence, relay failure and
+service stop/crash. A local demo or cross-build does not satisfy that acceptance.
+
 ## Run the local demo
 
 Install Go 1.25+ and run:
