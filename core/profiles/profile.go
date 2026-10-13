@@ -143,3 +143,5 @@ func (r *Registry) Match(i Identity) (Profile, bool) {
 	}
 	return Profile{}, false
 }
+
+func (r *Registry) Delete(id string) { r.mu.Lock(); defer r.mu.Unlock(); delete(r.items, id) }

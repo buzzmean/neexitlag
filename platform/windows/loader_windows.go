@@ -40,7 +40,7 @@ func hashFile(path, want string) error {
 	return nil
 }
 
-// WinVerifyTrust validates the DLL's Authenticode chain using the OS trust store.
+// Official WinDivert DLL is unsigned; the SHA256-pinned kernel driver is signed.
 func verifyAuthenticode(path string) error {
 	type fileInfo struct {
 		Size    uint32
@@ -88,7 +88,7 @@ func loadDivert(f DriverFiles) (*divertDLL, error) {
 	if e := hashFile(driverPath, f.DriverSHA256); e != nil {
 		return nil, e
 	}
-	if e := verifyAuthenticode(dllPath); e != nil {
+	if e := verifyAuthenticode(driverPath); e != nil {
 		return nil, e
 	}
 	handle, e := windows.LoadLibraryEx(dllPath, 0, windows.LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR|windows.LOAD_LIBRARY_SEARCH_DEFAULT_DIRS)

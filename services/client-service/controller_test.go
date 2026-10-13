@@ -56,3 +56,30 @@ func TestServiceUnavailableProfilesAndAuthenticatedCommandsBoundary(t *testing.T
 		t.Fatal("local profile persistence")
 	}
 }
+func TestAcceptanceProfileCleanupPersistsWithoutDeletingDefaults(t *testing.T) {
+	c := New(context.Background())
+	defer c.Close()
+	path := filepath.Join(t.TempDir(), "profiles.json")
+	if e := c.SetCustomPath(path); e != nil {
+		t.Fatal(e)
+	}
+	p := profiles.Profile{ID: "e2e-temp", Name: "test client", Executables: []string{`C:\Lab\test-game.exe`}, Mode: profiles.Direct, Custom: true}
+	raw, _ := json.Marshal(p)
+	if _, e := c.Handle(context.Background(), "profile.set", raw); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := c.Handle(context.Background(), "profile.delete", json.RawMessage(`{"id":"cs2"}`)); e == nil {
+		t.Fatal("default profile deleted")
+	}
+	if _, e := c.Handle(context.Background(), "profile.delete", json.RawMessage(`{"id":"e2e-temp"}`)); e != nil {
+		t.Fatal(e)
+	}
+	c2 := New(context.Background())
+	defer c2.Close()
+	if e := c2.SetCustomPath(path); e != nil {
+		t.Fatal(e)
+	}
+	if len(c2.Profiles.List()) != 3 {
+		t.Fatal("temporary acceptance profile survived cleanup")
+	}
+}

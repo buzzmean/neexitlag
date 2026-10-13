@@ -8,6 +8,7 @@ import (
 	"github.com/buzzmean/neexitlag/core/routing"
 	"net/netip"
 	"sync"
+	"time"
 )
 
 var ErrUnavailable = errors.New("Windows capture backend unavailable on this platform")
@@ -54,13 +55,14 @@ type FlowAssociations struct {
 	mu    sync.RWMutex
 	items map[Tuple]Association
 	limit int
+	seen  map[Tuple]time.Time
 }
 
 func NewAssociations(limit int) *FlowAssociations {
 	if limit <= 0 {
 		limit = 8192
 	}
-	return &FlowAssociations{items: make(map[Tuple]Association), limit: limit}
+	return &FlowAssociations{items: make(map[Tuple]Association), limit: limit, seen: map[Tuple]time.Time{}}
 }
 func (a *FlowAssociations) Put(v Association) bool {
 	if v.Identity.PID == 0 || v.Identity.CreationTime == 0 {
@@ -72,6 +74,7 @@ func (a *FlowAssociations) Put(v Association) bool {
 		return false
 	}
 	a.items[v.Tuple] = v
+	a.seen[v.Tuple] = time.Now()
 	return true
 }
 func (a *FlowAssociations) Delete(t Tuple, endpoint uint64) {
@@ -79,6 +82,7 @@ func (a *FlowAssociations) Delete(t Tuple, endpoint uint64) {
 	defer a.mu.Unlock()
 	if old, ok := a.items[t]; ok && old.Endpoint == endpoint {
 		delete(a.items, t)
+		delete(a.seen, t)
 	}
 }
 func (a *FlowAssociations) Get(t Tuple, current ProcessIdentity) (Association, bool) {
@@ -96,4 +100,22 @@ func (*WFPBackend) Start(context.Context, Classifier) error {
 func (*WFPBackend) Stop() error { return nil }
 func (*WFPBackend) Status() CaptureStatus {
 	return CaptureStatus{Backend: "WFP", Error: "WFP callout driver not implemented; networking remains DIRECT"}
+}
+
+func (a *FlowAssociations) Touch(t Tuple) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if _, ok := a.items[t]; ok {
+		a.seen[t] = time.Now()
+	}
+}
+func (a *FlowAssociations) Cleanup(now time.Time) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for t, at := range a.seen {
+		if now.Sub(at) > 2*time.Minute {
+			delete(a.items, t)
+			delete(a.seen, t)
+		}
+	}
 }

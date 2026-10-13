@@ -311,12 +311,48 @@ func (c *Controller) Snapshot() Snapshot {
 }
 func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMessage) (any, error) {
 	switch method {
+	case "capture.diagnostics":
+		var query struct {
+			PID uint32 `json:"pid"`
+		}
+		if len(raw) > 0 && string(raw) != "null" {
+			if err := security.Parse(raw, &query); err != nil {
+				return nil, err
+			}
+		}
+		if backend, ok := c.Backend.(interface {
+			Diagnostics(uint32) windowsplatform.CaptureEvidence
+		}); ok {
+			return backend.Diagnostics(query.PID), nil
+		}
+		return nil, errors.New("capture diagnostics unavailable on this backend")
 	case "status":
 		return c.Snapshot(), nil
 	case "profiles":
 		return c.Profiles.List(), nil
 	case "processes":
 		return windowsplatform.NewDiscovery().List()
+	case "profile.delete":
+		var query struct {
+			ID string `json:"id"`
+		}
+		if e := security.Parse(raw, &query); e != nil {
+			return nil, e
+		}
+		c.mu.Lock()
+		p, ok := c.localProfiles[query.ID]
+		if !ok || !p.Custom {
+			c.mu.Unlock()
+			return nil, errors.New("only local custom profiles can be removed")
+		}
+		delete(c.localProfiles, query.ID)
+		c.mu.Unlock()
+		c.Profiles.Delete(query.ID)
+		c.Engine.SetPolicy(query.ID, routing.Policy{})
+		if e := c.saveProfiles(); e != nil {
+			return nil, e
+		}
+		return c.Profiles.List(), nil
 	case "profile.set":
 		var p profiles.Profile
 		if e := security.Parse(raw, &p); e != nil {

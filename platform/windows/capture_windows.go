@@ -27,6 +27,7 @@ type captureFlow struct {
 	address  [80]byte
 	identity ProcessIdentity
 	endpoint uint64
+	lastSeen time.Time
 }
 type WinDivertBackend struct {
 	Files         DriverFiles
@@ -44,10 +45,12 @@ type WinDivertBackend struct {
 	cancel        context.CancelFunc
 	wg            sync.WaitGroup
 	workers       chan struct{}
+	cache         *ProcessCache
+	evidence      *EvidenceLedger
 }
 
 func NewWinDivert(files DriverFiles, engine *routing.Engine) *WinDivertBackend {
-	return &WinDivertBackend{Files: files, Engine: engine, status: CaptureStatus{Backend: "WinDivert", Capabilities: Capabilities{UDP: true, Transparent: true}}, flows: make(map[Tuple]*captureFlow), associations: NewAssociations(8192), workers: make(chan struct{}, 64)}
+	return &WinDivertBackend{Files: files, Engine: engine, status: CaptureStatus{Backend: "WinDivert", Capabilities: Capabilities{UDP: true, Transparent: true}}, flows: make(map[Tuple]*captureFlow), associations: NewAssociations(8192), workers: make(chan struct{}, 64), cache: NewProcessCache(NewDiscovery(), IsCurrent), evidence: NewEvidenceLedger()}
 }
 func (b *WinDivertBackend) Status() CaptureStatus { b.mu.Lock(); defer b.mu.Unlock(); return b.status }
 func (d *divertDLL) openHandle(filter string, layer uintptr, flags uintptr) (uintptr, error) {
@@ -116,8 +119,9 @@ func (b *WinDivertBackend) Start(parent context.Context, classify Classifier) (r
 	b.status.Ready = true
 	b.status.Error = ""
 	b.mu.Unlock()
-	b.wg.Add(2)
+	b.wg.Add(3)
 	go b.track()
+	go b.cleanup()
 	go b.packets(classify)
 	watch := b.ctx
 	go func() {
@@ -160,7 +164,7 @@ func (b *WinDivertBackend) stopLocked() error {
 func (b *WinDivertBackend) track() {
 	defer b.wg.Done()
 	d := b.proc()
-	discovery := NewDiscovery()
+	discovery := b.cache
 	var address [80]byte
 	for {
 		ok, _, e := d.recv.Call(b.flow, 0, 0, 0, uintptr(unsafe.Pointer(&address[0])))
@@ -178,9 +182,6 @@ func (b *WinDivertBackend) track() {
 		}
 		data := address[16:]
 		pid := binary.LittleEndian.Uint32(data[16:20])
-		if pid == uint32(os.Getpid()) {
-			continue
-		}
 		proto := "udp"
 		if data[56] == 6 {
 			proto = "tcp"
@@ -225,6 +226,7 @@ func (b *WinDivertBackend) inject(d *divertDLL, p []byte, a [80]byte) error {
 	if ok == 0 {
 		return fmt.Errorf("packet reinjection: %w", e)
 	}
+	b.evidence.Record(ProcessIdentity{}, Tuple{}, "reinject", "")
 	return nil
 }
 func (b *WinDivertBackend) packets(classify Classifier) {
@@ -241,6 +243,10 @@ func (b *WinDivertBackend) packets(classify Classifier) {
 			}
 			return
 		}
+		if n == 0 || n > uint32(len(buffer)) {
+			b.fail(errors.New("invalid WinDivert packet size"))
+			return
+		}
 		packet := buffer[:n]
 		tuple, payload, e := ParseUDP(packet)
 		if e != nil || b.ctx.Err() != nil {
@@ -255,13 +261,32 @@ func (b *WinDivertBackend) packets(classify Classifier) {
 		b.associations.mu.RUnlock()
 		identity := association.Identity
 		known = known && IsCurrent(identity)
+		if !known {
+			identity = ProcessIdentity{}
+			if pid, err := resolveUDPOwner(tuple.Source); err == nil {
+				if resolved, err := b.cache.Lookup(pid); err == nil {
+					identity = resolved
+					known = true
+					association = Association{Identity: identity, Tuple: tuple}
+					b.associations.Put(association)
+				}
+			}
+		}
+		b.evidence.Record(identity, tuple, "captured", "")
+		if known && identity.PID == uint32(os.Getpid()) {
+			b.evidence.Record(identity, tuple, "self", "")
+		}
+		b.associations.Touch(tuple)
 		b.mu.Lock()
 		f := b.flows[tuple]
 		if f != nil && known && f.identity.CreationTime == 0 {
 			f.identity = identity
 			f.endpoint = association.Endpoint
 		}
-		if f != nil && known && f.identity.CreationTime != 0 && f.identity.CreationTime != identity.CreationTime {
+		if f != nil && known && f.endpoint == 0 && f.identity.CreationTime == identity.CreationTime {
+			f.endpoint = association.Endpoint
+		}
+		if f != nil && known && f.identity.CreationTime != 0 && (f.identity.PID != identity.PID || f.identity.CreationTime != identity.CreationTime) {
 			f.once.Do(func() { close(f.done) })
 			delete(b.flows, tuple)
 			f = nil
@@ -269,14 +294,18 @@ func (b *WinDivertBackend) packets(classify Classifier) {
 		if f == nil {
 			decision := Decision{Route: routing.Route{}}
 			if known && len(payload) <= 1100 {
-				decision = classify(identity, tuple)
+				decision, _ = ClassifyCapture(identity, tuple, uint32(os.Getpid()), classify)
 			}
 			if len(b.flows) >= 8192 {
 				b.mu.Unlock()
 				if decision.Block || decision.BlockOnFailure {
-					b.Drops.Add(1)
+					b.drop(identity, tuple)
 				} else {
-					b.inject(d, packet, address)
+					if err := b.inject(d, packet, address); err != nil {
+						b.fail(err)
+						return
+					}
+					b.evidence.Record(identity, tuple, "direct", "")
 				}
 				continue
 			}
@@ -300,11 +329,12 @@ func (b *WinDivertBackend) packets(classify Classifier) {
 				}
 			}
 		}
+		f.lastSeen = time.Now()
 		decision := f.decision
 		b.mu.Unlock()
 		// An expired identity must not retain a previous process's BLOCK decision.
 		if decision.Block && known {
-			b.Drops.Add(1)
+			b.drop(identity, tuple)
 			continue
 		}
 		if decision.Route.Direct() || !known {
@@ -312,29 +342,54 @@ func (b *WinDivertBackend) packets(classify Classifier) {
 				b.fail(e)
 				return
 			}
+			b.evidence.Record(identity, tuple, "direct", "")
 			continue
 		}
 		if len(payload) > 1100 {
-			b.Drops.Add(1)
+			b.drop(identity, tuple)
+			continue
+		}
+		// Commit queueing under the same lock as fallback, so draining cannot miss a late enqueue.
+		b.mu.Lock()
+		latest := f.decision
+		if latest.Block {
+			b.mu.Unlock()
+			b.drop(identity, tuple)
+			continue
+		}
+		if latest.Route.Direct() {
+			b.mu.Unlock()
+			if err := b.inject(d, packet, address); err != nil {
+				b.fail(err)
+				return
+			}
+			b.evidence.Record(identity, tuple, "direct", "")
 			continue
 		}
 		select {
 		case f.queue <- append([]byte(nil), payload...):
 		default:
-			b.Drops.Add(1)
+			b.drop(identity, tuple)
 		}
+		b.mu.Unlock()
 	}
 }
 func (b *WinDivertBackend) forward(tuple Tuple, f *captureFlow, d *divertDLL) {
 	defer b.wg.Done()
 	defer func() { <-b.workers }()
-	ctx, cancel := context.WithTimeout(b.ctx, 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(b.ctx, 750*time.Millisecond)
 	datagram, err := b.Engine.OpenUDP(ctx, f.decision.Flow)
 	cancel()
 	if err == nil {
 		for _, flow := range b.Engine.Snapshot() {
-			if flow.PID == f.decision.Flow.PID && flow.Source == tuple.Source && flow.Destination == tuple.Destination && flow.Route.Direct() {
-				err = errors.New("relay setup fell back to DIRECT")
+			if flow.PID == f.decision.Flow.PID && flow.Source == tuple.Source && flow.Destination == tuple.Destination {
+				if flow.Route.Direct() {
+					err = errors.New("relay setup fell back to DIRECT")
+				} else {
+					b.mu.Lock()
+					f.decision.Route = flow.Route
+					b.mu.Unlock()
+				}
 			}
 		}
 	}
@@ -342,32 +397,10 @@ func (b *WinDivertBackend) forward(tuple Tuple, f *captureFlow, d *divertDLL) {
 		if datagram != nil {
 			datagram.Close()
 		}
-		b.mu.Lock()
-		if f.decision.BlockOnFailure {
-			f.decision.Block = true
-		} else {
-			f.decision.Route = routing.Route{}
-		}
-		b.mu.Unlock()
-		if f.decision.BlockOnFailure {
-			return
-		}
-		for {
-			select {
-			case p := <-f.queue:
-				packet, e := ReplyUDP(f.template, p)
-				if e == nil {
-					ihl := int(packet[0]&15) * 4
-					copy(packet[12:16], f.template[12:16])
-					copy(packet[16:20], f.template[16:20])
-					copy(packet[ihl:ihl+4], f.template[ihl:ihl+4])
-					b.inject(d, packet, f.address)
-				}
-			default:
-				return
-			}
-		}
+		b.fallback(tuple, f, d, nil)
+		return
 	}
+
 	defer datagram.Close()
 	done := make(chan struct{})
 	go func() {
@@ -392,14 +425,19 @@ func (b *WinDivertBackend) forward(tuple Tuple, f *captureFlow, d *divertDLL) {
 			}
 			packet, e := ReplyUDP(f.template, payload)
 			if e != nil {
-				b.Drops.Add(1)
+				b.drop(f.identity, tuple)
 				continue
 			}
 			address := f.address
 			address[10] &= ^byte(2)
-			if b.inject(d, packet, address) != nil {
+			if err := b.inject(d, packet, address); err != nil {
+				b.fail(err)
 				return
 			}
+			b.mu.Lock()
+			route := f.decision.Route.RelayID
+			b.mu.Unlock()
+			b.evidence.Record(f.identity, tuple, "reply", route)
 			b.RX.Add(uint64(len(payload)))
 		}
 	}()
@@ -414,30 +452,95 @@ func (b *WinDivertBackend) forward(tuple Tuple, f *captureFlow, d *divertDLL) {
 			<-done
 			return
 		case <-done:
-			b.mu.Lock()
-			if f.decision.BlockOnFailure {
-				f.decision.Block = true
-			} else {
-				f.decision.Route = routing.Route{}
-			}
-			b.mu.Unlock()
+			b.fallback(tuple, f, d, nil)
 			return
 		case payload := <-f.queue:
 			if datagram.Send(payload) != nil {
-				b.mu.Lock()
-				if f.decision.BlockOnFailure {
-					f.decision.Block = true
-				} else {
-					f.decision.Route = routing.Route{}
-				}
-				b.mu.Unlock()
+				b.fallback(tuple, f, d, payload)
 				datagram.Close()
 				<-done
 				return
 			}
+			b.mu.Lock()
+			route := f.decision.Route.RelayID
+			b.mu.Unlock()
+			b.evidence.Record(f.identity, tuple, "relay", route)
 			b.TX.Add(uint64(len(payload)))
 		}
 	}
 }
 
 func (b *WinDivertBackend) Traffic() (uint64, uint64) { return b.RX.Load(), b.TX.Load() }
+
+func (b *WinDivertBackend) Diagnostics(pid uint32) CaptureEvidence {
+	out := b.evidence.Snapshot(pid)
+	out.Counters.Dropped = b.Drops.Load()
+	return out
+}
+func (b *WinDivertBackend) fallback(tuple Tuple, f *captureFlow, d *divertDLL, failed []byte) {
+	b.mu.Lock()
+	block := f.decision.BlockOnFailure
+	f.decision.Block = block
+	if !block {
+		f.decision.Route = routing.Route{}
+	}
+	b.mu.Unlock()
+	inject := func(payload []byte) {
+		if block {
+			b.drop(f.identity, tuple)
+			return
+		}
+		p, err := ReplyUDP(f.template, payload)
+		if err != nil {
+			b.drop(f.identity, tuple)
+			return
+		}
+		ihl := int(p[0]&15) * 4
+		copy(p[12:20], f.template[12:20])
+		copy(p[ihl:ihl+4], f.template[ihl:ihl+4])
+		if err = b.inject(d, p, f.address); err != nil {
+			b.fail(err)
+			return
+		}
+		b.evidence.Record(f.identity, tuple, "direct", "")
+	}
+	if failed != nil {
+		inject(failed)
+	}
+	for {
+		select {
+		case payload := <-f.queue:
+			inject(payload)
+		default:
+			return
+		}
+	}
+}
+func (b *WinDivertBackend) cleanup() {
+	defer b.wg.Done()
+	tick := time.NewTicker(10 * time.Second)
+	defer tick.Stop()
+	for {
+		select {
+		case <-b.ctx.Done():
+			return
+		case now := <-tick.C:
+			b.cache.Cleanup(now)
+			b.evidence.Cleanup(now)
+			b.associations.Cleanup(now)
+			b.mu.Lock()
+			for t, f := range b.flows {
+				if now.Sub(f.lastSeen) > 60*time.Second {
+					f.once.Do(func() { close(f.done) })
+					delete(b.flows, t)
+				}
+			}
+			b.mu.Unlock()
+		}
+	}
+}
+
+func (b *WinDivertBackend) drop(id ProcessIdentity, t Tuple) {
+	b.Drops.Add(1)
+	b.evidence.Record(id, t, "drop", "")
+}

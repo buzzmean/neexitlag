@@ -25,6 +25,9 @@ func (*ProcessDiscovery) Lookup(pid uint32) (ProcessIdentity, error) {
 	if e = windows.GetProcessTimes(handle, &creation, &exit, &kern, &user); e != nil {
 		return ProcessIdentity{}, e
 	}
+	if exit.HighDateTime != 0 || exit.LowDateTime != 0 {
+		return ProcessIdentity{}, fmt.Errorf("process has exited")
+	}
 	buf := make([]uint16, 32768)
 	n := uint32(len(buf))
 	ok, _, callErr := queryImage.Call(uintptr(handle), 0, uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&n)))

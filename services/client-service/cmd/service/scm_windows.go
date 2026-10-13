@@ -16,12 +16,15 @@ type handler struct {
 func (h handler) Execute(args []string, requests <-chan svc.ChangeRequest, status chan<- svc.Status) (bool, uint32) {
 	ctx, cancel := context.WithCancel(h.parent)
 	defer cancel()
-	status <- svc.Status{State: svc.StartPending}
+	status <- svc.Status{State: svc.StartPending, WaitHint: 30000}
 	done := make(chan error, 1)
-	go func() { done <- run(ctx, h.path) }()
-	status <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
+	ready := make(chan struct{})
+	go func() { done <- runReady(ctx, h.path, func() { close(ready) }) }()
 	for {
 		select {
+		case <-ready:
+			ready = nil
+			status <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
 		case e := <-done:
 			if e != nil {
 				return false, 1

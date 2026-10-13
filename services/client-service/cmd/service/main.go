@@ -13,7 +13,8 @@ import (
 	"syscall"
 )
 
-func run(ctx context.Context, path string) error {
+func run(ctx context.Context, path string) error { return runReady(ctx, path, nil) }
+func runReady(ctx context.Context, path string, ready func()) error {
 	manifest, e := clientservice.LoadManifest(path)
 	if e != nil {
 		return e
@@ -48,6 +49,9 @@ func run(ctx context.Context, path string) error {
 		return e
 	}
 	defer listener.Close()
+	if ready != nil {
+		ready()
+	}
 	return clientservice.ServeIPC(ctx, listener, server)
 }
 func main() {

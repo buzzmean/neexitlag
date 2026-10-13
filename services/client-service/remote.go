@@ -13,6 +13,7 @@ import (
 	"github.com/buzzmean/neexitlag/core/optimizer"
 	"github.com/buzzmean/neexitlag/core/security"
 	"github.com/buzzmean/neexitlag/core/transport"
+	"github.com/buzzmean/neexitlag/internal/e2eprobe"
 	windowsplatform "github.com/buzzmean/neexitlag/platform/windows"
 	"net/netip"
 	"os"
@@ -21,6 +22,8 @@ import (
 )
 
 type Manifest struct {
+	ProbeTokenFile     string                      `json:"probe_token_file,omitempty"`
+	ControlPlaneCAFile string                      `json:"control_plane_ca_file,omitempty"`
 	OwnerSID           string                      `json:"owner_sid"`
 	TokenFile          string                      `json:"token_file"`
 	StateDirectory     string                      `json:"state_directory"`
@@ -98,6 +101,12 @@ func (c *Controller) ConnectRemote(ctx context.Context, m Manifest) error {
 	cache := security.NewConfigCache(keys, filepath.Join(m.StateDirectory, "signed-config.json"))
 	_ = cache.Load(time.Now())
 	cp := &controlclient.Client{BaseURL: m.ControlPlaneURL, Cache: cache, DeviceID: identity.ID, DeviceKey: key}
+	if m.ControlPlaneCAFile != "" {
+		cp.HTTP, e = controlclient.HTTPSClient(m.ControlPlaneCAFile)
+		if e != nil {
+			return e
+		}
+	}
 	c.ControlPlaneURL = m.ControlPlaneURL
 	c.TCPDiagnosticTarget = m.TCPProbeTarget
 	target, e := netip.ParseAddrPort(m.ProbeTarget)
@@ -105,6 +114,12 @@ func (c *Controller) ConnectRemote(ctx context.Context, m Manifest) error {
 		return errors.New("explicit UDP echo probe target required")
 	}
 	remote := &remoteState{controller: c, cp: cp, tls: cfg, target: target, clients: make(map[string]*transport.Client)}
+	if m.ProbeTokenFile != "" {
+		remote.echoKey, e = e2eprobe.Token(m.ProbeTokenFile)
+		if e != nil {
+			return e
+		}
+	}
 	signed, initialError := cp.Config(ctx)
 	if initialError == nil {
 		initialError = remote.apply(ctx, signed)
@@ -132,6 +147,7 @@ func (c *Controller) ConnectRemote(ctx context.Context, m Manifest) error {
 }
 
 type remoteState struct {
+	echoKey     []byte
 	controller  *Controller
 	cp          *controlclient.Client
 	tls         *tls.Config
@@ -209,6 +225,11 @@ func (s *remoteState) apply(ctx context.Context, cfg security.Config) error {
 		default:
 		}
 		candidates = append(candidates, measurement.Candidate{Metadata: node, Target: s.target, Open: client.OpenDatagram, Load: node.Load})
+	}
+	if len(s.echoKey) > 0 {
+		for i := range candidates {
+			candidates[i].Open = e2eprobe.ProbeOpener(candidates[i].Open, s.echoKey)
+		}
 	}
 	c.Measurements.SetCandidates(candidates)
 	return nil
