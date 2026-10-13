@@ -171,6 +171,44 @@ and kills the test service deliberately; use a dedicated test PC.
 Uninstall removes the neexitlag SCM entry and preserves credentials/driver state
 for explicit rollback. It does not remove a shared WinDivert driver.
 
+Explicit upgrade or reinstall on the same dedicated PC, using the existing private
+`.e2e/bundle` and the same VPS/owner (elevated PowerShell from the repository):
+
+```powershell
+git switch codex/network-quality-v1
+git pull --ff-only origin codex/network-quality-v1
+.\tools\windows\uninstall.ps1
+.\tools\windows\setup-e2e.ps1 -Reinstall -VpsPublicIP $VPS_PUBLIC_IP -SSHUser $SSH_USER -SSHPort $SSH_PORT
+.\tools\windows\acceptance.ps1 -VpsPublicIP $VPS_PUBLIC_IP -SSHUser $SSH_USER -SSHPort $SSH_PORT
+```
+
+Uninstall waits for SCM deletion and releases its service controller handle. If
+another Services window holds deletion pending, close it before retrying. A plain
+install still refuses an existing directory; `-Reinstall` explicitly reuses it.
+The installer checks matching owner, targets and supplied credential/trust bytes
+before mutation. It replaces the service binary/driver, preserves identity,
+certificate, trust, valid IPC token and state, and reapplies protected ACLs:
+SYSTEM/admins only, GUI owner root traversal/read and IPC token read only.
+Mismatched bundles or reparse points are refused; credentials are not silently
+rotated or deleted. `install.ps1 -Reinstall` is also available for direct installs
+with the same required arguments, after SCM uninstall.
+
+For **harness-only updates**, no service reinstall is needed:
+
+```powershell
+git switch codex/network-quality-v1
+git pull --ff-only origin codex/network-quality-v1
+.\tools\windows\acceptance.ps1 -VpsPublicIP $VPS_PUBLIC_IP -SSHUser $SSH_USER -SSHPort $SSH_PORT
+```
+
+Client completion retains the native process handle, performs timed then full
+wait and refresh, and requires an actual integer exit code. Report `error` is
+optional under StrictMode. Non-zero exits remain failures even if counters look
+successful; code and artifact paths are retained. Exit zero still requires real
+PID/creation identity, loss consistency/limit and A/B source/capture route proof.
+Windows CI exercises actual redirected `Start-Process` completion as well as
+reinstall filesystem/ACL operations with SCM mocked; neither is live VPS E2E.
+
 Normal application probing, with service profile deciding its route:
 
 ```powershell

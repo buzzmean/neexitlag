@@ -12,48 +12,54 @@ param(
  [Parameter(Mandatory=$true)][string]$ProbeTarget,
  [string]$TCPProbeTarget="",
  [string]$ProbeTokenFile="",
- [string]$InstallDirectory="$env:ProgramData\neexitlag"
+ [string]$InstallDirectory="$env:ProgramData\neexitlag",
+ [switch]$Reinstall
 )
 $ErrorActionPreference="Stop"
+. (Join-Path $PSScriptRoot "common.ps1")
+. (Join-Path $PSScriptRoot "reinstall-state.ps1")
 $current=[Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if(!$current.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw "Administrator access is required to install the service."}
-if(Get-Service neexitlag -ErrorAction SilentlyContinue){throw "Service already installed. Stop it and use an explicit upgrade/rollback procedure."}
+if(Get-Service neexitlag -ErrorAction SilentlyContinue){throw "Service already installed. Run uninstall.ps1 to stop/remove SCM while preserving files, then install/setup-e2e with -Reinstall."}
 [void][Security.Principal.SecurityIdentifier]::new($OwnerSid)
 $ServiceExecutable=(Resolve-Path $ServiceExecutable).Path
 $DriverDirectory=(Resolve-Path $DriverDirectory).Path
 if($DllSha256 -notmatch '^[0-9a-fA-F]{64}$' -or $DriverSha256 -notmatch '^[0-9a-fA-F]{64}$'){throw "SHA256 pins must be provided from a trusted WinDivert distribution."}
 foreach($pair in @(@("WinDivert.dll",$DllSha256),@("WinDivert64.sys",$DriverSha256))){if((Get-FileHash (Join-Path $DriverDirectory $pair[0]) -Algorithm SHA256).Hash -ne $pair[1]){throw "WinDivert hash mismatch: $($pair[0])"}}
-New-Item -ItemType Directory -Path $InstallDirectory -ErrorAction Stop | Out-Null
-& icacls $InstallDirectory /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
-if($LASTEXITCODE){throw "Failed to protect service directory"}
+$sources=@{'identity.json'=(Join-Path $DeviceDirectory 'identity.json');'device.pem'=(Join-Path $DeviceDirectory 'device.pem');'trust.json'=(Join-Path $TrustDirectory 'trust.json');'ca.pem'=(Join-Path $TrustDirectory 'ca.pem')}
+$cpCA=Join-Path $TrustDirectory 'cp-ca.pem'
+if(Test-Path -LiteralPath $cpCA){$sources['cp-ca.pem']=$cpCA}
+if($ProbeTokenFile -ne ''){$sources['probe.token']=$ProbeTokenFile}
+foreach($source in $sources.Values){if(!(Test-Path -LiteralPath $source -PathType Leaf)){throw 'Required credential/trust input is missing; installation not modified'}}
+$preserved=Assert-ServiceInstallState $InstallDirectory -Reinstall:$Reinstall -OwnerSid $OwnerSid -ControlPlaneUrl $ControlPlaneUrl -ProbeTarget $ProbeTarget -Sources $sources
+if($null -ne $preserved -and !$PSBoundParameters.ContainsKey('TCPProbeTarget')){$TCPProbeTarget=$preserved.tcp_probe_target}
+$tokenFile=Join-Path $InstallDirectory 'ipc.token'
+if(Test-Path -LiteralPath $tokenFile){
+ try {if([Convert]::FromBase64String([IO.File]::ReadAllText($tokenFile).Trim()).Length -ne 32){throw 'length'}}catch{throw 'Preserved IPC token is invalid; refusing to silently rotate it'}
+}
+New-Item -ItemType Directory -Force -Path $InstallDirectory -ErrorAction Stop | Out-Null
+Protect-ServiceDirectory $InstallDirectory $OwnerSid
 Copy-Item $ServiceExecutable (Join-Path $InstallDirectory "neexitlag-service.exe")
-New-Item -ItemType Directory -Path (Join-Path $InstallDirectory "driver") | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $InstallDirectory "driver") | Out-Null
 Copy-Item (Join-Path $DriverDirectory "WinDivert.dll") (Join-Path $InstallDirectory "driver")
 Copy-Item (Join-Path $DriverDirectory "WinDivert64.sys") (Join-Path $InstallDirectory "driver")
-Copy-Item (Join-Path $DeviceDirectory "identity.json") (Join-Path $InstallDirectory "identity.json")
-Copy-Item (Join-Path $DeviceDirectory "device.pem") (Join-Path $InstallDirectory "device.pem")
-Copy-Item (Join-Path $TrustDirectory "trust.json") (Join-Path $InstallDirectory "trust.json")
-Copy-Item (Join-Path $TrustDirectory "ca.pem") (Join-Path $InstallDirectory "ca.pem")
+foreach($name in $sources.Keys){Copy-ServiceCredential $sources[$name] (Join-Path $InstallDirectory $name)}
+if(!(Test-Path -LiteralPath $tokenFile)){
 $bytes=New-Object byte[] 32
 $rng=[Security.Cryptography.RandomNumberGenerator]::Create()
 $rng.GetBytes($bytes)
 $rng.Dispose()
 $token=[Convert]::ToBase64String($bytes)
-$tokenFile=Join-Path $InstallDirectory "ipc.token"
 [IO.File]::WriteAllText($tokenFile,$token,[Text.UTF8Encoding]::new($false))
-& icacls $InstallDirectory /grant "*$($OwnerSid):(RX)" | Out-Null
-& icacls $tokenFile /inheritance:r /grant:r '*S-1-5-18:F' '*S-1-5-32-544:F' "*$($OwnerSid):R" | Out-Null
-if($LASTEXITCODE){throw "Failed to protect IPC token"}
-# The GUI owner can traverse the top directory and read only the IPC token; no inherited secret access.
-New-Item -ItemType Directory -Path (Join-Path $InstallDirectory "state") | Out-Null
+}
+New-Item -ItemType Directory -Force -Path (Join-Path $InstallDirectory "state") | Out-Null
 $manifest=@{owner_sid=$OwnerSid;token_file=$tokenFile;state_directory=(Join-Path $InstallDirectory "state");control_plane_url=$ControlPlaneUrl;trust_file=(Join-Path $InstallDirectory "trust.json");device_identity_file=(Join-Path $InstallDirectory "identity.json");device_certificate=(Join-Path $InstallDirectory "device.pem");ca_file=(Join-Path $InstallDirectory "ca.pem");probe_target=$ProbeTarget;tcp_probe_target=$TCPProbeTarget;driver=@{directory=(Join-Path $InstallDirectory "driver");dll_sha256=$DllSha256;driver_sha256=$DriverSha256}}
-if($ProbeTokenFile -ne ""){Copy-Item $ProbeTokenFile (Join-Path $InstallDirectory "probe.token");$manifest.probe_token_file=(Join-Path $InstallDirectory "probe.token")}
-$cpCA=Join-Path $TrustDirectory "cp-ca.pem"
-if(Test-Path $cpCA){Copy-Item $cpCA (Join-Path $InstallDirectory "cp-ca.pem");$manifest.control_plane_ca_file=(Join-Path $InstallDirectory "cp-ca.pem")}
+if(Test-Path -LiteralPath (Join-Path $InstallDirectory "probe.token")){$manifest.probe_token_file=(Join-Path $InstallDirectory "probe.token")}
+if(Test-Path -LiteralPath (Join-Path $InstallDirectory 'cp-ca.pem')){$manifest.control_plane_ca_file=(Join-Path $InstallDirectory 'cp-ca.pem')}
+if($null -ne $preserved){foreach($property in $preserved.PSObject.Properties){if(!$manifest.ContainsKey($property.Name)){$manifest[$property.Name]=$property.Value}}}
 $manifestPath=Join-Path $InstallDirectory "service.json"
 [IO.File]::WriteAllText($manifestPath,($manifest|ConvertTo-Json -Depth 4),[Text.UTF8Encoding]::new($false))
-& icacls $InstallDirectory /setowner "*S-1-5-32-544" /T | Out-Null
-if($LASTEXITCODE){throw "Failed to set privileged ownership on service files"}
+Protect-ServiceDirectory $InstallDirectory $OwnerSid
 $binary='"'+(Join-Path $InstallDirectory "neexitlag-service.exe")+'" -config "'+$manifestPath+'"'
 New-Service -Name neexitlag -BinaryPathName $binary -DisplayName "neexitlag Routing Service" -StartupType Automatic | Out-Null
 & sc.exe failure neexitlag reset= 86400 actions= restart/5000/restart/5000/restart/5000 | Out-Null

@@ -2,6 +2,7 @@ $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot '../../tools/windows/acceptance-checks.ps1')
 . (Join-Path $PSScriptRoot '../../tools/windows/common.ps1')
+. (Join-Path $PSScriptRoot '../../tools/windows/acceptance-process.ps1')
 function Reject([scriptblock]$Body){$failed=$false;try{& $Body|Out-Null}catch{$failed=$true};if(!$failed){throw 'Invalid fixture was accepted'}}
 $data=[pscustomobject]@{pid=10;creation_time=20;Sent=30;Received=27;Loss=0.1;observed_sources=@('203.0.113.1')}
 $flow=[pscustomobject]@{pid=10;creation_time=20;exe='C:\test-game.exe';destination='203.0.113.1:40000';selected_route='RELAY';relay_id='VPS-01';counters=[pscustomobject]@{captured_packets=30;relayed_packets=30;direct_packets=0;relay_reply_packets=27}}
@@ -42,7 +43,7 @@ try {
  [IO.File]::WriteAllBytes((Join-Path $temp 'binary'),[byte[]]@(1,13,10,255))
  Convert-DeploymentToLF $temp
  foreach($name in @('install.sh','database-sql.py','test.service')){if([IO.File]::ReadAllText((Join-Path $temp $name)).Contains("`r")){throw 'Staged CRLF not normalized'}}
- if([Convert]::ToHexString([IO.File]::ReadAllBytes((Join-Path $temp 'binary'))) -ne '010D0AFF'){throw 'Binary modified by normalization'}
+ if([BitConverter]::ToString([IO.File]::ReadAllBytes((Join-Path $temp 'binary'))) -ne '01-0D-0A-FF'){throw 'Binary modified by normalization'}
 }finally{Remove-Item $temp -Recurse -Force}
 Write-Output 'PASS acceptance route/loss/readiness rejection fixtures and staged CRLF regression (not Windows E2E)'
 
@@ -98,3 +99,77 @@ Assert-AcceptanceOverlap $first $second
 $second.measurement_started='2026-10-13T01:00:20Z';Reject {Assert-AcceptanceOverlap $first $second}
 $second.measurement_finished='2026-10-13T01:00:19Z';Reject {Assert-AcceptanceOverlap $first $second}
 Write-Output 'PASS measured send-window overlap checks (process lifetime alone is insufficient)'
+
+# StrictMode regression: a nullable pre-wait code is not a real non-zero code.
+# Exercise Complete itself, retaining exact exit status and report assertions.
+$temp=Join-Path ([IO.Path]::GetTempPath()) ('neexitlag-completion-'+[Guid]::NewGuid().ToString('N'))
+function Completion-Fixture([int]$Code,[string]$JSON) {
+ $path=Join-Path $temp ([Guid]::NewGuid().ToString('N')+'.json')
+ Save-UTF8 $path $JSON
+ $process=[pscustomobject]@{Id=10;ExitCode=$null;FinalExitCode=$Code;TimedWait=$false;FullWait=$false}
+ $process|Add-Member ScriptMethod WaitForExit {param($timeout) if($null -eq $timeout){$this.FullWait=$true;$this.ExitCode=$this.FinalExitCode}else{$this.TimedWait=$true;return $true}}
+ $process|Add-Member ScriptMethod Refresh {if(!$this.FullWait){throw 'Refresh before complete wait'}}
+ return [pscustomobject]@{process=$process;report=$path;exe=$game;timeout_ms=1000}
+}
+function Expect-CompletionFailure($Client,[string]$Pattern) {
+ $caught=$null
+ try {Complete $Client|Out-Null}catch{$caught=$_.Exception.Message}
+ if($null -eq $caught -or $caught -notlike $Pattern){throw "Unexpected completion outcome: $caught (expected $Pattern)"}
+}
+try {
+ New-Item $temp -ItemType Directory|Out-Null
+ $success='{"pid":10,"creation_time":20,"exe":"C:\\test-game.exe","Sent":100,"Received":98,"Loss":0.02,"observed_sources":["203.0.113.1"]}'
+ $client=Completion-Fixture 0 $success
+ $completed=Complete $client
+ if($completed.Received -ne 98 -or $client.exit_code -ne 0 -or !$client.process.FullWait -or !$client.process.TimedWait){throw 'Successful strict-mode report or full process wait rejected'}
+ Expect-CompletionFailure (Completion-Fixture 7 '{"error":"fixture fatal send"}') '*exit=7*fixture fatal send*'
+ Expect-CompletionFailure (Completion-Fixture 8 $success) '*exit=8*No error field*'
+ # A valid JSON/exit=0 still must pass loss and actual route proof.
+ Expect-CompletionFailure (Completion-Fixture 0 $success.Replace('"Received":98,"Loss":0.02','"Received":80,"Loss":0.2')) '*loss exceeds*'
+ Expect-CompletionFailure (Completion-Fixture 0 $success.Replace('"Loss":0.02','"Loss":0')) '*report is inconsistent*'
+ Expect-CompletionFailure (Completion-Fixture 0 $success.Replace('"pid":10','"pid":11')) '*real Windows identity*'
+ Expect-CompletionFailure (Completion-Fixture 0 $success.Replace('"pid":10','"error":"contradictory failure","pid":10')) '*despite exit=0*'
+ $flow.selected_route='RELAY';$flow.relay_id='VPS-01';$flow.counters.captured_packets=100;$flow.counters.relayed_packets=100;$flow.counters.direct_packets=0;$flow.counters.relay_reply_packets=98
+ Assert-AcceptanceRoute $completed $evidence $game $flow.destination 'RELAY' '203.0.113.1'|Out-Null
+ $flow.counters.relayed_packets=0
+ Reject {Assert-AcceptanceRoute $completed $evidence $game $flow.destination 'RELAY' '203.0.113.1'}
+ $unavailable=Completion-Fixture 0 $success
+ $unavailable.process|Add-Member ScriptMethod WaitForExit {param($timeout) if($null -ne $timeout){return $true}} -Force
+ $unavailable.process|Add-Member ScriptMethod Refresh {} -Force
+ Expect-CompletionFailure $unavailable '*exit code unavailable*'
+}finally{Remove-Item $temp -Recurse -Force}
+Write-Output 'PASS StrictMode Complete: exit 0 without error, non-zero with/without error, missing code, identity/loss/route rejection'
+
+# Real Start-Process with redirected output on both platforms. Windows CI runs
+# this against Windows process handles; fixture JSON is not a networking proof.
+$temp=Join-Path ([IO.Path]::GetTempPath()) ('neexitlag redirected '+[Guid]::NewGuid().ToString('N'))
+try {
+ New-Item $temp -ItemType Directory|Out-Null
+ $child=Join-Path $temp 'child.ps1'
+ Save-UTF8 $child @'
+param([string]$Report,[int]$ExitStatus,[int]$WithError)
+Set-StrictMode -Version Latest
+$process=Get-Process -Id $PID
+$data=@{pid=$PID;creation_time=$process.StartTime.ToFileTimeUtc();exe=$process.Path;Sent=100;Received=98;Loss=0.02;observed_sources=@('203.0.113.1')}
+if($WithError){$data.error='redirected fixture failure'}
+[IO.File]::WriteAllText($Report,($data|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
+[Console]::Out.WriteLine('fixture stdout complete')
+[Console]::Error.WriteLine('fixture stderr complete')
+exit $ExitStatus
+'@
+ $shell=(Get-Process -Id $PID).Path
+ foreach($case in @(@(0,0),@(9,1),@(10,0))) {
+  $path=Join-Path $temp ("report-$($case[0]).json")
+  $arguments="-NoProfile -File `"$child`" -Report `"$path`" -ExitStatus $($case[0]) -WithError $($case[1])"
+  $process=Start-AcceptanceProcess $shell $arguments $path
+  try {
+   $client=[pscustomobject]@{process=$process;report=$path;exe=$shell;timeout_ms=30000}
+   if($case[0] -eq 0){$report=Complete $client;if($report.Received -ne 98){throw 'Real successful process report rejected'}}
+   elseif($case[1]){Expect-CompletionFailure $client '*exit=9*redirected fixture failure*'}
+   else{Expect-CompletionFailure $client '*exit=10*No error field*'}
+   if($client.exit_code -ne $case[0]){throw 'Real process exit code not retained'}
+   if((Get-Content ($path+'.stdout') -Raw).Trim() -ne 'fixture stdout complete' -or (Get-Content ($path+'.stderr') -Raw).Trim() -ne 'fixture stderr complete'){throw 'Redirected output not fully retained after exit'}
+  }finally{if(!$process.HasExited){Stop-Process -Id $process.Id -ErrorAction SilentlyContinue};$process.Dispose()}
+ }
+}finally{Remove-Item $temp -Recurse -Force}
+Write-Output 'PASS real redirected Start-Process success/failure with spaces, exact exit status and complete stdout/stderr'

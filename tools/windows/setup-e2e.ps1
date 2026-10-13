@@ -3,14 +3,15 @@ param(
  [Parameter(Mandatory=$true)][string]$VpsPublicIP,
  [Parameter(Mandatory=$true)][string]$SSHUser,
  [Parameter(Mandatory=$true)][ValidateRange(1,65535)][int]$SSHPort,
- [string]$DriverDirectory=(Join-Path $PSScriptRoot '..\..\.e2e\windivert')
+ [string]$DriverDirectory=(Join-Path $PSScriptRoot '..\..\.e2e\windivert'),
+ [switch]$Reinstall
 )
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 Assert-Administrator
 $VpsPublicIP=Assert-VpsIPv4 $VpsPublicIP
 Assert-Ssh $SSHUser $SSHPort
-if(Get-Service neexitlag -ErrorAction SilentlyContinue){throw 'Existing Windows service found; preserve it and use a separate test PC or an explicit uninstall/rollback.'}
+if(Get-Service neexitlag -ErrorAction SilentlyContinue){throw 'Existing Windows service found; preserve it and use a separate test PC or an explicit uninstall/rollback followed by setup-e2e.ps1 -Reinstall.'}
 $root=(Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $output=Join-Path $root 'bin\windows-e2e'
 & (Join-Path $PSScriptRoot 'build-e2e.ps1') -Output $output
@@ -60,5 +61,5 @@ if(!(Test-Path (Join-Path $windows 'device\device.pem'))){
 # Bootstrap token is not a normal service credential.
 Remove-Item (Join-Path $windows 'admin.token') -Force -ErrorAction SilentlyContinue
 $pins=Get-Content (Join-Path $DriverDirectory 'pins.json') -Raw|ConvertFrom-Json
-& (Join-Path $PSScriptRoot 'install.ps1') -ServiceExecutable (Join-Path $output 'neexitlag-service.exe') -OwnerSid $owner -DeviceDirectory (Join-Path $windows 'device') -TrustDirectory (Join-Path $windows 'trust') -DriverDirectory $DriverDirectory -DllSha256 $pins.dll_sha256 -DriverSha256 $pins.driver_sha256 -ControlPlaneUrl "https://${VpsPublicIP}:8443" -ProbeTarget "${VpsPublicIP}:40000" -ProbeTokenFile (Join-Path $windows "echo.token")
+& (Join-Path $PSScriptRoot 'install.ps1') -Reinstall:$Reinstall -ServiceExecutable (Join-Path $output 'neexitlag-service.exe') -OwnerSid $owner -DeviceDirectory (Join-Path $windows 'device') -TrustDirectory (Join-Path $windows 'trust') -DriverDirectory $DriverDirectory -DllSha256 $pins.dll_sha256 -DriverSha256 $pins.driver_sha256 -ControlPlaneUrl "https://${VpsPublicIP}:8443" -ProbeTarget "${VpsPublicIP}:40000" -ProbeTokenFile (Join-Path $windows "echo.token")
 Write-Host 'Backend enrolled and Windows service installed. Run acceptance.ps1; no runtime PASS is inferred from installation.'

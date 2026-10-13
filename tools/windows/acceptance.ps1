@@ -10,6 +10,7 @@ param(
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 . (Join-Path $PSScriptRoot 'acceptance-checks.ps1')
+. (Join-Path $PSScriptRoot 'acceptance-process.ps1')
 $results=[Collections.Generic.List[object]]::new()
 $children=[Collections.Generic.List[object]]::new()
 $run=[Guid]::NewGuid().ToString('N')
@@ -26,15 +27,21 @@ function Launch([string]$Exe,[string]$Label,[int]$Count=100,[int]$Warmup=0){
  $path=Join-Path $ReportDirectory "$run-$Label.json"
  $token=Join-Path $Bundle 'windows\echo.token'
  $args="-target ${VpsPublicIP}:40000 -token-file `"$token`" -count $Count -warmup-count $Warmup -interval 200ms -timeout 3s -quiet -report `"$path`""
- $proc=Start-Process -FilePath $Exe -ArgumentList $args -PassThru -RedirectStandardOutput ($path+'.stdout') -RedirectStandardError ($path+'.stderr')
- $value=[pscustomobject]@{process=$proc;report=$path;exe=$Exe;timeout_ms=(($Count+$Warmup)*200+15000)};$children.Add($value);return $value
+ $proc=Start-AcceptanceProcess $Exe $args $path
+ $value=[pscustomobject]@{process=$proc;report=$path;exe=$Exe;timeout_ms=(($Count+$Warmup)*200+15000);exit_code=$null};$children.Add($value);return $value
 }
 function Complete($Client){
- if(!$Client.process.WaitForExit($Client.timeout_ms)){Stop-Process -Id $Client.process.Id -ErrorAction SilentlyContinue;throw 'Test client timeout'}
- $Client.process.Refresh()
- Ensure (Test-Path $Client.report) 'Client produced no report; inspect stdout/stderr'
+ $exitCode=Wait-AcceptanceProcessExit $Client.process $Client.timeout_ms $Client.report
+ $Client|Add-Member -NotePropertyName exit_code -NotePropertyValue $exitCode -Force
+ Ensure (Test-Path $Client.report) "Client produced no report (exit=$exitCode); inspect $($Client.report).stdout / $($Client.report).stderr"
  $raw=Get-Content $Client.report -Raw|ConvertFrom-Json
- if($Client.process.ExitCode -ne 0){throw "Client failed: $($raw.error); report/stdout/stderr retained at $($Client.report)"}
+ $errorProperty=$raw.PSObject.Properties['error']
+ $reportedError=if($null -ne $errorProperty){[string]$errorProperty.Value}else{''}
+ if($exitCode -ne 0){
+  $reason=if([string]::IsNullOrWhiteSpace($reportedError)){'No error field in report; inspect stderr for process failure'}else{$reportedError}
+  throw "Client failed (exit=$exitCode): $reason; report/stdout/stderr retained at $($Client.report)"
+ }
+ Ensure ([string]::IsNullOrWhiteSpace($reportedError)) "Client reported error despite exit=0: $reportedError; artifacts at $($Client.report)"
  $data=$raw
  Ensure ($data.pid -eq $Client.process.Id -and $data.creation_time -gt 0 -and $data.exe -ieq $Client.exe) 'Client did not report its real Windows identity'
  Assert-AcceptanceLoss $data
@@ -51,7 +58,7 @@ function Save-Diagnostics([string]$Label) {
  $capture=@();$snapshot=$null;$errors=@()
  try {$snapshot=Invoke-ServiceIPC 'status'}catch{$errors+="status: $($_.Exception.Message)"}
  foreach($child in $children){
-  $entry=@{pid=$child.process.Id;exe=$child.exe;report=$child.report;stdout=($child.report+'.stdout');stderr=($child.report+'.stderr');capture=$null}
+  $entry=@{pid=$child.process.Id;exe=$child.exe;report=$child.report;stdout=($child.report+'.stdout');stderr=($child.report+'.stderr');capture=$null;exit_code=$(if($null -ne $child.PSObject.Properties['exit_code']){$child.exit_code}else{$null})}
   try {$entry.capture=Evidence $child}catch{$errors+="PID $($child.process.Id): $($_.Exception.Message)"}
   $capture+=$entry
  }
@@ -206,7 +213,7 @@ finally {
   if(@($results|Where-Object{$_.name -eq $required}).Count -eq 0){$results.Add([pscustomobject]@{name=$required;status='FAIL';error='NOT RUN due to failed prerequisite or execution error'});Write-Host "FAIL $required : NOT RUN"}
  }
  $passed=@($results|Where-Object{$_.status -ne 'PASS'}).Count -eq 0
- $report=[ordered]@{schema=1;run_id=$run;generated_at=[DateTimeOffset]::UtcNow.ToString('o');real_windows=($env:OS -eq 'Windows_NT');real_public_internet=(@($results|Where-Object{($_.name -like 'A *' -or $_.name -like 'B *') -and $_.status -eq 'PASS'}).Count -eq 2);synthetic_impairment=$false;overall=$(if($passed){'PASS'}else{'FAIL'});vps_public_ip=$VpsPublicIP;artifacts=@($children|ForEach-Object {@{pid=$_.process.Id;exe=$_.exe;report=$_.report;stdout=($_.report+'.stdout');stderr=($_.report+'.stderr')}});tests=$results.ToArray()}
+ $report=[ordered]@{schema=1;run_id=$run;generated_at=[DateTimeOffset]::UtcNow.ToString('o');real_windows=($env:OS -eq 'Windows_NT');real_public_internet=(@($results|Where-Object{($_.name -like 'A *' -or $_.name -like 'B *') -and $_.status -eq 'PASS'}).Count -eq 2);synthetic_impairment=$false;overall=$(if($passed){'PASS'}else{'FAIL'});vps_public_ip=$VpsPublicIP;artifacts=@($children|ForEach-Object {@{pid=$_.process.Id;exe=$_.exe;report=$_.report;stdout=($_.report+'.stdout');stderr=($_.report+'.stderr');exit_code=$_.exit_code}});tests=$results.ToArray()}
  $path=Join-Path $ReportDirectory "$run-acceptance.json"
  New-Item -ItemType Directory -Force $ReportDirectory|Out-Null
  Save-UTF8 $path ($report|ConvertTo-Json -Depth 14)
