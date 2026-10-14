@@ -9,26 +9,43 @@ $exe=@($choices|Where-Object{Test-Path -LiteralPath $_}|Select-Object -First 1)
 if(!$exe.Count){throw 'Chromium/Edge required for exact socket metadata regression'}
 $root=Join-Path ([IO.Path]::GetTempPath()) ('v2-socket-binding-'+[Guid]::NewGuid().ToString('N'));[void](New-Item -ItemType Directory $root)
 $data=Join-Path $root 'browser';[void](New-Item -ItemType Directory $data);$netlog=Join-Path $data '.private-sockets.json';$ready=Join-Path $root 'listen';$peer=Join-Path $root 'peer'
-$browser=$null;$job=$null;$script:socket=$null
+$browser=$null;$job=$null;$idle=$null;$script:socket=$null
 try{
  $job=Start-Job -ArgumentList $ready,$peer -ScriptBlock {
   param($Ready,$Peer)
   $listener=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,0);$listener.Start()
+  $clients=@();$complete=$false;$accepted=0
   try{
    [IO.File]::WriteAllText($Ready,[string]$listener.LocalEndpoint.Port)
-   $client=$listener.AcceptTcpClient()
-   try{
-    $client.ReceiveTimeout=15000;$stream=$client.GetStream();$request='';$buf=New-Object byte[] 1024
-    while(!$request.Contains("`r`n`r`n")){$n=$stream.Read($buf,0,$buf.Length);if(!$n -or $request.Length -gt 16384){throw 'Bounded request header unavailable'};$request+=[Text.Encoding]::ASCII.GetString($buf,0,$n)}
-    [IO.File]::WriteAllText($Peer,$client.Client.RemoteEndPoint.ToString())
-    $reply=[Text.Encoding]::ASCII.GetBytes("HTTP/1.1 200 OK`r`nContent-Length: 2`r`nContent-Type: text/plain`r`nConnection: close`r`n`r`nok")
-    $stream.Write($reply,0,$reply.Length);$stream.Flush()
-   }finally{$client.Close()}
-  }finally{$listener.Stop()}
+   $deadline=[DateTime]::UtcNow.AddSeconds(40)
+   # Chromium may open an idle speculative socket before its request socket.
+   # Poll a bounded set instead of blocking on the first accepted connection.
+   while(!$complete -and [DateTime]::UtcNow -lt $deadline){
+    while($listener.Pending()){
+     if(++$accepted -gt 16){throw 'Local metadata server connection bound exceeded'}
+     $client=$listener.AcceptTcpClient();$clients+=@{client=$client;header=''}
+    }
+    foreach($entry in $clients){
+     $client=$entry.client;$stream=$client.GetStream()
+     if(!$stream.DataAvailable){continue}
+     $buf=New-Object byte[] 1024;$n=$stream.Read($buf,0,$buf.Length)
+     $entry.header+=[Text.Encoding]::ASCII.GetString($buf,0,$n)
+     if($entry.header.Length -gt 16384){throw 'Local metadata request header bound exceeded'}
+     if(!$entry.header.Contains("`r`n`r`n")){continue}
+     [IO.File]::WriteAllText($Peer,$client.Client.RemoteEndPoint.ToString())
+     $reply=[Text.Encoding]::ASCII.GetBytes("HTTP/1.1 200 OK`r`nContent-Length: 2`r`nContent-Type: text/plain`r`nConnection: close`r`n`r`nok")
+     $stream.Write($reply,0,$reply.Length);$stream.Flush();$client.Close();$complete=$true;break
+    }
+    if(!$complete){Start-Sleep -Milliseconds 10}
+   }
+   if(!$complete){throw ('No complete local HTTP request; accepted='+$accepted)}
+  }finally{foreach($entry in $clients){$entry.client.Close()};$listener.Stop()}
  }
  $deadline=[DateTime]::UtcNow.AddSeconds(20)
  while(!(Test-Path $ready)){if([DateTime]::UtcNow -gt $deadline){throw 'Local metadata server readiness timeout'};Start-Sleep -Milliseconds 100}
  $port=[int](Get-Content $ready -Raw);$url="http://127.0.0.1:$port/"
+ # Deterministically keep the first connection idle, as speculative preconnect can.
+ $idle=[Net.Sockets.TcpClient]::new();$idle.Connect([Net.IPAddress]::Loopback,$port)
  $arguments="--headless=new --no-first-run --no-default-browser-check --disable-background-networking --disable-quic --user-data-dir=`"$data`" --remote-debugging-address=127.0.0.1 --remote-debugging-port=0 --log-net-log=`"$netlog`" --net-log-capture-mode=Default --net-log-max-size-mb=4 about:blank"
  $browser=Start-Process -FilePath $exe[0] -ArgumentList $arguments -PassThru -RedirectStandardOutput (Join-Path $root 'stdout') -RedirectStandardError (Join-Path $root 'stderr');[void]$browser.Handle
  $deadline=[DateTime]::UtcNow.AddSeconds(20);$pages=@();$debugPort=0
@@ -52,7 +69,7 @@ try{
  while($null -eq $response){
   [void](CDP 'Browser.getVersion' @{});Assert-V2SocketLogBound $netlog
   foreach($id in @($script:responses.Keys)){$entry=$script:responses[$id];if($entry.frame_id -eq $main -and $entry.response.url -eq $url -and $script:finished.ContainsKey($id)){$response=$entry.response;break}}
-  if([DateTime]::UtcNow -gt $deadline){throw 'Local completed Document response timeout'}
+  if([DateTime]::UtcNow -gt $deadline){throw ('Local completed Document response timeout: nav='+$script:navError+'; responses='+$script:responses.Count+'; finished='+$script:finished.Count+'; failures='+($script:failed.Values -join ',')+'; server='+$job.State+'; server_errors='+(@($job.ChildJobs|ForEach-Object{$_.Error}) -join '; '))}
   Start-Sleep -Milliseconds 50
  }
  Check ($response.status -eq 200 -and $response.connectionId -gt 0) 'No real successful CDP connection identity'
@@ -64,6 +81,7 @@ try{
  Write-Host ('PASS real Chromium connectionId={0} -> source={1} -> target={2}; independently verified server peer' -f $binding.connection_id,$binding.source,$binding.destination)
 }finally{
  [void](Stop-V2TrialBrowser $browser $data)
+ if($idle){$idle.Dispose()}
  if($job){Stop-Job $job -ErrorAction SilentlyContinue;Remove-Job $job -Force -ErrorAction SilentlyContinue}
  if(Test-Path $root){Remove-Item $root -Force -Recurse -ErrorAction SilentlyContinue}
 }
