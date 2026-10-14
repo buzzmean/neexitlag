@@ -1,4 +1,5 @@
 $ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot '..\..\tools\windows\acceptance-checks.ps1')
 . (Join-Path $PSScriptRoot '..\..\tools\windows\direct-plus-checks.ps1')
 $exe='C:\tests\chosen.exe';$destination='203.0.113.9:443'
 $report=[pscustomobject]@{pid=42;exe=$exe;creation_time=10;attempts=@([pscustomobject]@{success=$true;destination=$destination;response_source='198.51.100.2';response_rtt_ms=20})}
@@ -13,3 +14,10 @@ $flow.counters.captured_bytes=0;Reject {[void](Assert-DirectPlusEvidence $report
 $report.attempts[0].success=$false;Reject {[void](Assert-DirectPlusEvidence $report $e 42 $exe 'DIRECT_PLUS' '192.0.2.9' $destination 1)}
 $m=Get-StrategyMeasurement $report $false;if($m.available -or $m.loss -ne 1 -or $m.samples -ne 0){throw 'Timeout/failure became successful telemetry'}
 Write-Host 'PASS DIRECT+ proof rejects missing transforms, wrong identity, relay traffic and unsuccessful report'
+
+$expected=[pscustomobject]@{id='!test';mode='DIRECT_PLUS';custom=$true;executables=@($exe);local_strategy_id='s'}
+$snapshot=[pscustomobject]@{profiles=@($expected)}
+Assert-LocalEffectiveProfile $snapshot $exe '!test' 'DIRECT_PLUS' 's'
+$snapshot.profiles+=@([pscustomobject]@{id='!aaa';mode='DIRECT';custom=$true;executables=@($exe)})
+Reject {Assert-LocalEffectiveProfile $snapshot $exe '!test' 'DIRECT_PLUS' 's'}
+Write-Host 'PASS local acceptance rejects a shadowed profile before launching traffic'

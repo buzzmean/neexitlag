@@ -24,3 +24,10 @@ function Get-StrategyMeasurement($Report,[bool]$Available) {
  $loss=1.0;if($a.Count){$loss=1.0-($success/[double]$a.Count)}
  return @{route_id='controlled-target';rtt=[long]($rtt*1e6);jitter=[long]($jitter*1e6);loss=$loss;failure_rate=$loss;load=0;stability=(1-$loss);available=$Available;samples=$success;observed_at=[DateTimeOffset]::UtcNow.ToString('o')}
 }
+
+function Assert-LocalEffectiveProfile($Snapshot,[string]$Exe,[string]$ID,[string]$Mode,[string]$StrategyID='') {
+ $p=Get-AcceptanceProfile $Snapshot $Exe
+ if($null -eq $p -or $p.id -ne $ID -or $p.mode -ne $Mode){throw "Effective profile is not the requested $Mode test profile for $Exe; another custom profile may take precedence"}
+ if($Mode -eq 'MANUAL' -and (Get-AcceptanceValue $p 'relay_id' '') -ne 'VPS-01'){throw 'Effective relay profile is not VPS-01'}
+ if($Mode -eq 'DIRECT_PLUS' -and (Get-AcceptanceValue $p 'local_strategy_id' '') -ne $StrategyID){throw 'Effective local strategy differs from the test profile'}
+}

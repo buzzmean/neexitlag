@@ -28,6 +28,7 @@ try {
  [void](Invoke-ServiceIPC 'local.set' @{version=1;enabled=$true;builtin=@();user=@($oldLocal.user)+@($new)})
  foreach($trial in @(@{exe=$plus;mode='DIRECT_PLUS';route='DIRECT_PLUS'},@{exe=$direct;mode='DIRECT';route='DIRECT'},@{exe=$relay;mode='MANUAL';route='RELAY'})){
   $id='!triple-'+$trial.mode+'-'+$run;$ids+=$id;$p=@{id=$id;name='Simultaneous three routes';executables=@($trial.exe);mode=$trial.mode;custom=$true;local_strategy_id=''};if($trial.mode -eq 'MANUAL'){$p.relay_id='VPS-01'};if($trial.mode -eq 'DIRECT_PLUS'){$p.local_strategy_id=$new.id};[void](Invoke-ServiceIPC 'profile.set' $p)
+  Assert-LocalEffectiveProfile (Invoke-ServiceIPC 'status') $trial.exe $id $trial.mode $p.local_strategy_id
  }
  [void](Invoke-ServiceIPC 'optimize' @{enabled=$true})
  [void](Wait-AcceptanceReadiness -TimeoutMS 30000 -GetSnapshot {Invoke-ServiceIPC 'acceptance.readiness' @{relay_id='VPS-01'}} -Evaluate {param($s)$missing=@();if(!$s.backend.ready -or !$s.backend.capabilities.tcp){$missing+='TCP backend'};if(!$s.relay_transport.connected -or !$s.relay_transport.flow_open){$missing+='authenticated relay session'};[pscustomobject]@{ready=(!$missing.Count);missing=$missing}})

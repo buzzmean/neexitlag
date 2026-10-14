@@ -24,7 +24,7 @@ func (b *limitedOutput) Write(p []byte) (int, error) {
 // Background-only read-only queries. Never called by the packet path. Failure is
 // reported as unknown, not as proof that no VPN/driver/user conflict exists.
 func inspectNetwork(ctx context.Context) NetworkContext {
-	script := `$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';$me=` + strconv.Itoa(os.Getpid()) + `;
+	script := `[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);$OutputEncoding=[Console]::OutputEncoding;$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';$me=` + strconv.Itoa(os.Getpid()) + `;
 $a=@(Get-NetAdapter|Sort-Object InterfaceIndex|ForEach-Object{"$($_.InterfaceIndex):$($_.InterfaceGuid):$($_.Status):$($_.InterfaceDescription)"});
 $a+=@(Get-NetIPAddress|Where-Object{$_.AddressState -eq 'Preferred'}|Sort-Object InterfaceIndex,IPAddress|ForEach-Object{"$($_.InterfaceIndex):$($_.IPAddress):$($_.PrefixLength)"});
 $a+=@(Get-NetConnectionProfile|Sort-Object InterfaceIndex|ForEach-Object{"$($_.InterfaceIndex):$($_.Name):$($_.NetworkCategory)"});

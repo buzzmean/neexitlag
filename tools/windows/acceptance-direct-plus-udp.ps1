@@ -11,6 +11,7 @@ $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 . (Join-Path $PSScriptRoot 'acceptance-checks.ps1')
 . (Join-Path $PSScriptRoot 'acceptance-process.ps1')
+. (Join-Path $PSScriptRoot 'direct-plus-checks.ps1')
 Assert-Administrator
 if(!(Test-Path (Join-Path $Binaries 'udp-plus.exe')) -and (Test-Path (Join-Path $PSScriptRoot '..\..\udp-plus.exe'))){$Binaries=(Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path}
 $parts=$Target.Split(':');if($parts.Count -ne 2 -or [int]$parts[1] -notin 1..65535){throw 'Public IPv4:port required'}
@@ -24,6 +25,7 @@ try{
  [void](Invoke-ServiceIPC 'local.set' @{version=1;enabled=$true;builtin=@();user=@($oldLocal.user)+@($strategy)})
  foreach($trial in @(@{exe=$plus;mode='DIRECT_PLUS';route='DIRECT_PLUS'},@{exe=$direct;mode='DIRECT';route='DIRECT'},@{exe=$relay;mode='MANUAL';route='RELAY'})){
   $id='!udp-'+$trial.mode+'-'+$run;$ids+=$id;$p=@{id=$id;name='UDP three routes';executables=@($trial.exe);mode=$trial.mode;custom=$true;local_strategy_id=''};if($trial.mode -eq 'MANUAL'){$p.relay_id='VPS-01'};if($trial.mode -eq 'DIRECT_PLUS'){$p.local_strategy_id=$strategy.id};[void](Invoke-ServiceIPC 'profile.set' $p)
+  Assert-LocalEffectiveProfile (Invoke-ServiceIPC 'status') $trial.exe $id $trial.mode $p.local_strategy_id
  }
  $network=Invoke-ServiceIPC 'local.network'
  [void](Invoke-ServiceIPC 'optimize' @{enabled=$true})

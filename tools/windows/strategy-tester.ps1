@@ -37,6 +37,7 @@ try {
  foreach($trial in $trials){
   $profile=@{id=$id;name='Controlled local strategy test';executables=@($exe);mode=$trial.mode;custom=$true;local_strategy_id=$trial.strategy};if($trial.mode -eq 'MANUAL'){$profile.relay_id='VPS-01'}
   [void](Invoke-ServiceIPC 'profile.set' $profile)
+  Assert-LocalEffectiveProfile (Invoke-ServiceIPC 'status') $exe $id $trial.mode $trial.strategy
   $path=Join-Path $ReportDirectory "$run-$($results.Count).json";$args="-url `"$URL`" -token-file `"$TokenFile`" -count $Count -interval 300ms -report `"$path`"";if($EndpointCA){$args+=" -ca `"$EndpointCA`""}
   $p=Start-AcceptanceProcess $exe $args $path;$children+=@{process=$p;report=$path};$code=Wait-AcceptanceProcessExit $p (($Count*9000)+15000) $path
   $report=Get-Content $path -Raw|ConvertFrom-Json;$evidence=Invoke-ServiceIPC 'capture.diagnostics' @{pid=$p.Id};$pass=$false;$reason='';$source=''
