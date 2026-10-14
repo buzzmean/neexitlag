@@ -524,7 +524,7 @@ func (c *Controller) Diagnostics(ctx context.Context) []Check {
 		}
 		out = append(out, Check{"TCP interception", tcp, "backend readiness, not an external TCP proof"}, Check{"UDP interception", udp, "backend readiness"}, Check{"IPv4", ipv4, "capture backend capability"})
 	}
-	out = append(out, Check{"IPv6", "unsupported", "no IPv6 relay transport: new selected relay socket connects/UDP binds denied; existing/unattributed sockets fail open"}, Check{"HTTPS through relay", "not configured", "not measured; encrypted TCP alone is not HTTPS evidence"}, Check{"QUIC through relay", "not configured", "not measured; UDP/443 alone is not QUIC evidence"}, Check{"Browser DNS", "not configured", "not attributed: system resolver service traffic stays DIRECT; selected browser DoH follows its socket profile"})
+	out = append(out, Check{"IPv6", "unsupported", "no IPv6 relay transport: new attributable selected IPv6 packets blocked at NETWORK; existing/unattributed/unsupported traffic fails open"}, Check{"HTTPS through relay", "not configured", "not measured; encrypted TCP alone is not HTTPS evidence"}, Check{"QUIC through relay", "not configured", "not measured; UDP/443 alone is not QUIC evidence"}, Check{"Browser DNS", "not configured", "not attributed: system resolver service traffic stays DIRECT; selected browser DoH follows its socket profile"})
 	dnsHost := "localhost"
 	if c.ControlPlaneURL == "" {
 		out = append(out, Check{"Control Plane", "not configured", "no endpoint configured"})

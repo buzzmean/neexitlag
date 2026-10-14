@@ -147,14 +147,14 @@ func TestIPv6SocketGuardSelectedOnly(t *testing.T) {
 		}
 		return Decision{}
 	}
-	if !BlockUnsupportedIPv6(selected, tuple, 4, 1, classify) {
+	if !(&IPv6Guard{}).Block(selected, tuple, 2, classify(selected, tuple), 1, time.Now()) {
 		t.Fatal("selected IPv6 leaked")
 	}
-	if BlockUnsupportedIPv6(selected, tuple, 4, 42, classify) {
+	if (&IPv6Guard{}).Block(selected, tuple, 2, classify(selected, tuple), 42, time.Now()) {
 		t.Fatal("service blocked")
 	}
 	selected.PID = 43
-	if BlockUnsupportedIPv6(selected, tuple, 4, 1, classify) {
+	if (&IPv6Guard{}).Block(selected, tuple, 2, classify(selected, tuple), 1, time.Now()) {
 		t.Fatal("unselected blocked")
 	}
 }

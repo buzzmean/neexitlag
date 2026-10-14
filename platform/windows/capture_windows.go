@@ -44,6 +44,8 @@ type WinDivertBackend struct {
 	native        *divertDLL
 	network, flow uintptr
 	socket        uintptr
+	ipv6          uintptr
+	v6guard       IPv6Guard
 	flows         map[Tuple]*captureFlow
 	associations  *FlowAssociations
 	ctx           context.Context
@@ -66,7 +68,7 @@ func (d *divertDLL) openHandle(filter string, layer uintptr, flags uintptr) (uin
 	}
 	h, _, callErr := d.open.Call(uintptr(unsafe.Pointer(s)), layer, 0, flags)
 	if h == ^uintptr(0) {
-		return 0, fmt.Errorf("WinDivertOpen: %w; administrator access and signed driver required", callErr)
+		return 0, fmt.Errorf("WinDivertOpen(layer=%d filter=%q flags=%d): %w; administrator access and signed driver required", layer, filter, flags, callErr)
 	}
 	return h, nil
 }
@@ -105,8 +107,16 @@ func (b *WinDivertBackend) Start(parent context.Context, classify Classifier) (r
 		dll.dll.Release()
 		return e
 	}
-	socket, e := dll.openHandle("(tcp and event == CONNECT) or (ipv6 and (event == CONNECT or (udp and event == BIND)))", 3, 0)
+	socket, e := dll.openHandle("(tcp and event == CONNECT) or (ipv6 and (event == CONNECT or (udp and event == BIND)))", 3, 1|4)
 	if e != nil {
+		dll.close.Call(network)
+		dll.close.Call(flow)
+		dll.dll.Release()
+		return e
+	}
+	ipv6, e := dll.openHandle("outbound and ipv6 and (tcp or udp) and !loopback and !impostor", 0, 0)
+	if e != nil {
+		dll.close.Call(socket)
 		dll.close.Call(network)
 		dll.close.Call(flow)
 		dll.dll.Release()
@@ -115,6 +125,7 @@ func (b *WinDivertBackend) Start(parent context.Context, classify Classifier) (r
 	var major uint64
 	ok, _, _ := dll.getParam.Call(network, 3, uintptr(unsafe.Pointer(&major)))
 	if ok == 0 || major != 2 {
+		dll.close.Call(ipv6)
 		dll.close.Call(socket)
 		dll.close.Call(network)
 		dll.close.Call(flow)
@@ -126,6 +137,7 @@ func (b *WinDivertBackend) Start(parent context.Context, classify Classifier) (r
 	dll.setParam.Call(network, 2, 512*1024)
 	tcp, e := b.startTCP(dll)
 	if e != nil {
+		dll.close.Call(ipv6)
 		dll.close.Call(socket)
 		dll.close.Call(network)
 		dll.close.Call(flow)
@@ -135,6 +147,8 @@ func (b *WinDivertBackend) Start(parent context.Context, classify Classifier) (r
 	b.mu.Lock()
 	b.tcp = tcp
 	b.socket = socket
+	b.ipv6 = ipv6
+	b.v6guard = IPv6Guard{}
 	b.dll = dll
 	b.native = dll
 	b.flow = flow
@@ -143,9 +157,10 @@ func (b *WinDivertBackend) Start(parent context.Context, classify Classifier) (r
 	b.status.Ready = true
 	b.status.Error = ""
 	b.mu.Unlock()
-	b.wg.Add(4)
+	b.wg.Add(5)
 	go b.track()
 	go b.socketGuard(classify)
+	go b.guardIPv6(classify)
 	go b.cleanup()
 	go b.packets(classify)
 	tcp.start(classify)
@@ -174,6 +189,7 @@ func (b *WinDivertBackend) stopLocked() error {
 	d.shutdown.Call(b.network, 1)
 	d.shutdown.Call(b.flow, 1)
 	d.shutdown.Call(b.socket, 1)
+	d.shutdown.Call(b.ipv6, 1)
 	for _, f := range b.flows {
 		f.once.Do(func() { close(f.done) })
 	}
@@ -183,6 +199,7 @@ func (b *WinDivertBackend) stopLocked() error {
 	d.close.Call(b.network)
 	d.close.Call(b.flow)
 	d.close.Call(b.socket)
+	d.close.Call(b.ipv6)
 	d.dll.Release()
 	b.mu.Lock()
 	b.flows = make(map[Tuple]*captureFlow)
@@ -576,6 +593,7 @@ func (b *WinDivertBackend) cleanup() {
 			b.cache.Cleanup(now)
 			b.evidence.Cleanup(now)
 			b.associations.Cleanup(now)
+			b.v6guard.Cleanup(now)
 			b.mu.Lock()
 			for t, f := range b.flows {
 				if now.Sub(f.lastSeen) > 60*time.Second {

@@ -7,8 +7,8 @@ import (
 )
 
 // DecodeSocketEvent reads native SOCKET_BIND/CONNECT events. A
-// connect gives us identity before a SYN, including processes with dual-stack
-// sockets. UDP IPv6 binds must fail rather than silently bypass RELAY selection.
+// connect gives us identity before a SYN, including dual-stack sockets.
+// This is observation only; NETWORK guard implements packet decisions.
 func DecodeSocketEvent(a [80]byte) (uint32, Tuple, error) {
 	if a[8] != 3 || (a[9] != 3 && a[9] != 4) {
 		return 0, Tuple{}, errors.New("not socket bind/connect")
@@ -33,13 +33,4 @@ func DecodeSocketEvent(a [80]byte) (uint32, Tuple, error) {
 		return netip.AddrFrom16(ip)
 	}
 	return binary.LittleEndian.Uint32(data[16:20]), Tuple{protocol, netip.AddrPortFrom(decode(data[20:36]), binary.LittleEndian.Uint16(data[52:54])), netip.AddrPortFrom(decode(data[36:52]), binary.LittleEndian.Uint16(data[54:56]))}, nil
-}
-func BlockUnsupportedIPv6(id ProcessIdentity, t Tuple, event byte, self uint32, classify Classifier) bool {
-	// TCP bind is admitted; the destination is known at connect. UDP bind is
-	// denied for selected relay apps because unconnected SendTo has no connect.
-	if t.Protocol == "tcp" && event == 3 {
-		return false
-	}
-	d, bypass := ClassifyCapture(id, t, self, classify)
-	return !bypass && (d.Block || !d.Route.Direct())
 }

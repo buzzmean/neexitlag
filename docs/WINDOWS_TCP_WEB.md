@@ -67,17 +67,18 @@ acceptance stores Chromium's default-redacted netlog and a DNS event summary;
 inspect host-resolver/DoH events for your chosen browser. A DNS lookup by the
 acceptance harness is **not** attributed as browser DNS evidence.
 
-IPv6 relay transport is **unsupported**, not advertised as supported. The socket
-layer denies new IPv6 CONNECT and IPv6 UDP BIND events belonging to selected
-RELAY/BLOCK applications. TCP IPv6 bind is admitted until CONNECT. IPv6 UDP binds
-are denied even for dual-stack UDP sockets; the application must retry IPv4. This
-can reduce compatibility for applications that cannot retry. Unselected/service
-sockets pass unchanged. Identity lookup failure follows the existing fail-open
-policy. Already-open IPv6 sockets predate the guard and cannot be made private by
-adding a profile. Consequently this is **not a leak-proof IPv6 guarantee**. Restart
-the selected browser after enabling its profile; do not use this build where a
-strict privacy boundary is required. Driver filter/codec tests do not establish a
-real Windows IPv6 runtime PASS. GUI reports unsupported/blocked evidence honestly.
+IPv6 relay transport is **unsupported**, not advertised as supported. A separate
+NETWORK handle suppresses attributable new selected RELAY/BLOCK IPv6 TCP/UDP flows,
+without redirecting them into IPv4. Other IPv6 traffic passes unchanged. SOCKET
+handles are **sniff/receive-only** to observe identity before SYN; WinDivert cannot
+reinject socket events. The guard does not block IPv6/dual-stack socket bind.
+It accepts bounded extension chains, rejects fragments/jumbograms as unsupported,
+and pins existing TCP midstream to DIRECT. Unknown identity, unsupported packets,
+state saturation and pre-existing flows follow the existing fail-open policy.
+Consequently this is **not a leak-proof IPv6 guarantee**. Restart the selected
+browser after enabling its profile. Driver lifecycle and ordinary IPv4/IPv6
+loopback passthrough are native regressions, not an external IPv6 relay PASS.
+GUI reports unsupported/blocked packet evidence honestly.
 
 ## 1. Update without discarding enrolled credentials
 

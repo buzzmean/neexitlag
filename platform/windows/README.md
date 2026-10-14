@@ -6,8 +6,8 @@ NETWORK IPv4 UDP/TCP capture. UDP keeps its existing datagram path. TCP uses a
 separate bounded local stream reflector, with authenticated relay open before
 SYN reflection, connection pinning and native DIRECT fallback on opening failure.
 Unknown/self and unselected traffic remain DIRECT; TLS is never decrypted. IPv6
-relay transport is unsupported; the socket guard blocks attributable new relay
-IPv6 connects/UDP binds, with explicit existing/unknown-socket fail-open limits.
+relay transport is unsupported; the network guard blocks attributable new relay
+IPv6 flows, with explicit existing/unknown-socket fail-open limits.
 See [TCP/web architecture, evidence semantics and limitations](../../docs/WINDOWS_TCP_WEB.md).
 
 Absolute-path loader requires trusted DLL/SYS SHA256 pins, validates signed SYS

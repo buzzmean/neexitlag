@@ -172,8 +172,8 @@ and [destination quality / disabled FEC design](docs/design/DESTINATION_QUALITY_
 
 Probe quality describes the configured echo destination, not every game server.
 The capture backend supports unfragmented IPv4 UDP/TCP. IPv4 loopback and unknown
-identities remain DIRECT. IPv6 relay transport is unsupported: a socket guard
-blocks attributable new relay-app IPv6 connects/UDP binds; existing/unattributed
+identities remain DIRECT. IPv6 relay transport is unsupported: a network guard
+blocks attributable new relay-app IPv6 flows; existing/unattributed
 sockets fail open, so this is not a leak-proof privacy guarantee. Established TCP
 connections cannot migrate across egress IPs; failures close them and new
 connections follow policy. Profile publisher/signature requirements safely do

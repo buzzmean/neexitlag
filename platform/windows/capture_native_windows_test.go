@@ -6,9 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/buzzmean/neexitlag/core/routing"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // Opt-in signed-driver lifecycle regression. This is NOT external TCP acceptance.
@@ -31,6 +33,27 @@ func TestNativeCaptureHandlesStartStop(t *testing.T) {
 	defer cancel()
 	if e = backend.Start(ctx, func(ProcessIdentity, Tuple) Decision { return Decision{} }); e != nil {
 		t.Fatal(e)
+	}
+	defer backend.Stop()
+	for _, network := range []string{"tcp4", "tcp6"} {
+		address := "127.0.0.1:0"
+		if network == "tcp6" {
+			address = "[::1]:0"
+		}
+		listener, err := net.Listen(network, address)
+		if err != nil {
+			if network == "tcp6" {
+				t.Log("IPv6 loopback unavailable:", err)
+				continue
+			}
+			t.Fatal(err)
+		}
+		conn, err := net.DialTimeout(network, listener.Addr().String(), 2*time.Second)
+		listener.Close()
+		if err != nil {
+			t.Fatalf("ordinary %s connect blocked by capture: %v", network, err)
+		}
+		conn.Close()
 	}
 	if !backend.Status().Ready || !backend.Status().Capabilities.TCP {
 		t.Fatal(backend.Status())

@@ -482,7 +482,7 @@
 <data name="BrowserDns" xml:space="preserve"><value>DNS приложения</value></data>
 <data name="BrowserDnsHint" xml:space="preserve"><value>Системный DNS не перенаправляется. Запросы DNS Client могут принадлежать svchost; DNS браузера и DoH нужно проверять отдельно.</value></data>
 <data name="WebNotMeasured" xml:space="preserve"><value>Нет доказательства протокола. Наличие TCP/UDP flow не доказывает HTTPS или QUIC. Запустите отдельный web acceptance.</value></data>
-<data name="IPv6GuardHint" xml:space="preserve"><value>Новые IPv6 connect и UDP bind выбранных RELAY-приложений блокируются. Существующие сокеты и неизвестные PID остаются DIRECT; защита не подтверждена реальным Windows acceptance.</value></data>
+<data name="IPv6GuardHint" xml:space="preserve"><value>Новые распознанные IPv6 потоки выбранных RELAY-приложений блокируются на сетевом уровне. Существующие TCP, неизвестные PID и неподдерживаемые пакеты остаются DIRECT; внешняя Windows проверка не выполнена.</value></data>
 <data name="InterceptionHint" xml:space="preserve"><value>Состояние backend; успешное внешнее соединение подтверждается отдельным acceptance.</value></data>
 <data name="UdpTraffic" xml:space="preserve"><value>Трафик UDP</value></data>
 <data name="TcpTraffic" xml:space="preserve"><value>Трафик TCP</value></data>

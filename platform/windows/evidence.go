@@ -9,7 +9,7 @@ import (
 )
 
 type CaptureCounters struct {
-	IPv6Blocked   uint64 `json:"ipv6_blocked_socket_events"`
+	IPv6Blocked   uint64 `json:"ipv6_blocked_packets"`
 	CapturedBytes uint64 `json:"captured_bytes"`
 	RelayedBytes  uint64 `json:"relayed_bytes"`
 	DirectBytes   uint64 `json:"direct_bytes"`
