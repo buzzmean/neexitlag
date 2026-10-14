@@ -5,17 +5,17 @@ function Assert-DirectPlusEvidence($Report,$Evidence,[int]$PIDValue,[string]$Exe
  $sources=@($attempts|ForEach-Object{$_.response_source}|Sort-Object -Unique)
  if($Route -eq 'RELAY'){if($sources.Count -ne 1 -or $sources[0] -ne $VpsIP){throw 'RELAY response source mismatch'}}else{if($sources.Count -ne 1 -or $sources[0] -eq $VpsIP){throw 'Native egress response source mismatch; VPN may be active'}}
  if($Evidence.truncated){throw 'Capture truncated; cannot establish route absence'}
- $flows=@($Evidence.flows|Where-Object{$_.pid -eq $PIDValue -and $_.creation_time -eq $Report.creation_time -and $_.exe -ieq $Exe -and $_.destination -eq $Destination -and $_.protocol -eq 'tcp'})
- if(!$flows.Count){throw 'No attributed target flow'}
- $captured=0L;$relay=0L;$direct=0L;$plus=0L;$replies=0L;$bytes=0L
- foreach($f in $flows){$captured+=$f.counters.captured_packets;$relay+=$f.counters.relayed_packets;$direct+=$f.counters.direct_packets;$plus+=$f.counters.direct_plus_packets;$replies+=$f.counters.relay_reply_packets;$bytes+=$f.counters.direct_plus_bytes
+ $flows=@($Evidence.flows|Where-Object{$_.pid -eq $PIDValue -and $_.creation_time -eq $Report.creation_time -and $_.exe -ieq $Exe -and $_.destination -eq $Destination -and $_.protocol -eq 'tcp' -and $_.ip_version -eq 'IPv4'})
+ if($flows.Count -ne $Count){throw 'Expected exactly one attributed target flow per independent connection'}
+ $captured=0L;$relay=0L;$direct=0L;$plus=0L;$replies=0L;$bytes=0L;$capturedBytes=0L;$directBytes=0L;$relayBytes=0L;$replyBytes=0L
+ foreach($f in $flows){$captured+=$f.counters.captured_packets;$capturedBytes+=$f.counters.captured_bytes;$directBytes+=$f.counters.direct_bytes;$relayBytes+=$f.counters.relayed_bytes;$replyBytes+=$f.counters.relay_reply_bytes;$relay+=$f.counters.relayed_packets;$direct+=$f.counters.direct_packets;$plus+=$f.counters.direct_plus_packets;$replies+=$f.counters.relay_reply_packets;$bytes+=$f.counters.direct_plus_bytes
  if($Route -eq 'RELAY' -and ($f.selected_route -ne 'RELAY' -or $f.relay_id -ne 'VPS-01')){throw 'Relay route mismatch'}
  if($Route -eq 'DIRECT_PLUS' -and $f.selected_route -ne 'DIRECT_PLUS'){throw 'DIRECT+ transform did not apply to every connection'}
  if($Route -eq 'DIRECT' -and $f.selected_route -ne 'DIRECT'){throw 'DIRECT route mismatch'} }
- if($captured -le 0){throw 'No captured packets'}
+ if($captured -le 0 -or $capturedBytes -le 0){throw 'No captured packets'}
  if($Route -eq 'DIRECT_PLUS' -and ($plus -le 0 -or $bytes -le 0 -or $relay -ne 0)){throw 'No real DIRECT+ modification/evidence or relay leak'}
- if($Route -eq 'DIRECT' -and ($direct -le 0 -or $relay -ne 0 -or $plus -ne 0)){throw 'DIRECT counter mismatch'}
- if($Route -eq 'RELAY' -and ($relay -le 0 -or $replies -le 0 -or $direct -ne 0 -or $plus -ne 0)){throw 'RELAY counter mismatch'}
+ if($Route -eq 'DIRECT' -and ($direct -le 0 -or $directBytes -le 0 -or $relay -ne 0 -or $plus -ne 0)){throw 'DIRECT counter mismatch'}
+ if($Route -eq 'RELAY' -and ($relay -le 0 -or $relayBytes -le 0 -or $replyBytes -le 0 -or $replies -le 0 -or $direct -ne 0 -or $plus -ne 0)){throw 'RELAY counter mismatch'}
  return $sources[0]
 }
 function Get-StrategyMeasurement($Report,[bool]$Available) {
