@@ -19,6 +19,7 @@ if($Mode -eq 'TCP'){if([string]::IsNullOrWhiteSpace($HttpURL)){throw 'TCP browse
 if(@(Get-Process -ErrorAction SilentlyContinue|Where-Object{try{$_.Path -ieq $ChromePath}catch{$false}}).Count -gt 0){throw 'Close this browser before acceptance: the executable profile applies to all its processes'}
 New-Item -ItemType Directory -Force $ReportDirectory|Out-Null;$ReportDirectory=(Resolve-Path $ReportDirectory).Path
 $run=[Guid]::NewGuid().ToString('N');$data=Join-Path $ReportDirectory "$run-profile";$netlog=Join-Path $ReportDirectory "$run-netlog.json";$profileId='!browser-'+$run
+$script:responseRequests=@{}
 $client=$null;$socket=$null;$original=Invoke-ServiceIPC 'status';$proof=@{mode=$Mode;url=$URL;status='FAIL';note='TCP/QUIC modes are separate; DNS netlog is evidence, not system DNS routing'}
 function Sign-WebMessage([string]$Key,[string]$Message){$h=[Security.Cryptography.HMACSHA256]::new([Text.Encoding]::UTF8.GetBytes($Key));try{return ([BitConverter]::ToString($h.ComputeHash([Text.Encoding]::UTF8.GetBytes($Message)))).Replace('-','').ToLowerInvariant()}finally{$h.Dispose()}}
 function Assert-BrowserObservation($Observation,[string]$Key,[string]$Nonce,[bool]$TLSRequired,[string]$ExpectedSource){
@@ -35,7 +36,15 @@ function Navigate-Observation([string]$BaseURL,[bool]$TLSRequired){
  [void](CDP 'Network.setExtraHTTPHeaders' @{headers=@{'X-Neexitlag-Proof'=$signature}})
  [void](CDP 'Page.navigate' @{url=$target})
  $observation=$null;$deadline=[DateTime]::UtcNow.AddSeconds(15)
- while([DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 300;$r=CDP 'Runtime.evaluate' @{expression='document.body ? document.body.innerText : ""';returnByValue=$true};if($null -ne $r.result.PSObject.Properties['value']){try{$candidate=([string]$r.result.value)|ConvertFrom-Json;if($candidate.nonce -eq $nonce){$observation=$candidate;break}}catch{}}}
+ while([DateTime]::UtcNow -lt $deadline){
+  Start-Sleep -Milliseconds 300
+  # Pump CDP events and read the actual navigation response body. Chromium's
+  # JSON viewer DOM is not a stable interface and may add renderer UI text.
+  [void](CDP 'Runtime.evaluate' @{expression='0';returnByValue=$true})
+  if($script:responseRequests.ContainsKey($target)){
+   try{$body=CDP 'Network.getResponseBody' @{requestId=$script:responseRequests[$target]};$text=[string]$body.body;if($body.base64Encoded){$text=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($text))};$candidate=$text|ConvertFrom-Json;if($candidate.nonce -eq $nonce){$observation=$candidate;break}}catch{}
+  }
+ }
  Assert-BrowserObservation $observation $token $nonce $TLSRequired $RelayEgress
  return $observation
 }
@@ -46,6 +55,10 @@ function CDP([string]$Method,$Params){
  try{
   $socket.SendAsync([ArraySegment[byte]]::new($bytes),[Net.WebSockets.WebSocketMessageType]::Text,$true,$cts.Token).GetAwaiter().GetResult()
   while($true){$stream=[IO.MemoryStream]::new();try{do{$buffer=New-Object byte[] 16384;$message=$socket.ReceiveAsync([ArraySegment[byte]]::new($buffer),$cts.Token).GetAwaiter().GetResult();if($message.MessageType -eq [Net.WebSockets.WebSocketMessageType]::Close){throw 'CDP closed'};$stream.Write($buffer,0,$message.Count);if($stream.Length -gt 1048576){throw 'CDP response too large'}}while(!$message.EndOfMessage);$response=[Text.Encoding]::UTF8.GetString($stream.ToArray())|ConvertFrom-Json}finally{$stream.Dispose()}
+   if($null -ne $response.PSObject.Properties['method'] -and $response.method -eq 'Network.responseReceived'){
+    if($script:responseRequests.Count -ge 128){$script:responseRequests.Remove(@($script:responseRequests.Keys)[0])}
+    $script:responseRequests[[string]$response.params.response.url]=[string]$response.params.requestId
+   }
    if($null -ne $response.PSObject.Properties['id'] -and $response.id -eq $id){if($null -ne $response.PSObject.Properties['error']){throw "CDP $Method failed"};return $response.result}
   }
  }finally{$cts.Dispose()}
