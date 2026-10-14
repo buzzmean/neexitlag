@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/buzzmean/neexitlag/core/protocol"
 	"github.com/buzzmean/neexitlag/core/routing"
 	"github.com/buzzmean/neexitlag/core/telemetry"
 	"golang.org/x/sys/windows"
@@ -42,6 +43,7 @@ type WinDivertBackend struct {
 	dll           *divertDLL
 	native        *divertDLL
 	network, flow uintptr
+	socket        uintptr
 	flows         map[Tuple]*captureFlow
 	associations  *FlowAssociations
 	ctx           context.Context
@@ -49,11 +51,12 @@ type WinDivertBackend struct {
 	wg            sync.WaitGroup
 	workers       chan struct{}
 	cache         *ProcessCache
+	tcp           *tcpRedirect
 	evidence      *EvidenceLedger
 }
 
 func NewWinDivert(files DriverFiles, engine *routing.Engine) *WinDivertBackend {
-	return &WinDivertBackend{Files: files, Engine: engine, status: CaptureStatus{Backend: "WinDivert", Capabilities: Capabilities{UDP: true, Transparent: true}}, flows: make(map[Tuple]*captureFlow), associations: NewAssociations(8192), workers: make(chan struct{}, 64), cache: NewProcessCache(NewDiscovery(), IsCurrent), evidence: NewEvidenceLedger()}
+	return &WinDivertBackend{Files: files, Engine: engine, status: CaptureStatus{Backend: "WinDivert", Capabilities: Capabilities{UDP: true, TCP: true, IPv4: true, Transparent: true}}, flows: make(map[Tuple]*captureFlow), associations: NewAssociations(8192), workers: make(chan struct{}, 64), cache: NewProcessCache(NewDiscovery(), IsCurrent), evidence: NewEvidenceLedger()}
 }
 func (b *WinDivertBackend) Status() CaptureStatus { b.mu.Lock(); defer b.mu.Unlock(); return b.status }
 func (d *divertDLL) openHandle(filter string, layer uintptr, flags uintptr) (uintptr, error) {
@@ -102,9 +105,17 @@ func (b *WinDivertBackend) Start(parent context.Context, classify Classifier) (r
 		dll.dll.Release()
 		return e
 	}
+	socket, e := dll.openHandle("(tcp and event == CONNECT) or (ipv6 and (event == CONNECT or (udp and event == BIND)))", 3, 0)
+	if e != nil {
+		dll.close.Call(network)
+		dll.close.Call(flow)
+		dll.dll.Release()
+		return e
+	}
 	var major uint64
 	ok, _, _ := dll.getParam.Call(network, 3, uintptr(unsafe.Pointer(&major)))
 	if ok == 0 || major != 2 {
+		dll.close.Call(socket)
 		dll.close.Call(network)
 		dll.close.Call(flow)
 		dll.dll.Release()
@@ -113,7 +124,17 @@ func (b *WinDivertBackend) Start(parent context.Context, classify Classifier) (r
 	dll.setParam.Call(network, 0, 256)
 	dll.setParam.Call(network, 1, 100)
 	dll.setParam.Call(network, 2, 512*1024)
+	tcp, e := b.startTCP(dll)
+	if e != nil {
+		dll.close.Call(socket)
+		dll.close.Call(network)
+		dll.close.Call(flow)
+		dll.dll.Release()
+		return e
+	}
 	b.mu.Lock()
+	b.tcp = tcp
+	b.socket = socket
 	b.dll = dll
 	b.native = dll
 	b.flow = flow
@@ -122,10 +143,12 @@ func (b *WinDivertBackend) Start(parent context.Context, classify Classifier) (r
 	b.status.Ready = true
 	b.status.Error = ""
 	b.mu.Unlock()
-	b.wg.Add(3)
+	b.wg.Add(4)
 	go b.track()
+	go b.socketGuard(classify)
 	go b.cleanup()
 	go b.packets(classify)
+	tcp.start(classify)
 	watch := b.ctx
 	go func() {
 		<-watch.Done()
@@ -150,13 +173,16 @@ func (b *WinDivertBackend) stopLocked() error {
 	b.dll = nil
 	d.shutdown.Call(b.network, 1)
 	d.shutdown.Call(b.flow, 1)
+	d.shutdown.Call(b.socket, 1)
 	for _, f := range b.flows {
 		f.once.Do(func() { close(f.done) })
 	}
 	b.mu.Unlock()
+	b.tcp.stop()
 	b.wg.Wait()
 	d.close.Call(b.network)
 	d.close.Call(b.flow)
+	d.close.Call(b.socket)
 	d.dll.Release()
 	b.mu.Lock()
 	b.flows = make(map[Tuple]*captureFlow)
@@ -277,7 +303,7 @@ func (b *WinDivertBackend) packets(classify Classifier) {
 				}
 			}
 		}
-		b.evidence.Record(identity, tuple, "captured", "")
+		b.evidence.RecordBytes(identity, tuple, "captured", "", uint64(len(packet)))
 		if known && identity.PID == uint32(os.Getpid()) {
 			b.evidence.Record(identity, tuple, "self", "")
 		}
@@ -298,7 +324,7 @@ func (b *WinDivertBackend) packets(classify Classifier) {
 		}
 		if f == nil {
 			decision := Decision{Route: routing.Route{}}
-			if known && len(payload) <= 1100 {
+			if known {
 				decision, _ = ClassifyCapture(identity, tuple, uint32(os.Getpid()), classify)
 			}
 			if len(b.flows) >= 8192 {
@@ -310,7 +336,7 @@ func (b *WinDivertBackend) packets(classify Classifier) {
 						b.fail(err)
 						return
 					}
-					b.evidence.Record(identity, tuple, "direct", "")
+					b.evidence.RecordBytes(identity, tuple, "direct", "", uint64(len(packet)))
 				}
 				continue
 			}
@@ -350,10 +376,10 @@ func (b *WinDivertBackend) packets(classify Classifier) {
 				b.fail(e)
 				return
 			}
-			b.evidence.Record(identity, tuple, "direct", "")
+			b.evidence.RecordBytes(identity, tuple, "direct", "", uint64(len(packet)))
 			continue
 		}
-		if len(payload) > 1100 {
+		if len(payload) > protocol.MaxPayload {
 			b.LocalDrops.Attempt(telemetry.CaptureProcessing)
 			b.LocalDrops.Drop(telemetry.CaptureProcessing)
 			b.drop(identity, tuple)
@@ -377,7 +403,7 @@ func (b *WinDivertBackend) packets(classify Classifier) {
 				b.fail(err)
 				return
 			}
-			b.evidence.Record(identity, tuple, "direct", "")
+			b.evidence.RecordBytes(identity, tuple, "direct", "", uint64(len(packet)))
 			continue
 		}
 		b.LocalDrops.Attempt(telemetry.CaptureQueue)
@@ -457,7 +483,7 @@ func (b *WinDivertBackend) forward(tuple Tuple, f *captureFlow, d *divertDLL) {
 			b.mu.Lock()
 			route := f.decision.Route.RelayID
 			b.mu.Unlock()
-			b.evidence.Record(f.identity, tuple, "reply", route)
+			b.evidence.RecordBytes(f.identity, tuple, "reply", route, uint64(len(payload)))
 			b.RX.Add(uint64(len(payload)))
 		}
 	}()
@@ -484,7 +510,7 @@ func (b *WinDivertBackend) forward(tuple Tuple, f *captureFlow, d *divertDLL) {
 			b.mu.Lock()
 			route := f.decision.Route.RelayID
 			b.mu.Unlock()
-			b.evidence.Record(f.identity, tuple, "relay", route)
+			b.evidence.RecordBytes(f.identity, tuple, "relay", route, uint64(len(payload)))
 			b.TX.Add(uint64(len(payload)))
 		}
 	}
@@ -524,7 +550,7 @@ func (b *WinDivertBackend) fallback(tuple Tuple, f *captureFlow, d *divertDLL, f
 			b.fail(err)
 			return
 		}
-		b.evidence.Record(f.identity, tuple, "direct", "")
+		b.evidence.RecordBytes(f.identity, tuple, "direct", "", uint64(len(p)))
 	}
 	if failed != nil {
 		inject(failed)

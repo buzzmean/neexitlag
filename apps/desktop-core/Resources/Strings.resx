@@ -334,7 +334,7 @@
     <value>Нет активных приложений</value>
   </data>
   <data name="CaptureHint" xml:space="preserve">
-    <value>Служба управляет IPv4 UDP. Остальной трафик идёт напрямую.</value>
+    <value>Служба направляет выбранные IPv4 UDP/TCP потоки. Неподдерживаемый IPv6 отображается отдельно.</value>
   </data>
   <data name="MeasurementsHint" xml:space="preserve">
     <value>Задержка измеряется до настроенной контрольной точки, а не до игрового сервера.</value>
@@ -471,4 +471,19 @@
   <data name="QualityScope">
     <value>Качество контрольных проб за последние 60 секунд; это не оценка потерь игрового протокола.</value>
   </data>
+<data name="IPv6Unsupported" xml:space="preserve"><value>Транспорт IPv6 не поддерживается</value></data>
+<data name="IPv6Blocked" xml:space="preserve"><value>IPv6 заблокирован для выбранного приложения</value></data>
+<data name="TcpInterception" xml:space="preserve"><value>Перехват TCP</value></data>
+<data name="UdpInterception" xml:space="preserve"><value>Перехват UDP</value></data>
+<data name="IPv4Label" xml:space="preserve"><value>Трафик IPv4</value></data>
+<data name="IPv6Label" xml:space="preserve"><value>Трафик IPv6</value></data>
+<data name="HttpsRelay" xml:space="preserve"><value>HTTPS через relay</value></data>
+<data name="QuicRelay" xml:space="preserve"><value>QUIC через relay</value></data>
+<data name="BrowserDns" xml:space="preserve"><value>DNS приложения</value></data>
+<data name="BrowserDnsHint" xml:space="preserve"><value>Системный DNS не перенаправляется. Запросы DNS Client могут принадлежать svchost; DNS браузера и DoH нужно проверять отдельно.</value></data>
+<data name="WebNotMeasured" xml:space="preserve"><value>Нет доказательства протокола. Наличие TCP/UDP flow не доказывает HTTPS или QUIC. Запустите отдельный web acceptance.</value></data>
+<data name="IPv6GuardHint" xml:space="preserve"><value>Новые IPv6 connect и UDP bind выбранных RELAY-приложений блокируются. Существующие сокеты и неизвестные PID остаются DIRECT; защита не подтверждена реальным Windows acceptance.</value></data>
+<data name="InterceptionHint" xml:space="preserve"><value>Состояние backend; успешное внешнее соединение подтверждается отдельным acceptance.</value></data>
+<data name="UdpTraffic" xml:space="preserve"><value>Трафик UDP</value></data>
+<data name="TcpTraffic" xml:space="preserve"><value>Трафик TCP</value></data>
 </root>

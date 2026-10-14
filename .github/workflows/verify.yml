@@ -56,6 +56,16 @@ jobs:
         shell: pwsh
       - run: ./tools/windows/build-e2e.ps1
         shell: pwsh
+      - run: ./tests/windows-tools/tcp-web-checks.ps1
+        shell: pwsh
+      - run: ./tests/windows-tools/tcp-web-checks.ps1
+        shell: powershell
+      - run: ./tools/windows/fetch-windivert.ps1
+        shell: pwsh
+      - run: |
+          $env:NEEXITLAG_TEST_DRIVER_DIR=(Resolve-Path .e2e/windivert).Path
+          go test -timeout 90s -v ./platform/windows -run TestNativeCaptureHandlesStartStop
+        shell: pwsh
       - run: ./tests/windows-tools/acceptance-checks.ps1
         shell: pwsh
       - run: ./tests/windows-tools/reinstall-checks.ps1
@@ -66,7 +76,7 @@ jobs:
         shell: powershell
       - run: ./tests/windows-tools/ipc-smoke.ps1
         shell: pwsh
-      - run: go test ./tools/windows-test-client ./internal/e2eprobe ./tools/vps-provision ./tools/route-test
+      - run: go test ./tools/windows-test-client ./internal/e2eprobe ./tools/vps-provision ./tools/route-test ./tools/tcp-test-client ./internal/webprobe
       - uses: actions/upload-artifact@v4
         with:
           name: windows-real-e2e-tools

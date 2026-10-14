@@ -180,15 +180,17 @@ func (f *flow) close() {
 }
 
 type session struct {
-	server       *Server
-	conn         *quic.Conn
-	mu           sync.Mutex
-	flows        map[uint32]*flow
-	wg           sync.WaitGroup
-	tokens       float64
-	refill       time.Time
-	deviceID     string
-	leaseExpires time.Time
+	packetSequence atomic.Uint32
+	reassembly     protocol.Reassembly
+	server         *Server
+	conn           *quic.Conn
+	mu             sync.Mutex
+	flows          map[uint32]*flow
+	wg             sync.WaitGroup
+	tokens         float64
+	refill         time.Time
+	deviceID       string
+	leaseExpires   time.Time
 }
 
 func (x *session) run() {
@@ -328,9 +330,14 @@ func (x *session) readUDP(id uint32, f *flow) {
 			continue
 		}
 		f.last.Store(time.Now().UnixNano())
-		p, _ := protocol.Encode(id, b[:n])
+		parts, _ := protocol.EncodeDatagrams(id, x.packetSequence.Add(1), b[:n])
 		x.server.Metrics.LocalDrops.Attempt(telemetry.SocketSend)
-		if e = x.conn.SendDatagram(p); e != nil {
+		for _, p := range parts {
+			if e = x.conn.SendDatagram(p); e != nil {
+				break
+			}
+		}
+		if e != nil {
 			x.server.Metrics.Drops.Add(1)
 			x.server.Metrics.LocalDrops.Drop(telemetry.SocketSend)
 		} else {
@@ -346,10 +353,13 @@ func (x *session) datagrams() {
 		}
 		x.server.Metrics.LocalDrops.Attempt(telemetry.Decode)
 		x.server.Metrics.LocalDrops.Attempt(telemetry.UnknownFlow)
-		id, p, e := protocol.Decode(b)
+		id, p, e := x.reassembly.Decode(b, time.Now())
 		if e != nil {
 			x.server.Metrics.Drops.Add(1)
 			x.server.Metrics.LocalDrops.Drop(telemetry.Decode)
+			continue
+		}
+		if p == nil {
 			continue
 		}
 		now := time.Now()

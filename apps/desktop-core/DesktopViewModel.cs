@@ -31,7 +31,11 @@ public sealed class ApplicationRow : Observable
 {
     public Profile Profile { get; private set; } = new(); public string Name => Profile.Name; public string Path => executablePath; public string Mode => Text.Mode(Profile.Mode);
     string processStatus = Text.Get("NoData"), route = Text.Get("NoData"), executablePath = Text.Get("NoData"); public string ProcessStatus => processStatus; public string Route => route;
-    public void Update(Profile profile, ProcessIdentity[]? processes, CaptureEvidence? capture)
+    public string Udp { get; private set; } = Text.Get("NoData");
+ public string Tcp { get; private set; } = Text.Get("NoData");
+ public string Ipv4 { get; private set; } = Text.Get("NoData");
+ public string Ipv6 { get; private set; } = Text.Get("IPv6Unsupported");
+ public void Update(Profile profile, ProcessIdentity[]? processes, CaptureEvidence? capture)
     {
         Profile = profile;
         var matched = processes?.Where(p => profile.Executables.Any(exe => Matches(exe, p.Path))).ToArray();
@@ -39,6 +43,10 @@ public sealed class ApplicationRow : Observable
         processStatus = matched is null ? Text.Get("NoData") : Text.Get(matched.Length > 0 ? "Active" : "NotRunning");
         var routes = capture?.Flows.Where(f => matched?.Any(p => p.PID == f.Pid && p.CreationTime == f.CreationTime) == true && profile.Executables.Any(e => Matches(e, f.Exe)) && DateTimeOffset.UtcNow - f.LastSeen < TimeSpan.FromSeconds(10)).Select(f => f.SelectedRoute == "RELAY" ? Text.Route(f.RelayId) : f.SelectedRoute == "DIRECT" ? Text.Route("DIRECT") : Text.Get("NoData")).Distinct().ToArray();
         route = routes is { Length: > 0 } ? string.Join(", ", routes) : Text.Get("NoData");
+        var active = capture?.Flows.Where(f => matched?.Any(p => p.PID == f.Pid && p.CreationTime == f.CreationTime) == true && DateTimeOffset.UtcNow - f.LastSeen < TimeSpan.FromSeconds(10)).ToArray();
+        string Summary(Func<CaptureFlow, bool> predicate) { var values=active?.Where(predicate).Select(f => f.SelectedRoute == "BLOCK_UNSUPPORTED_IPV6" ? Text.Get("IPv6Blocked") : f.SelectedRoute == "RELAY" ? Text.Route(f.RelayId) : f.SelectedRoute == "DIRECT" ? Text.Route("DIRECT") : Text.Get("NoData")).Distinct().ToArray(); return values is {Length: >0} ? string.Join(", ",values) : Text.Get("NoData"); }
+        Udp=Summary(f=>f.Protocol=="udp"); Tcp=Summary(f=>f.Protocol=="tcp"); Ipv4=Summary(f=>f.IpVersion=="IPv4");
+        Ipv6=active?.Any(f=>f.IpVersion=="IPv6") == true ? Summary(f=>f.IpVersion=="IPv6") : Text.Get("IPv6Unsupported");
         Changed("");
     }
     public static bool Matches(string executable, string path)
@@ -321,11 +329,21 @@ public sealed class DesktopViewModel : Observable
                     "Control Plane" => "ControlPlane",
                     "Relay" => "RelayCheck",
                     "Latency / Loss" => "LatencyCheck",
+                    "TCP interception" => "TcpInterception",
+                    "UDP interception" => "UdpInterception",
+                    "IPv4" => "IPv4Label",
+                    "IPv6" => "IPv6Label",
+                    "HTTPS through relay" => "HttpsRelay",
+                    "QUIC through relay" => "QuicRelay",
+                    "Browser DNS" => "BrowserDns",
                     _ => ""
                 };
                 var name = key != "" ? Text.Get(key) : new[] { "UDP", "TCP", "MTU", "DNS" }.Contains(c.Name) ? c.Name : Text.Get("Check");
                 var detail = c.Status == "not configured" ? Text.Get("DiagnosticUnconfigured") : c.Status is "healthy" or "measured" ? Text.Get(c.Name == "MTU" ? "DiagnosticMtu" : c.Name == "DNS" ? "DiagnosticDns" : "DiagnosticHealthy") : Text.Get("DiagnosticUnavailable");
-                rows.Add(new(name, Text.Status(c.Status), detail));
+                if (c.Name is "HTTPS through relay" or "QUIC through relay" or "Browser DNS") detail=Text.Get(c.Name=="Browser DNS" ? "BrowserDnsHint" : "WebNotMeasured");
+                if (c.Name=="IPv6") detail=Text.Get("IPv6GuardHint");
+                if (c.Name is "TCP interception" or "UDP interception" or "IPv4") detail=Text.Get("InterceptionHint");
+                rows.Add(new(name, c.Status=="unsupported" ? Text.Get("IPv6Unsupported") : Text.Status(c.Status), detail));
             }
             var direct = checks.FirstOrDefault(c => c.Name == "UDP");
             rows.Add(new(Text.Get("DirectCheck"), Text.Status(direct?.Status ?? "not configured"), Text.Get(direct?.Status == "healthy" ? "DiagnosticHealthy" : direct?.Status == "not configured" || direct is null ? "DiagnosticUnconfigured" : "DiagnosticUnavailable")));
