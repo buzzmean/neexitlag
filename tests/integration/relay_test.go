@@ -67,8 +67,16 @@ func TestUDPE2E(t *testing.T) {
 	if e = f.Send(make([]byte, protocol.MaxPayload+1)); e == nil {
 		t.Fatal("oversize accepted")
 	}
-	if r.Metrics.UDPPackets.Load() != 50 {
-		t.Fatal("packet accounting")
+	// A received echo is not a synchronization barrier for the sender's
+	// accounting: UDP Write can wake the echo/reply goroutines before Add runs.
+	// Wait only for that bookkeeping; delivery, ordering and exact count remain
+	// strict. This never retries a lost probe or hides packet loss.
+	accountingDeadline := time.Now().Add(time.Second)
+	for r.Metrics.UDPPackets.Load() < 50 && time.Now().Before(accountingDeadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if got := r.Metrics.UDPPackets.Load(); got != 50 {
+		t.Fatalf("packet accounting: got %d, want exactly 50", got)
 	}
 	w := httptest.NewRecorder()
 	r.Handler().ServeHTTP(w, httptest.NewRequest("GET", "/metrics", nil))

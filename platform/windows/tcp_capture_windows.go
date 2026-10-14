@@ -68,6 +68,15 @@ func (t *tcpRedirect) stop() {
 	}
 	t.state.mu.Unlock()
 	t.wg.Wait()
+	// Shutdown(RECV) may drain queued captures after the first flush. With all
+	// producers stopped, release any late ClientHello before closing SEND.
+	t.state.mu.Lock()
+	for _, e := range t.state.entries {
+		if err := e.localBuffer.Flush(e.decision, &e.localState, e.identity, e.tuple, time.Now(), "NO_TRANSFORM", t.b.evidence); err != nil {
+			t.b.fail(err)
+		}
+	}
+	t.state.mu.Unlock()
 	t.b.proc().close.Call(t.handle)
 }
 func (t *tcpRedirect) send(p []byte, a [80]byte) error {
