@@ -362,7 +362,14 @@ func (e *LocalStrategyEngine) Metrics() Metrics {
 	return Metrics{Inspected: e.inspected.Load(), Modified: e.modified.Load(), Extra: e.extra.Load(), Flows: e.flows.Load(), Bytes: e.bytes.Load(), Errors: e.errors.Load()}
 }
 
-func (s *State) Disable()      { s.done = true; s.failed = true; s.matched = false; s.selectedID = "" }
+func (s *State) Disable() {
+	s.done = true
+	s.failed = true
+	s.matched = false
+	s.selectedID = ""
+	s.applied = false
+	s.domain = ""
+}
 func (s *State) Applied() bool { return s.applied && !s.failed }
 
 func (e *LocalStrategyEngine) Suspend(v bool) { e.suspended.Store(v) }

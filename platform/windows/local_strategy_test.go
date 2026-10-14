@@ -83,6 +83,12 @@ func TestLocalReinjectionFailureAndUnknownIdentityFailOpen(t *testing.T) {
 	if err != nil || n != 3 || st.Applied() {
 		t.Fatal(err, n, st)
 	}
+	if err := SendLocal(d, st, id, tuple, raw, func([]byte) error { return nil }, ledger); err != nil {
+		t.Fatal(err)
+	}
+	if e.Metrics().Bytes != 0 {
+		t.Fatal("disabled strategy counted unmodified DIRECT traffic as DIRECT+", e.Metrics())
+	}
 	if ledger.Snapshot(1).Flows[0].Route != "DIRECT" {
 		t.Fatal("false local success")
 	}
