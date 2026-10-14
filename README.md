@@ -38,10 +38,11 @@ No default route, adapter or routing table is changed.
 Phase 0–2 checkpoint `7967f8352e810d39dea6c793b0bf8cfa20d027f8` is preserved.
 Multi-relay selection, real probing, PostgreSQL APIs, signed tickets/configs,
 profiles, service IPC, WPF source and a portable demo are implemented.
-The external WinDivert v2 integration captures **IPv4 UDP**. Windows source and
-WPF build pass; real driver interception, service-crash fail-open and the native
-WPF window have **not** been runtime tested on this Linux worker.
-Transparent TCP/IPv6 and the production WFP driver remain outstanding.
+The external WinDivert v2 integration captures **IPv4 UDP and TCP**. The owner has
+reported successful real Windows UDP E2E, simultaneous per-process routing and
+service-crash fail-open. New TCP/browser runtime acceptance remains separate and
+pending. IPv6 relay transport and the production WFP driver remain unsupported.
+See [TCP/web implementation and exact acceptance commands](docs/WINDOWS_TCP_WEB.md).
 See [status](docs/STATUS.md), [Windows acceptance](docs/BLOCKERS.md) and
 [security](docs/SECURITY.md).
 
@@ -170,10 +171,13 @@ and [destination quality / disabled FEC design](docs/design/DESTINATION_QUALITY_
 ## Known limitations
 
 Probe quality describes the configured echo destination, not every game server.
-The capture backend is IPv4 UDP only; TCP, IPv6, fragments, loopback and unknown
-first packets remain DIRECT. Profile publisher/signature requirements safely do
-not match until a verified publisher is supplied. Windows rejects full BLOCK mode
-with the UDP-only backend. WFP, signed application updates, updater/channel rollout,
+The capture backend supports unfragmented IPv4 UDP/TCP. IPv4 loopback and unknown
+identities remain DIRECT. IPv6 relay transport is unsupported: a socket guard
+blocks attributable new relay-app IPv6 connects/UDP binds; existing/unattributed
+sockets fail open, so this is not a leak-proof privacy guarantee. Established TCP
+connections cannot migrate across egress IPs; failures close them and new
+connections follow policy. Profile publisher/signature requirements safely do
+not match until a verified publisher is supplied. WFP, signed application updates, updater/channel rollout,
 production identity enrollment, DDoS infrastructure, driver signing and Internet
 performance validation are future work. Update channel is a persisted preference;
 there is no implemented updater. The MTU diagnostic verifies a 1100-byte UDP echo,

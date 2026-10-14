@@ -80,7 +80,7 @@ try {
  throw
 } finally {
  if($null -ne $socket){$socket.Dispose()}
- if($null -ne $client){if(!$client.WaitForExit(5000)){Stop-Process -Id $client.Id -ErrorAction SilentlyContinue}}
+ if($null -ne $client){if(!$client.WaitForExit(5000)){& taskkill /PID $client.Id /T /F 2>$null|Out-Null}}
  try{[void](Invoke-ServiceIPC 'profile.delete' @{id=$profileId});[void](Invoke-ServiceIPC 'optimize' @{enabled=$original.optimizing})}catch{Write-Warning $_}
  # Netlog uses Chromium's default redaction; never request IncludeSensitive.
  if(Test-Path $netlog){try{$log=Get-Content $netlog -Raw|ConvertFrom-Json;$dnsTypes=@($log.constants.logEventTypes.PSObject.Properties|Where-Object{$_.Name -match 'DNS|HOST_RESOLVER'});$dnsIDs=@($dnsTypes|ForEach-Object{$_.Value});$proof.dns=@{event_types=@($dnsTypes.Name);event_count=@($log.events|Where-Object{$dnsIDs -contains $_.type}).Count;scope='browser netlog; system resolver/DNS egress not attributed'}}catch{$proof.dns_error=$_.Exception.Message}}

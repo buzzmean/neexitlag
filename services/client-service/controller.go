@@ -422,7 +422,7 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 			return nil, e
 		}
 		if p.Mode == profiles.Block && !c.Demo && (c.Backend == nil || !c.Backend.Status().Capabilities.TCP) {
-			return nil, errors.New("BLOCK profile requires full UDP/TCP capture; WinDivert MVP supports IPv4 UDP only")
+			return nil, errors.New("BLOCK profile requires UDP/TCP capture; current backend does not provide it")
 		}
 		if e := c.Profiles.Upsert(p); e != nil {
 			return nil, e
