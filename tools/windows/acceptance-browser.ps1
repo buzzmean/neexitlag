@@ -10,6 +10,7 @@ param(
 )
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
+. (Join-Path $PSScriptRoot 'acceptance-checks.ps1')
 Assert-Administrator
 $ChromePath=(Resolve-Path $ChromePath).Path
 foreach($argument in @($ChromePath,$URL,$ReportDirectory)){if($argument.Contains('"')){throw 'Quote in argument'}}
@@ -66,7 +67,12 @@ function CDP([string]$Method,$Params){
 try {
  [void](Invoke-ServiceIPC 'profile.set' @{id=$profileId;name='Browser acceptance';executables=@($ChromePath);mode='MANUAL';relay_id='VPS-01';custom=$true})
  [void](Invoke-ServiceIPC 'optimize' @{enabled=$true})
- $s=Invoke-ServiceIPC 'status';if(!$s.backend.ready -or !$s.backend.capabilities.tcp){throw 'TCP backend not ready'}
+ [void](Wait-AcceptanceReadiness -TimeoutMS 30000 -GetSnapshot {Invoke-ServiceIPC 'acceptance.readiness' @{relay_id='VPS-01'}} -Evaluate {param($s)
+  $missing=@();if(!$s.connected -or !$s.optimizing -or !$s.backend.ready -or !$s.backend.capabilities.tcp){$missing+='TCP backend'}
+  $transport=$s.PSObject.Properties['relay_transport'];if($null -eq $transport -or !$transport.Value.connected -or !$transport.Value.flow_open){$missing+='authenticated relay session/open ACK'}
+  if(@($s.profiles|Where-Object{$_.id -eq $profileId -and $_.mode -eq 'MANUAL' -and $_.relay_id -eq 'VPS-01' -and $_.executables -contains $ChromePath}).Count -ne 1){$missing+='browser profile configuration'}
+  return [pscustomobject]@{ready=($missing.Count -eq 0);missing=$missing}
+ })
  $quicFlag=if($Mode -eq 'TCP'){'--disable-quic'}else{'--enable-quic'}
  $arguments="--headless=new --no-first-run --no-default-browser-check --disable-background-networking --user-data-dir=`"$data`" --remote-debugging-address=127.0.0.1 --remote-debugging-port=0 --log-net-log=`"$netlog`" $quicFlag about:blank"
  $client=Start-Process -FilePath $ChromePath -ArgumentList $arguments -PassThru

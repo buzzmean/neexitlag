@@ -163,7 +163,11 @@ scp root@2.56.177.4:/etc/neexitlag/web-test/ca.pem .\.e2e\web-test-ca.pem
 
 No Go installation needed if using the `windows-real-e2e-tools` artifact from this
 branch's successful Verify run. Both executables use ordinary sockets, not the
-relay API or an explicit proxy. Each stage warms both paths then measures concurrent
+relay API or an explicit proxy. The harness first waits for effective profiles, capture and the real authenticated
+relay session/open ACK through existing acceptance.readiness IPC, without waiting
+for route quality. This opens/closes a readiness flow and sends no UDP test payload;
+it does not repeat historical UDP E2E. TCP destination/route proofs must also pass
+during the separate warm-up. Each stage then measures concurrent
 selected/control connections against the same endpoint. Every attempt must succeed;
 no retry hides failed connections. Proof combines process identity, destination,
 actual TLS/HTTP2/WS exchange, endpoint nonce/source, overlap and real capture/byte

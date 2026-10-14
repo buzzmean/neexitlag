@@ -35,8 +35,9 @@ try {
  [void](Invoke-ServiceIPC 'profile.set' @{id=$selectedId;name='TCP selected';executables=@($selected);mode='MANUAL';relay_id='VPS-01';custom=$true})
  [void](Invoke-ServiceIPC 'profile.set' @{id=$controlId;name='TCP direct control';executables=@($control);mode='DIRECT';custom=$true})
  [void](Invoke-ServiceIPC 'optimize' @{enabled=$true})
- [void](Wait-AcceptanceReadiness -TimeoutMS 30000 -GetSnapshot {Invoke-ServiceIPC 'status'} -Evaluate {param($s)
-  $missing=@();if(!$s.connected -or !$s.optimizing -or !$s.backend.ready -or !$s.backend.capabilities.tcp){$missing+='TCP backend'}
+ [void](Wait-AcceptanceReadiness -TimeoutMS 30000 -GetSnapshot {Invoke-ServiceIPC 'acceptance.readiness' @{relay_id='VPS-01'}} -Evaluate {param($s)
+  $missing=@();$transport=$s.PSObject.Properties['relay_transport'];if($null -eq $transport -or !$transport.Value.connected -or !$transport.Value.flow_open){$missing+='authenticated relay session/open ACK (TCP destination is proven by warm-up)'}
+  if(!$s.connected -or !$s.optimizing -or !$s.backend.ready -or !$s.backend.capabilities.tcp){$missing+='TCP backend'}
   if(@($s.profiles|Where-Object{$_.id -eq $selectedId -and $_.mode -eq 'MANUAL' -and $_.relay_id -eq 'VPS-01' -and $_.executables -contains $selected}).Count -ne 1){$missing+='selected effective profile'}
   if(@($s.profiles|Where-Object{$_.id -eq $controlId -and $_.mode -eq 'DIRECT' -and $_.executables -contains $control}).Count -ne 1){$missing+='control effective profile'}
   return [pscustomobject]@{ready=($missing.Count -eq 0);missing=$missing}
@@ -44,7 +45,10 @@ try {
  foreach($stage in @(@('http',$HttpURL,'http'),@('https',$HttpsURL,'http'),@('http2',$HttpsURL,'http2'),@('websocket',$HttpsURL,'websocket'))){
   $label=$stage[0];$url=$stage[1];$mode=$stage[2]
   $warmA=Launch-TCP $selected "$label-warm-selected" $url $mode 2;$warmB=Launch-TCP $control "$label-warm-control" $url $mode 2
-  [void](Complete-TCP $warmA 2);[void](Complete-TCP $warmB 2)
+  $warmReportA=Complete-TCP $warmA 2;$warmReportB=Complete-TCP $warmB 2
+  $warmEvidenceA=Invoke-ServiceIPC 'capture.diagnostics' @{pid=$warmA.process.Id};$warmEvidenceB=Invoke-ServiceIPC 'capture.diagnostics' @{pid=$warmB.process.Id}
+  Assert-TcpWebProof $warmReportA $warmEvidenceA $warmA.process.Id $selected 'RELAY' $VpsPublicIP $label 2
+  Assert-TcpWebProof $warmReportB $warmEvidenceB $warmB.process.Id $control 'DIRECT' $VpsPublicIP $label 2
   $a=Launch-TCP $selected "$label-selected" $url $mode $Count;$b=Launch-TCP $control "$label-control" $url $mode $Count
   $ra=Complete-TCP $a $Count;$rb=Complete-TCP $b $Count
   $ea=Invoke-ServiceIPC 'capture.diagnostics' @{pid=$a.process.Id};$eb=Invoke-ServiceIPC 'capture.diagnostics' @{pid=$b.process.Id}
