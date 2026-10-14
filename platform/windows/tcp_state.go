@@ -9,6 +9,7 @@ import (
 
 type tcpEntry struct {
 	localState        localstrategy.State
+	localBuffer       LocalTCPBuffer
 	domainInspections uint8
 	tuple             Tuple
 	initialSequence   uint32

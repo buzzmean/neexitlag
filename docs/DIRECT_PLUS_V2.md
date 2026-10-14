@@ -19,7 +19,7 @@
 
 Fake TTL — явный config field 2–16, строго ниже исходного TTL; кандидаты используют 2/5/8. GUI/capture показывают только фактически committed TTL. Нет autottl, глобального TTL или изменения timestamps. Если handshake/ClientHello/sequence неизвестны, весь план проходит DIRECT без fake. На send failure план не засчитывается успешным, оригинал reinject-ится по существующей fail-open политике. Успех reinjection **не** доказывает успех HTTPS.
 
-Поддерживается полный ClientHello внутри одного IPv4 packet <=1500B. Нет TCP TLS reassembly, IPv6 desync, чтения ECH inner SNI, fake QUIC/STUN, MD5/ts/badsum fooling, sequence overlap, syndata, hostfakesplit или гарантии обхода любого DPI. Наблюдаемый outer SNI может участвовать в явном matching; скрытое ECH inner name не угадывается. Fragmented/oversized/offloaded ClientHello может дать честный `no transform`, включая современные браузеры/PQ TLS. Не отключайте TLS verification, Secure DNS или QUIC глобально ради PASS.
+ClientHello выбранного нового IPv4 TCP flow собирается в bounded stream (32 КиБ payload, 32 captured segments, 2 секунды). Разбираются несколько TCP segments и TLS records; outer SNI используется для окончательного domain/exclude matching. На wire отправляются только исходные сегменты или их части, каждый не больше исходного packet <=1500B. IPv6 desync, ECH inner SNI, fake QUIC/STUN, MD5/ts/badsum fooling, syndata и hostfakesplit не поддерживаются. Offloaded packets >1500B, неоднозначный overlap, неподдерживаемые options/flags и превышение bounds остаются DIRECT с причиной. Не отключайте TLS verification, Secure DNS или QUIC глобально ради PASS.
 
 ## Presets и GUI
 
@@ -133,7 +133,7 @@ C. ChatGPT: сохраните существующий MANUAL VPS-01 контр
   или истёк navigation deadline при отзывчивом CDP. Счётчики не доказывают доставку
   пакетов remote peer или работоспособность приложения.
 - `CLIENTHELLO_INCOMPLETE`: пассивно наблюдаемые TLS/handshake lengths превышают
-  доступный payload/record. Payload не сохраняется и reassembly не добавлено.
+  доступный payload/record в старом service. В новом service bounded reassembly выдаёт отдельные REASSEMBLY_* состояния; после решения payload не сохраняется.
 - `SNI_NOT_FOUND`: структурно полный ClientHello без server_name. Отсутствие
   diagnostic/SNI в старом service не подменяется этим выводом.
 - `DOMAIN_NOT_MATCHED`: observed outer SNI не получил match выбранного enabled
@@ -161,8 +161,7 @@ ACK/FIN не затирают first-payload inspection. Никаких TLS paylo
 содержимого страницы в proof нет.
 
 Не применённый или не подтверждённый TCP candidate и instrumentation failure не
-записываются как сетевой провал стратегии в AUTO cache. Scoring engine, packet
-plans и маршрутизация не изменены. Последний cached winner без successful proof
+записываются как сетевой провал стратегии в AUTO cache. Scoring engine и маршрутизация не изменены. Новая обработка ClientHello и segment plans описана ниже. Последний cached winner без successful proof
 текущего run не выдаётся за verified recommendation.
 
 Для CLIENTHELLO/SNI причин обновите service из нового `windows-real-e2e-tools`
@@ -183,3 +182,109 @@ git pull --ff-only origin codex/direct-plus-flowseal
 Пришлите новый `*-summary.json` и `*-proof.json`. Не передавайте временные browser
 profiles, cookies, token files или credentials. Real YouTube playback по-прежнему
 проверяется отдельно от HTTPS navigation.
+
+
+## Bounded outbound ClientHello reassembly
+
+Реальный Happ-OFF trace с HEAD f110a64: первый TCP payload 536 байт,
+TLS record 1923–2019 байт, direct_plus_packets=0 при положительном QUIC fallback.
+Это отсутствие применения TCP transform, а не доказательство неэффективности
+применённой стратегии. Старый Happ-ON DIRECT=True исключён из baseline.
+
+Eligibility проверяется по выбранному DIRECT+ exe, candidate, IPv4/TCP и port
+до domain matching. Нужен наблюдённый новый SYN; midstream flow не перехватывается.
+После сборки outer SNI действуют прежние domain/IP/exclusion/runtime guards.
+Нет системного DNS reroute, MITM, TLS/ECH decrypt или второго capture handle.
+
+На flow сохраняются оригинальные packets (в сумме <=32 КиБ payload плюс не более
+32 IP/TCP headers) и их send/address contexts. Временный parser workspace также
+bounded. Таблица TCP ограничена существующими 8192 entries; отдельной растущей
+таблицы нет. Duplicate/retransmit и одинаковый overlap допустимы; конфликтующий
+overlap, выход за sequence window, неизвестный framing, FIN/RST, config generation
+change или timeout выпускают оригиналы DIRECT. Счётчик сегментов включает
+retransmit; stream offsets используют TCP serial arithmetic с wraparound.
+
+Split/SNI positions отображаются из логического ClientHello обратно в offsets
+оригинального TCP stream, включая заголовки промежуточных TLS records.
+Split никогда не укрупняет пакет; ACK, options, window и адрес захвата сохраняются.
+Disorder меняет порядок реальных сегментов. Fake требует прежний подтверждённый
+handshake и целиком старый sequence space; для incomplete/uncertain handshake
+вся fake-chain остаётся DIRECT. Никакие synthetic parser records не отправляются.
+Поздний ACK/cutoff/FIN не стирает уже подтверждённый DIRECT_PLUS flow decision.
+Неизменённые originals/ACK учитываются в direct_packets, реально изменённые
+originals — в direct_plus_packets/bytes; fake_tls_packets считает реально
+успешный fake в полностью отправленном плане ровно один раз. relay counters=0.
+Partial send не даёт committed DIRECT+ и выпускает исходные sequence ranges.
+
+Первый буфер начинает REASSEMBLY_STARTED и переходит в REASSEMBLY_WAITING либо
+REASSEMBLY_OUT_OF_ORDER. Финальные причины: REASSEMBLY_COMPLETE,
+REASSEMBLY_TIMEOUT, REASSEMBLY_LIMIT, либо конкретный parse/match/send отказ.
+REASSEMBLED_SNI экспортируется как sni_status с observed_sni/domain.
+segments_seen, segments_buffered, bytes_buffered показывают объём перед решением,
+expected_clienthello_bytes — ожидаемый logical ClientHello с TLS header,
+reassembly_ms — elapsed, transform_applied=true только после всех send calls.
+После решения payload и callbacks удаляются немедленно, metadata остаётся.
+Сервис проверяет deadline каждые 50 мс; callback scheduler может добавить эту
+задержку к выпуску DIRECT. Полный пакет точно на deadline участвует в последней
+проверке; пакет после deadline уже не может запустить transform.
+
+### Новый REAL TEST: service + scripts, затем YouTube
+
+Скачайте artifact **windows-real-e2e-tools** из Verify workflow именно нового
+HEAD; распакуйте, например в `C:\neexitlag-artifacts\reassembly`.
+Закройте Chrome, выключите Happ полностью. В elevated PowerShell из checkout:
+
+```powershell
+git switch codex/direct-plus-flowseal
+git pull --ff-only origin codex/direct-plus-flowseal
+$replacement=(Resolve-Path 'C:\neexitlag-artifacts\reassembly\neexitlag-service.exe').Path
+$svc=Get-CimInstance Win32_Service -Filter "Name='neexitlag'"
+if(!$svc){throw 'Existing neexitlag service is required'}
+$installed=if($svc.PathName -match '^"([^"\r\n]+)"'){$Matches[1]}elseif($svc.PathName -match '^(.+?\.exe)(?:\s|$)'){$Matches[1]}else{throw 'Cannot parse existing service executable path'}
+if(!(Test-Path -LiteralPath $installed -PathType Leaf)){throw 'Installed service executable missing'}
+Stop-Service neexitlag -ErrorAction Stop
+(Get-Service neexitlag).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(15))
+Copy-Item -LiteralPath $installed -Destination ($installed+'.before-reassembly.bak') -Force
+Copy-Item -LiteralPath $replacement -Destination $installed -Force
+Start-Service neexitlag -ErrorAction Stop
+(Get-Service neexitlag).WaitForStatus('Running',[TimeSpan]::FromSeconds(15))
+.\tools\windows\strategy-tester-v2.ps1 `
+  -AppPath 'C:\Program Files\Google\Chrome\Application\chrome.exe' `
+  -Preset youtube -URL 'https://www.youtube.com/' -TimeoutSeconds 30
+```
+
+Credentials, service manifest, ACL, IPC token и state остаются на месте;
+GUI для этого изменения обновлять не требуется. При ошибке замены восстановите
+`.before-reassembly.bak` в тот же executable path и запустите службу.
+
+Preflight немедленно STOP при непустом VPN list (включая stale Happ snapshot).
+Подождите следующего service OS scan (до 30 секунд), затем повторите команду.
+Пустой VPN list сам по себе недостаточен: нужны два равных fingerprint с разным
+observed_at, полученным разными OS refresh cycles. Частое чтение cached IPC не
+считается новым refresh. До и после каждого trial проверяется frozen fingerprint;
+смена сети останавливает run, сохраняет proof и не попадает в AUTO cache.
+
+Первый gate: хотя бы один **реально успешный** DIRECT_PLUS trial с
+SNI/domain=www.youtube.com, inspection=REASSEMBLY_COMPLETE,
+transform_applied=true, direct_plus_packets/bytes>0, relayed_bytes=0,
+completed certificate-validated TCP HTTPS response и точными PID/creation/exe.
+QUIC fallback отдельно не доказывает TCP transform. Неприменённые candidates
+и CDP/cleanup ошибки не считаются сетевым провалом стратегии.
+
+Только после gate выберите в GUI для Chrome DIRECT+ с прошедшим candidate,
+откройте обычный youtube.com, запустите видео, проверьте 30 секунд playback и seek.
+Сохраните capture diagnostics: активные googlevideo flows, их observed domains,
+DIRECT_PLUS route, положительные modification counters и нулевые relay bytes.
+Документ HTTPS сам по себе **не является YouTube playback PASS**.
+Discord — следующий отдельный тест: Checking for updates → main UI → messages.
+Оба внешних GUI/runtime сценария требуют реального Windows/ISP прогона;
+Linux unit/fuzz и Windows CI не подменяют их.
+
+Tester также подавляет VoidTaskResult от SendAsync/ConnectAsync: в PS7 этот
+служебный объект мог попадать в success pipeline, превращать CDP reply/Trial
+в массив и провоцировать ошибку optional property под StrictMode. Отсутствующий
+Page.getFrameTree.frameTree.frame.id теперь даёт явную instrumentation failure,
+а не network failure. Cleanup ловит race taskkill/уже завершившегося процесса и
+сохраняет cleanup_errors, не перезаписывая результат trial. Эти ветки проверяются
+на PS7 и Windows PS5.1; есть реальный redirected Start-Process regression.
+

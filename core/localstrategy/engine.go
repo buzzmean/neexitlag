@@ -61,6 +61,9 @@ type Metadata struct {
 	Destination                   netip.AddrPort
 }
 type State struct {
+	logicalHello                                   []byte
+	helloOffsets                                   []int
+	helloPackets                                   [][]byte
 	synSeen, handshakeConfirmed, fakeSent, udpSeen bool
 	serverSequence                                 uint32
 	synSequence                                    uint32
@@ -78,7 +81,10 @@ type State struct {
 	failed                                         bool
 }
 type Result struct {
-	Inspection *Inspection
+	PacketOrigins   []int
+	ModifiedOrigins []bool
+	InputPackets    int
+	Inspection      *Inspection
 
 	Revision         string
 	Suppress         bool
@@ -279,7 +285,8 @@ func (e *LocalStrategyEngine) Match(m Metadata) bool {
 	return false
 }
 
-// Process is bounded to the first Cutoff payload packets. No payload is retained.
+// Process is bounded to the first Cutoff payload packets. BufferTCP may provide
+// a temporary logical ClientHello; it is never emitted as a TCP packet.
 // State belongs to an existing bounded capture flow, so no extra connection table.
 func (e *LocalStrategyEngine) Process(p []byte, st *State, m Metadata) (r Result) {
 	defer func() {
@@ -332,11 +339,19 @@ func (e *LocalStrategyEngine) Process(p []byte, st *State, m Metadata) (r Result
 	st.inspected++
 	e.inspected.Add(1)
 	if m.Protocol == "tcp" {
-		r.Inspection = inspectHello(payload)
+		inspectionPayload := payload
+		if st.logicalHello != nil {
+			inspectionPayload = st.logicalHello
+		}
+		r.Inspection = inspectHello(inspectionPayload)
 	}
 	if !st.matched {
 		if m.Protocol == "tcp" {
-			m.Domain = PacketDomain(payload)
+			domainPayload := payload
+			if st.logicalHello != nil {
+				domainPayload = st.logicalHello
+			}
+			m.Domain = PacketDomain(domainPayload)
 		}
 		if excluded(s, m) {
 			st.done = true
@@ -363,7 +378,7 @@ func (e *LocalStrategyEngine) Process(p []byte, st *State, m Metadata) (r Result
 				break
 			}
 		}
-		// No reassembly or guessing when metadata is absent; never modify midstream.
+		// Unknown metadata never permits a midstream transform.
 		if !st.matched {
 			st.done = true
 			if r.Inspection != nil && r.Inspection.Domain != "" {
@@ -384,12 +399,17 @@ func (e *LocalStrategyEngine) Process(p []byte, st *State, m Metadata) (r Result
 	}
 	st.splitPosition = c.SplitPosition
 	var processed Result
-	if c.Strategy == "chain" {
+	if st.logicalHello != nil {
+		processed = chainStream(st, c)
+	} else if c.Strategy == "chain" {
 		processed = chainPackets(p, st, c)
 	} else {
 		processed = mechanisms[c.Strategy].Process(p, st)
 	}
 	r.Packets = processed.Packets
+	r.PacketOrigins = processed.PacketOrigins
+	r.ModifiedOrigins = processed.ModifiedOrigins
+	r.InputPackets = processed.InputPackets
 	r.Modified = processed.Modified
 	r.FakePackets = processed.FakePackets
 	r.FakeTTL = processed.FakeTTL
@@ -420,7 +440,13 @@ func (e *LocalStrategyEngine) Commit(r Result, n int) {
 	}
 	if r.Modified {
 		e.modified.Add(1)
-		e.extra.Add(uint64(len(r.Packets) - 1))
+		inputs := r.InputPackets
+		if inputs < 1 {
+			inputs = 1
+		}
+		if extra := len(r.Packets) - inputs; extra > 0 {
+			e.extra.Add(uint64(extra))
+		}
 	}
 	if r.Active {
 		e.bytes.Add(uint64(n))
@@ -431,6 +457,9 @@ func (e *LocalStrategyEngine) Metrics() Metrics {
 }
 
 func (s *State) Disable() {
+	s.logicalHello = nil
+	s.helloOffsets = nil
+	s.helloPackets = nil
 	s.done = true
 	s.failed = true
 	s.matched = false

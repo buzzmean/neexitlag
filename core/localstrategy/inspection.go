@@ -8,6 +8,17 @@ import (
 // Inspection is passive metadata from the first eligible payload, never retained
 // packet bytes. A reason is not evidence that a packet was successfully sent.
 type Inspection struct {
+	ObservedSNI              string `json:"observed_sni,omitempty"`
+	SNIStatus                string `json:"sni_status,omitempty"`
+	SegmentsSeen             int    `json:"segments_seen,omitempty"`
+	SegmentsBuffered         int    `json:"segments_buffered,omitempty"`
+	BytesBuffered            int    `json:"bytes_buffered,omitempty"`
+	ExpectedClientHelloBytes int    `json:"expected_clienthello_bytes,omitempty"`
+	ReassemblyMS             int64  `json:"reassembly_ms,omitempty"`
+	OutOfOrder               bool   `json:"out_of_order,omitempty"`
+	ReassembledSNI           bool   `json:"reassembled_sni,omitempty"`
+	TransformApplied         bool   `json:"transform_applied"`
+
 	OutputPacketsPlanned int  `json:"output_packets_planned,omitempty"`
 	OutputPacketsSent    int  `json:"output_packets_sent,omitempty"`
 	SendFailed           bool `json:"send_failed,omitempty"`

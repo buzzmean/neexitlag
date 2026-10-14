@@ -63,10 +63,12 @@ Write-Host 'PASS v2 failure taxonomy: no transform, applied failure, incomplete 
 $trialAst=$tree.Find({param($a)$a -is [Management.Automation.Language.FunctionDefinitionAst] -and $a.Name -eq 'Trial'},$true)
 Invoke-Expression $trialAst.Extent.Text
 $AppPath=$exe;$URL='https://www.youtube.com/';$uri=[Uri]$URL;$TargetIPv4='203.0.113.9';$targetDestination=$obs.destination
+$network=[pscustomobject]@{fingerprint='frozen';observed_at=[DateTimeOffset]::UtcNow.ToString('o');vpn=@();conflicts=@()}
 $run=[Guid]::NewGuid().ToString('N');$profileID='!fixture';$candidates=@($candidate);$TimeoutSeconds=5;$script:socket=$null
 $ReportDirectory=Join-Path ([IO.Path]::GetTempPath()) ('v2-diagnostic-fixture-'+$run);[void](New-Item -ItemType Directory $ReportDirectory)
 $fixtureFlow=New-DiagnosticFlow;$fixtureFlow.local_inspection=[pscustomobject]@{reason='CLIENTHELLO_INCOMPLETE';payload_bytes=100;record_bytes=1600}
 function Invoke-ServiceIPC($Method,$Payload){switch($Method){
+ 'local.network' {return $network}
  'profile.set' {return $null}
  'status' {return [pscustomobject]@{}}
  'processes' {return $ids}
@@ -90,3 +92,50 @@ $d=Diagnose;Check ($d.transform_status -eq 'PARTIAL_OUTPUT' -and $d.classificati
 $f.counters.direct_plus_packets=1;$f.counters.direct_plus_bytes=100;$d=Diagnose $true 'APPLICATION_RESPONSE_FAILURE'
 Check ($d.transform_status -eq 'APPLIED' -and $d.classifications -notcontains 'TRANSFORM_APPLIED_CONNECTION_FAILED') 'Completed HTTP response mislabeled as connection failure'
 Write-Host 'PASS partial output and HTTP/evidence failures do not invent transport failure or successful application'
+
+# Distinct OS refresh cycles, rather than repeated IPC reads of one cache entry.
+$state=@{last_refresh='';fingerprint='';cycles=0}
+$n=[pscustomobject]@{fingerprint='isp';observed_at=[DateTimeOffset]::UtcNow.AddSeconds(-30).ToString('o');vpn=@();conflicts=@()}
+Check (!(Test-V2NetworkCycle $n $state)) 'First snapshot accepted as stable'
+Check (!(Test-V2NetworkCycle $n $state)) 'Cached IPC snapshot counted as another OS refresh'
+$n.observed_at=[DateTimeOffset]::UtcNow.ToString('o');Check (Test-V2NetworkCycle $n $state) 'Second fresh equal fingerprint rejected'
+$baseline=$n.PSObject.Copy();$n.fingerprint='changed';Reject {Assert-V2FrozenNetwork $baseline $n}
+$n.fingerprint='isp';$n.vpn=@('HappTunnel');Reject {Assert-V2FrozenNetwork $baseline $n}
+$state=@{last_refresh='';fingerprint='';cycles=0};Reject {Test-V2NetworkCycle $n $state}
+$n.vpn=@();$n.observed_at=[DateTimeOffset]::UtcNow.AddMinutes(-2).ToString('o');Reject {Test-V2NetworkCycle $n $state}
+foreach($missing in @($null,[pscustomobject]@{},[pscustomobject]@{frameTree=[pscustomobject]@{}},[pscustomobject]@{frameTree=[pscustomobject]@{frame=[pscustomobject]@{}}})){Reject {Get-V2MainFrame $missing}}
+Check ((Get-V2MainFrame ([pscustomobject]@{frameTree=[pscustomobject]@{frame=[pscustomobject]@{id='main'}}})) -eq 'main') 'Frame identity lost'
+foreach($field in @('result','instrumentation_failure','phase','success','mode','strategy')){Check ($null -eq (Get-V2Value ([pscustomobject]@{}) $field)) ('Unsafe optional property '+$field)}
+# Exercise cleanup against native stderr/child-exit races under both PS5.1/7.
+function taskkill.exe {throw 'The process no longer exists (simulated native stderr)'}
+$p=[pscustomobject]@{HasExited=$false;Id=123}
+$p|Add-Member ScriptMethod WaitForExit {param($ms) throw 'Already exited'}
+$p|Add-Member ScriptMethod Dispose {throw 'Disposed after exit race'}
+$script:socket=$null
+$issues=@(Stop-V2TrialBrowser $p (Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid().ToString('N'))))
+Check ($issues.Count -eq 3) 'Cleanup race escaped trial or was silently discarded'
+Write-Host 'PASS network refresh boundaries, frozen ISP guard, optional CDP/frame/result access and nonfatal cleanup races'
+if($env:OS -eq 'Windows_NT'){
+ $nativeDir=Join-Path ([IO.Path]::GetTempPath()) ('v2-native-'+[Guid]::NewGuid().ToString('N'));[void](New-Item -ItemType Directory $nativeDir)
+ $stdout=Join-Path $nativeDir 'stdout.txt';$stderr=Join-Path $nativeDir 'stderr.txt'
+ $native=Microsoft.PowerShell.Management\Start-Process -FilePath $env:ComSpec -ArgumentList '/d /c "echo v2-out & echo v2-err 1>&2"' -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
+ try{
+  Check ($native.WaitForExit(10000)) 'Redirected child did not exit';$native.WaitForExit();$native.Refresh()
+  Check ($native.ExitCode -eq 0 -and (Get-Content $stdout -Raw) -match 'v2-out' -and (Get-Content $stderr -Raw) -match 'v2-err') 'Real Windows redirected process evidence invalid'
+  $issues=@(Stop-V2TrialBrowser $native $nativeDir);Check (!$issues.Count) 'Already exited redirected Windows child cleanup failed'
+ }finally{if(Test-Path $nativeDir){Remove-Item $nativeDir -Recurse -Force}}
+ Write-Host 'PASS real redirected Windows Start-Process and already exited process cleanup'
+}
+class V2OptionalReplySocket {
+ [Threading.Tasks.Task] SendAsync([object]$Buffer,[object]$Kind,[bool]$End,[Threading.CancellationToken]$Token){return [Threading.Tasks.Task]::CompletedTask}
+ [Threading.Tasks.Task[Net.WebSockets.WebSocketReceiveResult]] ReceiveAsync([object]$Buffer,[Threading.CancellationToken]$Token){
+  $bytes=[Text.Encoding]::UTF8.GetBytes('{"id":1}')
+  [Array]::Copy($bytes,0,$Buffer.Array,$Buffer.Offset,$bytes.Length)
+  $done=[Threading.Tasks.TaskCompletionSource[Net.WebSockets.WebSocketReceiveResult]]::new()
+  $done.SetResult([Net.WebSockets.WebSocketReceiveResult]::new($bytes.Length,[Net.WebSockets.WebSocketMessageType]::Text,$true))
+  return $done.Task
+ }
+}
+$script:socket=[V2OptionalReplySocket]::new();$script:cdpID=0;$script:navID=-2
+try{$optional=CDP 'Browser.getVersion' @{};Check ($null -eq $optional) 'Optional CDP result invented data'}finally{$script:socket=$null}
+Write-Host 'PASS actual CDP roundtrip with absent result under StrictMode Latest'

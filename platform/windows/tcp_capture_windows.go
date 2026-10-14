@@ -56,6 +56,9 @@ func (t *tcpRedirect) stop() {
 	t.b.proc().shutdown.Call(t.handle, 1)
 	t.state.mu.Lock()
 	for _, e := range t.state.entries {
+		if err := e.localBuffer.Flush(e.decision, &e.localState, e.identity, e.tuple, time.Now(), "NO_TRANSFORM", t.b.evidence); err != nil {
+			t.b.fail(err)
+		}
 		if e.upstream != nil {
 			e.upstream.Close()
 		}
@@ -158,6 +161,11 @@ func (t *tcpRedirect) packets(classify Classifier) {
 			continue
 		}
 		sequence := binary.BigEndian.Uint32(p[int(p[0]&15)*4+4:])
+		if old := t.state.entries[tuple]; old != nil && flags&0x12 == 2 && sequence != old.initialSequence {
+			if flushErr := old.localBuffer.Flush(old.decision, &old.localState, old.identity, old.tuple, time.Now(), "NO_TRANSFORM", t.b.evidence); flushErr != nil {
+				t.b.fail(flushErr)
+			}
+		}
 		e = t.state.existing(tuple, flags, sequence, time.Now())
 		if e != nil {
 			e.last = time.Now()
@@ -173,7 +181,7 @@ func (t *tcpRedirect) packets(classify Classifier) {
 			if mode == "relay" {
 				err = t.reflect(e, p, a, false)
 			} else if mode == "direct" {
-				err = SendLocal(e.decision, &e.localState, e.identity, e.tuple, p, func(q []byte) error { return t.send(q, a) }, t.b.evidence)
+				err = e.localBuffer.Push(e.decision, &e.localState, e.identity, e.tuple, p, func(q []byte) error { return t.send(q, a) }, t.b.evidence, time.Now())
 			} else if mode == "block" || mode == "closed" {
 				t.b.drop(e.identity, e.tuple)
 			}
@@ -244,7 +252,7 @@ func (t *tcpRedirect) packets(classify Classifier) {
 				}
 			}
 		} else if mode == "direct" {
-			err = SendLocal(e.decision, &e.localState, e.identity, e.tuple, p, func(q []byte) error { return t.send(q, a) }, t.b.evidence)
+			err = e.localBuffer.Push(e.decision, &e.localState, e.identity, e.tuple, p, func(q []byte) error { return t.send(q, a) }, t.b.evidence, time.Now())
 		} else {
 			t.b.drop(id, tuple)
 		}
@@ -389,7 +397,7 @@ func writeTCP(w io.Writer, p []byte) (int, error) {
 }
 func (t *tcpRedirect) cleanup() {
 	defer t.wg.Done()
-	tick := time.NewTicker(10 * time.Second)
+	tick := time.NewTicker(50 * time.Millisecond)
 	defer tick.Stop()
 	for {
 		select {
@@ -397,6 +405,13 @@ func (t *tcpRedirect) cleanup() {
 			return
 		case now := <-tick.C:
 			t.state.mu.Lock()
+			for _, e := range t.state.entries {
+				if e.localBuffer.Expired(now) {
+					if err := e.localBuffer.Flush(e.decision, &e.localState, e.identity, e.tuple, now, "REASSEMBLY_TIMEOUT", t.b.evidence); err != nil {
+						t.b.fail(err)
+					}
+				}
+			}
 			t.state.expire(now)
 			t.state.mu.Unlock()
 		}

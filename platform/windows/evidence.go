@@ -303,7 +303,7 @@ func (l *EvidenceLedger) RecordLocalInspection(id ProcessIdentity, t Tuple, d *l
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	k := evidenceKey{id.PID, id.CreationTime, t}
-	if v, ok := l.flows[k]; ok && v.LocalInspection == nil {
+	if v, ok := l.flows[k]; ok && (v.LocalInspection == nil || d.SegmentsSeen > 0 && (v.LocalInspection.Reason == "REASSEMBLY_STARTED" || v.LocalInspection.Reason == "REASSEMBLY_WAITING" || v.LocalInspection.Reason == "REASSEMBLY_OUT_OF_ORDER")) {
 		copy := *d
 		v.LocalInspection = &copy
 		l.flows[k] = v

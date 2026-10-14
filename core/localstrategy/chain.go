@@ -145,7 +145,11 @@ func oldSequenceFake(p []byte, st *State, ttl uint8) []byte {
 	if !ok || p[33]&0x10 == 0 || !st.synSeen || !st.handshakeConfirmed || st.inspected != 1 || st.fakeSent || binary.BigEndian.Uint32(p[24:]) != st.synSequence+1 || binary.BigEndian.Uint32(p[28:]) != st.serverSequence+1 || p[8] <= ttl {
 		return nil
 	}
-	if _, _, ok = tlsSNI(payload); !ok {
+	hello := payload
+	if st.logicalHello != nil {
+		hello = st.logicalHello
+	}
+	if _, _, ok = tlsSNI(hello); !ok {
 		return nil
 	}
 	data := fakeHello()
