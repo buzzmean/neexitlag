@@ -243,6 +243,15 @@ try{
  $bound=Read-V2SocketBinding $rawPath 99 '203.0.113.9:443'
  Check ($bound.status -eq 'BOUND' -and $bound.source -eq '192.0.2.1:55000') 'Exact NetLog source ID/endpoint not correlated'
  Check (($bound|ConvertTo-Json) -notmatch 'sentinel|headers|Cookie') 'Raw/private metadata escaped into proof'
+ # Current Chromium reports the address pair on TCP_CONNECT END; the nested
+ # attempt can end without params (both Windows and POSIX implementations).
+ $savedAttempt=$log.events[1].params;$savedEnd=$log.events[2].params
+ $log.events[1].params=@{};$log.events[2].params=@{local_address='192.0.2.1:55000';remote_address='203.0.113.9:443'}
+ $log|ConvertTo-Json -Depth 12|Set-Content $rawPath -Encoding UTF8
+ Check ((Read-V2SocketBinding $rawPath 99 '203.0.113.9:443').status -eq 'BOUND') 'Current Chromium TCP_CONNECT address-pair schema rejected'
+ $log.events[1].params=$savedAttempt;$log.events[2].params=$savedEnd
+ $log|ConvertTo-Json -Depth 12|Set-Content $rawPath -Encoding UTF8
+
  Check ((Read-V2SocketBinding $rawPath 100 '203.0.113.9:443').status -eq 'UNAVAILABLE') 'Wrong CDP socket ID accepted'
  Check ((Read-V2SocketBinding $rawPath 99 '203.0.113.10:443').status -eq 'UNAVAILABLE') 'Wrong destination accepted'
  $log.events[1].params.remote_address='203.0.113.10:443';$log|ConvertTo-Json -Depth 12|Set-Content $rawPath -Encoding UTF8

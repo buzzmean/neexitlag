@@ -29,8 +29,8 @@ jobs:
       - run: go build ./...
       - run: go test -race -timeout 120s ./...
       - run: go vet ./...
-      - run: go test ./core/localstrategy -run '^$' -fuzz FuzzHelloRecordReassembly -fuzztime=10s -parallel=2
-      - run: go test ./core/localstrategy -run '^$' -fuzz FuzzTCPHelloSegments -fuzztime=10s -parallel=2
+      - run: go test ./core/localstrategy -run '^$' -fuzz FuzzHelloRecordReassembly -fuzztime=10000x -fuzzminimizetime=1000x -timeout=90s -parallel=2
+      - run: go test ./core/localstrategy -run '^$' -fuzz FuzzTCPHelloSegments -fuzztime=1000x -fuzzminimizetime=1000x -timeout=90s -parallel=2
       - run: go test ./core/localstrategy -run '^$' -bench . -benchmem -count=3 | tee direct-plus-benchmarks.txt
       - uses: actions/upload-artifact@v4
         with:

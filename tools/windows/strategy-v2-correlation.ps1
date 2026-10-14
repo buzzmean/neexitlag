@@ -47,7 +47,7 @@ function Get-V2ScopedCapture($Marker,$Identities,[string]$Destination,[string]$D
 function Read-V2SocketBinding([string]$Path,[long]$ConnectionID,[string]$Destination){
  $unknown=@{status='UNAVAILABLE';connection_id=$ConnectionID;source=$null;destination=$Destination;method='chromium_netlog_socket_id';reason='No exact completed TCP_CONNECT for the CDP connection ID'}
  if($ConnectionID -le 0 -or !(Test-Path -LiteralPath $Path -PathType Leaf)){return $unknown}
- $file=Get-Item -LiteralPath $Path
+ $file=Get-Item -LiteralPath $Path -Force
  if($file.Length -gt 8MB){$unknown.reason='Socket metadata file exceeds 8 MiB parser bound';return $unknown}
  try{$log=[IO.File]::ReadAllText($file.FullName)|ConvertFrom-Json}catch{$unknown.reason='Socket metadata incomplete/unavailable after browser close';return $unknown}
  $constants=Get-V2Value $log 'constants';$types=Get-V2Value $constants 'logEventTypes';$sourceTypes=Get-V2Value $constants 'logSourceType'
@@ -63,7 +63,7 @@ function Read-V2SocketBinding([string]$Path,[long]$ConnectionID,[string]$Destina
   $kind=Get-V2Value $ev 'type' -1;$phase=Get-V2Value $ev 'phase' -1;$p=Get-V2Value $ev 'params'
   if($kind -eq $tcp -and $phase -eq 1){foreach($a in @(Get-V2Value $p 'address_list' @())){$peers[[string]$a]=$true}}
   if($phase -ne $end -or (Get-V2Value $p 'net_error' 0) -ne 0){continue}
-  if($kind -eq $tcp){$local=[string](Get-V2Value $p 'source_address' '');if($local){$locals[$local]=$true;$connected=$true}}
+  if($kind -eq $tcp){$local=[string](Get-V2Value $p 'source_address' (Get-V2Value $p 'local_address' ''));$peer=[string](Get-V2Value $p 'remote_address' '');if($local){$locals[$local]=$true;$connected=$true};if($peer){$peers[$peer]=$true;$actualPeers[$peer]=$true}}
   if($kind -eq $attempt){$local=[string](Get-V2Value $p 'local_address' '');$peer=[string](Get-V2Value $p 'remote_address' '');if($local -and $peer){$locals[$local]=$true;$peers[$peer]=$true;$actualPeers[$peer]=$true;$connected=$true}}
  }
  if(!$connected -or $locals.Count -ne 1 -or !$peers.ContainsKey($Destination) -or ($actualPeers.Count -gt 0 -and ($actualPeers.Count -ne 1 -or !$actualPeers.ContainsKey($Destination)))){$unknown.reason=('Socket mapping unavailable/ambiguous: matching events={0}, local endpoints={1}, target peer observed={2}' -f $matching,$locals.Count,$peers.ContainsKey($Destination));return $unknown}
@@ -85,7 +85,7 @@ function Get-V2ProofCapture($Marker,$Identities,[string]$Destination,[string]$Ho
 }
 function Assert-V2SocketLogBound([string]$Path){
  $size=0L;$count=0
- if(Test-Path -LiteralPath $Path){$size+=(Get-Item -LiteralPath $Path).Length}
+ if(Test-Path -LiteralPath $Path){$size+=(Get-Item -LiteralPath $Path -Force).Length}
  $pending=$Path+'.inprogress'
  if(Test-Path -LiteralPath $pending){foreach($file in @(Get-ChildItem -LiteralPath $pending -File -Recurse -Force)){$size+=$file.Length;$count++;if($count -gt 16){throw 'Bounded browser socket metadata file-count exceeded'}}}
  if($size -gt 8MB){throw 'Bounded browser socket metadata size exceeded'}
