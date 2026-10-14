@@ -98,6 +98,9 @@ function Trial([string]$Mode,[string]$Strategy,[int]$Index){
   $result.phase='cdp_initialize'
   [void](CDP 'Network.enable' @{});[void](CDP 'Network.setCacheDisabled' @{cacheDisabled=$true});[void](CDP 'Network.setBypassServiceWorker' @{bypass=$true})
   $tree=CDP 'Page.getFrameTree' @{};$mainFrame=[string]$tree.frameTree.frame.id
+  # Retain exact identities observed in this fresh trial even if the browser
+  # or network child exits before the failure snapshot. No PID-only matching.
+  try{$identities=@(Invoke-ServiceIPC 'processes' @{executables=@($AppPath)})}catch{$result.diagnostic_errors+=@{stage='pre-navigation identities';message=$_.Exception.Message}}
   $script:navError='';$script:navID=$script:cdpID+1
   $clock=[Diagnostics.Stopwatch]::StartNew()
   # A blocked connection may delay Page.navigate's response for a minute.
@@ -135,7 +138,7 @@ function Trial([string]$Mode,[string]$Strategy,[int]$Index){
   $result.success=$true;$result.observation=$observation
  }catch{$result.reason=$_.Exception.Message;$result.exception_chain=@(Get-V2ExceptionDetails $_.Exception);$kind=Get-V2ExceptionKind $_.Exception;if($kind){$result.failure_kind=$kind;$measurementValid=$false};if($result.phase -eq 'route_evidence'){if($result.observation -and $result.observation.success -and $result.observation.tls){$measurementValid=$false;$result.failure_kind='EVIDENCE_VALIDATION_FAILURE'}else{$result.failure_kind='APPLICATION_RESPONSE_FAILURE'}};if(!$measurementValid -and !$result.failure_kind){$result.failure_kind='CDP/INSTRUMENTATION_FAILURE'}}
  finally {
-  try{$identities=@(Invoke-ServiceIPC 'processes' @{executables=@($AppPath)})}catch{$result.diagnostic_errors+=@{stage='identities';message=$_.Exception.Message}}
+  try{$finalIdentities=@(Invoke-ServiceIPC 'processes' @{executables=@($AppPath)});$identities=@(@($identities)+@($finalIdentities)|Sort-Object PID,CreationTime -Unique|Select-Object -First 1024)}catch{$result.diagnostic_errors+=@{stage='identities';message=$_.Exception.Message}}
   try{$capture=Invoke-ServiceIPC 'capture.diagnostics' @{destination=$targetDestination}}catch{$result.diagnostic_errors+=@{stage='capture';message=$_.Exception.Message}}
   $attempted=@(Get-V2Value $capture 'flows' @()|Where-Object{
    $f=$_;(Get-V2Value $f 'destination' '') -eq $targetDestination -and (Get-V2Value $f 'exe' '') -ieq $AppPath -and (Get-V2Value (Get-V2Value $f 'counters') 'captured_packets' 0) -gt 0 -and @($identities|Where-Object{$_.PID -eq $f.pid -and $_.CreationTime -eq $f.creation_time}).Count -gt 0
