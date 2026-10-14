@@ -79,7 +79,7 @@ function Start-Process($FilePath,$ArgumentList,[switch]$PassThru){$p=[pscustomob
 function Wait-AcceptanceReadiness($TimeoutMS,$PollMS,$GetSnapshot,$Evaluate){throw 'Unsupported launcher fixture (not an ISP failure)'}
 try{
  $r=Trial 'DIRECT_PLUS' 'fake5' 0
- Check (!$r.success -and $r.instrumentation_failure -and !$r.measurement_recorded) 'Startup failure was learned as network loss'
+ Check (!$r.success -and $r.instrumentation_failure -and !$r.measurement_recorded -and !$r.measurement_valid -and $null -eq $r.measurement) 'Startup failure was learned as network loss'
  Check ($r.classification -eq 'CDP/INSTRUMENTATION_FAILURE' -and $r.classifications -contains 'CLIENTHELLO_INCOMPLETE') 'Trial lost combined classifications'
  $proof=Get-Content (Join-Path $ReportDirectory "$run-0-proof.json") -Raw|ConvertFrom-Json
  Check ($proof.diagnostic.counters.captured_packets -eq 4 -and $proof.phase -eq 'browser_startup' -and $proof.exception_chain.Count -gt 0) 'Trial catch/finally did not save counters/phase/typed exception'

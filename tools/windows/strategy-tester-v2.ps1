@@ -156,10 +156,11 @@ function Trial([string]$Mode,[string]$Strategy,[int]$Index){
  }
  $elapsed=if($result.observation){[long]($result.observation.response_ms*1e6)}else{0L}
  $measurement=@{route_id=$(if($Mode -eq 'MANUAL'){'VPS-01'}else{'target'});available=[bool]$result.success;samples=$(if($result.success){1}else{0});rtt=$elapsed;jitter=0;loss=$(if($result.success){0.0}else{1.0});failure_rate=$(if($result.success){0.0}else{1.0});stability=$(if($result.success){1.0}else{0.0});observed_at=[DateTimeOffset]::UtcNow.ToString('o')}
- $result.measurement=$measurement
  $result.instrumentation_failure=(!$measurementValid)
  # A candidate that never transformed TCP was not measured as a strategy.
  $mayRecord=$attempted -and $measurementValid -and ($Mode -ne 'DIRECT_PLUS' -or $result.diagnostic.transform_status -eq 'APPLIED')
+ $result.measurement_valid=[bool]$mayRecord
+ $result.measurement=$(if($mayRecord){$measurement}else{$null})
  $result.measurement_recorded=$false
  Write-Host "$Mode $Strategy : $($result.success) $($result.reason)"
  Write-V2TrialDiagnostic $result.diagnostic
