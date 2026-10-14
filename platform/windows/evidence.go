@@ -1,10 +1,14 @@
 package windowsplatform
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"github.com/buzzmean/neexitlag/core/telemetry"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -28,6 +32,9 @@ type CaptureCounters struct {
 	Replies         uint64 `json:"relay_reply_packets"`
 }
 type FlowEvidence struct {
+	pending         bool
+	FlowID          uint64                    `json:"flow_id"`
+	StartedAt       time.Time                 `json:"started_at"`
 	LocalInspection *localstrategy.Inspection `json:"local_inspection,omitempty"`
 
 	StrategyRevision string          `json:"strategy_revision,omitempty"`
@@ -50,7 +57,27 @@ type FlowEvidence struct {
 	Counters         CaptureCounters `json:"counters"`
 	LastSeen         time.Time       `json:"last_seen"`
 }
+
+// EvidenceMarker scopes observations to one ledger lifetime without resetting
+// other consumers' counters. A restart invalidates the opaque ledger ID.
+type EvidenceMarker struct {
+	LedgerID    string `json:"ledger_id"`
+	AfterFlowID uint64 `json:"after_flow_id"`
+	LostRecords uint64 `json:"lost_records"`
+}
+type EvidenceQuery struct {
+	PID          uint32          `json:"pid"`
+	CreationTime uint64          `json:"creation_time,omitempty"`
+	Destination  string          `json:"destination,omitempty"`
+	Source       string          `json:"source,omitempty"`
+	Domain       string          `json:"domain,omitempty"`
+	Since        *EvidenceMarker `json:"since,omitempty"`
+}
 type CaptureEvidence struct {
+	Marker       EvidenceMarker  `json:"marker"`
+	Since        *EvidenceMarker `json:"since,omitempty"`
+	EvidenceLost bool            `json:"evidence_lost,omitempty"`
+
 	Counters   CaptureCounters             `json:"counters"`
 	Flows      []FlowEvidence              `json:"flows"`
 	Truncated  bool                        `json:"truncated"`
@@ -62,13 +89,17 @@ type evidenceKey struct {
 	Tuple   Tuple
 }
 type EvidenceLedger struct {
-	mu     sync.Mutex
-	totals CaptureCounters
-	flows  map[evidenceKey]FlowEvidence
+	ledgerID                string
+	nextFlowID, lostRecords uint64
+	mu                      sync.Mutex
+	totals                  CaptureCounters
+	flows                   map[evidenceKey]FlowEvidence
 }
 
 func NewEvidenceLedger() *EvidenceLedger {
-	return &EvidenceLedger{flows: map[evidenceKey]FlowEvidence{}}
+	nonce := make([]byte, 16)
+	_, _ = rand.Read(nonce)
+	return &EvidenceLedger{ledgerID: hex.EncodeToString(nonce), flows: map[evidenceKey]FlowEvidence{}}
 }
 func increment(c *CaptureCounters, event string) {
 	switch event {
@@ -105,7 +136,30 @@ func (l *EvidenceLedger) Record(id ProcessIdentity, t Tuple, event, relay string
 func (l *EvidenceLedger) BeginFlow(id ProcessIdentity, t Tuple) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	delete(l.flows, evidenceKey{id.PID, id.CreationTime, t})
+	key := evidenceKey{id.PID, id.CreationTime, t}
+	delete(l.flows, key)
+	if id.PID != 0 && id.CreationTime != 0 && id.Path != "" {
+		l.createFlowLocked(key)
+	}
+}
+func (l *EvidenceLedger) createFlowLocked(key evidenceKey) (FlowEvidence, bool) {
+	if len(l.flows) >= 1024 {
+		l.lostRecords++
+		return FlowEvidence{}, false
+	}
+	l.nextFlowID++
+	now := time.Now()
+	v := FlowEvidence{pending: true, FlowID: l.nextFlowID, StartedAt: now, LastSeen: now}
+	l.flows[key] = v
+	return v, true
+}
+func (l *EvidenceLedger) markerLocked() EvidenceMarker {
+	return EvidenceMarker{l.ledgerID, l.nextFlowID, l.lostRecords}
+}
+func (l *EvidenceLedger) Marker() EvidenceMarker {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.markerLocked()
 }
 func (l *EvidenceLedger) RecordBytes(id ProcessIdentity, t Tuple, event, relay string, bytes uint64) {
 	l.mu.Lock()
@@ -120,9 +174,14 @@ func (l *EvidenceLedger) recordBytesLocked(id ProcessIdentity, t Tuple, event, r
 	}
 	key := evidenceKey{id.PID, id.CreationTime, t}
 	v, exists := l.flows[key]
-	if !exists && len(l.flows) >= 1024 {
-		return
+	if !exists {
+		var ok bool
+		v, ok = l.createFlowLocked(key)
+		if !ok {
+			return
+		}
 	}
+	v.pending = false
 	v.Protocol = t.Protocol
 	v.IPVersion = "IPv4"
 	if t.Source.Addr().Is6() {
@@ -155,12 +214,26 @@ func (l *EvidenceLedger) snapshot(pid uint32, active map[evidenceKey]bool) Captu
 	return l.snapshotTarget(pid, "", active)
 }
 func (l *EvidenceLedger) snapshotTarget(pid uint32, destination string, active map[evidenceKey]bool) CaptureEvidence {
+	out, _ := l.SnapshotQuery(EvidenceQuery{PID: pid, Destination: destination}, active)
+	return out
+}
+func (l *EvidenceLedger) SnapshotQuery(q EvidenceQuery, active map[evidenceKey]bool) (CaptureEvidence, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	out := CaptureEvidence{Counters: l.totals, Flows: []FlowEvidence{}}
+	out := CaptureEvidence{Counters: l.totals, Flows: []FlowEvidence{}, Marker: l.markerLocked(), Since: q.Since}
+	if q.Since != nil && (q.Since.LedgerID != l.ledgerID || q.Since.AfterFlowID > l.nextFlowID || q.Since.LostRecords > l.lostRecords) {
+		return out, errors.New("invalid or expired capture marker; restart trial")
+	}
+	if q.Since != nil && q.Since.LostRecords != l.lostRecords {
+		out.Truncated = true
+		out.EvidenceLost = true
+	}
 	for k, v := range l.flows {
+		if v.pending {
+			continue
+		}
 		v.Active = active[k]
-		if (pid == 0 || v.PID == pid) && (destination == "" || v.Destination == destination) {
+		if (q.PID == 0 || v.PID == q.PID) && (q.CreationTime == 0 || v.CreationTime == q.CreationTime) && (q.Destination == "" || v.Destination == q.Destination) && (q.Source == "" || v.Source == q.Source) && (q.Since == nil || v.FlowID > q.Since.AfterFlowID) && (q.Domain == "" || strings.EqualFold(v.Domain, q.Domain) || v.LocalInspection != nil && (strings.EqualFold(v.LocalInspection.Domain, q.Domain) || strings.EqualFold(v.LocalInspection.ObservedSNI, q.Domain))) {
 			if v.LocalInspection != nil {
 				copy := *v.LocalInspection
 				v.LocalInspection = &copy
@@ -186,7 +259,7 @@ func (l *EvidenceLedger) snapshotTarget(pid uint32, destination string, active m
 		out.Truncated = true
 		out.Flows = out.Flows[:len(out.Flows)-1]
 	}
-	return out
+	return out, nil
 }
 func (l *EvidenceLedger) Cleanup(now time.Time) {
 	l.mu.Lock()

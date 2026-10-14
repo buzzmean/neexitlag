@@ -3,6 +3,7 @@ package localstrategy
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"testing"
 )
 
@@ -101,5 +102,12 @@ func TestEligibilityGuardKeepsPassiveInspection(t *testing.T) {
 	r := e.Process(tlsInput(100), &State{}, metadata())
 	if r.Modified || r.Inspection == nil || r.Inspection.Domain != "www.example.org" || r.Inspection.Reason != "NO_TRANSFORM" {
 		t.Fatal(r)
+	}
+}
+
+func TestZeroReassemblyElapsedIsNotOmitted(t *testing.T) {
+	b, err := json.Marshal(Inspection{Reason: "REASSEMBLY_COMPLETE", ReassemblyMS: 0})
+	if err != nil || !bytes.Contains(b, []byte(`"reassembly_ms":0`)) {
+		t.Fatal(string(b), err)
 	}
 }

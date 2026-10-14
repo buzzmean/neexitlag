@@ -1,10 +1,11 @@
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot '..\..\tools\windows\strategy-v2-checks.ps1')
 function Reject([scriptblock]$Code){$failed=$false;try{&$Code|Out-Null}catch{$failed=$true};if(!$failed){throw 'Invalid v2 proof accepted'}}
-$exe='C:\Apps\chrome.exe';$obs=[pscustomobject]@{success=$true;status=200;tls=$true;protocol='h2';destination='203.0.113.9:443'}
+$exe='C:\Apps\chrome.exe';$obs=[pscustomobject]@{success=$true;status=200;tls=$true;protocol='h2';destination='203.0.113.9:443';hostname='www.youtube.com';completed=$true;connection_id=99;socket_binding=@{status='BOUND';connection_id=99;source='192.0.2.1:55000';destination='203.0.113.9:443';method='chromium_netlog_socket_id'}}
 $ids=@([pscustomobject]@{PID=42;CreationTime=100})
-$flow=[pscustomobject]@{pid=42;creation_time=100;exe=$exe;destination=$obs.destination;strategy='fake5';selected_route='DIRECT_PLUS';counters=[pscustomobject]@{direct_plus_packets=1;direct_plus_bytes=1200;relayed_packets=0;relayed_bytes=0}}
-$ev=[pscustomobject]@{truncated=$false;flows=@($flow)}
+$flow=[pscustomobject]@{flow_id=11;started_at=[DateTimeOffset]::UtcNow.ToString('o');source='192.0.2.1:55000';protocol='tcp';domain='www.youtube.com';local_inspection=@{reason='REASSEMBLY_COMPLETE';observed_sni='www.youtube.com';transform_applied=$true};pid=42;creation_time=100;exe=$exe;destination=$obs.destination;strategy='fake5';selected_route='DIRECT_PLUS';counters=[pscustomobject]@{captured_packets=4;direct_plus_packets=1;direct_plus_bytes=1200;relayed_packets=0;relayed_bytes=0}}
+$marker=[pscustomobject]@{ledger_id='trial';after_flow_id=10;lost_records=0}
+$ev=[pscustomobject]@{truncated=$false;flows=@($flow);since=$marker;marker=$marker}
 [void](Assert-V2BrowserEvidence $obs $ev $ids $exe 'DIRECT_PLUS' 'fake5')
 $obs.success=$false;Reject {Assert-V2BrowserEvidence $obs $ev $ids $exe 'DIRECT_PLUS' 'fake5'};$obs.success=$true
 $obs.status=403;Reject {Assert-V2BrowserEvidence $obs $ev $ids $exe 'DIRECT_PLUS' 'fake5'};$obs.status=200
@@ -60,24 +61,28 @@ Write-Host 'PASS v2 failure taxonomy: no transform, applied failure, incomplete 
 
 # Exercise the actual Trial catch/finally with mocked OS/IPC startup: every
 # failed trial must retain diagnostics and write proof even without navigation.
+function Get-V2TrialIdentities($Exe,$NotBefore){return $ids}
+function Get-V2ScopedCapture($Marker,$Identities,$Destination){return [pscustomobject]@{truncated=$false;flows=@($fixtureFlow)}}
 $trialAst=$tree.Find({param($a)$a -is [Management.Automation.Language.FunctionDefinitionAst] -and $a.Name -eq 'Trial'},$true)
 Invoke-Expression $trialAst.Extent.Text
 $AppPath=$exe;$URL='https://www.youtube.com/';$uri=[Uri]$URL;$TargetIPv4='203.0.113.9';$targetDestination=$obs.destination
 $network=[pscustomobject]@{fingerprint='frozen';observed_at=[DateTimeOffset]::UtcNow.ToString('o');vpn=@();conflicts=@()}
 $run=[Guid]::NewGuid().ToString('N');$profileID='!fixture';$candidates=@($candidate);$TimeoutSeconds=5;$script:socket=$null
 $ReportDirectory=Join-Path ([IO.Path]::GetTempPath()) ('v2-diagnostic-fixture-'+$run);[void](New-Item -ItemType Directory $ReportDirectory)
+$fixtureMarker=$marker
 $fixtureFlow=New-DiagnosticFlow;$fixtureFlow.local_inspection=[pscustomobject]@{reason='CLIENTHELLO_INCOMPLETE';payload_bytes=100;record_bytes=1600}
 function Invoke-ServiceIPC($Method,$Payload){switch($Method){
+ 'capture.marker' {return $fixtureMarker}
  'local.network' {return $network}
  'profile.set' {return $null}
  'status' {return [pscustomobject]@{}}
- 'processes' {return $ids}
+ 'processes' {return @()}
  'capture.diagnostics' {return [pscustomobject]@{truncated=$false;flows=@($fixtureFlow)}}
  'local.record' {throw 'An instrumentation failure must not enter network cache'}
  default {throw "Unexpected method $Method"}
 }}
 function Get-AcceptanceProfile($Status,$Path){return [pscustomobject]@{id=$profileID;mode='DIRECT_PLUS'}}
-function Start-Process($FilePath,$ArgumentList,[switch]$PassThru){$p=[pscustomobject]@{HasExited=$true};$p|Add-Member ScriptMethod Dispose {};return $p}
+function Start-Process($FilePath,$ArgumentList,[switch]$PassThru){$p=[pscustomobject]@{HasExited=$true;Handle=0};$p|Add-Member ScriptMethod Dispose {};return $p}
 function Wait-AcceptanceReadiness($TimeoutMS,$PollMS,$GetSnapshot,$Evaluate){throw 'Unsupported launcher fixture (not an ISP failure)'}
 try{
  $r=Trial 'DIRECT_PLUS' 'fake5' 0
@@ -164,3 +169,90 @@ foreach($representation in @('json','datetime','datetimeoffset')){
  Check (Test-V2NetworkCycle $n $state) ('Typed UTC date rejected: '+$representation)
 }
 Write-Host 'PASS JSON/string/DateTime/DateTimeOffset UTC refresh identity without culture or timezone loss'
+
+. (Join-Path $PSScriptRoot '..\..\tools\windows\strategy-v2-correlation.ps1')
+
+# Target-aware validation keeps the mixed-route check, but unknown/OTHER SNI is
+# never automatically assigned to the main-frame response. The exact source
+# binding is mandatory, independent of the number of apparent target flows.
+$target=$flow.PSObject.Copy();$currentMarker=[pscustomobject]@{ledger_id='trial';after_flow_id=20;lost_records=0}
+$capture=[pscustomobject]@{flows=@($target);truncated=$false;since=$marker;marker=$currentMarker}
+$unknown=$target.PSObject.Copy();$unknown.flow_id=12;$unknown.source='192.0.2.1:55001';$unknown.domain='';$unknown.local_inspection=$null;$unknown.selected_route='DIRECT';$unknown.strategy=''
+$capture.flows=@($target,$unknown)
+[void](Assert-V2BrowserEvidence $obs $capture $ids $exe 'DIRECT_PLUS' 'fake5')
+$unknown.domain='other.google.com';[void](Assert-V2BrowserEvidence $obs $capture $ids $exe 'DIRECT_PLUS' 'fake5')
+$unknown.domain='www.youtube.com';$caught=$null
+try{Assert-V2BrowserEvidence $obs $capture $ids $exe 'DIRECT_PLUS' 'fake5'|Out-Null}catch{$caught=$_.Exception}
+Check ((Get-V2ExceptionKind $caught) -eq 'TARGET_FLOW_AMBIGUOUS') 'Target-hostname mixed route did not remain ambiguous FAIL'
+# Older trial generations and reused PIDs cannot supply a conflicting target.
+$unknown.flow_id=9;[void](Assert-V2BrowserEvidence $obs $capture $ids $exe 'DIRECT_PLUS' 'fake5')
+$unknown.flow_id=12;$unknown.creation_time=101;[void](Assert-V2BrowserEvidence $obs $capture $ids $exe 'DIRECT_PLUS' 'fake5');$unknown.creation_time=100
+$unknown.domain='';$savedBinding=$obs.socket_binding;$obs.socket_binding=$null;$caught=$null
+try{Assert-V2BrowserEvidence $obs $capture $ids $exe 'DIRECT_PLUS' 'fake5'|Out-Null}catch{$caught=$_.Exception}
+Check ((Get-V2ExceptionKind $caught) -eq 'TARGET_FLOW_AMBIGUOUS') 'SNI-only candidate invented exact response socket PASS';$obs.socket_binding=$savedBinding
+# Exact socket binding cannot rescue two observed target-domain routes.
+$unknown.domain='www.youtube.com';$unknown.source=$target.source
+Reject {Assert-V2BrowserEvidence $obs $capture $ids $exe 'DIRECT_PLUS' 'fake5'}
+$unknown.selected_route='DIRECT_PLUS';$unknown.strategy='fake5';$unknown.local_inspection=$target.local_inspection
+Reject {Assert-V2BrowserEvidence $obs $capture $ids $exe 'DIRECT_PLUS' 'fake5'}
+$diag=Get-V2TrialDiagnostic $capture $ids $exe $obs.destination 'DIRECT_PLUS' $false $false 'TARGET_FLOW_AMBIGUOUS' $candidate
+Check ($diag.classification -eq 'TARGET_FLOW_AMBIGUOUS' -and $diag.classifications -notcontains 'CDP/INSTRUMENTATION_FAILURE') 'Evidence ambiguity mislabeled as CDP failure'
+Check ((Format-V2EvidenceValue @{reassembly_ms=0} 'reassembly_ms') -eq '0') 'Actual zero-ms elapsed lost'
+Check ((Format-V2EvidenceValue @{} 'reassembly_ms') -eq 'UNKNOWN') 'Missing elapsed printed blank'
+Check ((Format-V2EvidenceValue @{reassembly_ms=$null} 'reassembly_ms') -eq 'UNKNOWN') 'Null elapsed printed blank'
+Write-Host 'PASS target-aware unknown/other SNI, positive target conflict, exact socket requirement, old generations, PID reuse and ambiguity classification'
+
+# Real query shape: each current PID AND creation time AND marker before limits.
+$scopedMarker=[pscustomobject]@{ledger_id='scope';after_flow_id=100;lost_records=0};$queryLog=[Collections.Generic.List[object]]::new()
+$rows=@()
+foreach($n in 1..70){$rows+=@{pid=42;creation_time=100;flow_id=$n;source=('192.0.2.1:'+(3000+$n));destination=$obs.destination;started_at='old';domain='www.youtube.com'}}
+foreach($n in 1..40){$rows+=@{pid=42;creation_time=99;flow_id=(200+$n);source=('192.0.2.1:'+(4000+$n));destination=$obs.destination;started_at='PID reused';domain='www.youtube.com'}}
+$rows+=@{pid=42;creation_time=100;flow_id=500;exe=$exe;protocol='tcp';source='192.0.2.1:55000';destination=$obs.destination;started_at=[DateTimeOffset]::UtcNow.ToString('o');domain='';selected_route='RELAY';relay_id='VPS-01';counters=@{relayed_bytes=10655;relay_reply_bytes=4096;captured_packets=9}}
+function Invoke-ServiceIPC($Method,$Payload){
+ if($Method -ne 'capture.diagnostics'){throw 'Unexpected query method'}
+ $queryLog.Add($Payload)
+ $matching=@($rows|Where-Object{$_.pid -eq $Payload.pid -and $_.creation_time -eq $Payload.creation_time -and $_.flow_id -gt $Payload.since.after_flow_id -and $_.destination -eq $Payload.destination})
+ if($Payload.ContainsKey('domain')){$matching=@($matching|Where-Object{$_.domain -eq $Payload.domain})}
+ if($Payload.ContainsKey('source')){$matching=@($matching|Where-Object{$_.source -eq $Payload.source})}
+ return @{flows=@($matching|Select-Object -First 32);truncated=($matching.Count -gt 32);since=$Payload.since;marker=@{ledger_id='scope';after_flow_id=600;lost_records=0}}
+}
+$scopedIDs=@([pscustomobject]@{PID=42;CreationTime=100},[pscustomobject]@{PID=43;CreationTime=200})
+$scoped=Get-V2ScopedCapture $scopedMarker $scopedIDs $obs.destination
+Check (!$scoped.truncated -and $scoped.flows.Count -eq 1 -and $queryLog.Count -eq 2) 'MANUAL contaminated by >32 stale/reused PID flows'
+foreach($query in $queryLog){Check ($query.pid -gt 0 -and $query.creation_time -gt 0 -and $query.since.ledger_id -eq 'scope') 'Destination-only query reintroduced'}
+$scopedProof=Get-V2ProofCapture $scopedMarker $scopedIDs $obs.destination $obs.hostname $obs.socket_binding
+[void](Assert-V2BrowserEvidence $obs $scopedProof $scopedIDs $exe 'RELAY' '')
+Write-Host 'PASS MANUAL/current-PID scoped query ignores >32 previous-trial flows before frame limits'
+$oldIPC=(Get-Item Function:Invoke-ServiceIPC).ScriptBlock
+try{
+ function Invoke-ServiceIPC($Method,$Payload){return @([pscustomobject]@{PID=1;CreationTime=99;Path=$exe},[pscustomobject]@{PID=2;CreationTime=100;Path=$exe},[pscustomobject]@{PID=3;CreationTime=101;Path='C:\other.exe'})}
+ $current=@(Get-V2TrialIdentities $exe 100)
+ Check ($current.Count -eq 1 -and $current[0].PID -eq 2) 'Process birth/executable filter borrowed a stale or foreign PID'
+}finally{Set-Item Function:Invoke-ServiceIPC $oldIPC}
+
+# Independent, bounded Chromium metadata parser. Never choose a nearby socket
+# or infer local source port from SNI, response timing or newest tuple.
+$rawDir=Join-Path ([IO.Path]::GetTempPath()) ('v2-socket-fixture-'+[Guid]::NewGuid().ToString('N'));[void](New-Item -ItemType Directory $rawDir);$rawPath=Join-Path $rawDir 'private.json'
+try{
+ $log=@{constants=@{logSourceType=@{SOCKET=1};logEventTypes=@{TCP_CONNECT=2;TCP_CONNECT_ATTEMPT=3};logEventPhase=@{PHASE_END=2}};events=@(
+  @{source=@{id=99;type=1};type=2;phase=1;params=@{address_list=@('203.0.113.9:443')}},
+  @{source=@{id=99;type=1};type=3;phase=2;params=@{local_address='192.0.2.1:55000';remote_address='203.0.113.9:443';headers='Cookie: secret-sentinel';data='raw-sentinel'}},
+  @{source=@{id=99;type=1};type=2;phase=2;params=@{source_address='192.0.2.1:55000'}}
+ )}
+ $log|ConvertTo-Json -Depth 12|Set-Content $rawPath -Encoding UTF8
+ $bound=Read-V2SocketBinding $rawPath 99 '203.0.113.9:443'
+ Check ($bound.status -eq 'BOUND' -and $bound.source -eq '192.0.2.1:55000') 'Exact NetLog source ID/endpoint not correlated'
+ Check (($bound|ConvertTo-Json) -notmatch 'sentinel|headers|Cookie') 'Raw/private metadata escaped into proof'
+ Check ((Read-V2SocketBinding $rawPath 100 '203.0.113.9:443').status -eq 'UNAVAILABLE') 'Wrong CDP socket ID accepted'
+ Check ((Read-V2SocketBinding $rawPath 99 '203.0.113.10:443').status -eq 'UNAVAILABLE') 'Wrong destination accepted'
+ $log.events[1].params.remote_address='203.0.113.10:443';$log|ConvertTo-Json -Depth 12|Set-Content $rawPath -Encoding UTF8
+ Check ((Read-V2SocketBinding $rawPath 99 '203.0.113.9:443').status -eq 'UNAVAILABLE') 'Contradictory actual peer accepted from address list'
+ $log.events[1].params.remote_address='203.0.113.9:443'
+ $log.events+=@{source=@{id=99;type=1};type=2;phase=2;params=@{source_address='192.0.2.1:55001'}};$log|ConvertTo-Json -Depth 12|Set-Content $rawPath -Encoding UTF8
+ Check ((Read-V2SocketBinding $rawPath 99 '203.0.113.9:443').status -eq 'UNAVAILABLE') 'Ambiguous local endpoint accepted'
+ [IO.File]::WriteAllText($rawPath,'{"constants":')
+ Check ((Read-V2SocketBinding $rawPath 99 '203.0.113.9:443').status -eq 'UNAVAILABLE') 'Incomplete raw metadata invented socket proof'
+ $stream=[IO.File]::OpenWrite($rawPath);try{$stream.SetLength(8MB+1)}finally{$stream.Dispose()}
+ Check ((Read-V2SocketBinding $rawPath 99 '203.0.113.9:443').status -eq 'UNAVAILABLE') 'Oversize metadata bypassed parser bound'
+}finally{Remove-Item $rawDir -Recurse -Force}
+Write-Host 'PASS exact socket ID, peer/local endpoint ambiguity, missing/incomplete/oversized metadata and privacy allowlist'

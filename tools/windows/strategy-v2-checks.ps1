@@ -1,22 +1,38 @@
 Set-StrictMode -Version Latest
 function Assert-V2BrowserEvidence($Observation,$Capture,$Identities,[string]$Exe,[string]$Route,[string]$Strategy){
- if(!$Observation.success -or $Observation.status -lt 200 -or $Observation.status -ge 400 -or !$Observation.tls){throw 'No completed certificate-validated HTTPS response'}
- if($Capture.truncated){throw 'Target capture truncated: cannot prove a complete route'}
- if($Observation.protocol -notin @('h2','http/1.1','http/1.0')){throw 'TCP strategy requires a real TCP HTTPS response, not HTTP/3 inference'}
- $flows=@($Capture.flows|Where-Object{
+ if(!(Get-V2Value $Observation 'success' $false) -or (Get-V2Value $Observation 'status' 0) -lt 200 -or (Get-V2Value $Observation 'status' 0) -ge 400 -or !(Get-V2Value $Observation 'tls' $false) -or !(Get-V2Value $Observation 'completed' $false)){throw 'No completed certificate-validated HTTPS response'}
+ if((Get-V2Value $Observation 'from_cache' $false) -or (Get-V2Value $Observation 'from_service_worker' $false)){Throw-V2Ambiguous 'Cached/service-worker response cannot prove current socket routing'}
+ if((Get-V2Value $Observation 'protocol' '') -notin @('h2','http/1.1','http/1.0')){throw 'TCP strategy requires a real TCP HTTPS response, not HTTP/3 inference'}
+ if((Get-V2Value $Capture 'truncated' $true) -or (Get-V2Value $Capture 'evidence_lost' $false)){Throw-V2Ambiguous 'Current target capture truncated or lost; no complete target route proof'}
+ $since=Get-V2Value $Capture 'since';$epoch=[string](Get-V2Value $since 'ledger_id' '')
+ if(!$epoch -or (Get-V2Value (Get-V2Value $Capture 'marker') 'ledger_id' '') -ne $epoch){Throw-V2Ambiguous 'No capture-lifetime/trial scope'}
+ $hostName=([string](Get-V2Value $Observation 'hostname' '')).ToLowerInvariant().TrimEnd('.')
+ if(!$hostName){Throw-V2Ambiguous 'Main-frame hostname missing'}
+ $flows=@(Get-V2Value $Capture 'flows' @()|Where-Object{
   $f=$_
-  $f.exe -ieq $Exe -and $f.destination -eq $Observation.destination -and @($Identities|Where-Object{$_.PID -eq $f.pid -and $_.CreationTime -eq $f.creation_time}).Count -gt 0
+  (Get-V2Value $f 'exe' '') -ieq $Exe -and (Get-V2Value $f 'destination' '') -eq (Get-V2Value $Observation 'destination' '') -and (Get-V2Value $f 'protocol' '') -eq 'tcp' -and (Get-V2Value $f 'flow_id' 0) -gt (Get-V2Value $since 'after_flow_id' 0) -and @( $Identities|Where-Object{(Get-V2Value $_ 'PID' -1) -eq (Get-V2Value $f 'pid' -2) -and (Get-V2Value $_ 'CreationTime' -1) -eq (Get-V2Value $f 'creation_time' -2)}).Count -gt 0
  })
- if(!$flows.Count){throw 'No exact PID/creation/executable/destination evidence'}
- $valid=@($flows|Where-Object{
-  if($_.selected_route -ne $Route){return $false}
-  if($Route -eq 'DIRECT_PLUS'){return $_.strategy -eq $Strategy -and $_.counters.direct_plus_packets -gt 0 -and $_.counters.direct_plus_bytes -gt 0 -and $_.counters.relayed_packets -eq 0 -and $_.counters.relayed_bytes -eq 0}
-  if($Route -eq 'RELAY'){return $_.relay_id -eq 'VPS-01' -and $_.counters.relayed_bytes -gt 0 -and $_.counters.relay_reply_bytes -gt 0}
-  return $_.counters.direct_packets -gt 0 -and $_.counters.relayed_packets -eq 0 -and $_.counters.direct_plus_packets -eq 0
- })
- if(!$valid.Count){throw 'Completed HTTP response has no matching actual route/transform counters'}
- if(@($flows|Where-Object{$_.selected_route -ne $Route}).Count){throw 'Target used mixed routes in a fresh trial'}
- return $valid[0]
+ if(!$flows.Count){Throw-V2Ambiguous 'No current exact app identity/destination flow'}
+ # Unknown or OTHER SNI is not proof that this hostname used another route.
+ # A positively observed target-hostname conflict remains a strict rejection.
+ $target=@($flows|Where-Object{(Get-V2ObservedDomain $_) -eq $hostName})
+ if(@($target|Where-Object{(Get-V2Value $_ 'selected_route' '') -ne $Route}).Count){Throw-V2Ambiguous 'Target hostname used mixed routes in this trial'}
+ $binding=Get-V2Value $Observation 'socket_binding'
+ if((Get-V2Value $binding 'status' '') -ne 'BOUND' -or (Get-V2Value $binding 'method' '') -ne 'chromium_netlog_socket_id' -or (Get-V2Value $binding 'connection_id' 0) -le 0 -or (Get-V2Value $binding 'connection_id' -1) -ne (Get-V2Value $Observation 'connection_id' -2) -or (Get-V2Value $binding 'destination' '') -ne $Observation.destination){Throw-V2Ambiguous 'Completed response lacks exact CDP connectionId -> local endpoint binding; unknown same-IP flows are not classified as DIRECT target traffic'}
+ $source=[string](Get-V2Value $binding 'source' '')
+ $exact=@($flows|Where-Object{(Get-V2Value $_ 'source' '') -eq $source -and $source})
+ if($exact.Count -ne 1){Throw-V2Ambiguous 'Main-frame source endpoint has zero or multiple current flow generations'}
+ $f=$exact[0];$c=Get-V2Value $f 'counters';$i=Get-V2Value $f 'local_inspection'
+ if((Get-V2Value $c 'captured_packets' 0) -le 0){Throw-V2Ambiguous 'Exact main-frame flow has no captured packet evidence'}
+ if(!(Get-V2Value $f 'started_at') -or (Get-V2Value $f 'selected_route' '') -ne $Route){Throw-V2Ambiguous 'Exact main-frame flow route/birth evidence differs from expected'}
+ if($Route -eq 'DIRECT_PLUS'){
+  if((Get-V2ObservedDomain $f) -ne $hostName -or (Get-V2Value $f 'strategy' '') -ne $Strategy -or (Get-V2Value $i 'reason' '') -ne 'REASSEMBLY_COMPLETE' -or !(Get-V2Value $i 'transform_applied' $false) -or (Get-V2Value $c 'direct_plus_packets' 0) -le 0 -or (Get-V2Value $c 'direct_plus_bytes' 0) -le 0 -or (Get-V2Value $c 'relayed_packets' -1) -ne 0 -or (Get-V2Value $c 'relayed_bytes' -1) -ne 0){Throw-V2Ambiguous 'Exact target flow lacks completed reassembly/SNI/current strategy/committed transform/zero-relay proof'}
+ }elseif($Route -eq 'RELAY'){
+  if((Get-V2Value $f 'relay_id' '') -ne 'VPS-01' -or (Get-V2Value $c 'relayed_bytes' 0) -le 0 -or (Get-V2Value $c 'relay_reply_bytes' 0) -le 0){Throw-V2Ambiguous 'Exact response socket lacks authenticated RELAY request/reply counters'}
+ }else{
+  if((Get-V2Value $c 'direct_packets' 0) -le 0 -or (Get-V2Value $c 'relayed_packets' -1) -ne 0 -or (Get-V2Value $c 'direct_plus_packets' -1) -ne 0){Throw-V2Ambiguous 'Exact response socket lacks exclusive DIRECT counters'}
+ }
+ return $f
 }
 
 # Diagnostics are independent of PASS validation. Missing evidence is UNKNOWN,
@@ -31,7 +47,7 @@ function Get-V2ExceptionDetails([Exception]$ErrorObject){
  for($i=0;$null -ne $e -and $i -lt 8;$i++){$out+=@{type=$e.GetType().FullName;message=$e.Message};$e=$e.InnerException}
  return $out
 }
-function Get-V2TrialDiagnostic($Capture,$Identities,[string]$Exe,[string]$Destination,[string]$Mode,[bool]$Success,[bool]$MeasurementValid,[string]$FailureKind,$Candidate){
+function Get-V2TrialDiagnostic($Capture,$Identities,[string]$Exe,[string]$Destination,[string]$Mode,[bool]$Success,[bool]$MeasurementValid,[string]$FailureKind,$Candidate,[string]$Hostname=''){
  $flows=@(Get-V2Value $Capture 'flows' @()|Where-Object{
   $f=$_
   (Get-V2Value $f 'exe' '') -ieq $Exe -and (Get-V2Value $f 'destination' '') -eq $Destination -and @($Identities|Where-Object{(Get-V2Value $_ 'PID' -1) -eq (Get-V2Value $f 'pid' -2) -and (Get-V2Value $_ 'CreationTime' -1) -eq (Get-V2Value $f 'creation_time' -2)}).Count -gt 0
@@ -46,10 +62,11 @@ function Get-V2TrialDiagnostic($Capture,$Identities,[string]$Exe,[string]$Destin
   $inspection=Get-V2Value $f 'local_inspection';$why=[string](Get-V2Value $inspection 'reason' '')
   if($why -eq 'TRANSFORM_SEND_FAILED'){$tags+=$why;if((Get-V2Value $inspection 'output_packets_sent' 0) -gt 0){$partial=$true}}
   if($why -in @('CLIENTHELLO_INCOMPLETE','SNI_NOT_FOUND','DOMAIN_NOT_MATCHED','REASSEMBLY_STARTED','REASSEMBLY_WAITING','REASSEMBLY_COMPLETE','REASSEMBLY_TIMEOUT','REASSEMBLY_LIMIT','REASSEMBLY_OUT_OF_ORDER')){$tags+=$why}
+  $domain=Get-V2ObservedDomain $f
   $strategy=Get-V2Value $f 'strategy' ''; $candidateID=Get-V2Value $Candidate 'id' ''
-  if((Get-V2Value $f 'protocol' '') -eq 'tcp' -and $strategy -eq $candidateID -and $candidateID -ne '' -and $null -ne $row.direct_plus_packets -and $null -ne $row.direct_plus_bytes -and $row.direct_plus_packets -gt 0 -and $row.direct_plus_bytes -gt 0){$applied=$true}
+  if((Get-V2Value $f 'protocol' '') -eq 'tcp' -and (!$Hostname -or $domain -eq $Hostname.ToLowerInvariant().TrimEnd('.')) -and $strategy -eq $candidateID -and $candidateID -ne '' -and $null -ne $row.direct_plus_packets -and $null -ne $row.direct_plus_bytes -and $row.direct_plus_packets -gt 0 -and $row.direct_plus_bytes -gt 0){$applied=$true}
   if($null -ne $row.quic_fallback_packets -and $row.quic_fallback_packets -gt 0){$quic=$true}
-  $details+=@{pid=(Get-V2Value $f 'pid');creation_time=(Get-V2Value $f 'creation_time');exe=(Get-V2Value $f 'exe');destination=(Get-V2Value $f 'destination');protocol=(Get-V2Value $f 'protocol');selected_route=(Get-V2Value $f 'selected_route');strategy=$strategy;observed_domain=(Get-V2Value $f 'domain' (Get-V2Value $inspection 'domain'));chain=(Get-V2Value $f 'chain');fake_ttl=(Get-V2Value $f 'fake_ttl');counters=$row;inspection=$inspection}
+  $details+=@{flow_id=(Get-V2Value $f 'flow_id');started_at=(Get-V2Value $f 'started_at');source=(Get-V2Value $f 'source');pid=(Get-V2Value $f 'pid');creation_time=(Get-V2Value $f 'creation_time');exe=(Get-V2Value $f 'exe');destination=(Get-V2Value $f 'destination');protocol=(Get-V2Value $f 'protocol');selected_route=(Get-V2Value $f 'selected_route');strategy=$strategy;observed_domain=$domain;target_relation=$(if(!$Hostname){'UNSCOPED'}elseif(!$domain){'UNKNOWN_DOMAIN'}elseif($domain -eq $Hostname.ToLowerInvariant().TrimEnd('.')){'TARGET_SNI'}else{'OTHER_SNI'});chain=(Get-V2Value $f 'chain');fake_ttl=(Get-V2Value $f 'fake_ttl');counters=$row;inspection=$inspection}
  }
  if(!$flows.Count){foreach($n in $names){$totals[$n]=$null};$tags+='NO_CAPTURE_EVIDENCE'}
  $connectionFailed=(!$Success -and $MeasurementValid -and $FailureKind -in @('NETWORK_TIMEOUT','BROWSER_NETWORK_FAILURE'))
@@ -58,17 +75,17 @@ function Get-V2TrialDiagnostic($Capture,$Identities,[string]$Exe,[string]$Destin
  elseif($partial){$state='PARTIAL_OUTPUT'}
  elseif($Mode -eq 'DIRECT_PLUS' -and $complete -and $totals.captured_packets -gt 0 -and $totals.direct_plus_packets -eq 0){$state='NOT_OBSERVED';$tags+='NO_TRANSFORM'}
  if($quic){$tags+='QUIC_FALLBACK_APPLIED'}
- if(!$Success){if($FailureKind){$tags+=$FailureKind};if(!$MeasurementValid){$tags+='CDP/INSTRUMENTATION_FAILURE'}}
- if($Success){$primary='PASS'}elseif(!$MeasurementValid){$primary='CDP/INSTRUMENTATION_FAILURE'}elseif($applied -and $connectionFailed){$primary='TRANSFORM_APPLIED_CONNECTION_FAILED'}elseif($tags.Count){$primary=$tags[0]}else{$primary='CONNECTION_FAILED'}
+ if(!$Success){if($FailureKind){$tags+=$FailureKind};if(!$MeasurementValid -and $FailureKind -notin @('TARGET_FLOW_AMBIGUOUS','EVIDENCE_VALIDATION_FAILURE','NETWORK_CHANGED')){$tags+='CDP/INSTRUMENTATION_FAILURE'}}
+ if($Success){$primary='PASS'}elseif($FailureKind -in @('TARGET_FLOW_AMBIGUOUS','EVIDENCE_VALIDATION_FAILURE','NETWORK_CHANGED')){$primary=$FailureKind}elseif(!$MeasurementValid){$primary='CDP/INSTRUMENTATION_FAILURE'}elseif($applied -and $connectionFailed){$primary='TRANSFORM_APPLIED_CONNECTION_FAILED'}elseif($tags.Count){$primary=$tags[0]}else{$primary='CONNECTION_FAILED'}
  $configuredChain=@(Get-V2Value $Candidate 'actions' @()|ForEach-Object{Get-V2Value $_ 'kind' ''}) -join ' + '
  $configuredTTL=@(Get-V2Value $Candidate 'actions' @()|Where-Object{(Get-V2Value $_ 'kind' '') -eq 'fake-tls'}|ForEach-Object{Get-V2Value $_ 'ttl'})
- return @{classification=$primary;classifications=@($tags|Select-Object -Unique);transform_status=$state;evidence_complete=[bool]$complete;counters=$totals;flows=$details;configured_chain=$configuredChain;configured_fake_ttl=$configuredTTL}
+ return @{classification=$primary;classifications=@($tags|Select-Object -Unique);transform_status=$state;evidence_complete=[bool]$complete;counters=$totals;flows=$details;configured_chain=$configuredChain;configured_fake_ttl=$configuredTTL;target_hostname=$Hostname}
 }
 function Write-V2TrialDiagnostic($Diagnostic){
  Write-Host ('  classification={0}; tags={1}; TCP transform={2}; complete={3}' -f $Diagnostic.classification,($Diagnostic.classifications -join ','),$Diagnostic.transform_status,$Diagnostic.evidence_complete)
  $pairs=@();foreach($n in @('captured_packets','direct_plus_packets','direct_plus_bytes','fake_tls_packets','quic_fallback_packets','relayed_bytes')){$v=$Diagnostic.counters[$n];if($null -eq $v){$v='UNKNOWN'};$pairs+="$n=$v"};Write-Host ('  '+($pairs -join '; '))
- foreach($f in $Diagnostic.flows){$display=@{};foreach($field in @('observed_domain','chain','fake_ttl')){$display[$field]=$f[$field];if($null -eq $display[$field] -or [string]$display[$field] -eq ''){$display[$field]='NOT_OBSERVED'}};Write-Host ('  PID={0}; protocol={1}; route={2}; SNI/domain={3}; applied_chain={4}; applied_fake_TTL={5}; inspection={6}' -f $f.pid,$f.protocol,$f.selected_route,$display.observed_domain,$display.chain,$display.fake_ttl,(Get-V2Value $f.inspection 'reason' 'UNAVAILABLE'));Write-Host ('    hello_payload={0}; record={1}; handshake={2}; plan_sent={3}/{4}; detail={5}' -f (Get-V2Value $f.inspection 'payload_bytes' 'UNKNOWN'),(Get-V2Value $f.inspection 'record_bytes' 'UNKNOWN'),(Get-V2Value $f.inspection 'handshake_bytes' 'UNKNOWN'),(Get-V2Value $f.inspection 'output_packets_sent' 'UNKNOWN'),(Get-V2Value $f.inspection 'output_packets_planned' 'UNKNOWN'),(Get-V2Value $f.inspection 'detail' 'UNAVAILABLE'))}
- foreach($f in $Diagnostic.flows){$i=$f.inspection;if((Get-V2Value $i 'segments_seen' 0) -gt 0){Write-Host ('    segments_seen={0}; segments_buffered={1}; bytes_buffered={2}; expected_clienthello_bytes={3}; reassembly_ms={4}; reassembled_sni={5}; transform_applied={6}' -f (Get-V2Value $i 'segments_seen'),(Get-V2Value $i 'segments_buffered'),(Get-V2Value $i 'bytes_buffered'),(Get-V2Value $i 'expected_clienthello_bytes'),(Get-V2Value $i 'reassembly_ms'),(Get-V2Value $i 'reassembled_sni'),(Get-V2Value $i 'transform_applied')) }}
+ foreach($f in $Diagnostic.flows){Write-Host ('  flow_id={0}; source={1}; destination={2}; started_at={3}' -f (Get-V2Value $f 'flow_id' 'UNKNOWN'),(Get-V2Value $f 'source' 'UNKNOWN'),(Get-V2Value $f 'destination' 'UNKNOWN'),(Get-V2Value $f 'started_at' 'UNKNOWN'));$display=@{};foreach($field in @('observed_domain','chain','fake_ttl')){$display[$field]=$f[$field];if($null -eq $display[$field] -or [string]$display[$field] -eq ''){$display[$field]='NOT_OBSERVED'}};Write-Host ('  PID={0}; protocol={1}; route={2}; SNI/domain={3}; applied_chain={4}; applied_fake_TTL={5}; inspection={6}' -f $f.pid,$f.protocol,$f.selected_route,$display.observed_domain,$display.chain,$display.fake_ttl,(Get-V2Value $f.inspection 'reason' 'UNAVAILABLE'));Write-Host ('    hello_payload={0}; record={1}; handshake={2}; plan_sent={3}/{4}; detail={5}' -f (Get-V2Value $f.inspection 'payload_bytes' 'UNKNOWN'),(Get-V2Value $f.inspection 'record_bytes' 'UNKNOWN'),(Get-V2Value $f.inspection 'handshake_bytes' 'UNKNOWN'),(Get-V2Value $f.inspection 'output_packets_sent' 'UNKNOWN'),(Get-V2Value $f.inspection 'output_packets_planned' 'UNKNOWN'),(Get-V2Value $f.inspection 'detail' 'UNAVAILABLE'))}
+ foreach($f in $Diagnostic.flows){$i=$f.inspection;if((Get-V2Value $i 'segments_seen' 0) -gt 0){Write-Host ('    segments_seen={0}; segments_buffered={1}; bytes_buffered={2}; expected_clienthello_bytes={3}; reassembly_ms={4}; reassembled_sni={5}; transform_applied={6}' -f (Get-V2Value $i 'segments_seen'),(Get-V2Value $i 'segments_buffered'),(Get-V2Value $i 'bytes_buffered'),(Get-V2Value $i 'expected_clienthello_bytes'),(Format-V2EvidenceValue $i 'reassembly_ms'),(Get-V2Value $i 'reassembled_sni'),(Get-V2Value $i 'transform_applied')) }}
  Write-Host ('  configured_chain={0}; configured_fake_TTL={1} (configuration is not application evidence)' -f $Diagnostic.configured_chain,($Diagnostic.configured_fake_ttl -join ','))
 }
 function Get-V2ExceptionKind([Exception]$ErrorObject){
@@ -130,6 +147,9 @@ function Get-V2HTTPSObservation($Response,[double]$ElapsedMS){
   $ip=[Net.IPAddress]::Parse([string](Get-V2Value $Response 'remoteIPAddress' ''))
   $port=[int](Get-V2Value $Response 'remotePort' 0);$status=[int](Get-V2Value $Response 'status' 0)
   if($ip.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork -or $port -lt 1 -or $port -gt 65535 -or $status -lt 100 -or $status -gt 599){throw 'Invalid or unsupported IPv4 CDP response evidence'}
-  return @{success=($status -ge 200 -and $status -lt 400);status=$status;tls=((Get-V2Value $Response 'securityState' '') -eq 'secure');protocol=[string](Get-V2Value $Response 'protocol' '');destination=($ip.ToString()+':'+$port);response_ms=$ElapsedMS}
+  return @{connection_id=(Get-V2Value $Response 'connectionId' 0);from_cache=[bool](Get-V2Value $Response 'fromDiskCache' $false);from_service_worker=[bool](Get-V2Value $Response 'fromServiceWorker' $false);success=($status -ge 200 -and $status -lt 400);status=$status;tls=((Get-V2Value $Response 'securityState' '') -eq 'secure');protocol=[string](Get-V2Value $Response 'protocol' '');destination=($ip.ToString()+':'+$port);response_ms=$ElapsedMS}
  }catch{$failure=[InvalidOperationException]::new($_.Exception.Message,$_.Exception);$failure.Data['v2_failure_kind']='CDP/INSTRUMENTATION_FAILURE';throw $failure}
 }
+
+. (Join-Path $PSScriptRoot 'strategy-v2-correlation.ps1')
+function Format-V2EvidenceValue($Object,[string]$Name){$v=Get-V2Value $Object $Name;if($null -eq $v -or [string]$v -eq ''){return 'UNKNOWN'};return [string]$v}

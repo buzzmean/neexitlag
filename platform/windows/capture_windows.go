@@ -542,7 +542,12 @@ func (b *WinDivertBackend) Traffic() (uint64, uint64) { return b.RX.Load(), b.TX
 func (b *WinDivertBackend) Diagnostics(pid uint32) CaptureEvidence {
 	return b.DiagnosticsTarget(pid, "")
 }
+func (b *WinDivertBackend) CaptureMarker() EvidenceMarker { return b.evidence.Marker() }
 func (b *WinDivertBackend) DiagnosticsTarget(pid uint32, destination string) CaptureEvidence {
+	out, _ := b.DiagnosticsScoped(EvidenceQuery{PID: pid, Destination: destination})
+	return out
+}
+func (b *WinDivertBackend) DiagnosticsScoped(query EvidenceQuery) (CaptureEvidence, error) {
 	b.mu.Lock()
 	tcp := b.tcp
 	b.mu.Unlock()
@@ -556,7 +561,10 @@ func (b *WinDivertBackend) DiagnosticsTarget(pid uint32, destination string) Cap
 		}
 		tcp.state.mu.Unlock()
 	}
-	out := b.evidence.snapshotTarget(pid, destination, active)
+	out, err := b.evidence.SnapshotQuery(query, active)
+	if err != nil {
+		return out, err
+	}
 	for i := range out.Flows {
 		f := &out.Flows[i]
 		f.IdentityCurrent = IsCurrent(ProcessIdentity{PID: f.PID, CreationTime: f.CreationTime, Path: f.Executable})
@@ -564,7 +572,7 @@ func (b *WinDivertBackend) DiagnosticsTarget(pid uint32, destination string) Cap
 	out.Counters.Dropped = b.Drops.Load()
 	out.LocalDrops = b.LocalDrops.Snapshot()
 	out.LocalDrops["capture_kernel_queue_drops"] = telemetry.Metric{Available: false, Unit: "packets"}
-	return out
+	return out, nil
 }
 func (b *WinDivertBackend) fallback(tuple Tuple, f *captureFlow, d *divertDLL, failed []byte) {
 	b.mu.Lock()

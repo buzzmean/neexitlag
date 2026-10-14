@@ -144,3 +144,83 @@ func TestTargetDiagnosticsAndLiveRelayPrioritization(t *testing.T) {
 		t.Fatal("live relay disappeared behind newer idle flows", live)
 	}
 }
+
+func TestTrialMarkersFilterBeforeSnapshotBounds(t *testing.T) {
+	l := NewEvidenceLedger()
+	id := ProcessIdentity{PID: 42, CreationTime: 10, Path: "chrome.exe"}
+	target := testTuple()
+	for i := 0; i < 70; i++ {
+		old := target
+		old.Source = netip.AddrPortFrom(old.Source.Addr(), uint16(3000+i))
+		l.RecordBytes(id, old, "relay", "VPS-01", 100)
+	}
+	// A born flow cannot become current merely because its first record is late.
+	delayed := target
+	delayed.Source = netip.AddrPortFrom(target.Source.Addr(), 6000)
+	l.BeginFlow(id, delayed)
+	marker := l.Marker()
+	l.RecordBytes(id, delayed, "direct", "", 60)
+	current := target
+	current.Source = netip.AddrPortFrom(target.Source.Addr(), 7000)
+	l.BeginFlow(id, current)
+	l.RecordBytes(id, current, "relay", "VPS-01", 10655)
+	l.RecordDomain(id, current, "www.youtube.com")
+	reusedPID := id
+	reusedPID.CreationTime++
+	for i := 0; i < 40; i++ {
+		other := target
+		other.Source = netip.AddrPortFrom(other.Source.Addr(), uint16(8000+i))
+		l.RecordBytes(reusedPID, other, "direct", "", 60)
+	}
+	q := EvidenceQuery{PID: id.PID, CreationTime: id.CreationTime, Destination: target.Destination.String(), Since: &marker}
+	out, err := l.SnapshotQuery(q, nil)
+	if err != nil || out.Truncated || len(out.Flows) != 1 || out.Flows[0].Counters.RelayedBytes != 10655 || out.Flows[0].FlowID <= marker.AfterFlowID || out.Flows[0].StartedAt.IsZero() || out.Flows[0].Source != current.Source.String() {
+		t.Fatal(out, err)
+	}
+	q.Domain = "www.youtube.com"
+	out, err = l.SnapshotQuery(q, nil)
+	if err != nil || len(out.Flows) != 1 {
+		t.Fatal(out, err)
+	}
+	q.Source = "192.0.2.99:1"
+	out, err = l.SnapshotQuery(q, nil)
+	if err != nil || len(out.Flows) != 0 {
+		t.Fatal("source filter", out, err)
+	}
+	q.Source = ""
+	q.Domain = "other.example"
+	out, err = l.SnapshotQuery(q, nil)
+	if err != nil || len(out.Flows) != 0 {
+		t.Fatal("domain filter", out, err)
+	}
+	// Reuse of the SAME endpoint retires the previous birth/strategy evidence.
+	l.BeginFlow(id, current)
+	l.RecordBytes(id, current, "direct", "", 60)
+	next := l.Marker()
+	if next.AfterFlowID <= out.Marker.AfterFlowID {
+		t.Fatal("flow ID reused")
+	}
+}
+func TestTrialMarkerRejectsRestartFutureAndEvidenceLoss(t *testing.T) {
+	l := NewEvidenceLedger()
+	m := l.Marker()
+	q := EvidenceQuery{Since: &m}
+	if _, err := NewEvidenceLedger().SnapshotQuery(q, nil); err == nil {
+		t.Fatal("restart accepted old marker")
+	}
+	future := m
+	future.AfterFlowID++
+	if _, err := l.SnapshotQuery(EvidenceQuery{Since: &future}, nil); err == nil {
+		t.Fatal("future marker accepted")
+	}
+	id := ProcessIdentity{PID: 42, CreationTime: 10, Path: "chrome.exe"}
+	tuple := testTuple()
+	for i := 0; i < 1025; i++ {
+		tuple.Source = netip.AddrPortFrom(tuple.Source.Addr(), uint16(10000+i))
+		l.Record(id, tuple, "direct", "")
+	}
+	out, err := l.SnapshotQuery(q, nil)
+	if err != nil || !out.Truncated || !out.EvidenceLost {
+		t.Fatal("silent evidence overflow", out, err)
+	}
+}

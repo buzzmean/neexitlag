@@ -72,11 +72,15 @@ function CDP([string]$Method,$Parameters,[switch]$NoWait){
  }finally{$cts.Dispose()}
 }
 function Trial([string]$Mode,[string]$Strategy,[int]$Index){
- $data=Join-Path $ReportDirectory "$run-$Index-profile";$browser=$null;$identities=@();$capture=$null;$flow=$null
- $result=@{report_schema_version=3;started_at=[DateTimeOffset]::UtcNow.ToString('o');mode=$Mode;strategy=$Strategy;success=$false;reason='';observation=$null;measurement=$null;failure_kind='';phase='profile_setup';exception_chain=@();diagnostic_errors=@()};$attempted=$false;$measurementValid=$false
+ $data=Join-Path ([IO.Path]::GetTempPath()) "neexitlag-v2-$run-$Index-profile";$browser=$null;$identities=@();$capture=$null;$flow=$null
+ $marker=$null;$identityFloor=0L;$socketLog=Join-Path $data '.private-sockets.json';$proofCapture=$null
+ $result=@{report_schema_version=4;started_at=[DateTimeOffset]::UtcNow.ToString('o');mode=$Mode;strategy=$Strategy;success=$false;reason='';observation=$null;measurement=$null;failure_kind='';phase='profile_setup';exception_chain=@();diagnostic_errors=@()};$attempted=$false;$measurementValid=$false
  $candidate=@($candidates|Where-Object{$_.id -eq $Strategy}|Select-Object -First 1);$definitionForTrial=if($candidate.Count){$candidate[0]}else{$null}
  try {
   Assert-V2FrozenNetwork $network (Invoke-ServiceIPC 'local.network')
+  $marker=Invoke-ServiceIPC 'capture.marker';$result.capture_marker=$marker
+  if(!(Get-V2Value $marker 'ledger_id' '')){throw 'Capture marker unavailable; update service'}
+  if(@(Invoke-ServiceIPC 'processes' @{executables=@($AppPath)}).Count){throw 'Previous trial or another browser process remains; close it before a fresh trial'}
   $p=@{id=$profileID;name='Finite real application strategy test';executables=@($AppPath);mode=$Mode;custom=$true;local_strategy_id=$Strategy}
   if($Mode -eq 'MANUAL'){$p.relay_id='VPS-01'}
   [void](Invoke-ServiceIPC 'profile.set' $p)
@@ -86,9 +90,11 @@ function Trial([string]$Mode,[string]$Strategy,[int]$Index){
   # DIRECT/RELAY TCP controls use a diagnostic-only QUIC-off flag; DIRECT+
   # trials keep normal QUIC and use the app preset. No certificate bypass.
   $quicFlag=if($Mode -eq 'DIRECT_PLUS'){''}else{'--disable-quic'}
-  $args="$quicFlag --headless=new --no-first-run --no-default-browser-check --disable-background-networking --user-data-dir=`"$data`" --host-resolver-rules=`"MAP $($uri.DnsSafeHost) $TargetIPv4, EXCLUDE localhost`" --remote-debugging-address=127.0.0.1 --remote-debugging-port=0 about:blank"
+  $args="--log-net-log=`"$socketLog`" --net-log-capture-mode=Default --net-log-max-size-mb=4 $quicFlag --headless=new --no-first-run --no-default-browser-check --disable-background-networking --user-data-dir=`"$data`" --host-resolver-rules=`"MAP $($uri.DnsSafeHost) $TargetIPv4, EXCLUDE localhost`" --remote-debugging-address=127.0.0.1 --remote-debugging-port=0 about:blank"
   $result.phase='browser_startup'
-  $browser=Start-Process -FilePath $AppPath -ArgumentList $args -PassThru
+  [void](New-Item -ItemType Directory -Path $data -ErrorAction Stop)
+  $identityFloor=[DateTime]::UtcNow.ToFileTimeUtc()
+  $browser=Start-Process -FilePath $AppPath -ArgumentList $args -PassThru;[void]$browser.Handle
   $portFile=Join-Path $data 'DevToolsActivePort'
   # Reuse the final-snapshot readiness wait: a partial port file or a listening
   # debugger with no page yet is startup progress, not a failed network trial.
@@ -106,11 +112,13 @@ function Trial([string]$Mode,[string]$Strategy,[int]$Index){
   $script:socket=[Net.WebSockets.ClientWebSocket]::new();$cts=[Threading.CancellationTokenSource]::new(5000)
   try{[void]$script:socket.ConnectAsync($ws,$cts.Token).GetAwaiter().GetResult()}finally{$cts.Dispose()}
   $result.phase='cdp_initialize'
+  $version=CDP 'Browser.getVersion' @{};$product=[string](Get-V2Value $version 'product' '')
+  if($product -notmatch '(?:Chrome|Chromium|Edg|HeadlessChrome)/(\d+)' -or [int]$Matches[1] -lt 117){throw 'Bounded socket metadata requires Chromium 117+; unsupported browser instrumentation'}
   [void](CDP 'Network.enable' @{});[void](CDP 'Network.setCacheDisabled' @{cacheDisabled=$true});[void](CDP 'Network.setBypassServiceWorker' @{bypass=$true})
   $tree=CDP 'Page.getFrameTree' @{};$mainFrame=Get-V2MainFrame $tree
   # Retain exact identities observed in this fresh trial even if the browser
   # or network child exits before the failure snapshot. No PID-only matching.
-  try{$identities=@(Invoke-ServiceIPC 'processes' @{executables=@($AppPath)})}catch{$result.diagnostic_errors+=@{stage='pre-navigation identities';message=$_.Exception.Message}}
+  try{$identities=@(Get-V2TrialIdentities $AppPath $identityFloor)}catch{$result.diagnostic_errors+=@{stage='pre-navigation identities';message=$_.Exception.Message}}
   $script:navError='';$script:navID=$script:cdpID+1
   $clock=[Diagnostics.Stopwatch]::StartNew()
   # A blocked connection may delay Page.navigate's response for a minute.
@@ -121,11 +129,11 @@ function Trial([string]$Mode,[string]$Strategy,[int]$Index){
   $response=$null
   while($true){
    # A harmless protocol round trip pumps Network events, not page code.
-   [void](CDP 'Browser.getVersion' @{})
+   [void](CDP 'Browser.getVersion' @{});Assert-V2SocketLogBound $socketLog
    if($script:navError){$measurementValid=$true;$result.failure_kind=if($script:navError -eq 'net::ERR_TIMED_OUT'){'NETWORK_TIMEOUT'}else{'BROWSER_NETWORK_FAILURE'};throw ('Navigation failed: '+$script:navError)}
    foreach($key in @($script:responses.Keys)){
     $entry=$script:responses[$key];$candidate=$entry.response;$u=[Uri]$candidate.url
-    if($entry.frame_id -eq $mainFrame -and $u.DnsSafeHost -ieq $uri.DnsSafeHost -and $script:finished.ContainsKey($key) -and !$script:failed.ContainsKey($key)){$response=$candidate;break}
+    if($entry.frame_id -eq $mainFrame -and $u.DnsSafeHost -ieq $uri.DnsSafeHost -and $script:finished.ContainsKey($key) -and !$script:failed.ContainsKey($key)){$response=$candidate;$result.request_id=$key;$result.frame_id=$mainFrame;break}
    }
    if($null -ne $response){break}
    if($clock.Elapsed.TotalSeconds -ge $TimeoutSeconds){break}
@@ -135,35 +143,48 @@ function Trial([string]$Mode,[string]$Strategy,[int]$Index){
   $measurementValid=$true
   $clock.Stop();$result.phase='response_evidence'
   $observation=Get-V2HTTPSObservation $response $clock.Elapsed.TotalMilliseconds
+  $observation.hostname=$uri.DnsSafeHost.ToLowerInvariant().TrimEnd('.');$observation.completed=$true
+  if($observation.from_cache -or $observation.from_service_worker){Throw-V2Ambiguous 'Completed response did not establish a fresh network socket'}
   $destination=[string]$observation.destination
   $result.observation=$observation
+  $result.phase='socket_evidence'
+  $currentIDs=@(Get-V2TrialIdentities $AppPath $identityFloor)
+  $identities=@(Merge-V2TrialIdentities $identities $currentIDs)
+  # Graceful close flushes Chromium's bounded metadata log. HTTP completion is
+  # already established; closing the isolated browser never converts a failure
+  # into a successful request. Forced/failed close yields UNKNOWN correlation.
+  try{
+   CDP 'Browser.close' @{} -NoWait
+   if($browser.WaitForExit(5000)){[void]$browser.WaitForExit()}
+  }catch{$result.diagnostic_errors+=@{stage='socket metadata flush';message='Isolated browser did not close cleanly; correlation may be unavailable'}}
+  Assert-V2SocketLogBound $socketLog
+  $observation.socket_binding=Read-V2SocketBinding $socketLog ([long]$observation.connection_id) $destination
   $result.phase='route_evidence'
-  $identities=@(Invoke-ServiceIPC 'processes' @{executables=@($AppPath)})
-  $capture=Invoke-ServiceIPC 'capture.diagnostics' @{destination=$destination}
+  $proofCapture=Get-V2ProofCapture $marker $identities $destination $observation.hostname $observation.socket_binding
+  $result.proof_capture=$proofCapture
   $route=if($Mode -eq 'MANUAL'){'RELAY'}else{$Mode}
-  $result.observation=$observation
-  if($destination -ne $targetDestination){throw 'Browser ignored the isolated target-IP mapping; discard this route evidence'}
+  if($destination -ne $targetDestination){Throw-V2Ambiguous 'Browser ignored the isolated target-IP mapping'}
+  $capture=$proofCapture
   $flow=Assert-V2BrowserEvidence $observation $capture $identities $AppPath $route $Strategy
   $result.success=$true;$result.observation=$observation
- }catch{$result.reason=$_.Exception.Message;$result.exception_chain=@(Get-V2ExceptionDetails $_.Exception);$kind=Get-V2ExceptionKind $_.Exception;if($kind){$result.failure_kind=$kind;$measurementValid=$false};if($result.phase -eq 'route_evidence'){if($result.observation -and $result.observation.success -and $result.observation.tls){$measurementValid=$false;$result.failure_kind='EVIDENCE_VALIDATION_FAILURE'}else{$result.failure_kind='APPLICATION_RESPONSE_FAILURE'}};if(!$measurementValid -and !$result.failure_kind){$result.failure_kind='CDP/INSTRUMENTATION_FAILURE'}}
+ }catch{$result.reason=$_.Exception.Message;$result.exception_chain=@(Get-V2ExceptionDetails $_.Exception);$kind=Get-V2ExceptionKind $_.Exception;if($kind){$result.failure_kind=$kind;$measurementValid=$false};if($result.phase -in @('response_evidence','socket_evidence','route_evidence') -and !$kind){if($result.observation -and $result.observation.success -and $result.observation.tls){$measurementValid=$false;$result.failure_kind='TARGET_FLOW_AMBIGUOUS'}else{$result.failure_kind='APPLICATION_RESPONSE_FAILURE'}};if(!$measurementValid -and !$result.failure_kind){$result.failure_kind='CDP/INSTRUMENTATION_FAILURE'}}
  finally {
-  try{$finalIdentities=@(Invoke-ServiceIPC 'processes' @{executables=@($AppPath)});$identities=@(@($identities)+@($finalIdentities)|Sort-Object PID,CreationTime -Unique|Select-Object -First 1024)}catch{$result.diagnostic_errors+=@{stage='identities';message=$_.Exception.Message}}
-  try{$capture=Invoke-ServiceIPC 'capture.diagnostics' @{destination=$targetDestination}}catch{$result.diagnostic_errors+=@{stage='capture';message=$_.Exception.Message}}
+  try{$finalIdentities=@(Get-V2TrialIdentities $AppPath $identityFloor);$identities=@(Merge-V2TrialIdentities $identities $finalIdentities)}catch{$result.diagnostic_errors+=@{stage='identities';message=$_.Exception.Message}}
+  try{$capture=Get-V2ScopedCapture $marker $identities $targetDestination}catch{$result.diagnostic_errors+=@{stage='capture';message=$_.Exception.Message};if($result.success){$result.success=$false;$result.failure_kind='TARGET_FLOW_AMBIGUOUS';$result.reason='Final trial snapshot unavailable; exact lifetime proof cannot be completed';$measurementValid=$false}}
   $attempted=@(Get-V2Value $capture 'flows' @()|Where-Object{
    $f=$_;(Get-V2Value $f 'destination' '') -eq $targetDestination -and (Get-V2Value $f 'exe' '') -ieq $AppPath -and (Get-V2Value (Get-V2Value $f 'counters') 'captured_packets' 0) -gt 0 -and @($identities|Where-Object{$_.PID -eq $f.pid -and $_.CreationTime -eq $f.creation_time}).Count -gt 0
   }).Count -gt 0
-  $result.diagnostic=Get-V2TrialDiagnostic $capture $identities $AppPath $targetDestination $Mode ([bool]$result.success) $measurementValid $result.failure_kind $definitionForTrial
-  $result.classification=$result.diagnostic.classification;$result.classifications=$result.diagnostic.classifications
-  # Save only identity, route/counters and response metadata, never HTML, TLS
-  # payload, cookies, authorization headers, browser profile contents or netlog.
   $result.capture=$capture;$result.identities=$identities
   $result.cleanup_errors=@(Stop-V2TrialBrowser $browser $data)
   try{Assert-V2FrozenNetwork $network (Invoke-ServiceIPC 'local.network')}catch{$result.network_changed=$true;$result.reason=$_.Exception.Message;$result.failure_kind='NETWORK_CHANGED';$result.success=$false;$measurementValid=$false}
+  $result.diagnostic=Get-V2TrialDiagnostic $capture $identities $AppPath $targetDestination $Mode ([bool]$result.success) $measurementValid $result.failure_kind $definitionForTrial $uri.DnsSafeHost
+  $result.classification=$result.diagnostic.classification;$result.classifications=$result.diagnostic.classifications
+
 
  }
  $elapsed=if($result.observation){[long]($result.observation.response_ms*1e6)}else{0L}
  $measurement=@{route_id=$(if($Mode -eq 'MANUAL'){'VPS-01'}else{'target'});available=[bool]$result.success;samples=$(if($result.success){1}else{0});rtt=$elapsed;jitter=0;loss=$(if($result.success){0.0}else{1.0});failure_rate=$(if($result.success){0.0}else{1.0});stability=$(if($result.success){1.0}else{0.0});observed_at=[DateTimeOffset]::UtcNow.ToString('o')}
- $result.instrumentation_failure=(!$measurementValid)
+ $result.instrumentation_failure=($result.failure_kind -eq 'CDP/INSTRUMENTATION_FAILURE')
  # A candidate that never transformed TCP was not measured as a strategy.
  $mayRecord=$attempted -and $measurementValid -and ($Mode -ne 'DIRECT_PLUS' -or $result.diagnostic.transform_status -eq 'APPLIED')
  $result.measurement_valid=[bool]$mayRecord
@@ -173,7 +194,7 @@ function Trial([string]$Mode,[string]$Strategy,[int]$Index){
  Write-V2TrialDiagnostic $result.diagnostic
  if($mayRecord){
   $record=@{application=$AppPath;destination=$targetDestination;protocol='tcp';network=$network.fingerprint;strategy=$(if($Mode -eq 'MANUAL'){'RELAY'}elseif($Mode -eq 'DIRECT'){'DIRECT'}else{$Strategy});success=$result.success;measurement=$measurement}
-  if($flow){$record.pid=$flow.pid;$record.creation_time=$flow.creation_time}
+  if($flow){$record.pid=$flow.pid;$record.creation_time=$flow.creation_time;$record.capture_marker=$marker;$record.flow_id=$flow.flow_id;$record.source=$flow.source;$record.domain=Get-V2ObservedDomain $flow}
   try{[void](Invoke-ServiceIPC 'local.record' $record);$result.measurement_recorded=$true}catch{
    $result.record_error=$_.Exception.Message
    $result|ConvertTo-Json -Depth 18|Set-Content (Join-Path $ReportDirectory "$run-$Index-proof.json") -Encoding UTF8
@@ -209,7 +230,7 @@ try {
  Write-Host "Cached recommendation: $winner; verified in this run: $winnerVerified. Finite trials complete: $ReportDirectory. Successful evidence expires; AUTO requires fresh per-destination measurements."
 }catch{
  $failure=$_.Exception.Message
- try{@{error=$failure;results=$results;status=(Invoke-ServiceIPC 'status');capture=(Invoke-ServiceIPC 'capture.diagnostics' @{destination=$targetDestination})}|ConvertTo-Json -Depth 18|Set-Content (Join-Path $ReportDirectory "$run-FAIL.json") -Encoding UTF8}catch{}
+ try{@{error=$failure;results=$results;status=(Invoke-ServiceIPC 'status')}|ConvertTo-Json -Depth 18|Set-Content (Join-Path $ReportDirectory "$run-FAIL.json") -Encoding UTF8}catch{}
  throw
 }finally{
  try{[void](Invoke-ServiceIPC 'profile.delete' @{id=$profileID})}catch{Write-Warning $_}

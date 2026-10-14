@@ -287,3 +287,109 @@ Page.getFrameTree.frameTree.frame.id теперь даёт явную instrument
 а не network failure. Cleanup ловит race taskkill/уже завершившегося процесса и
 сохраняет cleanup_errors, не перезаписывая результат trial. Эти ветки проверяются
 на PS7 и Windows PS5.1; есть реальный redirected Start-Process regression.
+
+## Target-aware proof и trial-scoped evidence (после 1862702)
+
+Новый операторский Happ-OFF run к `142.251.154.4` подтвердил исправление
+ClientHello: `REASSEMBLY_COMPLETE`, SNI `www.youtube.com`, два сегмента,
+`transform_applied=true`, положительные DIRECT+ counters, relay bytes=0.
+Эту проблему считаем закрытой. Большинство candidates после применения получили
+network timeout; у `disorder` уже был completed HTTPS response, но старый tester
+отклонил его из-за посторонних same-IP DIRECT flows. Это пока кандидат на PASS,
+а не доказанный end-to-end YouTube/видео PASS. Новые bypass techniques не добавлены.
+
+Перед каждым trial tester получает `capture.marker`:
+`{ledger_id,after_flow_id,lost_records}`. Служба назначает монотонный `flow_id` и
+`started_at` при рождении flow, включая резервирование до первого record.
+Повторное использование endpoint получает новый ID; старый flow с поздним
+packet/record не превращается в новый trial. Service restart меняет ledger_id.
+История и lifetime counters других consumers не сбрасываются.
+
+`capture.diagnostics` backward compatible с прежними PID/destination запросами;
+дополнительно понимает `creation_time`, `source`, `domain` и `since:marker`.
+Все фильтры работают ДО прежних ограничений 32 flows / 60 КБ, а не после усечения.
+Новый tester запрашивает каждый текущий PID+creation_time отдельно, проверяет
+возврат marker, birth ID и endpoints, bounded merge <=256 flows / <=128 identities.
+Processes до запуска свежего trial исключаются; оставшийся Chrome предыдущего
+trial останавливает новый запуск. Scope после restart/потеря ledger evidence не
+выдаётся за полный snapshot. Новые поля flow не меняют routing decision.
+
+Для route proof запрашиваются target-domain flows и точный source endpoint.
+Неизвестный/другой SNI у same-IP DIRECT connection сам по себе не дисквалифицирует
+целевой flow. Положительно наблюдаемый target hostname на другом route остаётся
+`TARGET_FLOW_AMBIGUOUS`, даже при наличии transformed target connection.
+Две текущие flow generations одного source endpoint тоже остаются ambiguous.
+Ни самый новый flow, ни один лишь SNI не назначаются main-frame socket по догадке.
+
+### Точная привязка main-frame TCP connection
+
+Chromium не отдаёт local port прямо в `Network.Response`, но его CDP
+`connectionId` — это socket NetLog source ID. Это проверено по
+[WebURLResponse::Create](https://github.com/chromium/chromium/blob/main/third_party/blink/renderer/platform/exported/web_url_response.cc),
+[InspectorNetworkAgent](https://github.com/chromium/chromium/blob/main/third_party/blink/renderer/core/inspector/inspector_network_agent.cc)
+и [SSLClientSocketImpl](https://github.com/chromium/chromium/blob/main/net/socket/ssl_client_socket_impl.cc).
+TLS socket сохраняет NetLog source underlying TCP socket.
+
+Только свежий изолированный тестовый browser запускается с
+`--net-log-capture-mode=Default --net-log-max-size-mb=4` (Chromium >=117).
+[Документация Chromium](https://www.chromium.org/for-testers/providing-network-details/)
+описывает Default как режим со stripped private information, без полного дампа
+socket bytes. IncludeSensitive, Everything, SSL key logging и certificate bypass
+не включаются. После completed Document response tester собирает identities,
+закрывает только собственный browser через CDP Browser.close и читает завершённый
+bounded log. Browser close не превращает request failure в success; RTT измеряется
+до закрытия. Читаются TCP_CONNECT/TCP_CONNECT_ATTEMPT только с точным socket ID и
+source type SOCKET, успешным connect, единственным local endpoint и согласованным
+remote endpoint. Endpoint затем сопоставляется с source в service evidence.
+
+Raw NetLog и disposable browser profile находятся в приватном пользовательском
+Temp, за пределами ReportDirectory, и удаляются best-effort при cleanup.
+В proof сохраняется только allowlist `{status,connection_id,source,destination,
+method,reason}`; raw log, headers, cookies, certificates и payload не сохраняются
+в proof, не публикуются и не прикладываются. Parser ограничен 8 МиБ / 32768 events;
+дополнительный runtime guard контролирует bounded log. При пропущенной/устаревшей
+записи, неподдерживаемом формате, незавершённом после close metadata log или неоднозначных endpoints
+выводится `TARGET_FLOW_AMBIGUOUS`; fallback к guessed port/SNI-only PASS отсутствует.
+
+DIRECT+ PASS теперь требует одновременно: completed certificate-valid TCP HTTPS
+Document нужного main frame/hostname, exact CDP socket binding, exact app
+PID+creation_time/full exe/destination/source/trial flow ID, target outer SNI,
+точный strategy ID, DIRECT_PLUS, REASSEMBLY_COMPLETE, transform_applied=true,
+положительные direct_plus_packets/bytes и relayed_packets/bytes=0.
+MANUAL требует той же привязки exact socket и authenticated VPS-01 request/reply
+bytes; SNI у fragmented pass-through RELAY flow может отсутствовать.
+
+`proof_capture` содержит строгий domain+socket snapshot; `capture` — отдельный
+общий диагностический snapshot только текущих identities/trial/destination.
+Lifetime counters не являются trial counters. `TARGET_FLOW_AMBIGUOUS` отделён от
+CDP/INSTRUMENTATION_FAILURE и network timeout и не записывается как 100% loss.
+`reassembly_ms=0` — реальный elapsed менее миллисекунды, отсутствующее значение
+печатается UNKNOWN. Отчёты показывают flow_id, started_at и source endpoint.
+
+### Повторить ТОТ ЖЕ finite run
+
+Скачайте service/scripts artifact нового HEAD и замените service по инструкции
+выше (credentials/config/ACL сохраняются). Chrome закрыт, Happ полностью OFF:
+
+```powershell
+git switch codex/direct-plus-flowseal
+git pull --ff-only origin codex/direct-plus-flowseal
+.\tools\windows\strategy-tester-v2.ps1 `
+  -AppPath 'C:\Program Files\Google\Chrome\Application\chrome.exe' `
+  -Preset youtube -URL 'https://www.youtube.com/' `
+  -TargetIPv4 '142.251.154.4' -TimeoutSeconds 30
+```
+
+Набор из семи candidates, стратегии и QUIC policy не менялись. Особое внимание:
+`disorder`, exact socket binding, target SNI, reassembly/transform counters и
+MANUAL control. Реальный outcome может быть PASS, network failure или честный
+TARGET_FLOW_AMBIGUOUS — желаемый winner не подставляется.
+
+**Только после строгого disorder PASS:** выберите в GUI профиль Chrome DIRECT+
+с candidate `disorder`, запустите обычный Chrome без tester flags, откройте
+YouTube, воспроизведите видео 30 секунд и выполните seek. Проверьте googlevideo
+flows, реальные DIRECT+ counters и relay bytes=0. Document HTTPS PASS не является
+video playback PASS. Discord updater/UI/messages остаётся отдельным следующим
+этапом. В этой Linux-сессии внешний Windows/ISP rerun недоступен; локальный
+Chromium instrumentation regression в Windows CI проверяет socket mapping
+независимым server-observed peer, а не YouTube performance или bypass.

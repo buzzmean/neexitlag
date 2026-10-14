@@ -14,7 +14,7 @@ type Inspection struct {
 	SegmentsBuffered         int    `json:"segments_buffered,omitempty"`
 	BytesBuffered            int    `json:"bytes_buffered,omitempty"`
 	ExpectedClientHelloBytes int    `json:"expected_clienthello_bytes,omitempty"`
-	ReassemblyMS             int64  `json:"reassembly_ms,omitempty"`
+	ReassemblyMS             int64  `json:"reassembly_ms"`
 	OutOfOrder               bool   `json:"out_of_order,omitempty"`
 	ReassembledSNI           bool   `json:"reassembled_sni,omitempty"`
 	TransformApplied         bool   `json:"transform_applied"`

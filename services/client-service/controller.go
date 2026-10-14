@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -411,15 +412,43 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		return c.acceptanceReadiness(ctx, query.RelayID), nil
 	case "quality.diagnostics":
 		return c.DropDiagnostics(), nil
-	case "capture.diagnostics":
-		var query struct {
-			PID         uint32 `json:"pid"`
-			Destination string `json:"destination"`
+	case "capture.marker":
+		if backend, ok := c.Backend.(interface {
+			CaptureMarker() windowsplatform.EvidenceMarker
+		}); ok {
+			return backend.CaptureMarker(), nil
 		}
+		return nil, errors.New("capture markers unavailable; update service/backend")
+	case "capture.diagnostics":
+		var query windowsplatform.EvidenceQuery
 		if len(raw) > 0 && string(raw) != "null" {
 			if err := security.Parse(raw, &query); err != nil {
 				return nil, err
 			}
+		}
+		if query.CreationTime != 0 && query.PID == 0 {
+			return nil, errors.New("creation_time requires exact PID")
+		}
+		if query.Source != "" {
+			if _, err := netip.ParseAddrPort(query.Source); err != nil {
+				return nil, errors.New("invalid diagnostic source")
+			}
+		}
+		if len(query.Domain) > 253 || strings.ContainsAny(query.Domain, " /\\\t\r\n") {
+			return nil, errors.New("invalid diagnostic domain")
+		}
+		if query.Since != nil || query.CreationTime != 0 || query.Source != "" || query.Domain != "" {
+			if query.Destination != "" {
+				if _, err := netip.ParseAddrPort(query.Destination); err != nil {
+					return nil, errors.New("invalid diagnostic destination")
+				}
+			}
+			if backend, ok := c.Backend.(interface {
+				DiagnosticsScoped(windowsplatform.EvidenceQuery) (windowsplatform.CaptureEvidence, error)
+			}); ok {
+				return backend.DiagnosticsScoped(query)
+			}
+			return nil, errors.New("trial-scoped capture diagnostics unavailable; update service/backend")
 		}
 		if query.Destination != "" {
 			if _, err := netip.ParseAddrPort(query.Destination); err != nil {

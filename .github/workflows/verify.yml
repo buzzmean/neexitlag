@@ -78,6 +78,12 @@ jobs:
         shell: pwsh
       - run: ./tests/windows-tools/strategy-v2-checks.ps1
         shell: powershell
+      - run: ./tests/windows-tools/strategy-v2-browser-correlation.ps1
+        shell: pwsh
+        timeout-minutes: 2
+      - run: ./tests/windows-tools/strategy-v2-browser-correlation.ps1
+        shell: powershell
+        timeout-minutes: 2
       - run: ./tests/windows-tools/tcp-web-checks.ps1
         shell: pwsh
       - run: ./tests/windows-tools/tcp-web-checks.ps1

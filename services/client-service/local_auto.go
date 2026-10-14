@@ -102,6 +102,11 @@ func (c *Controller) applyLocalAuto(id windowsplatform.ProcessIdentity, t window
 }
 
 type localRecord struct {
+	CaptureMarker *windowsplatform.EvidenceMarker `json:"capture_marker,omitempty"`
+	FlowID        uint64                          `json:"flow_id,omitempty"`
+	Source        string                          `json:"source,omitempty"`
+	Domain        string                          `json:"domain,omitempty"`
+
 	PID          uint32                     `json:"pid"`
 	CreationTime uint64                     `json:"creation_time"`
 	Application  string                     `json:"application"`
@@ -148,9 +153,22 @@ func (c *Controller) handleLocalEvidence(method string, raw json.RawMessage) (an
 							return nil, errors.New("successful chain evidence requires captured process identity")
 						}
 						ev := backend.DiagnosticsTarget(v.PID, v.Destination)
+						if v.CaptureMarker != nil {
+							scoped, ok := c.Backend.(interface {
+								DiagnosticsScoped(windowsplatform.EvidenceQuery) (windowsplatform.CaptureEvidence, error)
+							})
+							if !ok || v.FlowID == 0 || v.Source == "" || v.Domain == "" {
+								return nil, errors.New("successful trial requires scoped source/flow/domain evidence")
+							}
+							var err error
+							ev, err = scoped.DiagnosticsScoped(windowsplatform.EvidenceQuery{PID: v.PID, CreationTime: v.CreationTime, Destination: v.Destination, Source: v.Source, Domain: v.Domain, Since: v.CaptureMarker})
+							if err != nil {
+								return nil, err
+							}
+						}
 						proved := false
 						for _, f := range ev.Flows {
-							if f.PID == v.PID && f.CreationTime == v.CreationTime && strings.EqualFold(strings.ReplaceAll(f.Executable, `\`, "/"), strings.ReplaceAll(v.Application, `\`, "/")) && f.Destination == v.Destination && f.Protocol == v.Protocol && f.Strategy == v.Strategy && f.StrategyRevision == c.Local.Revision() && f.Route == "DIRECT_PLUS" && f.Counters.DirectPlus > 0 && f.Counters.DirectPlusBytes > 0 && f.Counters.Relayed == 0 && f.Counters.RelayedBytes == 0 && time.Since(f.LastSeen) < time.Minute {
+							if (v.CaptureMarker == nil || f.FlowID == v.FlowID && f.Source == v.Source && strings.EqualFold(f.Domain, v.Domain) && f.LocalInspection != nil && f.LocalInspection.Reason == "REASSEMBLY_COMPLETE" && f.LocalInspection.TransformApplied) && f.PID == v.PID && f.CreationTime == v.CreationTime && strings.EqualFold(strings.ReplaceAll(f.Executable, `\`, "/"), strings.ReplaceAll(v.Application, `\`, "/")) && f.Destination == v.Destination && f.Protocol == v.Protocol && f.Strategy == v.Strategy && f.StrategyRevision == c.Local.Revision() && f.Route == "DIRECT_PLUS" && f.Counters.DirectPlus > 0 && f.Counters.DirectPlusBytes > 0 && f.Counters.Relayed == 0 && f.Counters.RelayedBytes == 0 && time.Since(f.LastSeen) < time.Minute {
 								proved = true
 							}
 						}
