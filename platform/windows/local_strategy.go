@@ -37,7 +37,7 @@ func SendLocal(d Decision, state *localstrategy.State, id ProcessIdentity, tuple
 		// The engine's flow-byte metric includes unchanged packets after a
 		// successful transform. Capture counters distinguish actual modification
 		// from native ACK/FIN/cutoff pass-through. Fail() clears Applied first.
-		r.Active = state.Applied()
+		r.Active = state != nil && state.Applied()
 		d.Local.Commit(r, len(p))
 		evidence.RecordBytes(id, tuple, "direct", "", uint64(len(p)))
 	}

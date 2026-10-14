@@ -99,6 +99,16 @@ func TestLocalReinjectionFailureAndUnknownIdentityFailOpen(t *testing.T) {
 	if n != 1 {
 		t.Fatal("unknown identity modified")
 	}
+	// A missing state is a fail-open engine error, not a panic or a transform.
+	n = 0
+	nilLedger := NewEvidenceLedger()
+	if err := SendLocal(d, nil, id, tuple, raw, func([]byte) error { n++; return nil }, nilLedger); err != nil {
+		t.Fatal(err)
+	}
+	f := nilLedger.Snapshot(id.PID).Flows[0]
+	if n != 1 || f.Route != "DIRECT" || f.Counters.DirectPlus != 0 || f.Counters.DirectPlusBytes != 0 {
+		t.Fatal("missing state did not fail open", n, f)
+	}
 }
 
 func TestFragmentAddressHasCompletePrecomputedUDPChecksum(t *testing.T) {
