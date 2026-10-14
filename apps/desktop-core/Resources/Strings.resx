@@ -524,4 +524,5 @@
 <data name="LocalVPNUnknown" xml:space="preserve"><value>Публичный выход не измерен. DIRECT может использовать VPN; физический ISP не предполагается.</value></data>
 <data name="LocalConflictUnknown" xml:space="preserve"><value>Известный конфликт не найден. Проверка модулей может быть неполной; это не гарантия совместимости.</value></data>
 <data name="LocalDNSUnknown" xml:space="preserve"><value>Наличие DoH-конфигурации не доказывает доступность. Browser DoH и его публичный выход не измерены.</value></data>
+<data name="LocalLoadFirst" xml:space="preserve"><value>Сначала загрузите текущие стратегии, чтобы сохранить существующие правила.</value></data>
 </root>

@@ -99,15 +99,17 @@ public partial class MainWindow : Window
         if (page == "Settings" && model.Snapshot is { } snapshot)
             LoadSettings(snapshot);
     }
+    bool localLoaded;
     LocalStrategyConfig localConfig = new();
     readonly System.Collections.ObjectModel.ObservableCollection<LocalStrategyProfile> localRules = [];
     static string[] Parts(string s)=>s.Split(',',StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries);
     async void LoadLocal(object sender,RoutedEventArgs e)=>await Execute(async()=>{
-        localConfig=await model.GetLocalStrategiesAsync(lifetime.Token);LocalEnabled.IsChecked=localConfig.Enabled;
+        localConfig=await model.GetLocalStrategiesAsync(lifetime.Token);localLoaded=true;LocalEnabled.IsChecked=localConfig.Enabled;
         localRules.Clear();foreach(var p in localConfig.User)localRules.Add(p);LocalGrid.ItemsSource=localRules;
         var m=await model.GetLocalMetricsAsync(lifetime.Token);LocalCounters.Text=string.Format(Text.Russian,Text.Get("LocalCounters"),m.PacketsInspected,m.PacketsModified,m.ExtraPacketsGenerated,m.FlowsDirectPlus,Text.Bytes(m.BytesDirectPlus));
     });
     async void SaveLocal(object sender,RoutedEventArgs e)=>await Execute(async()=>{
+        if(!localLoaded){ShowMessage("LocalLoadFirst");return;}
         localConfig.Enabled=LocalEnabled.IsChecked==true;localConfig.User=localRules.ToArray();
         localConfig=await model.SaveLocalStrategiesAsync(localConfig,lifetime.Token);
         if(LocalAuto.IsChecked==true && AppGrid.SelectedItem is ApplicationRow row)await model.SetProfileAsync(row.Profile,"AUTO",null,lifetime.Token);
@@ -115,6 +117,7 @@ public partial class MainWindow : Window
     });
     void SelectLocal(object sender,SelectionChangedEventArgs e){if(LocalGrid.SelectedItem is not LocalStrategyProfile p)return;LocalApp.Text=p.Application;LocalPorts.Text=string.Join(",",p.Ports);LocalDomains.Text=string.Join(",",p.Domains);LocalIPs.Text=string.Join(",",p.Ips);LocalExcludeDomains.Text=string.Join(",",p.ExcludeDomains);LocalExcludeIPs.Text=string.Join(",",p.ExcludeIps);foreach(ComboBoxItem item in LocalMechanism.Items)if((string)item.Tag==p.Strategy)LocalMechanism.SelectedItem=item;}
     void AddLocal(object sender,RoutedEventArgs e){
+        if(!localLoaded){ShowMessage("LocalLoadFirst");return;}
         try{var old=LocalGrid.SelectedItem as LocalStrategyProfile;var strategy=(string)((ComboBoxItem)LocalMechanism.SelectedItem).Tag;
         var p=new LocalStrategyProfile{Id=old?.Id??Guid.NewGuid().ToString("N"),Name=System.IO.Path.GetFileNameWithoutExtension(LocalApp.Text),Application=LocalApp.Text,Protocol=strategy.StartsWith("udp-")?"udp":"tcp",Ports=Parts(LocalPorts.Text).Select(ushort.Parse).ToArray(),Domains=Parts(LocalDomains.Text),Ips=Parts(LocalIPs.Text),ExcludeDomains=Parts(LocalExcludeDomains.Text),ExcludeIps=Parts(LocalExcludeIPs.Text),Strategy=strategy,Cutoff=old?.Cutoff??2,Priority=old?.Priority??0,Enabled=true};
         if(old is not null)localRules.Remove(old);localRules.Add(p);LocalGrid.ItemsSource=localRules;LocalGrid.SelectedItem=p;

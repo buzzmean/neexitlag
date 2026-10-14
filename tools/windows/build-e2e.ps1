@@ -16,6 +16,7 @@ try {
  Copy-Item (Join-Path $Output 'tcp-selected.exe') (Join-Path $Output 'tcp-control.exe')
  Copy-Item (Join-Path $Output 'tcp-selected.exe') (Join-Path $Output 'tcp-plus.exe')
  $scripts=Join-Path $Output 'tools\windows';New-Item -ItemType Directory -Force $scripts|Out-Null;Copy-Item (Join-Path $PSScriptRoot '*.ps1') $scripts
+ $licenses=Join-Path $Output 'third_party\licenses';New-Item -ItemType Directory -Force $licenses|Out-Null;Copy-Item (Join-Path $root 'third_party\licenses\*.txt') $licenses;Copy-Item (Join-Path $root 'third_party\NOTICE.md') (Join-Path $Output 'third_party\NOTICE.md')
  $docs=Join-Path $Output 'docs';New-Item -ItemType Directory -Force $docs|Out-Null;Copy-Item (Join-Path $root 'docs\DIRECT_PLUS.md') $docs
  Copy-Item (Join-Path $Output 'test-game.exe') (Join-Path $Output 'control-client.exe')
  Copy-Item (Join-Path $Output 'test-game.exe') (Join-Path $Output 'udp-plus.exe')

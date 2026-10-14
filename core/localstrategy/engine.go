@@ -78,13 +78,14 @@ type LocalStrategy interface {
 	Process([]byte, *State) Result
 }
 type Metrics struct {
-	Inspected    uint64 `json:"packets_inspected"`
-	Modified     uint64 `json:"packets_modified"`
-	Extra        uint64 `json:"extra_packets_generated"`
-	Flows        uint64 `json:"flows_direct_plus"`
-	Bytes        uint64 `json:"bytes_direct_plus"`
-	RelayAvoided uint64 `json:"bytes_relay_avoided"`
-	Errors       uint64 `json:"errors"`
+	RelaySavingsMeasured bool   `json:"relay_savings_measured"`
+	Inspected            uint64 `json:"packets_inspected"`
+	Modified             uint64 `json:"packets_modified"`
+	Extra                uint64 `json:"extra_packets_generated"`
+	Flows                uint64 `json:"flows_direct_plus"`
+	Bytes                uint64 `json:"bytes_direct_plus"`
+	RelayAvoided         uint64 `json:"bytes_relay_avoided"`
+	Errors               uint64 `json:"errors"`
 }
 type LocalStrategyEngine struct {
 	revision                                         atomic.Uint64
