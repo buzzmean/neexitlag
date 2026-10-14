@@ -525,4 +525,6 @@
 <data name="LocalConflictUnknown" xml:space="preserve"><value>Известный конфликт не найден. Проверка модулей может быть неполной; это не гарантия совместимости.</value></data>
 <data name="LocalDNSUnknown" xml:space="preserve"><value>Наличие DoH-конфигурации не доказывает доступность. Browser DoH и его публичный выход не измерены.</value></data>
 <data name="LocalLoadFirst" xml:space="preserve"><value>Сначала загрузите текущие стратегии, чтобы сохранить существующие правила.</value></data>
+<data name="LocalTcpCustom" xml:space="preserve"><value>TCP: настраиваемая сегментация</value></data>
+<data name="LocalSplitPosition" xml:space="preserve"><value>Позиция для настраиваемой TCP-стратегии (1–512)</value></data>
 </root>

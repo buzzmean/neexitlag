@@ -78,7 +78,8 @@ func checksumTransport(p []byte) {
 	binary.BigEndian.PutUint16(p[off:], v)
 	checksumIP(p)
 }
-func transform(p []byte, strategy string) [][]byte {
+func transform(p []byte, strategy string) [][]byte { return transformAt(p, strategy, 0) }
+func transformAt(p []byte, strategy string, position uint16) [][]byte {
 	if strategy == "udp-fragment-24" {
 		if _, ok := packetPayload(p, "udp"); !ok || len(p) <= 44 || len(p) > 1500 {
 			return nil
@@ -100,7 +101,7 @@ func transform(p []byte, strategy string) [][]byte {
 		checksumIP(b)
 		return [][]byte{a, b}
 	}
-	if strategy != "tcp-split-1" && strategy != "tcp-split-5" {
+	if strategy != "tcp-split" && strategy != "tcp-split-1" && strategy != "tcp-split-5" {
 		return nil
 	}
 	payload, ok := packetPayload(p, "tcp")
@@ -108,6 +109,12 @@ func transform(p []byte, strategy string) [][]byte {
 		return nil
 	}
 	split := 1
+	if strategy == "tcp-split" {
+		if position < 1 || position > 512 {
+			return nil
+		}
+		split = int(position)
+	}
 	if strategy == "tcp-split-5" {
 		split = 5
 	}

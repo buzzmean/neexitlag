@@ -16,6 +16,7 @@ const Version = 1
 const MaxProfiles = 32
 
 type Profile struct {
+	SplitPosition  uint16   `json:"split_position,omitempty"`
 	ID             string   `json:"id"`
 	Name           string   `json:"name"`
 	Version        int      `json:"version"`
@@ -56,6 +57,7 @@ type Metadata struct {
 }
 type State struct {
 	selectedIndex int
+	splitPosition uint16
 	selectedID    string
 	generation    uint64
 	inspected     uint32
@@ -113,6 +115,13 @@ func compile(p Profile) (compiled, error) {
 		return compiled{}, errors.New("UDP domain metadata unsupported; use explicit IP/exclude IP")
 	}
 
+	if p.Strategy == "tcp-split" {
+		if p.SplitPosition < 1 || p.SplitPosition > 512 {
+			return compiled{}, errors.New("TCP split position must be 1..512")
+		}
+	} else if p.SplitPosition != 0 {
+		return compiled{}, errors.New("split position requires tcp-split mechanism")
+	}
 	for _, port := range p.Ports {
 		if port == 0 {
 			return compiled{}, errors.New("invalid port")
@@ -322,6 +331,7 @@ func (e *LocalStrategyEngine) Process(p []byte, st *State, m Metadata) (r Result
 	if st.inspected >= c.Cutoff {
 		st.done = true
 	}
+	st.splitPosition = c.SplitPosition
 	processed := mechanisms[c.Strategy].Process(p, st)
 	r.Packets = processed.Packets
 	r.Modified = processed.Modified

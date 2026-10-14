@@ -118,7 +118,8 @@
       <DataGridTextColumn Header="{ui:Tr Application}" Binding="{Binding Application}" Width="*"/><DataGridTextColumn Header="{ui:Tr LocalDetails}" Binding="{Binding Strategy}" Width="180"/><DataGridTextColumn Header="{ui:Tr Enabled}" Binding="{Binding Enabled}" Width="80"/>
      </DataGrid.Columns></DataGrid>
      <TextBlock Text="{ui:Tr LocalApp}"/><TextBox x:Name="LocalApp"/>
-     <ComboBox x:Name="LocalMechanism" SelectedIndex="0"><ComboBoxItem Tag="tcp-split-1" Content="{ui:Tr LocalTcp1}"/><ComboBoxItem Tag="tcp-split-5" Content="{ui:Tr LocalTcp5}"/><ComboBoxItem Tag="udp-fragment-24" Content="{ui:Tr LocalUdp24}"/></ComboBox>
+     <ComboBox x:Name="LocalMechanism" SelectedIndex="0"><ComboBoxItem Tag="tcp-split" Content="{ui:Tr LocalTcpCustom}"/><ComboBoxItem Tag="tcp-split-1" Content="{ui:Tr LocalTcp1}"/><ComboBoxItem Tag="tcp-split-5" Content="{ui:Tr LocalTcp5}"/><ComboBoxItem Tag="udp-fragment-24" Content="{ui:Tr LocalUdp24}"/></ComboBox>
+     <TextBlock Text="{ui:Tr LocalSplitPosition}"/><TextBox x:Name="LocalSplitPosition"/>
      <TextBlock Text="{ui:Tr LocalPorts}"/><TextBox x:Name="LocalPorts"/>
      <TextBlock Text="{ui:Tr LocalDomains}"/><TextBox x:Name="LocalDomains"/>
      <TextBlock Text="{ui:Tr LocalIPs}"/><TextBox x:Name="LocalIPs"/>

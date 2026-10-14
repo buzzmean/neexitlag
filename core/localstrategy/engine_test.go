@@ -389,3 +389,19 @@ func TestStateDisableAfterCutoffAndOptionSafety(t *testing.T) {
 		t.Fatal("AO rewritten")
 	}
 }
+
+func TestDataDrivenSplitPosition(t *testing.T) {
+	p := profile()
+	p.Strategy = "tcp-split"
+	p.SplitPosition = 7
+	e := engine(t, p)
+	raw := packet(6, []byte("hello world"))
+	r := e.Process(raw, &State{}, metadata())
+	if !r.Modified || len(r.Packets[0]) != 47 || binary.BigEndian.Uint32(r.Packets[1][24:]) != binary.BigEndian.Uint32(raw[24:])+7 {
+		t.Fatal("configured position not applied")
+	}
+	p.SplitPosition = 513
+	if e.Reload(Config{Version: 1, Enabled: true, User: []Profile{p}}) == nil {
+		t.Fatal("unbounded split offset")
+	}
+}

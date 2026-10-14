@@ -11,7 +11,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
- LocalPorts.Text="443";
+ LocalPorts.Text="443";LocalSplitPosition.Text="1";
         DataContext = model;
         Launch.IsChecked = LocalPreferences.AutoStart;
         StartMinimized.IsChecked = preferences.StartMinimized;
@@ -115,11 +115,11 @@ public partial class MainWindow : Window
         if(LocalAuto.IsChecked==true && AppGrid.SelectedItem is ApplicationRow row)await model.SetProfileAsync(row.Profile,"AUTO",null,lifetime.Token);
         LocalCounters.Text=Text.Get("LocalSaved");
     });
-    void SelectLocal(object sender,SelectionChangedEventArgs e){if(LocalGrid.SelectedItem is not LocalStrategyProfile p)return;LocalApp.Text=p.Application;LocalPorts.Text=string.Join(",",p.Ports);LocalDomains.Text=string.Join(",",p.Domains);LocalIPs.Text=string.Join(",",p.Ips);LocalExcludeDomains.Text=string.Join(",",p.ExcludeDomains);LocalExcludeIPs.Text=string.Join(",",p.ExcludeIps);foreach(ComboBoxItem item in LocalMechanism.Items)if((string)item.Tag==p.Strategy)LocalMechanism.SelectedItem=item;}
+    void SelectLocal(object sender,SelectionChangedEventArgs e){if(LocalGrid.SelectedItem is not LocalStrategyProfile p)return;LocalApp.Text=p.Application;LocalSplitPosition.Text=(p.SplitPosition==0?1:p.SplitPosition).ToString(System.Globalization.CultureInfo.InvariantCulture);LocalPorts.Text=string.Join(",",p.Ports);LocalDomains.Text=string.Join(",",p.Domains);LocalIPs.Text=string.Join(",",p.Ips);LocalExcludeDomains.Text=string.Join(",",p.ExcludeDomains);LocalExcludeIPs.Text=string.Join(",",p.ExcludeIps);foreach(ComboBoxItem item in LocalMechanism.Items)if((string)item.Tag==p.Strategy)LocalMechanism.SelectedItem=item;}
     void AddLocal(object sender,RoutedEventArgs e){
         if(!localLoaded){ShowMessage("LocalLoadFirst");return;}
         try{var old=LocalGrid.SelectedItem as LocalStrategyProfile;var strategy=(string)((ComboBoxItem)LocalMechanism.SelectedItem).Tag;
-        var p=new LocalStrategyProfile{Id=old?.Id??Guid.NewGuid().ToString("N"),Name=System.IO.Path.GetFileNameWithoutExtension(LocalApp.Text),Application=LocalApp.Text,Protocol=strategy.StartsWith("udp-")?"udp":"tcp",Ports=Parts(LocalPorts.Text).Select(ushort.Parse).ToArray(),Domains=Parts(LocalDomains.Text),Ips=Parts(LocalIPs.Text),ExcludeDomains=Parts(LocalExcludeDomains.Text),ExcludeIps=Parts(LocalExcludeIPs.Text),Strategy=strategy,Cutoff=old?.Cutoff??2,Priority=old?.Priority??0,Enabled=true};
+        var p=new LocalStrategyProfile{Id=old?.Id??Guid.NewGuid().ToString("N"),Name=System.IO.Path.GetFileNameWithoutExtension(LocalApp.Text),Application=LocalApp.Text,Protocol=strategy.StartsWith("udp-")?"udp":"tcp",Ports=Parts(LocalPorts.Text).Select(ushort.Parse).ToArray(),Domains=Parts(LocalDomains.Text),Ips=Parts(LocalIPs.Text),ExcludeDomains=Parts(LocalExcludeDomains.Text),ExcludeIps=Parts(LocalExcludeIPs.Text),Strategy=strategy,SplitPosition=strategy=="tcp-split"?ushort.Parse(LocalSplitPosition.Text):((ushort)0),Cutoff=old?.Cutoff??2,Priority=old?.Priority??0,Enabled=true};
         if(old is not null)localRules.Remove(old);localRules.Add(p);LocalGrid.ItemsSource=localRules;LocalGrid.SelectedItem=p;
         }catch{ShowMessage("LocalSelect");}
     }

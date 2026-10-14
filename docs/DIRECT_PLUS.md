@@ -14,6 +14,9 @@ DIRECT means native Windows routing, which can be Happ/VPN. Do not call its obse
 
 - `tcp-split-1`: two ordered segments at payload offset 1.
 - `tcp-split-5`: two ordered segments at offset 5.
+
+The same TCP mechanism accepts data-driven `strategy="tcp-split", split_position=1..512`. The named variants are presets; adding offsets, targets or cutoffs requires config changes, not an engine rewrite.
+
 - `udp-fragment-24`: two fragments of one IPv4 UDP datagram, first fragment body=24 bytes, unchanged UDP payload/checksum. Experimental: deliberately clears DF; middleboxes may drop fragments. No retransmission/reliability/fake payload.
 
 TCP sequence space, encrypted data, endpoint and TLS trust stay unchanged. No CA is installed by DIRECT+. A controlled self-signed HTTPS endpoint may need its existing `-EndpointCA` file for test-client certificate verification, as in the earlier harness; that is not a MITM CA. Normal browser sites use normal browser trust.

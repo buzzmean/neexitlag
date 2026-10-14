@@ -274,6 +274,7 @@ public sealed class DropDiagnostics
 
 public sealed class LocalCaptureCounters { public ulong DirectPlusBytes {get;set;} }
 public sealed class LocalStrategyProfile {
+ public ushort SplitPosition {get;set;}
  public string Id {get;set;}=""; public string Name {get;set;}=""; public int Version {get;set;}=1;
  public string Protocol {get;set;}="tcp"; public ushort[] Ports {get;set;}=[443]; public string Application {get;set;}="";
  public string[] Domains {get;set;}=[]; public string[] Ips {get;set;}=[]; public string[] ExcludeDomains {get;set;}=[]; public string[] ExcludeIps {get;set;}=[];
