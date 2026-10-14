@@ -183,15 +183,20 @@ Windows user's certificate store (or use an already-trusted destination cert):
 certutil -user -addstore Root .\.e2e\web-test-ca.pem
 $chrome='C:\Program Files\Google\Chrome\Application\chrome.exe'
 .\tools\windows\acceptance-browser.ps1 -ChromePath $chrome `
-  -URL https://2.56.177.4:40443 -TokenFile .\.e2e\bundle\windows\echo.token -Mode TCP
+  -URL https://2.56.177.4:40443 -HttpURL http://2.56.177.4:40080 `
+  -TokenFile .\.e2e\bundle\windows\echo.token -Mode TCP
 .\tools\windows\acceptance-browser.ps1 -ChromePath $chrome `
   -URL https://2.56.177.4:40443 -TokenFile .\.e2e\bundle\windows\echo.token -Mode QUIC
 ```
 
-TCP mode temporarily disables QUIC only in that test browser. QUIC mode enables it
+TCP mode requires real browser HTTP, HTTPS/HTTP2 and WSS observations with HMAC
+proofs and matching destination flow counters. It temporarily disables QUIC only
+in that test browser. QUIC mode enables it
 and requires an actual HTTP/3 response plus matching UDP relay counters; enabling
 QUIC or seeing UDP443 alone is not PASS. Alt-Svc discovery gets six navigations,
-without forcing QUIC or a relay winner. Browser default background networking is
+without forcing QUIC or a relay winner. If Chromium rejects HTTP/3 with a local
+test root, use a controlled DNS name and publicly trusted certificate; do not add
+certificate bypass/forced-QUIC flags. Browser default background networking is
 suppressed to isolate evidence. No certificate-error bypass is used. For actual
 browser DNS behavior, use a controlled hostname resolving to the VPS and a trusted
 certificate with that DNS SAN instead of the literal IP. Keep DNS/DoH settings as
