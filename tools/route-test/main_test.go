@@ -1,13 +1,23 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
+	"github.com/buzzmean/neexitlag/core/protocol"
+	"github.com/buzzmean/neexitlag/core/routing"
+	"github.com/buzzmean/neexitlag/internal/webprobe"
+	"github.com/quic-go/quic-go/http3"
+	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"net/netip"
+	"sync"
 	"testing"
 	"time"
 
@@ -171,5 +181,253 @@ func TestMetricsAndRecommendationUseLossFirstOptimizer(t *testing.T) {
 	}
 	if publicEndpoint("127.0.0.1:40000") || publicEndpoint("203.0.113.1:40000") || !publicEndpoint("2.56.177.4:40000") {
 		t.Fatal("local/docs address labeled Internet")
+	}
+}
+
+func TestRealAuthenticatedLargeUDPDatagrams(t *testing.T) {
+	_, _, client, _, _ := testRelay(t)
+	socket, e := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer socket.Close()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		b := make([]byte, 2048)
+		for {
+			n, peer, e := socket.ReadFromUDP(b)
+			if e != nil {
+				return
+			}
+			_, _ = socket.WriteToUDP(b[:n], peer)
+		}
+	}()
+	defer func() { socket.Close(); <-done }()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	flow, e := client.OpenUDP(ctx, socket.LocalAddr().(*net.UDPAddr).AddrPort())
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer flow.Close()
+	for _, size := range []int{64, 1100, 1200, 1350, protocol.MaxPayload} {
+		payload := bytes.Repeat([]byte{byte(size)}, size)
+		if e = flow.Send(payload); e != nil {
+			t.Fatal(size, e)
+		}
+		got, e := flow.Receive(ctx)
+		if e != nil || !bytes.Equal(got, payload) {
+			t.Fatalf("size %d: %v, got %d", size, e, len(got))
+		}
+	}
+	t.Log("actual authenticated QUIC DATAGRAM fragmentation in both directions, local integration only")
+}
+
+// Real nested HTTP/3, including >=1200-byte QUIC Initial datagrams, through the
+// actual authenticated relay. The loopback bridge is a test socket adapter;
+// it is not external Windows/browser acceptance and generates no telemetry.
+func TestRealHTTP3ThroughAuthenticatedRelay(t *testing.T) {
+	_, _, client, _, _ := testRelay(t)
+	token := "controlled-h3-token-1234567890"
+	certServer := httptest.NewTLSServer(webprobe.Handler(token))
+	tlsConfig := certServer.TLS.Clone()
+	certificate := certServer.Certificate()
+	certServer.Close()
+	target, e := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if e != nil {
+		t.Fatal(e)
+	}
+	server := &http3.Server{Handler: webprobe.Handler(token), TLSConfig: tlsConfig}
+	serverDone := make(chan error, 1)
+	go func() { serverDone <- server.Serve(target) }()
+	defer func() { server.Close(); <-serverDone }()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	flow, e := client.OpenUDP(ctx, target.LocalAddr().(*net.UDPAddr).AddrPort())
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer flow.Close()
+	bridge, e := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if e != nil {
+		t.Fatal(e)
+	}
+	var mu sync.Mutex
+	var peer *net.UDPAddr
+	var wg sync.WaitGroup
+	wg.Add(2)
+	defer func() { cancel(); bridge.Close(); flow.Close(); wg.Wait() }()
+	go func() {
+		defer wg.Done()
+		b := make([]byte, 2048)
+		for {
+			n, p, e := bridge.ReadFromUDP(b)
+			if e != nil {
+				return
+			}
+			mu.Lock()
+			if peer == nil {
+				peer = p
+			}
+			same := peer.String() == p.String()
+			mu.Unlock()
+			if same {
+				if flow.Send(b[:n]) != nil {
+					return
+				}
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for {
+			b, e := flow.Receive(ctx)
+			if e != nil {
+				return
+			}
+			mu.Lock()
+			p := peer
+			mu.Unlock()
+			if p != nil {
+				if _, e = bridge.WriteToUDP(b, p); e != nil {
+					return
+				}
+			}
+		}
+	}()
+	roots := x509.NewCertPool()
+	roots.AddCert(certificate)
+	transport := &http3.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS13}}
+	defer transport.Close()
+	request, e := http.NewRequestWithContext(ctx, "GET", "https://"+bridge.LocalAddr().String()+"/observe?nonce=1234567890abcdef", nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	request.Header.Set("X-Neexitlag-Proof", webprobe.SignRequest(token, "GET", "/observe", request.URL.Query().Get("nonce")))
+	response, e := (&http.Client{Transport: transport}).Do(request)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer response.Body.Close()
+	observation, e := webprobe.ReadObservation(response.Body)
+	if e != nil || response.ProtoMajor != 3 || observation.Protocol != "HTTP/3.0" || !observation.TLS || observation.Nonce != "1234567890abcdef" || !webprobe.VerifyObservation(token, observation) {
+		t.Fatalf("%+v %v", observation, e)
+	}
+}
+
+func TestHTTPSHTTP2OverAuthenticatedTCPRelay(t *testing.T) {
+	_, _, client, _, _ := testRelay(t)
+	token := "controlled-tls-endpoint-token-123456"
+	target := httptest.NewUnstartedServer(webprobe.Handler(token))
+	target.EnableHTTP2 = true
+	target.StartTLS()
+	defer target.Close()
+	roots := x509.NewCertPool()
+	roots.AddCert(target.Certificate())
+	tr := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}, ForceAttemptHTTP2: true, DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+		destination, e := netip.ParseAddrPort(addr)
+		if e != nil {
+			return nil, e
+		}
+		return client.OpenTCP(ctx, destination)
+	}}
+	defer tr.CloseIdleConnections()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	request, e := http.NewRequestWithContext(ctx, "GET", target.URL+"/observe?nonce=0123456789abcdef", nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	request.Header.Set("X-Neexitlag-Proof", webprobe.SignRequest(token, "GET", "/observe", request.URL.Query().Get("nonce")))
+	response, e := (&http.Client{Transport: tr}).Do(request)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer response.Body.Close()
+	o, e := webprobe.ReadObservation(response.Body)
+	if e != nil || !o.TLS || o.Protocol != "HTTP/2.0" || o.Nonce != "0123456789abcdef" || !webprobe.VerifyObservation(token, o) || response.ProtoMajor != 2 {
+		t.Fatalf("%+v %v", o, e)
+	}
+}
+
+func TestRealTCPRoutePinningAndNativeOpenFailureFallback(t *testing.T) {
+	_, _, client, _, _ := testRelay(t)
+	target, e := net.Listen("tcp4", "127.0.0.1:0")
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer target.Close()
+	var workers sync.WaitGroup
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			c, e := target.Accept()
+			if e != nil {
+				return
+			}
+			workers.Add(1)
+			go func() { defer workers.Done(); defer c.Close(); _, _ = io.Copy(c, c) }()
+		}
+	}()
+	defer func() { target.Close(); <-done; workers.Wait() }()
+	engine := routing.New(10)
+	engine.SetRelay("VPS-01", client)
+	engine.SetPolicy("selected", routing.Policy{Route: routing.Route{RelayID: "VPS-01"}})
+	f := routing.Flow{Protocol: "tcp", PID: 42, ProcessPath: "selected.exe", ApplicationID: "selected", Source: netip.MustParseAddrPort("127.0.0.1:50001"), Destination: target.Addr().(*net.TCPAddr).AddrPort()}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	first, e := engine.OpenTCP(ctx, f)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer first.Close()
+	engine.SetPolicy("selected", routing.Policy{})
+	if _, e = first.Write([]byte("pin")); e != nil {
+		t.Fatal(e)
+	}
+	b := make([]byte, 3)
+	if _, e = io.ReadFull(first, b); e != nil || string(b) != "pin" {
+		t.Fatal(e, string(b))
+	}
+	if snapshot := engine.Snapshot(); len(snapshot) != 1 || snapshot[0].Route.RelayID != "VPS-01" {
+		t.Fatal("existing TCP migrated", snapshot)
+	}
+	f.Source = netip.MustParseAddrPort("127.0.0.1:50002")
+	second, e := engine.OpenTCP(ctx, f)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer second.Close()
+	found := false
+	for _, flow := range engine.Snapshot() {
+		if flow.Source == f.Source {
+			found = flow.Route.Direct()
+		}
+	}
+	if !found {
+		t.Fatal("new TCP ignored changed policy")
+	}
+	engine.SetPolicy("selected", routing.Policy{Route: routing.Route{RelayID: "unavailable"}})
+	f.Source = netip.MustParseAddrPort("127.0.0.1:50003")
+	fallback, e := engine.OpenTCP(ctx, f)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer fallback.Close()
+	found = false
+	for _, flow := range engine.Snapshot() {
+		if flow.Source == f.Source {
+			found = flow.Route.Direct()
+		}
+	}
+	if !found {
+		t.Fatal("opening failure did not use native DIRECT")
+	}
+	client.Close()
+	_ = first.SetReadDeadline(time.Now().Add(time.Second))
+	if _, e = first.Read(b); e == nil {
+		t.Fatal("dead relay TCP silently migrated")
 	}
 }

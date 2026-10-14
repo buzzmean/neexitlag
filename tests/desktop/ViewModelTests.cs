@@ -28,6 +28,19 @@ public sealed class FakeService : IServiceClient
 public sealed class ViewModelTests
 {
     [Fact]
+    public void ApplicationProtocolsUseOnlyFreshAttributedCapture()
+    {
+        var row=new ApplicationRow();
+        var p=new Profile{Id="browser",Executables=["C:\\chrome.exe"]};
+        var processes=new[]{new ProcessIdentity{PID=42,CreationTime=7,Path="C:\\chrome.exe"}};
+        var evidence=new CaptureEvidence{Flows=[new CaptureFlow{Pid=42,CreationTime=7,Exe="C:\\chrome.exe",Protocol="tcp",IpVersion="IPv4",SelectedRoute="RELAY",RelayId="VPS-01",LastSeen=DateTimeOffset.UtcNow}]};
+        row.Update(p,processes,evidence);
+        Assert.Contains("VPS-01",row.Tcp);Assert.Equal(Text.Get("NoData"),row.Udp);
+        Assert.Equal(Text.Get("IPv6Unsupported"),row.Ipv6);
+        evidence.Flows[0].CreationTime=8;row.Update(p,processes,evidence);
+        Assert.Equal(Text.Get("NoData"),row.Tcp);
+    }
+    [Fact]
     public async Task HomeUsesOnlyRealFreshMeasurements()
     {
         var service = new FakeService();

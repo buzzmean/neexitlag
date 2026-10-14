@@ -1,5 +1,10 @@
 # Real Windows / public-Internet acceptance
 
+> This document records the earlier UDP stage. The owner reports it passed on real
+> Windows. Current TCP/web acceptance and changed size/IPv6 limits are documented
+> in [WINDOWS_TCP_WEB.md](WINDOWS_TCP_WEB.md); do not repeat the proven UDP stages
+> as a prerequisite for TCP acceptance.
+
 **Status: manual simultaneous Windows DIRECT/RELAY E2E confirmed by the operator.**
 The operator reports test-game.exe: 30 captured, 30 relayed, 0 direct, 27 relay
 replies, RELAY/VPS-01, echo source = VPS public IP; concurrently control-client.exe:
@@ -279,9 +284,10 @@ flow association and capture pins are bounded and idle-cleaned.
 The service explicitly bypasses its own PID; reinjected impostor packets are
 excluded from the capture filter. Failed relay setup/send/receive switches to
 DIRECT by reinjecting original application packets and draining pending payloads.
-Existing TCP is never magically migrated; transparent TCP/IPv6 is not implemented.
-An oversized first datagram stays DIRECT. Oversized datagrams on an already
-pinned RELAY flow are dropped under the retained1100-byte transport budget;
+Existing TCP is never migrated. The TCP/web branch adds transparent IPv4 TCP;
+IPv6 relay transport remains unsupported. Selected RELAY datagrams >1472 bytes
+are dropped, including the first packet; 1101..1472-byte datagrams use bounded
+fragments and require the updated VPS relay. IPv4 IP
 fragments bypass interception. These limits must be assessed before real games. Service/driver abrupt failure behavior still
 needs actual Windows A–F reports. Linux cannot establish kernel reinjection safety.
 

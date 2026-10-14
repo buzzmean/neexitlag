@@ -80,3 +80,25 @@ func TestNativeDualStackUDPOwner(t *testing.T) {
 		t.Fatal("native dual-stack owner", pid, e)
 	}
 }
+
+func TestNativeTCPOwnerOfFullTuple(t *testing.T) {
+	l, e := net.Listen("tcp4", "127.0.0.1:0")
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer l.Close()
+	c, e := net.Dial("tcp4", l.Addr().String())
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer c.Close()
+	tuple := Tuple{"tcp", c.LocalAddr().(*net.TCPAddr).AddrPort(), c.RemoteAddr().(*net.TCPAddr).AddrPort()}
+	pid, e := resolveTCPOwner(tuple)
+	if e != nil || pid != uint32(os.Getpid()) {
+		t.Fatalf("native TCP owner=%d err=%v", pid, e)
+	}
+	tuple.Destination = netip.AddrPortFrom(tuple.Destination.Addr(), 1)
+	if _, e = resolveTCPOwner(tuple); e == nil {
+		t.Fatal("unrelated tuple attributed")
+	}
+}

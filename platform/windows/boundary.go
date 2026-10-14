@@ -19,6 +19,7 @@ type Tuple struct {
 }
 type ProcessIdentity = profiles.Identity
 type Capabilities struct {
+	IPv4        bool `json:"ipv4"`
 	UDP         bool `json:"udp"`
 	TCP         bool `json:"tcp"`
 	IPv6        bool `json:"ipv6"`

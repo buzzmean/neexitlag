@@ -36,6 +36,32 @@ class RelayLifecycleTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.validate(self.valid() + '\nNEEXITLAG_ADMIN_TOKEN=not-supported\n')
 
+    def test_public_browser_policy_is_explicit_and_keeps_auth(self):
+        public = '\n'.join(line for line in self.valid().splitlines()
+                           if not line.startswith('RELAY_ALLOW_CIDRS='))
+        public = public.replace('RELAY_DESTINATION_POLICY=cidrs', 'RELAY_DESTINATION_POLICY=public-only')
+        self.assertEqual(self.validate(public)['RELAY_DESTINATION_POLICY'], 'public-only')
+        with self.assertRaises(ValueError):
+            self.validate(public + '\nRELAY_ALLOW_CIDRS=2.56.177.4/32\n')
+        with self.assertRaises(ValueError):
+            self.validate(public.replace('=public-only', '=anything'))
+        with tempfile.TemporaryDirectory() as directory:
+            import os, json
+            base = Path(directory)
+            binary = base / 'relay'
+            binary.write_text('#!/usr/bin/env python3\nimport json,sys\nprint(json.dumps(sys.argv[1:]))\n')
+            binary.chmod(0o755)
+            start = base / 'start.sh'
+            start.write_text((DEPLOY / 'relay-start.sh').read_text().replace('/opt/neexitlag/bin/relay', str(binary)))
+            env = dict(os.environ, RELAY_DESTINATION_POLICY='public-only')
+            env.pop('RELAY_ALLOW_CIDRS', None)
+            args = json.loads(subprocess.check_output(['bash', str(start)], env=env))
+            self.assertNotIn('-allow-cidrs', args)
+            for required in ['-ca', '-cert', '-key', '-relay-id', '-ticket-keys', '-replay-cache']:
+                self.assertIn(required, args)
+            env['RELAY_ALLOW_CIDRS'] = '2.56.177.4/32'
+            self.assertNotEqual(subprocess.run(['bash', str(start)], env=env, capture_output=True).returncode, 0)
+
     def test_all_shell_scripts_parse(self):
         for path in DEPLOY.glob('*.sh'):
             subprocess.run(['bash', '-n', str(path)], check=True, capture_output=True)

@@ -422,7 +422,7 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 			return nil, e
 		}
 		if p.Mode == profiles.Block && !c.Demo && (c.Backend == nil || !c.Backend.Status().Capabilities.TCP) {
-			return nil, errors.New("BLOCK profile requires full UDP/TCP capture; WinDivert MVP supports IPv4 UDP only")
+			return nil, errors.New("BLOCK profile requires UDP/TCP capture; current backend does not provide it")
 		}
 		if e := c.Profiles.Upsert(p); e != nil {
 			return nil, e
@@ -510,6 +510,21 @@ func (c *Controller) Diagnostics(ctx context.Context) []Check {
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
 	out := []Check{}
+	if c.Backend != nil {
+		b := c.Backend.Status()
+		tcp, udp, ipv4 := "unavailable", "unavailable", "unavailable"
+		if b.Ready && b.Capabilities.TCP {
+			tcp = "healthy"
+		}
+		if b.Ready && b.Capabilities.UDP {
+			udp = "healthy"
+		}
+		if b.Ready && b.Capabilities.IPv4 {
+			ipv4 = "healthy"
+		}
+		out = append(out, Check{"TCP interception", tcp, "backend readiness, not an external TCP proof"}, Check{"UDP interception", udp, "backend readiness"}, Check{"IPv4", ipv4, "capture backend capability"})
+	}
+	out = append(out, Check{"IPv6", "unsupported", "no IPv6 relay transport: new attributable selected IPv6 packets blocked at NETWORK; existing/unattributed/unsupported traffic fails open"}, Check{"HTTPS through relay", "not configured", "not measured; encrypted TCP alone is not HTTPS evidence"}, Check{"QUIC through relay", "not configured", "not measured; UDP/443 alone is not QUIC evidence"}, Check{"Browser DNS", "not configured", "not attributed: system resolver service traffic stays DIRECT; selected browser DoH follows its socket profile"})
 	dnsHost := "localhost"
 	if c.ControlPlaneURL == "" {
 		out = append(out, Check{"Control Plane", "not configured", "no endpoint configured"})

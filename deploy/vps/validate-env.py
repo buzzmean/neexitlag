@@ -7,7 +7,7 @@ import sys
 import urllib.parse
 
 KEYS = {'RELAY_LISTEN', 'RELAY_METRICS', 'RELAY_ID', 'RELAY_ALLOW_CIDRS',
-        'RELAY_CONTROL_PLANE', 'RELAY_CONTROL_PLANE_CA_FILE'}
+        'RELAY_CONTROL_PLANE', 'RELAY_CONTROL_PLANE_CA_FILE', 'RELAY_DESTINATION_POLICY'}
 
 def validate(path):
     settings = {}
@@ -19,7 +19,7 @@ def validate(path):
         if not sep or name not in KEYS or name in settings or not value or re.search(r'[\s\x00\"\'`$\\]', value):
             raise ValueError('expected unique supported KEY=value settings without shell expansion')
         settings[name] = value
-    for key in ('RELAY_LISTEN', 'RELAY_METRICS', 'RELAY_ID', 'RELAY_ALLOW_CIDRS', 'RELAY_CONTROL_PLANE'):
+    for key in ('RELAY_LISTEN', 'RELAY_METRICS', 'RELAY_ID', 'RELAY_CONTROL_PLANE'):
         if key not in settings:
             raise ValueError('missing required setting: ' + key)
     for key in ('RELAY_LISTEN', 'RELAY_METRICS'):
@@ -31,10 +31,19 @@ def validate(path):
             raise ValueError('health/metrics must bind loopback')
     if not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', settings['RELAY_ID']):
         raise ValueError('invalid ticket audience')
-    for value in settings['RELAY_ALLOW_CIDRS'].split(','):
-        network = ipaddress.ip_network(value, strict=True)
-        if network.prefixlen == 0 or network.is_multicast or network.is_unspecified:
-            raise ValueError('controlled test requires an explicit limited destination allowlist')
+    policy = settings.get('RELAY_DESTINATION_POLICY', 'cidrs')
+    if policy == 'public-only':
+        if 'RELAY_ALLOW_CIDRS' in settings:
+            raise ValueError('public-only cannot be combined with destination CIDRs')
+    elif policy == 'cidrs':
+        if 'RELAY_ALLOW_CIDRS' not in settings:
+            raise ValueError('controlled test requires explicit destination CIDRs')
+        for value in settings['RELAY_ALLOW_CIDRS'].split(','):
+            network = ipaddress.ip_network(value, strict=True)
+            if network.prefixlen == 0 or network.is_multicast or network.is_unspecified:
+                raise ValueError('controlled test requires an explicit limited destination allowlist')
+    else:
+        raise ValueError('unknown destination policy')
     url = urllib.parse.urlsplit(settings['RELAY_CONTROL_PLANE'])
     if url.scheme != 'https' or not url.hostname or url.username or url.password or url.query or url.fragment:
         raise ValueError('control plane must be an explicit HTTPS endpoint')

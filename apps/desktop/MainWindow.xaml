@@ -55,6 +55,10 @@
       <DataGridTextColumn Header="{ui:Tr Mode}" Binding="{Binding Mode}" Width="120"/>
       <DataGridTextColumn Header="{ui:Tr ProcessStatus}" Binding="{Binding ProcessStatus}" Width="130"/>
       <DataGridTextColumn Header="{ui:Tr CurrentRoute}" Binding="{Binding Route}" Width="150"/>
+      <DataGridTextColumn Header="{ui:Tr UdpTraffic}" Binding="{Binding Udp}" Width="130"/>
+      <DataGridTextColumn Header="{ui:Tr TcpTraffic}" Binding="{Binding Tcp}" Width="130"/>
+      <DataGridTextColumn Header="{ui:Tr IPv4Label}" Binding="{Binding Ipv4}" Width="130"/>
+      <DataGridTextColumn Header="{ui:Tr IPv6Label}" Binding="{Binding Ipv6}" Width="180"/>
      </DataGrid.Columns></DataGrid>
     </DockPanel>
     <DockPanel x:Name="Routes" Visibility="Collapsed"><TextBlock DockPanel.Dock="Top" Text="{ui:Tr RoutesHint}" Style="{StaticResource Hint}"/>

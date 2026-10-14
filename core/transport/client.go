@@ -19,14 +19,16 @@ import (
 var ErrClosed = errors.New("flow or session closed")
 
 type Client struct {
-	conn       *quic.Conn
-	next       atomic.Uint32
-	mu         sync.Mutex
-	flows      map[uint32]*UDPFlow
-	done       chan struct{}
-	drops      atomic.Uint64
-	LocalDrops telemetry.Counters
-	onFailure  func(string)
+	conn           *quic.Conn
+	next           atomic.Uint32
+	packetSequence atomic.Uint32
+	reassembly     protocol.Reassembly
+	mu             sync.Mutex
+	flows          map[uint32]*UDPFlow
+	done           chan struct{}
+	drops          atomic.Uint64
+	LocalDrops     telemetry.Counters
+	onFailure      func(string)
 }
 type UDPFlow struct {
 	client *Client
@@ -150,10 +152,13 @@ func (c *Client) receive() {
 		}
 		c.LocalDrops.Attempt(telemetry.Decode)
 		c.LocalDrops.Attempt(telemetry.UnknownFlow)
-		id, p, e := protocol.Decode(b)
+		id, p, e := c.reassembly.Decode(b, time.Now())
 		if e != nil {
 			c.drops.Add(1)
 			c.LocalDrops.Drop(telemetry.Decode)
+			continue
+		}
+		if p == nil {
 			continue
 		}
 		c.mu.Lock()
@@ -177,12 +182,17 @@ func (f *UDPFlow) Send(p []byte) error {
 		return ErrClosed
 	default:
 	}
-	b, e := protocol.Encode(f.id, p)
+	parts, e := protocol.EncodeDatagrams(f.id, f.client.packetSequence.Add(1), p)
 	if e != nil {
 		return &telemetry.LocalError{Category: telemetry.CaptureProcessing, Cause: e}
 	}
 	f.client.LocalDrops.Attempt(telemetry.SocketSend)
-	err := f.client.conn.SendDatagram(b)
+	var err error
+	for _, b := range parts {
+		if err = f.client.conn.SendDatagram(b); err != nil {
+			break
+		}
+	}
 	if err != nil {
 		f.client.LocalDrops.Drop(telemetry.SocketSend)
 		var tooLarge *quic.DatagramTooLargeError

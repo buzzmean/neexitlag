@@ -10,7 +10,7 @@ import (
 
 const Version byte = 1
 const HeaderSize = 5
-const MaxPayload = 1100
+const MaxPayload = 1472
 const OpenSize = 24
 const UDP byte = 1
 const TCP byte = 2

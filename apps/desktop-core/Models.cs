@@ -156,6 +156,8 @@ public sealed class CaptureEvidence
 }
 public sealed class CaptureFlow
 {
+ public string Protocol { get; set; } = "";
+ public string IpVersion { get; set; } = "";
     public uint Pid
     {
         get; set;

@@ -3,6 +3,7 @@ package windowsplatform
 import (
 	"encoding/binary"
 	"errors"
+	"github.com/buzzmean/neexitlag/core/protocol"
 	"net/netip"
 )
 
@@ -29,7 +30,7 @@ func ParseUDP(packet []byte) (Tuple, []byte, error) {
 }
 func ReplyUDP(template, payload []byte) ([]byte, error) {
 	tuple, _, err := ParseUDP(template)
-	if err != nil || len(payload) > 1100 {
+	if err != nil || len(payload) > protocol.MaxPayload {
 		return nil, errors.New("invalid UDP reply")
 	}
 	ihl := int(template[0]&15) * 4
