@@ -206,3 +206,40 @@ private. Do not claim browser/DNS/IPv6 PASS until the real Windows run succeeds.
 Cleanup: `systemctl stop neexitlag-web-test`, remove only its binary and
 `/etc/neexitlag/web-test`, and remove exactly the test firewall rules above. The
 existing relay, enrollment and proven UDP deployment remain installed.
+
+## 5. Ordinary websites after controlled acceptance
+
+The old controlled-test allowlist permits only the VPS /32, so ordinary websites
+will be rejected by the relay and may follow DIRECT failure policy. That is not
+a successful MANUAL browser relay test. After the controlled TCP/browser acceptance,
+explicitly opt into the relay's **existing authenticated public-only** policy:
+
+```bash
+# Existing VPS: create/replace only the non-secret relay env, not identities.
+sudo sh -c 'umask 027; cat > /etc/neexitlag/relay/relay.env <<"ENV"
+RELAY_LISTEN=0.0.0.0:4433
+RELAY_METRICS=127.0.0.1:9090
+RELAY_ID=VPS-01
+RELAY_DESTINATION_POLICY=public-only
+RELAY_CONTROL_PLANE=https://127.0.0.1:8443
+RELAY_CONTROL_PLANE_CA_FILE=/etc/neexitlag/relay/ca.pem
+ENV'
+sudo chown root:neexitlag-relay /etc/neexitlag/relay/relay.env
+sudo chmod 0640 /etc/neexitlag/relay/relay.env
+sudo python3 /tmp/neexitlag-tcp-update/validate-env.py /etc/neexitlag/relay/relay.env
+sudo systemctl restart neexitlag-relay
+curl --fail http://127.0.0.1:9090/healthz
+```
+
+This requires the updated start wrapper/unit from section 1. No
+`RELAY_ALLOW_CIDRS` may be present in public-only mode. Device mTLS, one-use tickets,
+audience checks and replay protection remain mandatory. The existing relay policy
+blocks private, loopback, multicast, link-local and reserved destinations. No
+unauthenticated proxy is enabled. Restore `RELAY_DESTINATION_POLICY=cidrs` and an
+explicit limited allowlist to return to controlled-only testing.
+
+Restart the Windows service to reconnect, select the full Chrome/Edge executable
+path in Applications, MANUAL -> VPS-01, then restart that browser to create fresh
+connections. Other applications without profiles remain DIRECT. Browser DNS and
+IPv6 limitations above still apply; confirm TCP/UDP flow route and egress source
+rather than assuming the profile alone proves relay routing.
