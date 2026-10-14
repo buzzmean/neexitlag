@@ -173,6 +173,9 @@ internal static class Program
     static int Main()
     {
         Directory.CreateDirectory(Output); settings = Path.Combine(Path.GetTempPath(), "neexitlag-native-" + Guid.NewGuid() + ".json");
+        // Match the published application's pack://application resource root;
+        // this console host's entry assembly contains no production assets.
+        Application.ResourceAssembly = typeof(App).Assembly;
         var app = new App(); app.InitializeComponent(); app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
         try { Picker(); Lifecycle(); Dropdowns(); Pass("native WPF desktop regression suite"); return 0; }
         catch (Exception e) { Console.Error.WriteLine(e); File.WriteAllText(Path.Combine(Output, "failure.txt"), e.ToString()); return 1; }
