@@ -26,7 +26,7 @@ public partial class MainWindow : Window
         Channel.SelectedValue = "stable";
         Fallback.ItemsSource = new[] { new Choice("DIRECT", Text.Get("Direct")) };
         Fallback.SelectedValue = "DIRECT";
-        using var iconStream = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/Assets/NeExitLag.ico"))!.Stream;
+        using var iconStream = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/NeExitLag;component/Assets/NeExitLag.ico"))!.Stream;
         using var loadedIcon = new System.Drawing.Icon(iconStream);
         trayImage = (System.Drawing.Icon)loadedIcon.Clone();
         tray = new()

@@ -45,12 +45,6 @@ jobs:
         with: {go-version: '1.25.x'}
       - uses: actions/setup-dotnet@v4
         with: {dotnet-version: '8.0.x'}
-      - run: go build ./...
-      - run: go test ./core/... ./platform/windows ./services/client-service
-      - run: dotnet build --nologo
-      - run: dotnet test --nologo
-      - run: ./tools/windows/build-desktop.ps1
-        shell: pwsh
       - run: dotnet run --project tests/desktop-native/NeExitLag.Desktop.NativeTests.csproj --configuration Release
         timeout-minutes: 3
       - uses: actions/upload-artifact@v4
@@ -58,6 +52,12 @@ jobs:
         with:
           name: desktop-native-ui-evidence
           path: bin/native-ui-tests/
+      - run: go build ./...
+      - run: go test ./core/... ./platform/windows ./services/client-service
+      - run: dotnet build --nologo
+      - run: dotnet test --nologo
+      - run: ./tools/windows/build-desktop.ps1
+        shell: pwsh
       - run: ./tests/windows-tools/desktop-smoke.ps1
         shell: pwsh
       - uses: actions/upload-artifact@v4
