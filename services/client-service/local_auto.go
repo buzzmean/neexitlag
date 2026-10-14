@@ -49,7 +49,12 @@ func (c *Controller) applyLocalAuto(id windowsplatform.ProcessIdentity, t window
 	if !automatic {
 		return
 	}
-	k, err := c.localKey(id.Path, t.Destination.String(), t.Protocol)
+	lookupProtocol := t.Protocol
+	quicCandidate := t.Protocol == "udp" && t.Destination.Port() == 443
+	if quicCandidate {
+		lookupProtocol = "tcp"
+	} // TCP proof can authorize scoped fallback, never UDP relay success.
+	k, err := c.localKey(id.Path, t.Destination.String(), lookupProtocol)
 	if err != nil {
 		return
 	}
@@ -73,6 +78,9 @@ func (c *Controller) applyLocalAuto(id windowsplatform.ProcessIdentity, t window
 		d.Route = routing.Route{}
 		return
 	}
+	if winner == "RELAY" && quicCandidate {
+		return
+	} // do not borrow TCP success to relay UDP
 	if winner == "RELAY" {
 		if relay.RouteID != "" && relay.RouteID != optimizer.Direct && relay.RouteID != "controlled-target" {
 			d.Route = routing.Route{RelayID: relay.RouteID}
@@ -83,7 +91,7 @@ func (c *Controller) applyLocalAuto(id windowsplatform.ProcessIdentity, t window
 		return
 	}
 	for _, p := range c.Local.Config().User {
-		if p.ID == winner && p.Enabled {
+		if p.ID == winner && p.Enabled && (!quicCandidate || p.QuicFallback) {
 			d.Route = routing.Route{Kind: routing.DirectPlusRoute}
 			d.Local = c.Local
 			d.LocalStrategyID = winner
@@ -94,13 +102,15 @@ func (c *Controller) applyLocalAuto(id windowsplatform.ProcessIdentity, t window
 }
 
 type localRecord struct {
-	Application string                     `json:"application"`
-	Destination string                     `json:"destination"`
-	Protocol    string                     `json:"protocol"`
-	Network     string                     `json:"network"`
-	Strategy    string                     `json:"strategy"`
-	Success     bool                       `json:"success"`
-	Measurement optimizer.RouteMeasurement `json:"measurement"`
+	PID          uint32                     `json:"pid"`
+	CreationTime uint64                     `json:"creation_time"`
+	Application  string                     `json:"application"`
+	Destination  string                     `json:"destination"`
+	Protocol     string                     `json:"protocol"`
+	Network      string                     `json:"network"`
+	Strategy     string                     `json:"strategy"`
+	Success      bool                       `json:"success"`
+	Measurement  optimizer.RouteMeasurement `json:"measurement"`
 }
 
 func (c *Controller) handleLocalEvidence(method string, raw json.RawMessage) (any, error) {
@@ -130,6 +140,24 @@ func (c *Controller) handleLocalEvidence(method string, raw json.RawMessage) (an
 			for _, p := range c.Local.Config().User {
 				if p.ID == v.Strategy && p.Protocol == v.Protocol {
 					found = true
+					if v.Success && len(p.Actions) > 0 {
+						backend, ok := c.Backend.(interface {
+							DiagnosticsTarget(uint32, string) windowsplatform.CaptureEvidence
+						})
+						if !ok || v.PID == 0 || v.CreationTime == 0 {
+							return nil, errors.New("successful chain evidence requires captured process identity")
+						}
+						ev := backend.DiagnosticsTarget(v.PID, v.Destination)
+						proved := false
+						for _, f := range ev.Flows {
+							if f.PID == v.PID && f.CreationTime == v.CreationTime && strings.EqualFold(strings.ReplaceAll(f.Executable, `\`, "/"), strings.ReplaceAll(v.Application, `\`, "/")) && f.Destination == v.Destination && f.Protocol == v.Protocol && f.Strategy == v.Strategy && f.StrategyRevision == c.Local.Revision() && f.Route == "DIRECT_PLUS" && f.Counters.DirectPlus > 0 && f.Counters.DirectPlusBytes > 0 && f.Counters.Relayed == 0 && f.Counters.RelayedBytes == 0 && time.Since(f.LastSeen) < time.Minute {
+								proved = true
+							}
+						}
+						if ev.Truncated || !proved {
+							return nil, errors.New("no complete real transform evidence for successful chain report")
+						}
+					}
 				}
 			}
 			if !found {

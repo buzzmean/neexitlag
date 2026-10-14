@@ -49,7 +49,7 @@
       <ComboBox x:Name="Mode" ItemsSource="{Binding Modes}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedIndex="0" SelectionChanged="ModeChanged"/>
       <ComboBox x:Name="RelayChoice" ItemsSource="{Binding Relays}" DisplayMemberPath="Label" SelectedValuePath="Value" MinWidth="190" IsEnabled="False"/>
       <Button Content="{ui:Tr Apply}" Click="ApplyMode" IsEnabled="{Binding CanControl}"/>
-     </WrapPanel><TextBlock Text="{ui:Tr ApplicationSelectionHint}" Style="{StaticResource Hint}"/></StackPanel>
+     </WrapPanel><WrapPanel><ComboBox x:Name="AppPreset" DisplayMemberPath="Label" SelectedValuePath="Id" MinWidth="180"/><CheckBox x:Name="AppQuic" IsChecked="True" Content="{ui:Tr QuicFallback}"/><Button Content="{ui:Tr ApplyPreset}" Click="ApplyPreset" IsEnabled="{Binding CanControl}"/></WrapPanel><TextBlock Text="{ui:Tr ApplicationSelectionHint}" Style="{StaticResource Hint}"/></StackPanel>
      <DataGrid x:Name="AppGrid" ItemsSource="{Binding Applications}" SelectionChanged="ApplicationSelected" SelectionMode="Single"><DataGrid.Columns>
       <DataGridTextColumn Header="{ui:Tr Application}" Binding="{Binding Name}" Width="150"/>
       <DataGridTextColumn Header="{ui:Tr Executable}" Binding="{Binding Path}" Width="2*"/>
@@ -109,13 +109,16 @@
     </DockPanel>
 
     <ScrollViewer x:Name="LocalStrategies" Visibility="Collapsed" VerticalScrollBarVisibility="Auto"><StackPanel>
+     <WrapPanel><Button Content="{ui:Tr DiscordPreset}" Tag="discord" Click="QuickPreset"/><Button Content="{ui:Tr YouTubePreset}" Tag="youtube" Click="QuickPreset"/></WrapPanel>
+     <TextBlock Text="{ui:Tr PresetHint}" Style="{StaticResource Hint}"/>
      <TextBlock Text="{ui:Tr LocalWarning}" TextWrapping="Wrap" Style="{StaticResource Hint}"/>
      <WrapPanel><CheckBox x:Name="LocalEnabled" Content="{ui:Tr LocalEnabled}" Margin="8"/><CheckBox x:Name="LocalAuto" Content="{ui:Tr AutoStrategy}" Margin="8"/></WrapPanel>
      <TextBlock Text="{ui:Tr LocalAutoHint}" Style="{StaticResource Hint}" TextWrapping="Wrap"/>
      <WrapPanel><Button Content="{ui:Tr LocalLoad}" Click="LoadLocal"/><Button Content="{ui:Tr LocalSave}" Click="SaveLocal" IsEnabled="{Binding CanControl}"/></WrapPanel>
      <TextBlock x:Name="LocalCounters" TextWrapping="Wrap" Style="{StaticResource Hint}"/>
+     <Button Content="{ui:Tr ApplyVariant}" Click="ApplyVariant" HorizontalAlignment="Left" IsEnabled="{Binding CanControl}"/>
      <DataGrid x:Name="LocalGrid" Height="160" AutoGenerateColumns="False" SelectionChanged="SelectLocal"><DataGrid.Columns>
-      <DataGridTextColumn Header="{ui:Tr Application}" Binding="{Binding Application}" Width="*"/><DataGridTextColumn Header="{ui:Tr LocalDetails}" Binding="{Binding Strategy}" Width="180"/><DataGridTextColumn Header="{ui:Tr Enabled}" Binding="{Binding Enabled}" Width="80"/>
+      <DataGridTextColumn Header="{ui:Tr PresetVersionLabel}" Binding="{Binding Name}" Width="190"/><DataGridTextColumn Header="{ui:Tr Application}" Binding="{Binding Application}" Width="*"/><DataGridTextColumn Header="{ui:Tr LocalDetails}" Binding="{Binding Advanced}" Width="420"/><DataGridTextColumn Header="{ui:Tr Enabled}" Binding="{Binding Enabled}" Width="80"/>
      </DataGrid.Columns></DataGrid>
      <TextBlock Text="{ui:Tr LocalApp}"/><TextBox x:Name="LocalApp"/>
      <ComboBox x:Name="LocalMechanism" SelectedIndex="0"><ComboBoxItem Tag="tcp-split" Content="{ui:Tr LocalTcpCustom}"/><ComboBoxItem Tag="tcp-split-1" Content="{ui:Tr LocalTcp1}"/><ComboBoxItem Tag="tcp-split-5" Content="{ui:Tr LocalTcp5}"/><ComboBoxItem Tag="udp-fragment-24" Content="{ui:Tr LocalUdp24}"/></ComboBox>
@@ -129,6 +132,7 @@
      <TextBlock Text="{ui:Tr LocalURL}"/><TextBox x:Name="LocalURL"/>
      <TextBlock Text="{ui:Tr LocalToken}"/><TextBox x:Name="LocalToken"/>
      <TextBlock Text="{ui:Tr LocalCA}"/><TextBox x:Name="LocalCA"/>
+     <Button Content="{ui:Tr LocalTestV2}" Click="TestLocalV2" HorizontalAlignment="Left" IsEnabled="{Binding CanControl}"/>
      <Button Content="{ui:Tr LocalTest}" Click="TestLocal" HorizontalAlignment="Left" IsEnabled="{Binding CanControl}"/>
     </StackPanel></ScrollViewer>
     <ScrollViewer x:Name="Settings" Visibility="Collapsed" VerticalScrollBarVisibility="Auto"><StackPanel>

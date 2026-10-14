@@ -274,6 +274,9 @@ func (c *Controller) Classify(identity windowsplatform.ProcessIdentity, t window
 			decision.Route = routing.Route{RelayID: primary}
 		}
 	}
+	if profile.Mode == profiles.Auto && c.Local.HasApplication(identity.Path) {
+		decision.Route = routing.Route{}
+	}
 	if profile.Mode == profiles.Auto {
 		c.applyLocalAuto(identity, t, &decision)
 	}
@@ -393,7 +396,7 @@ func (c *Controller) Snapshot() Snapshot {
 }
 func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMessage) (any, error) {
 	switch method {
-	case "local.get", "local.set", "local.metrics", "local.network", "local.record", "local.recommend", "local.compare":
+	case "local.presets", "local.preset.apply", "local.get", "local.set", "local.metrics", "local.network", "local.record", "local.recommend", "local.compare":
 		return c.handleLocal(method, raw)
 	case "acceptance.readiness":
 		var query struct {
@@ -410,12 +413,24 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		return c.DropDiagnostics(), nil
 	case "capture.diagnostics":
 		var query struct {
-			PID uint32 `json:"pid"`
+			PID         uint32 `json:"pid"`
+			Destination string `json:"destination"`
 		}
 		if len(raw) > 0 && string(raw) != "null" {
 			if err := security.Parse(raw, &query); err != nil {
 				return nil, err
 			}
+		}
+		if query.Destination != "" {
+			if _, err := netip.ParseAddrPort(query.Destination); err != nil {
+				return nil, errors.New("invalid diagnostic destination")
+			}
+			if backend, ok := c.Backend.(interface {
+				DiagnosticsTarget(uint32, string) windowsplatform.CaptureEvidence
+			}); ok {
+				return backend.DiagnosticsTarget(query.PID, query.Destination), nil
+			}
+			return nil, errors.New("scoped capture diagnostics unavailable")
 		}
 		if backend, ok := c.Backend.(interface {
 			Diagnostics(uint32) windowsplatform.CaptureEvidence

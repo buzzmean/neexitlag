@@ -56,7 +56,7 @@ func (c *Cache) Record(k TargetKey, strategy string, m optimizer.RouteMeasuremen
 		all = map[string]Working{}
 		c.items[k] = all
 	}
-	if len(all) >= 8 {
+	if len(all) >= 12 {
 		if _, ok := all[strategy]; !ok {
 			return errors.New("too many target strategies")
 		}
@@ -107,12 +107,12 @@ func (c *Cache) Candidates(k TargetKey, now time.Time) []Working {
 	return out
 }
 
-// Recommend retains the existing score formula. Traffic cost is a bounded 5ms
-// tie-break penalty for RELAY, never a substitute for measured quality.
+// Recommend uses the existing score to order usable measured local candidates.
+// Prefer a working local route before paying relay traffic cost.
 // Healthy DIRECT wins. Missing per-target direct evidence cannot enable DIRECT+.
 func Recommend(direct optimizer.RouteMeasurement, working []Working, relay optimizer.RouteMeasurement, now time.Time) string {
 	fresh := func(m optimizer.RouteMeasurement) bool {
-		return !m.ObservedAt.After(now) && now.Sub(m.ObservedAt) <= 90*time.Second
+		return !m.ObservedAt.After(now) && now.Sub(m.ObservedAt) < 15*time.Minute
 	}
 	if !fresh(direct) {
 		return ""
@@ -123,10 +123,7 @@ func Recommend(direct optimizer.RouteMeasurement, working []Working, relay optim
 	}
 	best := ""
 	score := math.Inf(1)
-	if fresh(relay) && !math.IsInf(optimizer.Score(relay), 1) {
-		best = "RELAY"
-		score = optimizer.Score(relay) + 5
-	}
+
 	for _, v := range working {
 		if v.Strategy == "DIRECT" || v.Strategy == "RELAY" || v.FailureCount > 0 || now.Before(v.QuarantinedUntil) || !now.Before(v.Expires) || !fresh(v.Measurement) {
 			continue
@@ -137,7 +134,13 @@ func Recommend(direct optimizer.RouteMeasurement, working []Working, relay optim
 			best = v.Strategy
 		}
 	}
-	return best
+	if best != "" {
+		return best
+	}
+	if fresh(relay) && !math.IsInf(optimizer.Score(relay), 1) {
+		return "RELAY"
+	}
+	return ""
 }
 
 func (c *Cache) Evidence(k TargetKey, strategy string, now time.Time) (Working, bool) {

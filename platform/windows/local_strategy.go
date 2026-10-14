@@ -18,6 +18,11 @@ func SendLocal(d Decision, state *localstrategy.State, id ProcessIdentity, tuple
 		return err
 	}
 	r := d.Local.Process(p, state, localstrategy.Metadata{StrategyID: d.LocalStrategyID, Application: id.Path, Protocol: tuple.Protocol, Destination: tuple.Destination})
+	if r.Suppress {
+		d.Local.Commit(r, len(p))
+		evidence.RecordQuicFallback(id, tuple, r.Strategy, r.Preset)
+		return nil
+	}
 	if r.Modified {
 		for _, q := range r.Packets {
 			if err := send(q); err != nil {
@@ -28,7 +33,7 @@ func SendLocal(d Decision, state *localstrategy.State, id ProcessIdentity, tuple
 		}
 		if r.Modified {
 			d.Local.Commit(r, len(p))
-			evidence.RecordLocal(id, tuple, r.Strategy, r.Domain, uint64(len(p)))
+			evidence.RecordLocalResult(id, tuple, r, uint64(len(p)))
 			return nil
 		}
 	}

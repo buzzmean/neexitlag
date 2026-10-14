@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"io"
 	"net"
 	"net/netip"
@@ -33,7 +34,7 @@ func (b *WinDivertBackend) startTCP(d *divertDLL) (*tcpRedirect, error) {
 	port := uint16(l.Addr().(*net.TCPAddr).Port)
 	// Inbound physical connections to the internal listener are dropped. Reflected
 	// packets injected below this handle are the only admitted listener traffic.
-	filter := fmt.Sprintf("ip and tcp and !impostor and ((outbound and !loopback) or (inbound and tcp.DstPort == %d))", port)
+	filter := fmt.Sprintf("ip and tcp and !impostor and ((outbound and !loopback) or (inbound and (tcp.DstPort == %d or (tcp.Syn and tcp.Ack))))", port)
 	h, err := d.openHandle(filter, 0, 0)
 	if err != nil {
 		l.Close()
@@ -73,6 +74,9 @@ func (t *tcpRedirect) send(p []byte, a [80]byte) error {
 	ok, _, err := d.send.Call(t.handle, uintptr(unsafe.Pointer(&p[0])), uintptr(len(p)), uintptr(unsafe.Pointer(&n)), uintptr(unsafe.Pointer(&a[0])))
 	if ok == 0 {
 		return fmt.Errorf("TCP reinjection: %w", err)
+	}
+	if n != uint32(len(p)) {
+		return fmt.Errorf("TCP reinjection short packet: %d/%d", n, len(p))
 	}
 	return nil
 }
@@ -124,8 +128,21 @@ func (t *tcpRedirect) packets(classify Classifier) {
 			}
 			continue
 		}
-		// Never expose the local interception listener as an Internet proxy.
+		// External traffic to the interception listener is never admitted.
+		// Native SYN/ACK observation shares this handle; it is reinjected
+		// unchanged and only confirms an exact existing DIRECT+ handshake.
 		if a[10]&2 == 0 {
+			if tuple.Destination.Port() != t.port {
+				reverse := Tuple{Protocol: "tcp", Source: tuple.Destination, Destination: tuple.Source}
+				t.state.mu.Lock()
+				if e := t.state.entries[reverse]; e != nil && e.mode == "direct" && e.decision.Route.Local() && p[0] == 0x45 && flags&0x3f == 0x12 && 20+int(p[32]>>4)*4 == len(p) {
+					e.localState.ConfirmHandshake(binary.BigEndian.Uint32(p[28:]), binary.BigEndian.Uint32(p[24:]))
+				}
+				t.state.mu.Unlock()
+				if err = t.send(p, a); err != nil && t.b.ctx.Err() == nil {
+					t.b.fail(err)
+				}
+			}
 			continue
 		}
 		t.state.mu.Lock()
@@ -145,6 +162,13 @@ func (t *tcpRedirect) packets(classify Classifier) {
 		if e != nil {
 			e.last = time.Now()
 			t.record(e, "captured", len(p))
+			if e.domainInspections < 8 && p[0] == 0x45 {
+				e.domainInspections++
+				h := 20 + int(p[32]>>4)*4
+				if h <= len(p) {
+					t.b.evidence.RecordDomain(e.identity, e.tuple, localstrategy.PacketDomain(p[h:]))
+				}
+			}
 			mode := e.mode
 			if mode == "relay" {
 				err = t.reflect(e, p, a, false)

@@ -1,5 +1,7 @@
 # Напрямую+ (DIRECT+) — controlled Windows test
 
+DIRECT+ v2 добавляет composable chains, handshake-gated old-sequence fake TLS, bounded QUIC fallback и Discord/YouTube presets. Актуальные возможности/ограничения, real-app tester и точные update/REAL TEST команды: [DIRECT_PLUS_V2.md](DIRECT_PLUS_V2.md). Ниже сохранён v1 controlled acceptance; его строгие проверки не ослаблены.
+
 Experimental, disabled by default. Base UDP E2E previously passed on the user's real Windows/VPS. This change does not repeat or revoke that proof. New local strategies have portable tests/native CI, but no claim of real ISP bypass, Internet speedup, anti-cheat compatibility or external DIRECT+ Windows PASS until these commands produce evidence.
 
 ## Install/update and capture architecture

@@ -80,3 +80,87 @@ func TestTargetFailureSelectsActualRelayInsteadOfGlobalDirect(t *testing.T) {
 		t.Fatal("global direct overrode target evidence", got)
 	}
 }
+
+func TestPresetIPCInstallationAndStrictEvidence(t *testing.T) {
+	c := New(context.Background())
+	defer c.Close()
+	if err := c.SetCustomPath(filepath.Join(t.TempDir(), "profiles.json")); err != nil {
+		t.Fatal(err)
+	}
+	raw := json.RawMessage(`{"application":"C:\\Apps\\chrome.exe","preset":"youtube","quic_fallback":true}`)
+	v, err := c.Handle(context.Background(), "local.preset.apply", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := v.(map[string]any)
+	if result["strategy_id"] == "" || len(c.Local.Config().User) != 7 {
+		t.Fatal(result)
+	}
+	if _, err = c.Handle(context.Background(), "local.preset.apply", raw); err != nil || len(c.Local.Config().User) != 7 {
+		t.Fatal("duplicate preset profiles", err)
+	}
+	other := New(context.Background())
+	defer other.Close()
+	if err := other.SetCustomPath(c.customPath); err != nil || len(other.Local.Config().User) != 7 {
+		t.Fatal("preset persistence", err)
+	}
+	c.network.Store(&windowsplatform.NetworkContext{Fingerprint: "net", ObservedAt: time.Now()})
+	good := optimizer.RouteMeasurement{RouteID: "target", Available: true, Samples: 1, RTT: time.Millisecond, Stability: 1, ObservedAt: time.Now()}
+	req, _ := json.Marshal(localRecord{Application: `C:\Apps\chrome.exe`, Destination: "203.0.113.9:443", Protocol: "tcp", Network: "net", Strategy: result["strategy_id"].(string), Success: true, Measurement: good})
+	if _, err = c.Handle(context.Background(), "local.record", req); err == nil {
+		t.Fatal("chain success accepted without backend transform/identity evidence")
+	}
+}
+func TestPresetAutoDoesNotBorrowVPSPingForUnknownTarget(t *testing.T) {
+	c := New(context.Background())
+	defer c.Close()
+	c.enabled = true
+	cfg, _, err := localstrategy.PresetProfiles("youtube", `C:\Apps\chrome.exe`, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = c.Local.Reload(localstrategy.Config{Version: 1, Enabled: true, User: cfg}); err != nil {
+		t.Fatal(err)
+	}
+	c.Profiles.Upsert(profiles.Profile{ID: "app", Name: "Chrome", Executables: []string{`C:\Apps\chrome.exe`}, Mode: profiles.Auto})
+	d := c.Classify(windowsplatform.ProcessIdentity{PID: 42, CreationTime: 100, Path: `C:\Apps\chrome.exe`}, windowsplatform.Tuple{Protocol: "tcp", Source: netip.MustParseAddrPort("192.0.2.1:1234"), Destination: netip.MustParseAddrPort("203.0.113.9:443")})
+	if !d.Route.Direct() || d.Route.Local() {
+		t.Fatal("unknown website inherited unrelated ping/strategy", d)
+	}
+}
+
+func TestMeasuredTCPStrategyAllowsOnlyScopedAutoQUICFallback(t *testing.T) {
+	c := New(context.Background())
+	defer c.Close()
+	c.enabled = true
+	c.network.Store(&windowsplatform.NetworkContext{Fingerprint: "net", ObservedAt: time.Now()})
+	app := `C:\Apps\chrome.exe`
+	cfg, id, _ := localstrategy.PresetProfiles("youtube", app, true)
+	if err := c.Local.Reload(localstrategy.Config{Version: 1, Enabled: true, User: cfg}); err != nil {
+		t.Fatal(err)
+	}
+	c.Profiles.Upsert(profiles.Profile{ID: "chrome", Name: "Chrome", Executables: []string{app}, Mode: profiles.Auto})
+	who := windowsplatform.ProcessIdentity{PID: 42, CreationTime: 1, Path: app}
+	tuple := windowsplatform.Tuple{Protocol: "udp", Source: netip.MustParseAddrPort("192.0.2.1:50000"), Destination: netip.MustParseAddrPort("203.0.113.9:443")}
+	if c.Classify(who, tuple).Route.Local() {
+		t.Fatal("unmeasured QUIC got strategy")
+	}
+	key, _ := c.localKey(app, tuple.Destination.String(), "tcp")
+	now := time.Now()
+	good := optimizer.RouteMeasurement{RouteID: "target", Available: true, Samples: 1, ObservedAt: now, RTT: time.Millisecond, Stability: 1}
+	bad := good
+	bad.Available = false
+	c.Learned.Record(key, "DIRECT", bad, false, now)
+	c.Learned.Record(key, id, good, true, now)
+	if got := c.Classify(who, tuple); !got.Route.Local() || got.LocalStrategyID != id {
+		t.Fatal("measured app-scoped fallback missing", got)
+	}
+	tuple.Destination = netip.MustParseAddrPort("203.0.113.9:50000")
+	if c.Classify(who, tuple).Route.Local() {
+		t.Fatal("voice inherited TCP strategy")
+	}
+	tuple.Destination = netip.MustParseAddrPort("203.0.113.10:443")
+	if c.Classify(who, tuple).Route.Local() {
+		t.Fatal("unmeasured destination inherited strategy")
+	}
+}

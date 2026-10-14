@@ -7,6 +7,7 @@ import (
 	"github.com/buzzmean/neexitlag/core/security"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func (c *Controller) loadLocal() error {
@@ -27,6 +28,38 @@ func (c *Controller) loadLocal() error {
 	return c.Local.Reload(v)
 }
 func (c *Controller) handleLocal(method string, raw json.RawMessage) (any, error) {
+	if method == "local.presets" {
+		return localstrategy.Presets(), nil
+	}
+	if method == "local.preset.apply" {
+		var q struct {
+			Application  string `json:"application"`
+			Preset       string `json:"preset"`
+			QuicFallback bool   `json:"quic_fallback"`
+		}
+		if err := security.Parse(raw, &q); err != nil {
+			return nil, err
+		}
+		entries, selected, err := localstrategy.PresetProfiles(q.Preset, q.Application, q.QuicFallback)
+		if err != nil {
+			return nil, err
+		}
+		cfg := c.Local.Config()
+		cfg.Enabled = true
+		kept := []localstrategy.Profile{}
+		for _, p := range cfg.User {
+			if p.Preset != q.Preset || !strings.EqualFold(strings.ReplaceAll(p.Application, `\`, "/"), strings.ReplaceAll(q.Application, `\`, "/")) {
+				kept = append(kept, p)
+			}
+		}
+		cfg.User = append(kept, entries...)
+		b, _ := json.Marshal(cfg)
+		saved, err := c.handleLocal("local.set", b)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"config": saved, "strategy_id": selected, "preset": q.Preset, "version": localstrategy.PresetVersion}, nil
+	}
 	if method == "local.compare" {
 		return compareLocalReports(raw)
 	}

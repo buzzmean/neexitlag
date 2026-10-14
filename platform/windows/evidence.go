@@ -2,6 +2,7 @@ package windowsplatform
 
 import (
 	"encoding/json"
+	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"github.com/buzzmean/neexitlag/core/telemetry"
 	"sort"
 	"sync"
@@ -9,6 +10,8 @@ import (
 )
 
 type CaptureCounters struct {
+	FakeTLS         uint64 `json:"fake_tls_packets"`
+	QuicFallback    uint64 `json:"quic_fallback_packets"`
 	DirectPlus      uint64 `json:"direct_plus_packets"`
 	DirectPlusBytes uint64 `json:"direct_plus_bytes"`
 	IPv6Blocked     uint64 `json:"ipv6_blocked_packets"`
@@ -25,19 +28,25 @@ type CaptureCounters struct {
 	Replies         uint64 `json:"relay_reply_packets"`
 }
 type FlowEvidence struct {
-	Strategy     string          `json:"strategy,omitempty"`
-	Domain       string          `json:"domain,omitempty"`
-	Protocol     string          `json:"protocol"`
-	IPVersion    string          `json:"ip_version"`
-	PID          uint32          `json:"pid"`
-	Executable   string          `json:"exe"`
-	CreationTime uint64          `json:"creation_time"`
-	Source       string          `json:"source"`
-	Destination  string          `json:"destination"`
-	Route        string          `json:"selected_route"`
-	RelayID      string          `json:"relay_id,omitempty"`
-	Counters     CaptureCounters `json:"counters"`
-	LastSeen     time.Time       `json:"last_seen"`
+	StrategyRevision string          `json:"strategy_revision,omitempty"`
+	Preset           string          `json:"preset,omitempty"`
+	Chain            string          `json:"chain,omitempty"`
+	FakeTTL          uint8           `json:"fake_ttl,omitempty"`
+	Active           bool            `json:"active,omitempty"`
+	IdentityCurrent  bool            `json:"identity_current,omitempty"`
+	Strategy         string          `json:"strategy,omitempty"`
+	Domain           string          `json:"domain,omitempty"`
+	Protocol         string          `json:"protocol"`
+	IPVersion        string          `json:"ip_version"`
+	PID              uint32          `json:"pid"`
+	Executable       string          `json:"exe"`
+	CreationTime     uint64          `json:"creation_time"`
+	Source           string          `json:"source"`
+	Destination      string          `json:"destination"`
+	Route            string          `json:"selected_route"`
+	RelayID          string          `json:"relay_id,omitempty"`
+	Counters         CaptureCounters `json:"counters"`
+	LastSeen         time.Time       `json:"last_seen"`
 }
 type CaptureEvidence struct {
 	Counters   CaptureCounters             `json:"counters"`
@@ -61,6 +70,8 @@ func NewEvidenceLedger() *EvidenceLedger {
 }
 func increment(c *CaptureCounters, event string) {
 	switch event {
+	case "quic_fallback":
+		c.QuicFallback++
 	case "local":
 		c.DirectPlus++
 	case "ipv6_blocked":
@@ -137,16 +148,26 @@ func (l *EvidenceLedger) recordBytesLocked(id ProcessIdentity, t Tuple, event, r
 	}
 	l.flows[key] = v
 }
-func (l *EvidenceLedger) Snapshot(pid uint32) CaptureEvidence {
+func (l *EvidenceLedger) Snapshot(pid uint32) CaptureEvidence { return l.snapshot(pid, nil) }
+func (l *EvidenceLedger) snapshot(pid uint32, active map[evidenceKey]bool) CaptureEvidence {
+	return l.snapshotTarget(pid, "", active)
+}
+func (l *EvidenceLedger) snapshotTarget(pid uint32, destination string, active map[evidenceKey]bool) CaptureEvidence {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	out := CaptureEvidence{Counters: l.totals, Flows: []FlowEvidence{}}
-	for _, v := range l.flows {
-		if pid == 0 || v.PID == pid {
+	for k, v := range l.flows {
+		v.Active = active[k]
+		if (pid == 0 || v.PID == pid) && (destination == "" || v.Destination == destination) {
 			out.Flows = append(out.Flows, v)
 		}
 	}
-	sort.Slice(out.Flows, func(i, j int) bool { return out.Flows[i].LastSeen.After(out.Flows[j].LastSeen) })
+	sort.Slice(out.Flows, func(i, j int) bool {
+		if out.Flows[i].Active != out.Flows[j].Active {
+			return out.Flows[i].Active
+		}
+		return out.Flows[i].LastSeen.After(out.Flows[j].LastSeen)
+	})
 	if len(out.Flows) > 32 {
 		out.Truncated = true
 		out.Flows = out.Flows[:32]
@@ -214,6 +235,9 @@ func (l *EvidenceLedger) AddBytes(id ProcessIdentity, t Tuple, event, relay stri
 // packets have been sent successfully. Metadata and counters publish atomically.
 // These are not a guessed VPS saving or a proof of application-level success.
 func (l *EvidenceLedger) RecordLocal(id ProcessIdentity, t Tuple, strategy, domain string, n uint64) {
+	l.RecordLocalResult(id, t, localstrategy.Result{Strategy: strategy, Domain: domain}, n)
+}
+func (l *EvidenceLedger) RecordLocalResult(id ProcessIdentity, t Tuple, r localstrategy.Result, n uint64) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.recordBytesLocked(id, t, "local", "", n)
@@ -222,8 +246,45 @@ func (l *EvidenceLedger) RecordLocal(id ProcessIdentity, t Tuple, strategy, doma
 	if ok {
 		v.Route = "DIRECT_PLUS"
 		v.RelayID = ""
-		v.Strategy = strategy
-		v.Domain = domain
+		v.Strategy = r.Strategy
+		v.Domain = r.Domain
+		v.Preset = r.Preset
+		v.StrategyRevision = r.Revision
+		v.Chain = r.Chain
+		if r.FakePackets > 0 {
+			v.FakeTTL = r.FakeTTL
+			v.Counters.FakeTLS += r.FakePackets
+			l.totals.FakeTLS += r.FakePackets
+		}
 		l.flows[key] = v
+	}
+}
+
+func (l *EvidenceLedger) RecordQuicFallback(id ProcessIdentity, t Tuple, strategy, preset string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.recordBytesLocked(id, t, "quic_fallback", "", 0)
+	k := evidenceKey{id.PID, id.CreationTime, t}
+	if v, ok := l.flows[k]; ok {
+		v.Route = "DIRECT_PLUS"
+		v.RelayID = ""
+		v.Strategy = strategy
+		v.Preset = preset
+		v.Chain = "HTTP/3/QUIC → TCP fallback"
+		l.flows[k] = v
+	}
+}
+
+// Passive domain attribution is metadata only and never changes the route.
+func (l *EvidenceLedger) RecordDomain(id ProcessIdentity, t Tuple, domain string) {
+	if domain == "" {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	k := evidenceKey{id.PID, id.CreationTime, t}
+	if v, ok := l.flows[k]; ok && v.Domain == "" {
+		v.Domain = domain
+		l.flows[k] = v
 	}
 }

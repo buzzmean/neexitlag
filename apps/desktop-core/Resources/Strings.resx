@@ -537,4 +537,16 @@
   <data name="RunningLoading" xml:space="preserve"><value>Загрузка запущенных приложений…</value></data>
   <data name="RunningEmpty" xml:space="preserve"><value>Приложения не найдены. Обновите список, измените поиск или выберите файл вручную.</value></data>
   <data name="RunningTruncated" xml:space="preserve"><value>Список ограничен. Некоторые приложения или процессы не показаны; можно выбрать файл вручную.</value></data>
+  <data name="QuicFallback" xml:space="preserve"><value>HTTP/3/QUIC → TCP fallback (для приложения)</value></data>
+  <data name="ApplyPreset" xml:space="preserve"><value>Применить пресет DIRECT+</value></data>
+  <data name="DiscordPreset" xml:space="preserve"><value>Discord — пресет v2</value></data>
+  <data name="YouTubePreset" xml:space="preserve"><value>YouTube — пресет v2</value></data>
+  <data name="PresetHint" xml:space="preserve"><value>Выберите приложение в разделе «Приложения», затем примените Discord или YouTube. Цепочки и явный TTL видны в таблице Advanced. QUIC fallback действует только на новые IPv4 UDP/443 этого приложения, до 3 секунд / 8 пакетов. Voice UDP не блокируется.</value></data>
+  <data name="PresetNeedsPath" xml:space="preserve"><value>Сначала добавьте приложение по полному пути к exe.</value></data>
+  <data name="ChainAdvancedReadOnly" xml:space="preserve"><value>Цепочки пресета показаны в Advanced. Для настройки используйте local.set; этот редактор одиночных механизмов не перезаписывает цепочки.</value></data>
+  <data name="LocalModified" xml:space="preserve"><value>Изменённые пакеты</value></data>
+  <data name="RelayTraffic" xml:space="preserve"><value>Трафик relay</value></data>
+  <data name="LocalTestV2" xml:space="preserve"><value>Тестер v2 — реальное приложение / HTTPS</value></data>
+  <data name="ApplyVariant" xml:space="preserve"><value>Применить выделенный вариант к приложению (MANUAL DIRECT+)</value></data>
+  <data name="PresetVersionLabel" xml:space="preserve"><value>Пресет / версия / вариант</value></data>
 </root>

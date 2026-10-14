@@ -119,3 +119,28 @@ func TestIPv4OwnershipThroughDualStackAndCrossFamilyAmbiguity(t *testing.T) {
 		t.Fatal("mapped IPv4 owner", owners, e)
 	}
 }
+
+func TestTargetDiagnosticsAndLiveRelayPrioritization(t *testing.T) {
+	l := NewEvidenceLedger()
+	id := ProcessIdentity{PID: 42, CreationTime: 10, Path: "chrome.exe"}
+	target := testTuple()
+	l.RecordBytes(id, target, "relay", "VPS-01", 100)
+	l.RecordDomain(id, target, "www.youtube.com")
+	for i := 0; i < 50; i++ {
+		other := target
+		other.Source = netip.AddrPortFrom(other.Source.Addr(), uint16(3000+i))
+		other.Destination = netip.MustParseAddrPort("198.51.100.2:443")
+		l.RecordBytes(id, other, "direct", "", 60)
+	}
+	if !l.Snapshot(42).Truncated {
+		t.Fatal("fixture did not truncate")
+	}
+	scoped := l.snapshotTarget(42, target.Destination.String(), nil)
+	if scoped.Truncated || len(scoped.Flows) != 1 || scoped.Flows[0].Domain != "www.youtube.com" || scoped.Flows[0].Route != "RELAY" {
+		t.Fatal(scoped)
+	}
+	live := l.snapshot(42, map[evidenceKey]bool{{id.PID, id.CreationTime, target}: true})
+	if !live.Truncated || !live.Flows[0].Active || live.Flows[0].Route != "RELAY" {
+		t.Fatal("live relay disappeared behind newer idle flows", live)
+	}
+}

@@ -74,9 +74,11 @@ public partial class MainWindow : Window
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
         catch (Exception e) { model.SetUnavailable(e); }
     }
+    bool presetsLoaded;
     async Task Refresh()
     {
         await Execute(() => model.RefreshAsync(lifetime.Token));
+        if(!presetsLoaded&&model.Available){try{AppPreset.ItemsSource=await model.GetPresetsAsync(lifetime.Token);AppPreset.SelectedIndex=0;presetsLoaded=true;}catch(ServiceException){}}
         if (!settingsLoaded && model.Snapshot is { } snapshot)
         {
             LoadSettings(snapshot);
@@ -118,12 +120,28 @@ public partial class MainWindow : Window
     void SelectLocal(object sender,SelectionChangedEventArgs e){if(LocalGrid.SelectedItem is not LocalStrategyProfile p)return;LocalApp.Text=p.Application;LocalSplitPosition.Text=(p.SplitPosition==0?1:p.SplitPosition).ToString(System.Globalization.CultureInfo.InvariantCulture);LocalPorts.Text=string.Join(",",p.Ports);LocalDomains.Text=string.Join(",",p.Domains);LocalIPs.Text=string.Join(",",p.Ips);LocalExcludeDomains.Text=string.Join(",",p.ExcludeDomains);LocalExcludeIPs.Text=string.Join(",",p.ExcludeIps);foreach(ComboBoxItem item in LocalMechanism.Items)if((string)item.Tag==p.Strategy)LocalMechanism.SelectedItem=item;}
     void AddLocal(object sender,RoutedEventArgs e){
         if(!localLoaded){ShowMessage("LocalLoadFirst");return;}
-        try{var old=LocalGrid.SelectedItem as LocalStrategyProfile;var strategy=(string)((ComboBoxItem)LocalMechanism.SelectedItem).Tag;
+        try{var old=LocalGrid.SelectedItem as LocalStrategyProfile;if(old?.Actions.Length>0){ShowMessage("ChainAdvancedReadOnly");return;}var strategy=(string)((ComboBoxItem)LocalMechanism.SelectedItem).Tag;
         var p=new LocalStrategyProfile{Id=old?.Id??Guid.NewGuid().ToString("N"),Name=System.IO.Path.GetFileNameWithoutExtension(LocalApp.Text),Application=LocalApp.Text,Protocol=strategy.StartsWith("udp-")?"udp":"tcp",Ports=Parts(LocalPorts.Text).Select(ushort.Parse).ToArray(),Domains=Parts(LocalDomains.Text),Ips=Parts(LocalIPs.Text),ExcludeDomains=Parts(LocalExcludeDomains.Text),ExcludeIps=Parts(LocalExcludeIPs.Text),Strategy=strategy,SplitPosition=strategy=="tcp-split"?ushort.Parse(LocalSplitPosition.Text):((ushort)0),Cutoff=old?.Cutoff??2,Priority=old?.Priority??0,Enabled=true};
         if(old is not null)localRules.Remove(old);localRules.Add(p);LocalGrid.ItemsSource=localRules;LocalGrid.SelectedItem=p;
         }catch{ShowMessage("LocalSelect");}
     }
     void RemoveLocal(object sender,RoutedEventArgs e){if(LocalGrid.SelectedItem is LocalStrategyProfile p)localRules.Remove(p);}
+    async void ApplyVariant(object sender,RoutedEventArgs e)
+    {
+        if(AppGrid.SelectedItem is not ApplicationRow app || LocalGrid.SelectedItem is not LocalStrategyProfile strategy || !app.Profile.Executables.Any(path=>ApplicationRow.Matches(strategy.Application,path))){ShowMessage("SelectApplication");return;}
+        var copy=app.Profile.Copy();copy.LocalStrategyId=strategy.Id;
+        await Execute(()=>model.SetProfileAsync(copy,"DIRECT_PLUS",null,lifetime.Token));
+    }
+    void TestLocalV2(object sender,RoutedEventArgs e)
+    {
+        if(AppGrid.SelectedItem is not ApplicationRow row || AppPreset.SelectedValue is not string preset){ShowMessage("SelectApplication");return;}
+        string script=Path.Combine(AppContext.BaseDirectory,"tools","windows","strategy-tester-v2.ps1");
+        if(!File.Exists(script)){var picker=new OpenFileDialog{Title=Text.Get("LocalTestV2"),Filter="PowerShell|strategy-tester-v2.ps1",CheckFileExists=true};if(picker.ShowDialog(this)!=true)return;script=picker.FileName;}
+        var start=new System.Diagnostics.ProcessStartInfo("powershell.exe"){UseShellExecute=true,Verb="runas"};
+        string url=string.IsNullOrWhiteSpace(LocalURL.Text)?(preset=="youtube"?"https://www.youtube.com/":"https://discord.com/app"):LocalURL.Text;
+        foreach(var value in new[]{"-NoProfile","-NoExit","-File",script,"-AppPath",row.Profile.Executables[0],"-Preset",preset,"-URL",url})start.ArgumentList.Add(value);
+        try{System.Diagnostics.Process.Start(start);}catch{ShowMessage("LocalSelect");}
+    }
     void TestLocal(object sender,RoutedEventArgs e){
         var picker=new OpenFileDialog{Title=Text.Get("LocalTestScript"),Filter="PowerShell|strategy-tester.ps1",CheckFileExists=true};if(picker.ShowDialog(this)!=true)return;
         var p=new System.Diagnostics.ProcessStartInfo("powershell.exe"){UseShellExecute=true,Verb="runas"};
@@ -133,6 +151,16 @@ public partial class MainWindow : Window
     async void Reconnect(object sender, RoutedEventArgs e) => await Refresh();
     async void ToggleOptimize(object sender, RoutedEventArgs e) => await Execute(() => model.OptimizeAsync(!model.Optimizing, lifetime.Token));
     void AddApplication(object sender, RoutedEventArgs e) => new AddApplicationWindow(this, model, lifetime.Token).ShowDialog();
+    async void ApplyPreset(object sender,RoutedEventArgs e)
+    {
+        if(AppGrid.SelectedItem is not ApplicationRow row || AppPreset.SelectedValue is not string preset){ShowMessage("SelectApplication");return;}
+        await Execute(()=>model.ApplyPresetAsync(row.Profile,preset,AppQuic.IsChecked==true,lifetime.Token));
+    }
+    async void QuickPreset(object sender,RoutedEventArgs e)
+    {
+        if(AppGrid.SelectedItem is not ApplicationRow row){ShowMessage("SelectApplication");return;}
+        await Execute(()=>model.ApplyPresetAsync(row.Profile,(string)((Button)sender).Tag,AppQuic.IsChecked==true,lifetime.Token));
+    }
     void ApplicationSelected(object sender, SelectionChangedEventArgs e)
     {
         if (AppGrid.SelectedItem is ApplicationRow row)

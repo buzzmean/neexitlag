@@ -1,5 +1,7 @@
 # Flowseal / upstream implementation review
 
+V2 re-review confirmed both upstream HEADs below on 2026-10-14. The inventory remains current. Statements below about the initial MVP not importing fake techniques describe v1; the independent v2 implementation, curated domain subsets and limits are documented in [DIRECT_PLUS_V2.md](DIRECT_PLUS_V2.md). No upstream fake binary/code is copied.
+
 Reviewed 2026-10-14, pinned source trees:
 
 - [Flowseal](https://github.com/Flowseal/zapret-discord-youtube/tree/eb16c1419057e36b8a36fbe7c959483450e6ac8b), MIT, including all 22 general batch configurations.

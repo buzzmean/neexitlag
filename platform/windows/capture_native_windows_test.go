@@ -78,6 +78,32 @@ func testNativeLocalChecksumHelper(t *testing.T, d *divertDLL) {
 	if err != nil || id.CreationTime == 0 || id.Path == "" {
 		t.Fatal("native identity", err)
 	}
+	// The independent native checksum helper must agree with the new fake/split/
+	// disorder plan, including actual fake TTL and old sequence-space bytes.
+	e2 := localstrategy.New()
+	_ = e2.Reload(localstrategy.Config{Version: 1, Enabled: true, User: []localstrategy.Profile{{ID: "native-v2", Version: 1, Application: id.Path, Protocol: "tcp", Ports: []uint16{443}, IPs: []string{"203.0.113.9"}, Strategy: "chain", Actions: []localstrategy.Action{{Kind: "fake-tls", TTL: 5}, {Kind: "tcp-multisplit", Anchor: "sni", Positions: []uint16{1, 5}}, {Kind: "tcp-disorder"}}, Cutoff: 1, Enabled: true}}})
+	m := localstrategy.Metadata{Application: id.Path, Protocol: "tcp", Destination: netip.MustParseAddrPort("203.0.113.9:443")}
+	st := &localstrategy.State{}
+	syn := localTCPPacket(2, nil)
+	binary.BigEndian.PutUint32(syn[24:], 99)
+	e2.Process(syn, st, m)
+	st.ConfirmHandshake(100, 199)
+	raw2 := localTCPPacket(24, localTestHello(t))
+	binary.BigEndian.PutUint32(raw2[24:], 100)
+	binary.BigEndian.PutUint32(raw2[28:], 200)
+	result := e2.Process(raw2, st, m)
+	if !result.Modified || result.FakePackets != 1 {
+		t.Fatal("native v2 plan missing")
+	}
+	for _, q := range result.Packets {
+		before := append([]byte(nil), q...)
+		var address [80]byte
+		d.checksum.Call(uintptr(unsafe.Pointer(&q[0])), uintptr(len(q)), uintptr(unsafe.Pointer(&address[0])), 0)
+		if !bytes.Equal(before, q) {
+			t.Fatal("native fake/split checksum disagreement")
+		}
+	}
+
 	for _, kind := range []string{"tcp", "udp"} {
 		raw := localTestPacket()
 		strategy := "tcp-split-1"

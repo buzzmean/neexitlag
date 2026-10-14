@@ -2,14 +2,17 @@ package windowsplatform
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"github.com/buzzmean/neexitlag/core/routing"
+	"net"
 	"net/netip"
 	"sync"
 	"testing"
+	"time"
 )
 
 func localTestPacket() []byte {
@@ -275,6 +278,73 @@ func TestLocalTCPConcurrentConnections(t *testing.T) {
 		}
 		if f.Counters.Relayed != 0 || f.Counters.RelayedBytes != 0 || f.RelayID != "" {
 			t.Errorf("relay evidence leak: %+v", f)
+		}
+	}
+}
+
+func localTestHello(t *testing.T) []byte {
+	t.Helper()
+	a, b := net.Pipe()
+	defer b.Close()
+	go func() {
+		defer a.Close()
+		_ = tls.Client(a, &tls.Config{ServerName: "www.youtube.com", CurvePreferences: []tls.CurveID{tls.X25519}}).Handshake()
+	}()
+	_ = b.SetReadDeadline(time.Now().Add(5 * time.Second))
+	buf := make([]byte, 1400)
+	n, err := b.Read(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return append([]byte(nil), buf[:n]...)
+}
+func TestLocalChainFullSendEvidenceAndFailure(t *testing.T) {
+	e := localstrategy.New()
+	if err := e.Reload(localstrategy.Config{Version: 1, Enabled: true, User: []localstrategy.Profile{{ID: "chain", Name: "test", Version: 1, Application: "chosen.exe", Protocol: "tcp", Ports: []uint16{443}, IPs: []string{"203.0.113.9"}, Strategy: "chain", Actions: []localstrategy.Action{{Kind: "fake-tls", TTL: 5}, {Kind: "tcp-multisplit", Anchor: "sni", Positions: []uint16{1, 5}}, {Kind: "tcp-disorder"}}, Preset: "youtube", PresetVersion: 2, Cutoff: 1, Enabled: true}}}); err != nil {
+		t.Fatal(err)
+	}
+	id := ProcessIdentity{PID: 42, CreationTime: 10, Path: "chosen.exe"}
+	tuple := Tuple{"tcp", netip.MustParseAddrPort("192.0.2.1:1234"), netip.MustParseAddrPort("203.0.113.9:443")}
+	d := Decision{Route: routing.Route{Kind: routing.DirectPlusRoute}, Local: e, LocalStrategyID: "chain"}
+	payload := localTestHello(t)
+	for _, fail := range []bool{false, true} {
+		ledger := NewEvidenceLedger()
+		st := &localstrategy.State{}
+		syn := localTCPPacket(2, nil)
+		binary.BigEndian.PutUint32(syn[24:], 99)
+		if err := SendLocal(d, st, id, tuple, syn, func([]byte) error { return nil }, ledger); err != nil {
+			t.Fatal(err)
+		}
+		st.ConfirmHandshake(100, 199)
+		raw := localTCPPacket(24, payload)
+		binary.BigEndian.PutUint32(raw[24:], 100)
+		binary.BigEndian.PutUint32(raw[28:], 200)
+		count := 0
+		err := SendLocal(d, st, id, tuple, raw, func([]byte) error {
+			count++
+			if fail && count == 2 {
+				return errors.New("injected send failure")
+			}
+			return nil
+		}, ledger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f := ledger.Snapshot(42).Flows[0]
+		if fail {
+			if f.Route != "DIRECT" || f.Counters.DirectPlus != 0 || f.Counters.FakeTLS != 0 {
+				t.Fatal("partial plan falsely committed", f)
+			}
+			continue
+		}
+		if count != 4 || f.Route != "DIRECT_PLUS" || f.Counters.FakeTLS != 1 || f.FakeTTL != 5 || f.Preset != "youtube" || f.Counters.Relayed != 0 || f.Counters.DirectPlus != 1 {
+			t.Fatal(f, count)
+		}
+		if err := SendLocal(d, st, id, tuple, localTCPPacket(16, nil), func([]byte) error { return nil }, ledger); err != nil {
+			t.Fatal(err)
+		}
+		if f = ledger.Snapshot(42).Flows[0]; f.Route != "DIRECT_PLUS" || f.Counters.FakeTLS != 1 || f.Counters.DirectPlus != 1 {
+			t.Fatal("ACK lost real plan evidence", f)
 		}
 	}
 }

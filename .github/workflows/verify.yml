@@ -65,6 +65,10 @@ jobs:
         shell: pwsh
       - run: ./tests/windows-tools/direct-plus-checks.ps1
         shell: powershell
+      - run: ./tests/windows-tools/strategy-v2-checks.ps1
+        shell: pwsh
+      - run: ./tests/windows-tools/strategy-v2-checks.ps1
+        shell: powershell
       - run: ./tests/windows-tools/tcp-web-checks.ps1
         shell: pwsh
       - run: ./tests/windows-tools/tcp-web-checks.ps1

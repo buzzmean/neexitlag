@@ -42,13 +42,15 @@ public sealed class ApplicationRow : Observable
         var matched = processes?.Where(p => profile.Executables.Any(exe => Matches(exe, p.Path))).ToArray();
         executablePath = string.Join(", ", profile.Executables.Select(exe => exe.Contains('\\') || exe.Contains('/') ? exe : matched?.FirstOrDefault(p => Matches(exe, p.Path))?.Path ?? $"{exe} ({Text.Get("NoData")})"));
         processStatus = matched is null ? Text.Get("NoData") : Text.Get(matched.Length > 0 ? "Active" : "NotRunning");
-        var routes = capture?.Flows.Where(f => matched?.Any(p => p.PID == f.Pid && p.CreationTime == f.CreationTime) == true && profile.Executables.Any(e => Matches(e, f.Exe)) && DateTimeOffset.UtcNow - f.LastSeen < TimeSpan.FromSeconds(10)).Select(f => f.SelectedRoute == "RELAY" ? Text.Route(f.RelayId) : f.SelectedRoute == "DIRECT_PLUS" ? Text.Route("DIRECT_PLUS") : f.SelectedRoute == "DIRECT" ? Text.Route("DIRECT") : Text.Get("NoData")).Distinct().ToArray();
-        route = routes is { Length: > 0 } ? string.Join(", ", routes) : Text.Get("NoData");
-        var active = capture?.Flows.Where(f => matched?.Any(p => p.PID == f.Pid && p.CreationTime == f.CreationTime) == true && DateTimeOffset.UtcNow - f.LastSeen < TimeSpan.FromSeconds(10)).ToArray();
-        string Summary(Func<CaptureFlow, bool> predicate) { var values=active?.Where(predicate).Select(f => f.SelectedRoute == "BLOCK_UNSUPPORTED_IPV6" ? Text.Get("IPv6Blocked") : f.SelectedRoute == "RELAY" ? Text.Route(f.RelayId) : f.SelectedRoute == "DIRECT_PLUS" ? Text.Route("DIRECT_PLUS") : f.SelectedRoute == "DIRECT" ? Text.Route("DIRECT") : Text.Get("NoData")).Distinct().ToArray(); return values is {Length: >0} ? string.Join(", ",values) : Text.Get("NoData"); }
-        LocalDetails=active is null ? Text.Get("NoData") : string.Join("; ",active.Where(f=>f.SelectedRoute=="DIRECT_PLUS").Select(f=>$"{f.Strategy}: {f.Domain} {f.Destination} {f.Protocol} · {Text.Bytes(f.Counters.DirectPlusBytes)}").Distinct());
-        Udp=Summary(f=>f.Protocol=="udp"); Tcp=Summary(f=>f.Protocol=="tcp"); Ipv4=Summary(f=>f.IpVersion=="IPv4");
-        Ipv6=active?.Any(f=>f.IpVersion=="IPv6") == true ? Summary(f=>f.IpVersion=="IPv6") : Text.Get("IPv6Unsupported");
+        bool Attributed(CaptureFlow f) => profile.Executables.Any(exe=>Matches(exe,f.Exe)) && (matched?.Any(p=>p.PID==f.Pid&&p.CreationTime==f.CreationTime)==true || processes is null&&f.IdentityCurrent);
+        bool FreshFlow(CaptureFlow f) => f.Active || (f.LastSeen<=DateTimeOffset.UtcNow.AddSeconds(1)&&DateTimeOffset.UtcNow-f.LastSeen<TimeSpan.FromSeconds(30));
+        var active=capture?.Flows.Where(f=>Attributed(f)&&FreshFlow(f)).ToArray();
+        string Summary(Func<CaptureFlow,bool> predicate){var values=active?.Where(predicate).Select(f=>f.SelectedRoute=="BLOCK_UNSUPPORTED_IPV6"?Text.Get("IPv6Blocked"):f.SelectedRoute is "DIRECT" or "DIRECT_PLUS"?Text.Route(f.SelectedRoute):f.SelectedRoute=="RELAY"?Text.Route(f.RelayId):Text.Get("NoData")).Distinct().ToArray();return values is {Length:>0}?string.Join(", ",values):Text.Get("NoData");}
+        route=Summary(_=>true);
+        if(processes is null&&active?.Length>0)processStatus=Text.Get("Active");
+        LocalDetails=active is null?Text.Get("NoData"):string.Join("; ",active.Select(f=>$"{f.Strategy}: {f.Domain} {f.Destination} {Text.Route(f.SelectedRoute=="RELAY"?f.RelayId:f.SelectedRoute)} · {f.Preset} {f.Chain} · {(f.FakeTtl>0?$"TTL={f.FakeTtl}":"")} · {Text.Get("LocalModified")}: {f.Counters.DirectPlusPackets} · {Text.Get("RelayTraffic")}: {Text.Bytes(f.Counters.RelayedBytes)} · QUIC→TCP={f.Counters.QuicFallbackPackets}").Distinct());
+        Udp=Summary(f=>f.Protocol=="udp");Tcp=Summary(f=>f.Protocol=="tcp");Ipv4=Summary(f=>f.IpVersion=="IPv4");
+        Ipv6=active?.Any(f=>f.IpVersion=="IPv6")==true?Summary(f=>f.IpVersion=="IPv6"):Text.Get("IPv6Unsupported");
         Changed("");
     }
     public static bool Matches(string executable, string path)
@@ -168,8 +170,8 @@ public sealed class DesktopViewModel : Observable
             if (block is not null)
                 Modes.Remove(block);
         }
-        if (capture?.Truncated == true)
-            capture = null;
+        // Truncation prevents proving ABSENCE, not displaying positive evidence
+        // that the authenticated backend actually supplied for a live identity.
         foreach (var old in Applications.Where(a => !status.Profiles.Any(p => p.Id == a.Profile.Id)).ToArray())
             Applications.Remove(old);
         foreach (var profile in status.Profiles)
@@ -333,6 +335,18 @@ public sealed class DesktopViewModel : Observable
         }
         if (await Act(async () => { await client.Call<Profile[]>("profile.delete", new { id = profile.Id }, ct); }, ct))
             await RefreshAsync(ct);
+    }
+    public Task<LocalStrategyPreset[]> GetPresetsAsync(CancellationToken ct=default)=>client.Call<LocalStrategyPreset[]>("local.presets",cancellationToken:ct);
+    public async Task<bool> ApplyPresetAsync(Profile original,string preset,bool quic,CancellationToken ct=default)
+    {
+        string path=original.Executables.FirstOrDefault()??"";
+        if(!System.IO.Path.IsPathFullyQualified(path)){Error=Text.Get("PresetNeedsPath");return false;}
+        bool ok=await Act(async()=>{
+            var install=await client.Call<PresetInstall>("local.preset.apply",new{application=path,preset,quic_fallback=quic},ct);
+            var copy=original.Copy();copy.Mode="DIRECT_PLUS";copy.LocalStrategyId=install.StrategyId;copy.RelayId=null;
+            await client.Call<Profile[]>("profile.set",copy,ct);
+        },ct);
+        if(ok)await RefreshAsync(ct);return ok;
     }
     public Task<LocalStrategyConfig> GetLocalStrategiesAsync(CancellationToken ct=default)=>client.Call<LocalStrategyConfig>("local.get",cancellationToken:ct);
  public Task<LocalStrategyConfig> SaveLocalStrategiesAsync(LocalStrategyConfig config,CancellationToken ct=default)=>client.Call<LocalStrategyConfig>("local.set",config,ct);

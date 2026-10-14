@@ -155,3 +155,52 @@ public sealed class ApplicationPickerTests
         Assert.Equal(Text.Get("DirectPlus"), Text.Mode(saved.Mode));
     }
 }
+
+public sealed class DirectPlusV2PresentationTests
+{
+ [Fact] public void TruncatedSnapshotRetainsPositiveRelayEvidenceAndLiveIdleConnections()
+ {
+  var service=new FakeService();var vm=new DesktopViewModel(service);
+  var process=new ProcessIdentity{PID=42,CreationTime=100,Path=@"C:\game.exe"};
+  var f=new CaptureFlow{Pid=42,CreationTime=100,Exe=process.Path,SelectedRoute="RELAY",RelayId="VPS-01",Protocol="tcp",IpVersion="IPv4",Active=true,IdentityCurrent=true,LastSeen=DateTimeOffset.UtcNow.AddMinutes(-2)};
+  vm.Apply(service.State,[process],new(){Truncated=true,Flows=[f]});Assert.Equal("VPS-01",vm.Applications[0].Route);
+  // Service-confirmed identity is usable when optional processes IPC failed.
+  vm.Apply(service.State,null,new(){Truncated=true,Flows=[f]});Assert.Equal("VPS-01",vm.Applications[0].Route);
+  f.IdentityCurrent=false;vm.Apply(service.State,null,new(){Flows=[f]});Assert.Equal(Text.Get("NoData"),vm.Applications[0].Route);
+ }
+ [Fact] public void AdvancedChainsRoundTripWithoutUnrecognizedPresentationFields()
+ {
+  var p=new LocalStrategyProfile{Id="v2",Strategy="chain",Preset="youtube",PresetVersion=2,QuicFallback=true,Actions=[new(){Kind="fake-tls",Ttl=5},new(){Kind="tcp-multisplit",Anchor="sni",Positions=[1,5]},new(){Kind="tcp-disorder"}]};
+  var json=JsonSerializer.SerializeToElement(p,WireJson.Options);Assert.False(json.TryGetProperty("advanced",out _));Assert.Equal(5,json.GetProperty("actions")[0].GetProperty("ttl").GetInt32());
+  var restored=json.Deserialize<LocalStrategyProfile>(WireJson.Options)!;Assert.Equal(3,restored.Actions.Length);Assert.Contains("TTL=5",restored.Advanced);Assert.True(restored.QuicFallback);
+ }
+ [Fact] public void ActualFlowDetailsExposeOnlyCommittedTTLAndCounters()
+ {
+  var row=new ApplicationRow();var p=new Profile{Executables=[@"C:\chrome.exe"]};var id=new ProcessIdentity{PID=42,CreationTime=10,Path=p.Executables[0]};
+  var f=new CaptureFlow{Pid=42,CreationTime=10,Exe=id.Path,Protocol="tcp",SelectedRoute="DIRECT_PLUS",Strategy="p2-fake5",Preset="youtube",Chain="fake-tls + tcp-multisplit",Domain="www.youtube.com",FakeTtl=5,LastSeen=DateTimeOffset.UtcNow,Counters=new(){DirectPlusPackets=1,DirectPlusBytes=500,FakeTlsPackets=1,RelayedBytes=0}};
+  row.Update(p,[id],new(){Flows=[f]});Assert.Contains("youtube",row.LocalDetails);Assert.Contains("TTL=5",row.LocalDetails);Assert.Contains("fake-tls",row.LocalDetails);Assert.Equal(Text.Get("DirectPlus"),row.Route);
+ }
+}
+
+public sealed class PresetCommandTests
+{
+ sealed class Service : IServiceClient
+ {
+  public FakeService Inner=new();public List<(string Method,object? Payload)> Calls=[];
+  public Task<T> Call<T>(string method,object? payload=null,CancellationToken cancellationToken=default)
+  {
+   Calls.Add((method,payload));
+   if(method=="local.preset.apply")return Task.FromResult((T)(object)new PresetInstall{StrategyId="p2-youtube-fake5"});
+   if(method=="local.presets")return Task.FromResult((T)(object)new[]{new LocalStrategyPreset{Id="youtube",Name="YouTube",Version=2}});
+   return Inner.Call<T>(method,payload,cancellationToken);
+  }
+ }
+ [Fact] public async Task OnePresetActionInstallsVersionedRulesThenSavesExactProfileIdentity()
+ {
+  var service=new Service();var vm=new DesktopViewModel(service);await vm.RefreshAsync();var original=service.Inner.State.Profiles[0];original.Executables=[Path.Combine(Path.GetTempPath(),"chrome.exe")];
+  Assert.Equal("YouTube v2",(await vm.GetPresetsAsync()).Single().Label);
+  Assert.True(await vm.ApplyPresetAsync(original,"youtube",true));
+  var request=JsonSerializer.SerializeToElement(service.Calls.Single(c=>c.Method=="local.preset.apply").Payload);Assert.Equal(original.Executables[0],request.GetProperty("application").GetString());Assert.True(request.GetProperty("quic_fallback").GetBoolean());
+  var saved=(Profile)service.Calls.Single(c=>c.Method=="profile.set").Payload!;Assert.Equal(original.Id,saved.Id);Assert.Equal("DIRECT_PLUS",saved.Mode);Assert.Equal("p2-youtube-fake5",saved.LocalStrategyId);Assert.Equal("AUTO",original.Mode);
+ }
+}

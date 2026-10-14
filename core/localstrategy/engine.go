@@ -10,12 +10,17 @@ import (
 	"sort"
 	"strings"
 	"sync/atomic"
+	"time"
 )
 
 const Version = 1
 const MaxProfiles = 32
 
 type Profile struct {
+	Actions        []Action `json:"actions,omitempty"`
+	Preset         string   `json:"preset,omitempty"`
+	PresetVersion  int      `json:"preset_version,omitempty"`
+	QuicFallback   bool     `json:"quic_fallback,omitempty"`
 	SplitPosition  uint16   `json:"split_position,omitempty"`
 	ID             string   `json:"id"`
 	Name           string   `json:"name"`
@@ -56,17 +61,28 @@ type Metadata struct {
 	Destination                   netip.AddrPort
 }
 type State struct {
-	selectedIndex int
-	splitPosition uint16
-	selectedID    string
-	generation    uint64
-	inspected     uint32
-	done, matched bool
-	applied       bool
-	domain        string
-	failed        bool
+	synSeen, handshakeConfirmed, fakeSent, udpSeen bool
+	serverSequence                                 uint32
+	synSequence                                    uint32
+	quicUntil                                      time.Time
+	quicDrops                                      uint32
+	quicStrategy, quicPreset                       string
+	selectedIndex                                  int
+	splitPosition                                  uint16
+	selectedID                                     string
+	generation                                     uint64
+	inspected                                      uint32
+	done, matched                                  bool
+	applied                                        bool
+	domain                                         string
+	failed                                         bool
 }
 type Result struct {
+	Revision         string
+	Suppress         bool
+	FakePackets      uint64
+	FakeTTL          uint8
+	Chain, Preset    string
 	Active, First    bool
 	Packets          [][]byte
 	Strategy, Domain string
@@ -107,9 +123,18 @@ func compile(p Profile) (compiled, error) {
 	if p.ID == "" || len(p.ID) > 64 || len(p.Name) > 128 || len(p.Application) > 2048 || p.Version != Version || p.Cutoff < 1 || p.Cutoff > 8 || len(p.Ports) == 0 || len(p.Ports) > 32 || !strings.HasSuffix(strings.ToLower(p.Application), ".exe") {
 		return compiled{}, errors.New("invalid local strategy profile")
 	}
-	mechanism, ok := mechanisms[p.Strategy]
-	if !ok || !mechanism.Match(Metadata{Protocol: p.Protocol}) {
-		return compiled{}, errors.New("unsupported protocol/strategy")
+	if len(p.Preset) > 32 || p.PresetVersion < 0 || p.PresetVersion > 100 || (p.QuicFallback && (p.Protocol != "tcp" || p.Preset == "")) {
+		return compiled{}, errors.New("invalid preset/fallback")
+	}
+	if p.Strategy == "chain" {
+		if err := validateChain(p); err != nil {
+			return compiled{}, err
+		}
+	} else {
+		mechanism, ok := mechanisms[p.Strategy]
+		if !ok || !mechanism.Match(Metadata{Protocol: p.Protocol}) || len(p.Actions) > 0 {
+			return compiled{}, errors.New("unsupported protocol/strategy")
+		}
 	}
 	if p.Protocol == "udp" && (len(p.Domains) > 0 || len(p.ExcludeDomains) > 0) {
 		return compiled{}, errors.New("UDP domain metadata unsupported; use explicit IP/exclude IP")
@@ -271,6 +296,17 @@ func (e *LocalStrategyEngine) Process(p []byte, st *State, m Metadata) (r Result
 		st.Disable()
 		return Result{}
 	}
+	if m.Protocol == "tcp" {
+		observeSYN(p, st)
+		if st.synSeen && st.generation == 0 {
+			st.generation = s.generation
+		}
+	}
+	if m.Protocol == "udp" {
+		if q, handled := e.processQUIC(p, st, m, s); handled {
+			return q
+		}
+	}
 	if st.done {
 		if st.applied {
 			return Result{Strategy: strategyID(st), Domain: st.domain, Active: true}
@@ -332,9 +368,19 @@ func (e *LocalStrategyEngine) Process(p []byte, st *State, m Metadata) (r Result
 		st.done = true
 	}
 	st.splitPosition = c.SplitPosition
-	processed := mechanisms[c.Strategy].Process(p, st)
+	var processed Result
+	if c.Strategy == "chain" {
+		processed = chainPackets(p, st, c)
+	} else {
+		processed = mechanisms[c.Strategy].Process(p, st)
+	}
 	r.Packets = processed.Packets
 	r.Modified = processed.Modified
+	r.FakePackets = processed.FakePackets
+	r.FakeTTL = processed.FakeTTL
+	r.Chain = processed.Chain
+	r.Preset = c.Preset
+	r.Revision = s.digest
 	if r.Modified {
 		r.First = !st.applied
 		st.applied = true

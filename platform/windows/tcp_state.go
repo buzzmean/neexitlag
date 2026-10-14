@@ -8,16 +8,17 @@ import (
 )
 
 type tcpEntry struct {
-	localState      localstrategy.State
-	tuple           Tuple
-	initialSequence uint32
-	identity        ProcessIdentity
-	decision        Decision
-	mode            string // opening, relay, direct, block, closed
-	virtual         uint16
-	last            time.Time
-	upstream        net.Conn
-	local           net.Conn
+	localState        localstrategy.State
+	domainInspections uint8
+	tuple             Tuple
+	initialSequence   uint32
+	identity          ProcessIdentity
+	decision          Decision
+	mode              string // opening, relay, direct, block, closed
+	virtual           uint16
+	last              time.Time
+	upstream          net.Conn
+	local             net.Conn
 }
 
 // All methods/entry access require mu. Closed mappings are quarantined so late

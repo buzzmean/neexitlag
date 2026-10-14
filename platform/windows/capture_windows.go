@@ -540,7 +540,27 @@ func (b *WinDivertBackend) forward(tuple Tuple, f *captureFlow, d *divertDLL) {
 func (b *WinDivertBackend) Traffic() (uint64, uint64) { return b.RX.Load(), b.TX.Load() }
 
 func (b *WinDivertBackend) Diagnostics(pid uint32) CaptureEvidence {
-	out := b.evidence.Snapshot(pid)
+	return b.DiagnosticsTarget(pid, "")
+}
+func (b *WinDivertBackend) DiagnosticsTarget(pid uint32, destination string) CaptureEvidence {
+	b.mu.Lock()
+	tcp := b.tcp
+	b.mu.Unlock()
+	active := map[evidenceKey]bool{}
+	if tcp != nil {
+		tcp.state.mu.Lock()
+		for _, e := range tcp.state.entries {
+			if e.mode == "relay" && e.local != nil && e.upstream != nil {
+				active[evidenceKey{e.identity.PID, e.identity.CreationTime, e.tuple}] = true
+			}
+		}
+		tcp.state.mu.Unlock()
+	}
+	out := b.evidence.snapshotTarget(pid, destination, active)
+	for i := range out.Flows {
+		f := &out.Flows[i]
+		f.IdentityCurrent = IsCurrent(ProcessIdentity{PID: f.PID, CreationTime: f.CreationTime, Path: f.Executable})
+	}
 	out.Counters.Dropped = b.Drops.Load()
 	out.LocalDrops = b.LocalDrops.Snapshot()
 	out.LocalDrops["capture_kernel_queue_drops"] = telemetry.Metric{Available: false, Unit: "packets"}

@@ -157,6 +157,8 @@ public sealed class CaptureEvidence
 }
 public sealed class CaptureFlow
 {
+ public string Preset {get;set;}=""; public string Chain {get;set;}=""; public byte FakeTtl {get;set;}
+ public bool Active {get;set;} public bool IdentityCurrent {get;set;}
  public string Strategy {get;set;}=""; public string Domain {get;set;}=""; public string Destination {get;set;}="";
  public LocalCaptureCounters Counters {get;set;}=new();
  public string Protocol { get; set; } = "";
@@ -272,8 +274,15 @@ public sealed class DropDiagnostics
     }
 }
 
-public sealed class LocalCaptureCounters { public ulong DirectPlusBytes {get;set;} }
+public sealed class LocalCaptureCounters {
+ public ulong DirectPlusBytes {get;set;} public ulong DirectPlusPackets {get;set;} public ulong RelayedBytes {get;set;} public ulong RelayedPackets {get;set;} public ulong FakeTlsPackets {get;set;} public ulong QuicFallbackPackets {get;set;}
+}
+public sealed class LocalStrategyAction {public string Kind {get;set;}="";public ushort[] Positions {get;set;}=[];public string Anchor {get;set;}="";public byte Ttl {get;set;} }
+public sealed class LocalStrategyPreset {public string Id {get;set;}="";public string Name {get;set;}="";public int Version {get;set;} public string[] Domains {get;set;}=[];[JsonIgnore] public string Label=>$"{Name} v{Version}";}
+public sealed class PresetInstall {public LocalStrategyConfig Config {get;set;}=new();public string StrategyId {get;set;}="";}
 public sealed class LocalStrategyProfile {
+ public LocalStrategyAction[] Actions {get;set;}=[]; public string Preset {get;set;}="";public int PresetVersion {get;set;}public bool QuicFallback {get;set;}
+ [JsonIgnore] public string Advanced => Actions.Length==0?Strategy:string.Join(" + ",Actions.Select(a=>a.Kind+(a.Ttl>0?$" (TTL={a.Ttl})":"")+(a.Positions.Length>0?$" ({a.Anchor}: {string.Join(',',a.Positions)})":"")));
  public ushort SplitPosition {get;set;}
  public string Id {get;set;}=""; public string Name {get;set;}=""; public int Version {get;set;}=1;
  public string Protocol {get;set;}="tcp"; public ushort[] Ports {get;set;}=[443]; public string Application {get;set;}="";

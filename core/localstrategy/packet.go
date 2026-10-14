@@ -171,54 +171,10 @@ func httpDomain(s string) string {
 	return ""
 }
 func tlsDomain(p []byte) string {
-	if len(p) < 44 || int(binary.BigEndian.Uint16(p[3:]))+5 > len(p) || p[5] != 1 {
+	start, n, ok := tlsSNI(p)
+	if !ok {
 		return ""
 	}
-	end := 5 + int(binary.BigEndian.Uint16(p[3:]))
-	p = p[:end]
-	i := 43
-	take := func(n int) bool {
-		if n < 0 || i+n > len(p) {
-			return false
-		}
-		i += n
-		return true
-	}
-	if !take(1) || !take(int(p[43])) || !take(2) {
-		return ""
-	}
-	n := int(binary.BigEndian.Uint16(p[i-2:]))
-	if !take(n) || !take(1) {
-		return ""
-	}
-	n = int(p[i-1])
-	if !take(n) || !take(2) {
-		return ""
-	}
-	n = int(binary.BigEndian.Uint16(p[i-2:]))
-	if n != len(p)-i {
-		return ""
-	}
-	for i+4 <= len(p) {
-		kind := binary.BigEndian.Uint16(p[i:])
-		n = int(binary.BigEndian.Uint16(p[i+2:]))
-		i += 4
-		if i+n > len(p) {
-			return ""
-		}
-		if kind == 0 && n >= 5 {
-			q := p[i : i+n]
-			if int(binary.BigEndian.Uint16(q))+2 != n || q[2] != 0 {
-				return ""
-			}
-			l := int(binary.BigEndian.Uint16(q[3:]))
-			if l+5 != n {
-				return ""
-			}
-			d, _ := domain(string(q[5:]))
-			return d
-		}
-		i += n
-	}
-	return ""
+	d, _ := domain(string(p[start : start+n]))
+	return d
 }
