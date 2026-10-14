@@ -1,12 +1,14 @@
 package windowsplatform
 
 import (
+	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"net"
 	"sync"
 	"time"
 )
 
 type tcpEntry struct {
+	localState      localstrategy.State
 	tuple           Tuple
 	initialSequence uint32
 	identity        ProcessIdentity

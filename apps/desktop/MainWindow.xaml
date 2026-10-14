@@ -10,6 +10,7 @@
      <Button Content="{ui:Tr Routes}" Tag="Routes" Click="Navigate"/>
      <Button Content="{ui:Tr Statistics}" Tag="Statistics" Click="Navigate"/>
      <Button Content="{ui:Tr Diagnostics}" Tag="Diagnostics" Click="Navigate"/>
+     <Button Content="{ui:Tr LocalStrategies}" Tag="LocalStrategies" Click="Navigate"/>
      <Button Content="{ui:Tr Settings}" Tag="Settings" Click="Navigate"/>
     </StackPanel>
     <TextBlock DockPanel.Dock="Bottom" Text="{ui:Tr ServiceHint}" TextWrapping="Wrap" Foreground="#91A0B2" FontSize="12" Margin="12,24,12,0" VerticalAlignment="Bottom"/>
@@ -59,6 +60,7 @@
       <DataGridTextColumn Header="{ui:Tr TcpTraffic}" Binding="{Binding Tcp}" Width="130"/>
       <DataGridTextColumn Header="{ui:Tr IPv4Label}" Binding="{Binding Ipv4}" Width="130"/>
       <DataGridTextColumn Header="{ui:Tr IPv6Label}" Binding="{Binding Ipv6}" Width="180"/>
+     <DataGridTextColumn Header="{ui:Tr LocalDetails}" Binding="{Binding LocalDetails}" Width="300"/>
      </DataGrid.Columns></DataGrid>
     </DockPanel>
     <DockPanel x:Name="Routes" Visibility="Collapsed"><TextBlock DockPanel.Dock="Top" Text="{ui:Tr RoutesHint}" Style="{StaticResource Hint}"/>
@@ -105,6 +107,29 @@
       <DataGridTextColumn Header="{ui:Tr Details}" Binding="{Binding Detail}" Width="*"/>
      </DataGrid.Columns></DataGrid>
     </DockPanel>
+
+    <ScrollViewer x:Name="LocalStrategies" Visibility="Collapsed" VerticalScrollBarVisibility="Auto"><StackPanel>
+     <TextBlock Text="{ui:Tr LocalWarning}" TextWrapping="Wrap" Style="{StaticResource Hint}"/>
+     <WrapPanel><CheckBox x:Name="LocalEnabled" Content="{ui:Tr LocalEnabled}" Margin="8"/><CheckBox x:Name="LocalAuto" Content="{ui:Tr AutoStrategy}" Margin="8"/></WrapPanel>
+     <TextBlock Text="{ui:Tr LocalAutoHint}" Style="{StaticResource Hint}" TextWrapping="Wrap"/>
+     <WrapPanel><Button Content="{ui:Tr LocalLoad}" Click="LoadLocal"/><Button Content="{ui:Tr LocalSave}" Click="SaveLocal" IsEnabled="{Binding CanControl}"/></WrapPanel>
+     <TextBlock x:Name="LocalCounters" TextWrapping="Wrap" Style="{StaticResource Hint}"/>
+     <DataGrid x:Name="LocalGrid" Height="160" AutoGenerateColumns="False" SelectionChanged="SelectLocal"><DataGrid.Columns>
+      <DataGridTextColumn Header="{ui:Tr Application}" Binding="{Binding Application}" Width="*"/><DataGridTextColumn Header="{ui:Tr LocalDetails}" Binding="{Binding Strategy}" Width="180"/><DataGridTextColumn Header="{ui:Tr Enabled}" Binding="{Binding Enabled}" Width="80"/>
+     </DataGrid.Columns></DataGrid>
+     <TextBlock Text="{ui:Tr LocalApp}"/><TextBox x:Name="LocalApp"/>
+     <ComboBox x:Name="LocalMechanism" SelectedIndex="0"><ComboBoxItem Tag="tcp-split-1" Content="{ui:Tr LocalTcp1}"/><ComboBoxItem Tag="tcp-split-5" Content="{ui:Tr LocalTcp5}"/><ComboBoxItem Tag="udp-fragment-24" Content="{ui:Tr LocalUdp24}"/></ComboBox>
+     <TextBlock Text="{ui:Tr LocalPorts}"/><TextBox x:Name="LocalPorts"/>
+     <TextBlock Text="{ui:Tr LocalDomains}"/><TextBox x:Name="LocalDomains"/>
+     <TextBlock Text="{ui:Tr LocalIPs}"/><TextBox x:Name="LocalIPs"/>
+     <TextBlock Text="{ui:Tr LocalExcludeDomains}"/><TextBox x:Name="LocalExcludeDomains"/>
+     <TextBlock Text="{ui:Tr LocalExcludeIPs}"/><TextBox x:Name="LocalExcludeIPs"/>
+     <WrapPanel><Button Content="{ui:Tr LocalAdd}" Click="AddLocal"/><Button Content="{ui:Tr LocalRemove}" Click="RemoveLocal"/></WrapPanel>
+     <TextBlock Text="{ui:Tr LocalURL}"/><TextBox x:Name="LocalURL"/>
+     <TextBlock Text="{ui:Tr LocalToken}"/><TextBox x:Name="LocalToken"/>
+     <TextBlock Text="{ui:Tr LocalCA}"/><TextBox x:Name="LocalCA"/>
+     <Button Content="{ui:Tr LocalTest}" Click="TestLocal" HorizontalAlignment="Left" IsEnabled="{Binding CanControl}"/>
+    </StackPanel></ScrollViewer>
     <ScrollViewer x:Name="Settings" Visibility="Collapsed" VerticalScrollBarVisibility="Auto"><StackPanel>
      <CheckBox x:Name="Launch" Content="{ui:Tr AutoStart}"/>
      <CheckBox x:Name="StartMinimized" Content="{ui:Tr StartMinimized}"/>

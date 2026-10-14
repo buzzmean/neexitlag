@@ -14,7 +14,11 @@ try {
  }
  foreach($name in $targets.Keys){& go build -trimpath -o (Join-Path $Output $name) $targets[$name];if($LASTEXITCODE){throw "Build failed: $name"}}
  Copy-Item (Join-Path $Output 'tcp-selected.exe') (Join-Path $Output 'tcp-control.exe')
+ Copy-Item (Join-Path $Output 'tcp-selected.exe') (Join-Path $Output 'tcp-plus.exe')
+ $scripts=Join-Path $Output 'tools\windows';New-Item -ItemType Directory -Force $scripts|Out-Null;Copy-Item (Join-Path $PSScriptRoot '*.ps1') $scripts
+ $docs=Join-Path $Output 'docs';New-Item -ItemType Directory -Force $docs|Out-Null;Copy-Item (Join-Path $root 'docs\DIRECT_PLUS.md') $docs
  Copy-Item (Join-Path $Output 'test-game.exe') (Join-Path $Output 'control-client.exe')
+ Copy-Item (Join-Path $Output 'test-game.exe') (Join-Path $Output 'udp-plus.exe')
  $linux=Join-Path $Output 'linux';New-Item -ItemType Directory -Force $linux|Out-Null
  $env:GOOS='linux'
  foreach($entry in @(@('relay','./services/relay/cmd/relay'),@('control-plane','./services/control-plane/cmd/control-plane'),@('remote-echo','./tools/remote-echo'),@('probe-client','./tools/windows-test-client'),@('web-test-target','./tools/web-test-target'))){& go build -trimpath -o (Join-Path $linux $entry[0]) $entry[1];if($LASTEXITCODE){throw "Linux build failed: $($entry[0])"}}

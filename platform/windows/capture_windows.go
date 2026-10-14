@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"github.com/buzzmean/neexitlag/core/protocol"
 	"github.com/buzzmean/neexitlag/core/routing"
 	"github.com/buzzmean/neexitlag/core/telemetry"
@@ -20,17 +21,18 @@ import (
 )
 
 type captureFlow struct {
-	decision  Decision
-	dropCause telemetry.Category
-	queue     chan []byte
-	done      chan struct{}
-	once      sync.Once
-	datagram  routing.Datagram
-	template  []byte
-	address   [80]byte
-	identity  ProcessIdentity
-	endpoint  uint64
-	lastSeen  time.Time
+	localState localstrategy.State
+	decision   Decision
+	dropCause  telemetry.Category
+	queue      chan []byte
+	done       chan struct{}
+	once       sync.Once
+	datagram   routing.Datagram
+	template   []byte
+	address    [80]byte
+	identity   ProcessIdentity
+	endpoint   uint64
+	lastSeen   time.Time
 }
 type WinDivertBackend struct {
 	Files         DriverFiles
@@ -389,11 +391,10 @@ func (b *WinDivertBackend) packets(classify Classifier) {
 			continue
 		}
 		if decision.Route.Direct() || !known {
-			if e = b.inject(d, packet, address); e != nil {
+			if e = SendLocal(decision, &f.localState, identity, tuple, packet, func(q []byte) error { return b.inject(d, q, LocalPacketAddress(q, address)) }, b.evidence); e != nil {
 				b.fail(e)
 				return
 			}
-			b.evidence.RecordBytes(identity, tuple, "direct", "", uint64(len(packet)))
 			continue
 		}
 		if len(payload) > protocol.MaxPayload {

@@ -12,13 +12,15 @@ import (
 type Mode string
 
 const (
-	Auto   Mode = "AUTO"
-	Direct Mode = "DIRECT"
-	Manual Mode = "MANUAL"
-	Block  Mode = "BLOCK"
+	Auto       Mode = "AUTO"
+	Direct     Mode = "DIRECT"
+	DirectPlus Mode = "DIRECT_PLUS"
+	Manual     Mode = "MANUAL"
+	Block      Mode = "BLOCK"
 )
 
 type Profile struct {
+	LocalStrategyID string   `json:"local_strategy_id,omitempty"`
 	ID              string   `json:"id"`
 	Name            string   `json:"name"`
 	Executables     []string `json:"executables"`
@@ -32,6 +34,9 @@ type Profile struct {
 }
 
 func (p Profile) Validate() error {
+	if len(p.LocalStrategyID) > 64 {
+		return errors.New("invalid local strategy id")
+	}
 	if len(p.ID) < 1 || len(p.ID) > 128 || p.Name == "" || len(p.Name) > 128 || len(p.Executables) < 1 || len(p.Executables) > 16 {
 		return errors.New("invalid application profile")
 	}
@@ -41,7 +46,7 @@ func (p Profile) Validate() error {
 		}
 	}
 	switch p.Mode {
-	case Auto, Direct, Block:
+	case Auto, Direct, DirectPlus, Block:
 	case Manual:
 		if p.RelayID == "" {
 			return errors.New("manual mode requires relay")

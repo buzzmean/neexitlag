@@ -41,7 +41,7 @@ func TestExistingUDPFlowNeverMigratesOnAUTOQualityChange(t *testing.T) {
 	engine.SetRelay("A", a)
 	engine.SetRelay("B", b)
 	chosen := "A"
-	engine.SetAutoSelector(func(Flow) Policy { return Policy{Route: Route{chosen}} })
+	engine.SetAutoSelector(func(Flow) Policy { return Policy{Route: Route{RelayID: chosen}} })
 	engine.SetPolicy("game", Policy{Auto: true})
 	flow := Flow{Source: netip.MustParseAddrPort("127.0.0.1:11000"), Destination: netip.MustParseAddrPort("127.0.0.1:40000"), PID: 42, ProcessPath: "game.exe", ApplicationID: "game"}
 	first, err := engine.OpenUDP(context.Background(), flow)

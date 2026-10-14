@@ -31,7 +31,8 @@ public sealed class ApplicationRow : Observable
 {
     public Profile Profile { get; private set; } = new(); public string Name => Profile.Name; public string Path => executablePath; public string Mode => Text.Mode(Profile.Mode);
     string processStatus = Text.Get("NoData"), route = Text.Get("NoData"), executablePath = Text.Get("NoData"); public string ProcessStatus => processStatus; public string Route => route;
-    public string Udp { get; private set; } = Text.Get("NoData");
+    public string LocalDetails {get;private set;}=Text.Get("NoData");
+ public string Udp { get; private set; } = Text.Get("NoData");
  public string Tcp { get; private set; } = Text.Get("NoData");
  public string Ipv4 { get; private set; } = Text.Get("NoData");
  public string Ipv6 { get; private set; } = Text.Get("IPv6Unsupported");
@@ -41,10 +42,11 @@ public sealed class ApplicationRow : Observable
         var matched = processes?.Where(p => profile.Executables.Any(exe => Matches(exe, p.Path))).ToArray();
         executablePath = string.Join(", ", profile.Executables.Select(exe => exe.Contains('\\') || exe.Contains('/') ? exe : matched?.FirstOrDefault(p => Matches(exe, p.Path))?.Path ?? $"{exe} ({Text.Get("NoData")})"));
         processStatus = matched is null ? Text.Get("NoData") : Text.Get(matched.Length > 0 ? "Active" : "NotRunning");
-        var routes = capture?.Flows.Where(f => matched?.Any(p => p.PID == f.Pid && p.CreationTime == f.CreationTime) == true && profile.Executables.Any(e => Matches(e, f.Exe)) && DateTimeOffset.UtcNow - f.LastSeen < TimeSpan.FromSeconds(10)).Select(f => f.SelectedRoute == "RELAY" ? Text.Route(f.RelayId) : f.SelectedRoute == "DIRECT" ? Text.Route("DIRECT") : Text.Get("NoData")).Distinct().ToArray();
+        var routes = capture?.Flows.Where(f => matched?.Any(p => p.PID == f.Pid && p.CreationTime == f.CreationTime) == true && profile.Executables.Any(e => Matches(e, f.Exe)) && DateTimeOffset.UtcNow - f.LastSeen < TimeSpan.FromSeconds(10)).Select(f => f.SelectedRoute == "RELAY" ? Text.Route(f.RelayId) : f.SelectedRoute == "DIRECT_PLUS" ? Text.Route("DIRECT_PLUS") : f.SelectedRoute == "DIRECT" ? Text.Route("DIRECT") : Text.Get("NoData")).Distinct().ToArray();
         route = routes is { Length: > 0 } ? string.Join(", ", routes) : Text.Get("NoData");
         var active = capture?.Flows.Where(f => matched?.Any(p => p.PID == f.Pid && p.CreationTime == f.CreationTime) == true && DateTimeOffset.UtcNow - f.LastSeen < TimeSpan.FromSeconds(10)).ToArray();
-        string Summary(Func<CaptureFlow, bool> predicate) { var values=active?.Where(predicate).Select(f => f.SelectedRoute == "BLOCK_UNSUPPORTED_IPV6" ? Text.Get("IPv6Blocked") : f.SelectedRoute == "RELAY" ? Text.Route(f.RelayId) : f.SelectedRoute == "DIRECT" ? Text.Route("DIRECT") : Text.Get("NoData")).Distinct().ToArray(); return values is {Length: >0} ? string.Join(", ",values) : Text.Get("NoData"); }
+        string Summary(Func<CaptureFlow, bool> predicate) { var values=active?.Where(predicate).Select(f => f.SelectedRoute == "BLOCK_UNSUPPORTED_IPV6" ? Text.Get("IPv6Blocked") : f.SelectedRoute == "RELAY" ? Text.Route(f.RelayId) : f.SelectedRoute == "DIRECT_PLUS" ? Text.Route("DIRECT_PLUS") : f.SelectedRoute == "DIRECT" ? Text.Route("DIRECT") : Text.Get("NoData")).Distinct().ToArray(); return values is {Length: >0} ? string.Join(", ",values) : Text.Get("NoData"); }
+        LocalDetails=active is null ? Text.Get("NoData") : string.Join("; ",active.Where(f=>f.SelectedRoute=="DIRECT_PLUS").Select(f=>$"{f.Strategy}: {f.Domain} {f.Destination} {f.Protocol} · {Text.Bytes(f.Counters.DirectPlusBytes)}").Distinct());
         Udp=Summary(f=>f.Protocol=="udp"); Tcp=Summary(f=>f.Protocol=="tcp"); Ipv4=Summary(f=>f.IpVersion=="IPv4");
         Ipv6=active?.Any(f=>f.IpVersion=="IPv6") == true ? Summary(f=>f.IpVersion=="IPv6") : Text.Get("IPv6Unsupported");
         Changed("");
@@ -94,7 +96,7 @@ public sealed class DesktopViewModel : Observable
     }
     public ObservableCollection<ApplicationRow> Applications { get; } = []; public ObservableCollection<RouteRow> Routes { get; } = []; public ObservableCollection<Choice> Relays { get; } = [];
     public ObservableCollection<DiagnosticRow> Diagnostics { get; } = []; public ObservableCollection<MeasurementRow> Measurements { get; } = []; public ObservableCollection<string> Changes { get; } = [];
-    public ObservableCollection<Choice> Modes { get; } = [new("AUTO", Text.Mode("AUTO")), new("DIRECT", Text.Mode("DIRECT")), new("MANUAL", Text.Mode("MANUAL"))];
+    public ObservableCollection<Choice> Modes { get; } = [new("AUTO", Text.Mode("AUTO")), new("DIRECT", Text.Mode("DIRECT")), new("DIRECT_PLUS",Text.Mode("DIRECT_PLUS")), new("MANUAL", Text.Mode("MANUAL"))];
     public bool Optimizing => Available && Snapshot?.Optimizing == true; public string OptimizeLabel => Text.Get(Optimizing ? "DisableOptimization" : "EnableOptimization"); public string OptimizationStatus => Text.Get(!Available ? "NoData" : Optimizing ? "OptimizationOn" : "OptimizationOff");
     public string Primary => Available ? Text.Route(Snapshot?.Primary) : Text.Get("NoData");
     public string ActiveApps => !Available ? Text.Get("NoData") : Snapshot?.ActiveApps.Length > 0 ? string.Join(", ", Snapshot.ActiveApps.Select(id => Snapshot.Profiles.FirstOrDefault(p => p.Id == id)?.Name ?? id)) : Text.Get("NoActiveApps");
@@ -306,7 +308,10 @@ public sealed class DesktopViewModel : Observable
         if (await Act(async () => { await client.Call<Profile[]>("profile.delete", new { id = profile.Id }, ct); }, ct))
             await RefreshAsync(ct);
     }
-    public async Task<bool> SaveServiceSettingsAsync(ServiceSettings settings, CancellationToken ct = default)
+    public Task<LocalStrategyConfig> GetLocalStrategiesAsync(CancellationToken ct=default)=>client.Call<LocalStrategyConfig>("local.get",cancellationToken:ct);
+ public Task<LocalStrategyConfig> SaveLocalStrategiesAsync(LocalStrategyConfig config,CancellationToken ct=default)=>client.Call<LocalStrategyConfig>("local.set",config,ct);
+ public Task<LocalStrategyMetrics> GetLocalMetricsAsync(CancellationToken ct=default)=>client.Call<LocalStrategyMetrics>("local.metrics",cancellationToken:ct);
+ public async Task<bool> SaveServiceSettingsAsync(ServiceSettings settings, CancellationToken ct = default)
     {
         if (settings.Failover == "BLOCK" && Snapshot?.Backend.Capabilities.Tcp != true)
         {
@@ -345,7 +350,15 @@ public sealed class DesktopViewModel : Observable
                 if (c.Name is "TCP interception" or "UDP interception" or "IPv4") detail=Text.Get("InterceptionHint");
                 rows.Add(new(name, c.Status=="unsupported" ? Text.Get("IPv6Unsupported") : Text.Status(c.Status), detail));
             }
-            var direct = checks.FirstOrDefault(c => c.Name == "UDP");
+            try {var n=await client.Call<NetworkObservation>("local.network",cancellationToken:ct);
+ rows.Add(new(Text.Get("LocalNetwork"),Text.Get(string.IsNullOrEmpty(n.Error) && DateTimeOffset.UtcNow-n.ObservedAt<TimeSpan.FromSeconds(45)?"Working":"NoData"),string.Join("; ",n.Adapters)));
+ rows.Add(new(Text.Get("LocalVPN"),Text.Get(n.Vpn.Length>0?"Active":"NoData"),n.Vpn.Length>0?string.Join(", ",n.Vpn):Text.Get("LocalVPNUnknown")));
+ rows.Add(new(Text.Get("LocalConflict"),Text.Get(n.Conflicts.Length>0?"Error":"NoData"),n.Conflicts.Length>0?string.Join(", ",n.Conflicts):Text.Get("LocalConflictUnknown")));
+ rows.Add(new(Text.Get("LocalRoutes"),Text.Get("NoData"),string.Join("; ",n.Routes)));
+ rows.Add(new(Text.Get("LocalDNS"),Text.Get("NoData"),string.Join("; ",n.Dns)+"; "+Text.Get("LocalDNSUnknown")));
+ rows.Add(new(Text.Get("LocalProxy"),Text.Get("NoData"),n.Proxy));
+ }catch(ServiceException){rows.Add(new(Text.Get("LocalNetwork"),Text.Get("NoData"),Text.Get("LocalVPNUnknown")));}
+ var direct = checks.FirstOrDefault(c => c.Name == "UDP");
             rows.Add(new(Text.Get("DirectCheck"), Text.Status(direct?.Status ?? "not configured"), Text.Get(direct?.Status == "healthy" ? "DiagnosticHealthy" : direct?.Status == "not configured" || direct is null ? "DiagnosticUnconfigured" : "DiagnosticUnavailable")));
             try
             {

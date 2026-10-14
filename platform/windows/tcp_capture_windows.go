@@ -149,8 +149,7 @@ func (t *tcpRedirect) packets(classify Classifier) {
 			if mode == "relay" {
 				err = t.reflect(e, p, a, false)
 			} else if mode == "direct" {
-				err = t.send(p, a)
-				t.record(e, "direct", len(p))
+				err = SendLocal(e.decision, &e.localState, e.identity, e.tuple, p, func(q []byte) error { return t.send(q, a) }, t.b.evidence)
 			} else if mode == "block" || mode == "closed" {
 				t.b.drop(e.identity, e.tuple)
 			}
@@ -176,6 +175,12 @@ func (t *tcpRedirect) packets(classify Classifier) {
 		}
 		decision, self := ClassifyCapture(id, tuple, uint32(os.Getpid()), classify)
 		mode := "direct"
+		if flags&0x12 != 0x02 || self {
+			decision.Local = nil
+			if decision.Route.Local() {
+				decision.Route.Kind = ""
+			}
+		}
 		if flags&0x12 == 0x02 && !self && id.PID != 0 {
 			if decision.Block {
 				mode = "block"
@@ -214,8 +219,7 @@ func (t *tcpRedirect) packets(classify Classifier) {
 				}
 			}
 		} else if mode == "direct" {
-			err = t.send(p, a)
-			t.record(e, "direct", len(p))
+			err = SendLocal(e.decision, &e.localState, e.identity, e.tuple, p, func(q []byte) error { return t.send(q, a) }, t.b.evidence)
 		} else {
 			t.b.drop(id, tuple)
 		}

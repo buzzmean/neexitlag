@@ -11,6 +11,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+ LocalPorts.Text="443";
         DataContext = model;
         Launch.IsChecked = LocalPreferences.AutoStart;
         StartMinimized.IsChecked = preferences.StartMinimized;
@@ -93,10 +94,38 @@ public partial class MainWindow : Window
     {
         string page = (string)((Button)sender).Tag;
         PageTitle.Text = Text.Get(page);
-        foreach (string name in new[] { "Home", "Applications", "Routes", "Statistics", "Diagnostics", "Settings" })
+        foreach (string name in new[] { "Home", "Applications", "Routes", "Statistics", "Diagnostics", "Settings", "LocalStrategies" })
             ((FrameworkElement)FindName(name)).Visibility = name == page ? Visibility.Visible : Visibility.Collapsed;
         if (page == "Settings" && model.Snapshot is { } snapshot)
             LoadSettings(snapshot);
+    }
+    LocalStrategyConfig localConfig = new();
+    readonly System.Collections.ObjectModel.ObservableCollection<LocalStrategyProfile> localRules = [];
+    static string[] Parts(string s)=>s.Split(',',StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries);
+    async void LoadLocal(object sender,RoutedEventArgs e)=>await Execute(async()=>{
+        localConfig=await model.GetLocalStrategiesAsync(lifetime.Token);LocalEnabled.IsChecked=localConfig.Enabled;
+        localRules.Clear();foreach(var p in localConfig.User)localRules.Add(p);LocalGrid.ItemsSource=localRules;
+        var m=await model.GetLocalMetricsAsync(lifetime.Token);LocalCounters.Text=string.Format(Text.Russian,Text.Get("LocalCounters"),m.PacketsInspected,m.PacketsModified,m.ExtraPacketsGenerated,m.FlowsDirectPlus,Text.Bytes(m.BytesDirectPlus));
+    });
+    async void SaveLocal(object sender,RoutedEventArgs e)=>await Execute(async()=>{
+        localConfig.Enabled=LocalEnabled.IsChecked==true;localConfig.User=localRules.ToArray();
+        localConfig=await model.SaveLocalStrategiesAsync(localConfig,lifetime.Token);
+        if(LocalAuto.IsChecked==true && AppGrid.SelectedItem is ApplicationRow row)await model.SetProfileAsync(row.Profile,"AUTO",null,lifetime.Token);
+        LocalCounters.Text=Text.Get("LocalSaved");
+    });
+    void SelectLocal(object sender,SelectionChangedEventArgs e){if(LocalGrid.SelectedItem is not LocalStrategyProfile p)return;LocalApp.Text=p.Application;LocalPorts.Text=string.Join(",",p.Ports);LocalDomains.Text=string.Join(",",p.Domains);LocalIPs.Text=string.Join(",",p.Ips);LocalExcludeDomains.Text=string.Join(",",p.ExcludeDomains);LocalExcludeIPs.Text=string.Join(",",p.ExcludeIps);foreach(ComboBoxItem item in LocalMechanism.Items)if((string)item.Tag==p.Strategy)LocalMechanism.SelectedItem=item;}
+    void AddLocal(object sender,RoutedEventArgs e){
+        try{var old=LocalGrid.SelectedItem as LocalStrategyProfile;var strategy=(string)((ComboBoxItem)LocalMechanism.SelectedItem).Tag;
+        var p=new LocalStrategyProfile{Id=old?.Id??Guid.NewGuid().ToString("N"),Name=System.IO.Path.GetFileNameWithoutExtension(LocalApp.Text),Application=LocalApp.Text,Protocol=strategy.StartsWith("udp-")?"udp":"tcp",Ports=Parts(LocalPorts.Text).Select(ushort.Parse).ToArray(),Domains=Parts(LocalDomains.Text),Ips=Parts(LocalIPs.Text),ExcludeDomains=Parts(LocalExcludeDomains.Text),ExcludeIps=Parts(LocalExcludeIPs.Text),Strategy=strategy,Cutoff=old?.Cutoff??2,Priority=old?.Priority??0,Enabled=true};
+        if(old is not null)localRules.Remove(old);localRules.Add(p);LocalGrid.ItemsSource=localRules;LocalGrid.SelectedItem=p;
+        }catch{ShowMessage("LocalSelect");}
+    }
+    void RemoveLocal(object sender,RoutedEventArgs e){if(LocalGrid.SelectedItem is LocalStrategyProfile p)localRules.Remove(p);}
+    void TestLocal(object sender,RoutedEventArgs e){
+        var picker=new OpenFileDialog{Title=Text.Get("LocalTestScript"),Filter="PowerShell|strategy-tester.ps1",CheckFileExists=true};if(picker.ShowDialog(this)!=true)return;
+        var p=new System.Diagnostics.ProcessStartInfo("powershell.exe"){UseShellExecute=true,Verb="runas"};
+        foreach(var a in new[]{"-NoProfile","-NoExit","-File",picker.FileName,((string)((ComboBoxItem)LocalMechanism.SelectedItem).Tag).StartsWith("udp-")?"-UDPTarget":"-URL",LocalURL.Text,"-TokenFile",LocalToken.Text})p.ArgumentList.Add(a);
+        if(!string.IsNullOrWhiteSpace(LocalCA.Text)){p.ArgumentList.Add("-EndpointCA");p.ArgumentList.Add(LocalCA.Text);}try{System.Diagnostics.Process.Start(p);}catch{ShowMessage("LocalSelect");}
     }
     async void Reconnect(object sender, RoutedEventArgs e) => await Refresh();
     async void ToggleOptimize(object sender, RoutedEventArgs e) => await Execute(() => model.OptimizeAsync(!model.Optimizing, lifetime.Token));

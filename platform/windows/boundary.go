@@ -4,6 +4,7 @@ package windowsplatform
 import (
 	"context"
 	"errors"
+	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"github.com/buzzmean/neexitlag/core/profiles"
 	"github.com/buzzmean/neexitlag/core/routing"
 	"net/netip"
@@ -32,10 +33,12 @@ type CaptureStatus struct {
 	Capabilities Capabilities `json:"capabilities"`
 }
 type Decision struct {
-	Flow           routing.Flow
-	Route          routing.Route
-	Block          bool
-	BlockOnFailure bool
+	LocalStrategyID string
+	Local           *localstrategy.LocalStrategyEngine
+	Flow            routing.Flow
+	Route           routing.Route
+	Block           bool
+	BlockOnFailure  bool
 }
 type Classifier func(ProcessIdentity, Tuple) Decision
 type WindowsCaptureBackend interface {

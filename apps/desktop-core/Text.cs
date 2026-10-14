@@ -7,8 +7,8 @@ public static class Text
     public static readonly CultureInfo Russian = CultureInfo.GetCultureInfo("ru-RU");
     public static CultureInfo UICulture { get; set; } = Russian;
     public static string Get(string key) => Resources.GetString(key, UICulture) ?? throw new InvalidOperationException($"Missing UI resource: {key}");
-    public static string Route(string? id) => string.IsNullOrEmpty(id) ? Get("NoData") : id == "DIRECT" ? Get("Direct") : id;
-    public static string Mode(string mode) => Get(mode switch { "AUTO" => "Auto", "MANUAL" => "ViaServer", "BLOCK" => "Block", _ => "Direct" });
+    public static string Route(string? id) => string.IsNullOrEmpty(id) ? Get("NoData") : id == "DIRECT" ? Get("Direct") : id == "DIRECT_PLUS" ? Get("DirectPlus") : id;
+    public static string Mode(string mode) => Get(mode switch { "AUTO" => "Auto", "DIRECT_PLUS" => "DirectPlus", "MANUAL" => "ViaServer", "BLOCK" => "Block", _ => "Direct" });
     public static string Status(string status) => Get(status switch { "healthy" or "measured" => "Working", "error" => "Error", "not configured" => "NotConfigured", _ => "NotAvailable" });
     public static string Failure(Exception error) => error is ServiceException se ? Get(se.Failure switch { ServiceFailure.NotInstalled => "ServiceMissing", ServiceFailure.Stopped => "ServiceStopped", ServiceFailure.Incompatible => "ServiceIncompatible", ServiceFailure.AccessDenied => "ServiceDenied", ServiceFailure.Rejected => "CommandRejected", _ => "ServiceUnavailable" }) : Get("UnexpectedError");
     public static string Milliseconds(double value) => $"{value.ToString("F1", Russian)} {Get("Millisecond")}";

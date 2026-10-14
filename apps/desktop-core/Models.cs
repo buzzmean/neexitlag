@@ -7,6 +7,7 @@ public static class WireJson
 }
 public sealed class Profile
 {
+ public string LocalStrategyId {get;set;}="";
     public string Id { get; set; } = ""; public string Name { get; set; } = ""; public string[] Executables { get; set; } = [];
     public string Mode { get; set; } = "DIRECT"; public string? RelayId
     {
@@ -32,7 +33,7 @@ public sealed class Profile
     {
         get; set;
     }
-    public Profile Copy() => new() { Id = Id, Name = Name, Executables = [.. Executables], Mode = Mode, RelayId = RelayId, Custom = Custom, Publisher = Publisher, SignatureSha256 = SignatureSha256, ProtocolHints = ProtocolHints, PortHints = PortHints };
+    public Profile Copy() => new() { Id = Id, Name = Name, Executables = [.. Executables], Mode = Mode, RelayId = RelayId, Custom = Custom, LocalStrategyId = LocalStrategyId, Publisher = Publisher, SignatureSha256 = SignatureSha256, ProtocolHints = ProtocolHints, PortHints = PortHints };
 }
 public sealed class Route
 {
@@ -156,6 +157,8 @@ public sealed class CaptureEvidence
 }
 public sealed class CaptureFlow
 {
+ public string Strategy {get;set;}=""; public string Domain {get;set;}=""; public string Destination {get;set;}="";
+ public LocalCaptureCounters Counters {get;set;}=new();
  public string Protocol { get; set; } = "";
  public string IpVersion { get; set; } = "";
     public uint Pid
@@ -268,3 +271,15 @@ public sealed class DropDiagnostics
         get; set;
     }
 }
+
+public sealed class LocalCaptureCounters { public ulong DirectPlusBytes {get;set;} }
+public sealed class LocalStrategyProfile {
+ public string Id {get;set;}=""; public string Name {get;set;}=""; public int Version {get;set;}=1;
+ public string Protocol {get;set;}="tcp"; public ushort[] Ports {get;set;}=[443]; public string Application {get;set;}="";
+ public string[] Domains {get;set;}=[]; public string[] Ips {get;set;}=[]; public string[] ExcludeDomains {get;set;}=[]; public string[] ExcludeIps {get;set;}=[];
+ public string Strategy {get;set;}="tcp-split-1"; public uint Cutoff {get;set;}=2; public int Priority {get;set;} public bool Enabled {get;set;}=true;
+}
+public sealed class LocalStrategyConfig { public int Version {get;set;}=1; public bool Enabled {get;set;} public LocalStrategyProfile[] Builtin {get;set;}=[]; public LocalStrategyProfile[] User {get;set;}=[]; }
+public sealed class LocalStrategyMetrics { public ulong PacketsInspected {get;set;} public ulong PacketsModified {get;set;} public ulong ExtraPacketsGenerated {get;set;} public ulong FlowsDirectPlus {get;set;} public ulong BytesDirectPlus {get;set;} public ulong BytesRelayAvoided {get;set;} }
+
+public sealed class NetworkObservation { public DateTimeOffset ObservedAt {get;set;} public string Fingerprint {get;set;}=""; public string[] Adapters {get;set;}=[]; public string[] Routes {get;set;}=[]; public string[] Dns {get;set;}=[]; public string[] Conflicts {get;set;}=[]; public string[] Vpn {get;set;}=[]; public string Proxy {get;set;}=""; public string SecureDns {get;set;}=""; public string? Error {get;set;} }

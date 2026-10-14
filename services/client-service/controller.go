@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"github.com/buzzmean/neexitlag/core/measurement"
 	"github.com/buzzmean/neexitlag/core/optimizer"
 	"github.com/buzzmean/neexitlag/core/profiles"
@@ -63,6 +64,10 @@ type Snapshot struct {
 	ActiveApps     []string                      `json:"active_apps"`
 }
 type Controller struct {
+	Learned                     *localstrategy.Cache
+	network                     atomic.Pointer[windowsplatform.NetworkContext]
+	Local                       *localstrategy.LocalStrategyEngine
+	localMu                     sync.Mutex
 	Engine                      *routing.Engine
 	Selector                    *optimizer.RouteSelector
 	Measurements                *measurement.Engine
@@ -89,7 +94,11 @@ type Controller struct {
 
 func New(ctx context.Context) *Controller {
 	ctx, cancel := context.WithCancel(ctx)
-	c := &Controller{Engine: routing.New(4096), Selector: optimizer.New(optimizer.DefaultParameters()), Measurements: measurement.New(measurement.Defaults()), Profiles: profiles.New(profiles.Defaults()), recentApps: make(map[string]time.Time), localProfiles: make(map[string]profiles.Profile), acceptanceRelays: make(map[string]acceptanceRelaySource), transportDrops: make(map[string]func() map[string]telemetry.Metric), settings: Settings{Automatic: true, Failover: "DIRECT", UpdateChannel: "stable"}, ctx: ctx, cancel: cancel}
+	c := &Controller{Local: localstrategy.New(), Learned: localstrategy.NewCache(1024), Engine: routing.New(4096), Selector: optimizer.New(optimizer.DefaultParameters()), Measurements: measurement.New(measurement.Defaults()), Profiles: profiles.New(profiles.Defaults()), recentApps: make(map[string]time.Time), localProfiles: make(map[string]profiles.Profile), acceptanceRelays: make(map[string]acceptanceRelaySource), transportDrops: make(map[string]func() map[string]telemetry.Metric), settings: Settings{Automatic: true, Failover: "DIRECT", UpdateChannel: "stable"}, ctx: ctx, cancel: cancel}
+	c.Local.Guard = func(m localstrategy.Metadata) bool {
+		k, err := c.localKey(m.Application, m.Destination.String(), m.Protocol)
+		return err != nil || !c.Learned.Quarantined(k, m.StrategyID, time.Now())
+	}
 	c.Measurements.OnFailure = c.Selector.ReportProbeFailure
 	c.Engine.SetAutoSelector(func(f routing.Flow) routing.Policy {
 		c.mu.Lock()
@@ -111,6 +120,11 @@ func New(ctx context.Context) *Controller {
 				p.Backups = append(p.Backups, route(id))
 			}
 		}
+		// Same per-target policy at classification and actual transport open. The
+		// engine invokes this under its own lock: no call back into Engine methods.
+		d := windowsplatform.Decision{Route: p.Route}
+		c.applyLocalAuto(windowsplatform.ProcessIdentity{Path: f.ProcessPath}, windowsplatform.Tuple{Protocol: f.Protocol, Source: f.Source, Destination: f.Destination}, &d)
+		p.Route = d.Route
 		return p
 	})
 	c.syncPolicies()
@@ -122,6 +136,8 @@ func (c *Controller) syncPolicies() {
 		switch p.Mode {
 		case profiles.Auto:
 			policy.Auto = true
+		case profiles.DirectPlus:
+			policy.Route = routing.Route{Kind: routing.DirectPlusRoute}
 		case profiles.Manual:
 			policy.Route = routing.Route{RelayID: p.RelayID}
 		case profiles.Block:
@@ -135,6 +151,8 @@ func (c *Controller) syncPolicies() {
 }
 func (c *Controller) Start() {
 	c.wg.Add(1)
+	go func() { defer c.wg.Done(); c.watchNetwork() }()
+	c.wg.Add(1)
 	go func() { defer c.wg.Done(); c.Measurements.Run(c.ctx, c.Selector.Observe) }()
 }
 func (c *Controller) Close() {
@@ -146,6 +164,9 @@ func (c *Controller) Close() {
 }
 func (c *Controller) SetCustomPath(path string) error {
 	c.customPath = path
+	if err := c.loadLocal(); err != nil {
+		return err
+	}
 	settingsRaw, e := os.ReadFile(filepath.Join(filepath.Dir(path), "settings.json"))
 	if e == nil {
 		var stored Settings
@@ -234,6 +255,11 @@ func (c *Controller) Classify(identity windowsplatform.ProcessIdentity, t window
 	switch profile.Mode {
 	case profiles.Block:
 		decision.Block = true
+	case profiles.DirectPlus:
+		decision.Route = routing.Route{Kind: routing.DirectPlusRoute}
+		decision.Local = c.Local
+		decision.LocalStrategyID = profile.LocalStrategyID
+		decision.BlockOnFailure = false
 	case profiles.Manual:
 		decision.Route = routing.Route{RelayID: profile.RelayID}
 	case profiles.Auto:
@@ -247,6 +273,12 @@ func (c *Controller) Classify(identity windowsplatform.ProcessIdentity, t window
 		if primary != optimizer.Direct {
 			decision.Route = routing.Route{RelayID: primary}
 		}
+	}
+	if profile.Mode == profiles.Auto {
+		c.applyLocalAuto(identity, t, &decision)
+	}
+	if n := c.network.Load(); n != nil && len(n.Conflicts) > 0 {
+		return windowsplatform.Decision{Flow: f}
 	}
 	return decision
 }
@@ -361,6 +393,8 @@ func (c *Controller) Snapshot() Snapshot {
 }
 func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMessage) (any, error) {
 	switch method {
+	case "local.get", "local.set", "local.metrics", "local.network", "local.record", "local.recommend", "local.compare":
+		return c.handleLocal(method, raw)
 	case "acceptance.readiness":
 		var query struct {
 			RelayID string `json:"relay_id"`

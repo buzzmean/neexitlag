@@ -486,4 +486,42 @@
 <data name="InterceptionHint" xml:space="preserve"><value>Состояние backend; успешное внешнее соединение подтверждается отдельным acceptance.</value></data>
 <data name="UdpTraffic" xml:space="preserve"><value>Трафик UDP</value></data>
 <data name="TcpTraffic" xml:space="preserve"><value>Трафик TCP</value></data>
+  <data name="DirectPlus" xml:space="preserve"><value>Напрямую+</value></data>
+  <data name="LocalStrategies" xml:space="preserve"><value>Локальные стратегии</value></data>
+  <data name="LocalDetails" xml:space="preserve"><value>Стратегия / target / протокол / байты</value></data>
+  <data name="LocalWarning" xml:space="preserve"><value>Экспериментально. Только явные приложения и targets. Работа на вашей сети ещё требует теста. DIRECT следует текущей маршрутизации Windows и может идти через VPN. Экономия VPS без RELAY baseline не измерена.</value></data>
+  <data name="LocalEnabled" xml:space="preserve"><value>Включить Напрямую+</value></data>
+  <data name="AutoStrategy" xml:space="preserve"><value>Auto Strategy: использовать проверенный вариант в режиме «Авто»</value></data>
+  <data name="LocalLoad" xml:space="preserve"><value>Загрузить</value></data>
+  <data name="LocalSave" xml:space="preserve"><value>Сохранить</value></data>
+  <data name="LocalAdd" xml:space="preserve"><value>Добавить / заменить правило</value></data>
+  <data name="LocalRemove" xml:space="preserve"><value>Удалить правило</value></data>
+  <data name="LocalTest" xml:space="preserve"><value>Запустить контролируемый тест</value></data>
+  <data name="LocalApp" xml:space="preserve"><value>Полный путь к exe (для tester: tcp-selected.exe)</value></data>
+  <data name="LocalDomains" xml:space="preserve"><value>Домены: exact или *.example.org, через запятую</value></data>
+  <data name="LocalIPs" xml:space="preserve"><value>IP / CIDR, через запятую</value></data>
+  <data name="LocalExcludeDomains" xml:space="preserve"><value>Исключить домены</value></data>
+  <data name="LocalExcludeIPs" xml:space="preserve"><value>Исключить IP / CIDR</value></data>
+  <data name="LocalPorts" xml:space="preserve"><value>Порты, через запятую</value></data>
+  <data name="LocalURL" xml:space="preserve"><value>Контролируемый target: HTTP/HTTPS URL или IPv4:port для UDP</value></data>
+  <data name="LocalToken" xml:space="preserve"><value>Файл endpoint token (не IPC token)</value></data>
+  <data name="LocalCA" xml:space="preserve"><value>Файл CA endpoint, если нужен (TLS проверяется)</value></data>
+  <data name="LocalCounters" xml:space="preserve"><value>Осмотрено {0}, изменено {1}, дополнительных пакетов {2}, flows {3}, DIRECT+ {4}. Экономия VPS: не измерена.</value></data>
+  <data name="LocalSelect" xml:space="preserve"><value>Выберите приложение/правило; настройте явный target.</value></data>
+  <data name="LocalTestScript" xml:space="preserve"><value>Выберите tools/windows/strategy-tester.ps1 из текущего checkout</value></data>
+  <data name="LocalSaved" xml:space="preserve"><value>Стратегии сохранены. Старые TCP connections не меняют маршрут.</value></data>
+  <data name="LocalAutoHint" xml:space="preserve"><value>«Авто» использует только свежий tester cache этого exe/target. Результат tcp-selected.exe не переносится на Chrome/игру.</value></data>
+<data name="Enabled" xml:space="preserve"><value>Включено</value></data>
+<data name="LocalTcp1" xml:space="preserve"><value>TCP: разделить после 1 байта</value></data>
+<data name="LocalTcp5" xml:space="preserve"><value>TCP: разделить после 5 байтов</value></data>
+<data name="LocalUdp24" xml:space="preserve"><value>UDP: фрагментация IPv4 (эксперимент)</value></data>
+<data name="LocalNetwork" xml:space="preserve"><value>Сетевые адаптеры (наблюдение службы)</value></data>
+<data name="LocalVPN" xml:space="preserve"><value>Сторонний VPN / Happ</value></data>
+<data name="LocalConflict" xml:space="preserve"><value>Конфликт WinDivert / античит</value></data>
+<data name="LocalRoutes" xml:space="preserve"><value>Маршруты Windows / исключение к VPS</value></data>
+<data name="LocalDNS" xml:space="preserve"><value>Системный DNS / Secure DNS</value></data>
+<data name="LocalProxy" xml:space="preserve"><value>Системный WinHTTP proxy (контекст службы)</value></data>
+<data name="LocalVPNUnknown" xml:space="preserve"><value>Публичный выход не измерен. DIRECT может использовать VPN; физический ISP не предполагается.</value></data>
+<data name="LocalConflictUnknown" xml:space="preserve"><value>Известный конфликт не найден. Проверка модулей может быть неполной; это не гарантия совместимости.</value></data>
+<data name="LocalDNSUnknown" xml:space="preserve"><value>Наличие DoH-конфигурации не доказывает доступность. Browser DoH и его публичный выход не измерены.</value></data>
 </root>

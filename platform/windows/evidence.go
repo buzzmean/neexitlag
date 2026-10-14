@@ -9,20 +9,24 @@ import (
 )
 
 type CaptureCounters struct {
-	IPv6Blocked   uint64 `json:"ipv6_blocked_packets"`
-	CapturedBytes uint64 `json:"captured_bytes"`
-	RelayedBytes  uint64 `json:"relayed_bytes"`
-	DirectBytes   uint64 `json:"direct_bytes"`
-	ReplyBytes    uint64 `json:"relay_reply_bytes"`
-	Captured      uint64 `json:"captured_packets"`
-	Relayed       uint64 `json:"relayed_packets"`
-	Direct        uint64 `json:"direct_packets"`
-	Dropped       uint64 `json:"dropped_packets"`
-	Reinject      uint64 `json:"reinject_packets"`
-	LoopPrevented uint64 `json:"loop_prevention_packets"`
-	Replies       uint64 `json:"relay_reply_packets"`
+	DirectPlus      uint64 `json:"direct_plus_packets"`
+	DirectPlusBytes uint64 `json:"direct_plus_bytes"`
+	IPv6Blocked     uint64 `json:"ipv6_blocked_packets"`
+	CapturedBytes   uint64 `json:"captured_bytes"`
+	RelayedBytes    uint64 `json:"relayed_bytes"`
+	DirectBytes     uint64 `json:"direct_bytes"`
+	ReplyBytes      uint64 `json:"relay_reply_bytes"`
+	Captured        uint64 `json:"captured_packets"`
+	Relayed         uint64 `json:"relayed_packets"`
+	Direct          uint64 `json:"direct_packets"`
+	Dropped         uint64 `json:"dropped_packets"`
+	Reinject        uint64 `json:"reinject_packets"`
+	LoopPrevented   uint64 `json:"loop_prevention_packets"`
+	Replies         uint64 `json:"relay_reply_packets"`
 }
 type FlowEvidence struct {
+	Strategy     string          `json:"strategy,omitempty"`
+	Domain       string          `json:"domain,omitempty"`
 	Protocol     string          `json:"protocol"`
 	IPVersion    string          `json:"ip_version"`
 	PID          uint32          `json:"pid"`
@@ -57,6 +61,8 @@ func NewEvidenceLedger() *EvidenceLedger {
 }
 func increment(c *CaptureCounters, event string) {
 	switch event {
+	case "local":
+		c.DirectPlus++
 	case "ipv6_blocked":
 		c.IPv6Blocked++
 	case "captured":
@@ -165,6 +171,8 @@ func ClassifyCapture(id ProcessIdentity, t Tuple, self uint32, classify Classifi
 
 func incrementBytes(c *CaptureCounters, event string, n uint64) {
 	switch event {
+	case "local":
+		c.DirectPlusBytes += n
 	case "captured":
 		c.CapturedBytes += n
 	case "relay":
@@ -185,6 +193,23 @@ func (l *EvidenceLedger) AddBytes(id ProcessIdentity, t Tuple, event, relay stri
 	if v, ok := l.flows[key]; ok {
 		incrementBytes(&v.Counters, event, n)
 		v.LastSeen = time.Now()
+		l.flows[key] = v
+	}
+}
+
+// DIRECT+ counts are original outbound IPv4 packet bytes, never a guessed VPS
+// saving. The comparison baseline (would this have used RELAY?) is unknown.
+func (l *EvidenceLedger) RecordLocal(id ProcessIdentity, t Tuple, strategy, domain string, n uint64) {
+	l.RecordBytes(id, t, "local", "", n)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	key := evidenceKey{id.PID, id.CreationTime, t}
+	v, ok := l.flows[key]
+	if ok {
+		v.Route = "DIRECT_PLUS"
+		v.RelayID = ""
+		v.Strategy = strategy
+		v.Domain = domain
 		l.flows[key] = v
 	}
 }

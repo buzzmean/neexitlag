@@ -15,7 +15,7 @@ try {
  $deadline=[DateTime]::UtcNow.AddSeconds(15)
  do {
   $names=@($window.FindAll([Windows.Automation.TreeScope]::Descendants,[Windows.Automation.Condition]::TrueCondition)|ForEach-Object {$_.Current.Name})
-  $missing=@(@('Главная','Приложения','Маршруты','Статистика','Диагностика','Настройки','Повторить подключение')|Where-Object {$_ -notin $names})
+  $missing=@(@('Главная','Приложения','Маршруты','Статистика','Диагностика','Настройки','Локальные стратегии','Повторить подключение')|Where-Object {$_ -notin $names})
   if(!$missing.Count){break};Start-Sleep -Milliseconds 200
  }while([DateTime]::UtcNow -lt $deadline)
  if($missing.Count){throw ('Отсутствуют русские элементы окна: '+($missing -join ', '))}
