@@ -110,6 +110,7 @@ func (e *LocalStrategyEngine) BufferTCP(p []byte, st *State, b *HelloBuffer, m M
 	b.diagnostic.SegmentsSeen = b.seen
 	b.diagnostic.SegmentsBuffered = len(b.packets)
 	b.diagnostic.BytesBuffered = b.bytes
+	b.diagnostic.PayloadBytes = b.bytes
 	b.diagnostic.ReassemblyMS = now.Sub(b.started).Milliseconds()
 	if !e.bufferEligible(st, m) {
 		v := b.Flush(st, "NO_TRANSFORM", now)
@@ -150,6 +151,10 @@ func (e *LocalStrategyEngine) BufferTCP(p []byte, st *State, b *HelloBuffer, m M
 	b.diagnostic.OutOfOrder = b.outOfOrder
 	hello, offsets, expected, reason := assembleHello(stream[:contiguous])
 	b.diagnostic.ExpectedClientHelloBytes = expected
+	b.diagnostic.HandshakeBytes = expected
+	if contiguous >= 5 {
+		b.diagnostic.RecordBytes = 5 + int(binary.BigEndian.Uint16(stream[3:5]))
+	}
 	if reason != "" {
 		v := b.Flush(st, reason, now)
 		return true, &v
@@ -174,7 +179,6 @@ func (e *LocalStrategyEngine) BufferTCP(p []byte, st *State, b *HelloBuffer, m M
 	st.helloPackets = nil
 	d := b.diagnostic
 	d.PayloadBytes = b.bytes
-	d.RecordBytes = len(hello)
 	d.HandshakeBytes = len(hello)
 	d.Reason = "REASSEMBLY_COMPLETE"
 	d.Detail = "ClientHello assembled; outer SNI only; original segment boundaries retained"
@@ -215,7 +219,7 @@ func assembleHello(stream []byte) (hello []byte, offsets []int, expected int, re
 			return nil, nil, need, "NO_TRANSFORM"
 		}
 		n := int(binary.BigEndian.Uint16(stream[pos+3:]))
-		if n == 0 || n > 18432 || pos+5+n > MaxHelloBytes {
+		if n == 0 || n > 16384 || pos+5+n > MaxHelloBytes {
 			return nil, nil, need, "REASSEMBLY_LIMIT"
 		}
 		end := pos + 5 + n

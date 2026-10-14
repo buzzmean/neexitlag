@@ -347,11 +347,10 @@ func (e *LocalStrategyEngine) Process(p []byte, st *State, m Metadata) (r Result
 	}
 	if !st.matched {
 		if m.Protocol == "tcp" {
-			domainPayload := payload
+			m.Domain = PacketDomain(payload)
 			if st.logicalHello != nil {
-				domainPayload = st.logicalHello
+				m.Domain = tlsDomain(st.logicalHello)
 			}
-			m.Domain = PacketDomain(domainPayload)
 		}
 		if excluded(s, m) {
 			st.done = true

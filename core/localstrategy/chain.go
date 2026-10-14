@@ -60,7 +60,8 @@ func ChainLabel(actions []Action) string {
 }
 
 // tlsSNI locates only a COMPLETE single-record ClientHello. No QUIC decryption,
-// ECH inner-name attribution, stream reassembly, retained payload or guessing.
+// ECH inner-name attribution or guessing. BufferTCP may supply a bounded logical
+// parser record assembled from multiple wire records; it is never emitted.
 func tlsSNI(p []byte) (int, int, bool) {
 	if len(p) < 44 || p[0] != 22 || p[1] != 3 || p[2] < 1 || p[2] > 3 || p[5] != 1 || p[9] != 3 || p[10] < 1 || p[10] > 3 || p[43] > 32 {
 		return 0, 0, false

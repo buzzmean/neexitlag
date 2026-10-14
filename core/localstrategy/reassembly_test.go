@@ -94,8 +94,8 @@ func assertStream(t *testing.T, r Result, original []byte, base uint32) {
 }
 func TestReassembledCandidatesAndModernHello(t *testing.T) {
 	for _, candidate := range candidates() {
-		for _, size := range []int{1923, 1955, 1987, 2019, 4096} {
-			for _, count := range []int{2, 3, 5, 9} {
+		for _, size := range []int{1923, 1955, 1987, 2019, 4096, 16000, 20000, 32758} {
+			for _, count := range []int{2, 3, 5, 9, 16, 24, 32} {
 				if (size+count-1)/count > 1460 || count > 2 && (size-536+count-2)/(count-1) > 1460 {
 					continue
 				}
@@ -105,6 +105,19 @@ func TestReassembledCandidatesAndModernHello(t *testing.T) {
 					st := confirmed(e, base)
 					b := &HelloBuffer{}
 					data := largeHello(size)
+					if size > 16384 {
+						handshake := data[5:]
+						data = nil
+						for len(handshake) > 0 {
+							n := 16000
+							if n > len(handshake) {
+								n = len(handshake)
+							}
+							data = append(data, 22, 3, 3, byte(n>>8), byte(n))
+							data = append(data, handshake[:n]...)
+							handshake = handshake[n:]
+						}
+					}
 					input := parts(data, count, base)
 					now := time.Now()
 					var out *BufferedResult

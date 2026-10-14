@@ -33,7 +33,7 @@ type Inspection struct {
 
 func inspectHello(p []byte) *Inspection {
 	d := &Inspection{Reason: "NO_TRANSFORM", Detail: "not a recognized complete ClientHello", PayloadBytes: len(p)}
-	if len(p) == 0 || len(p) > 16384 || p[0] != 22 {
+	if len(p) == 0 || len(p) > MaxHelloBytes || p[0] != 22 {
 		return d
 	}
 	if len(p) < 5 {
