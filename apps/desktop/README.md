@@ -97,7 +97,7 @@ Windows CI также выполняет `tests/windows-tools/desktop-smoke.ps1`
 (Windows Server 2025) также успешно запустил настоящее опубликованное окно:
 русская навигация, single-instance, отсутствие службы и корректное завершение
 проверены через UI Automation. Взаимодействие с вашей реальной установленной
-службой, DPI, действия трея и HKCU-автозапуск требуют ручной Windows проверки. Уже доказанный
+службой, DPI и HKCU-автозапуск требуют ручной Windows проверки. Уже доказанный
 оператором ручной DIRECT/RELAY E2E не выдаётся за проверку нового окна.
 
 Отдельный исправленный service health-check использует ту же приватную CA, что
@@ -107,3 +107,34 @@ Windows CI также выполняет `tests/windows-tools/desktop-smoke.ps1`
 нужно обновить бинарник службы стандартной процедурой; GUI работает и с
 предыдущим IPC v1. На старой службе её проверка HTTPS с приватной CA может
 ошибочно показывать недоступность управляющего сервера.
+
+
+## Desktop regression: окно приложений, tray и dark dropdown
+
+На Windows запустите из корня репозитория:
+
+```powershell
+dotnet run --project tests/desktop-native/NeExitLag.Desktop.NativeTests.csproj --configuration Release
+```
+
+Это отдельный STA runtime host: загружает production compiled BAML/resources,
+реально открывает `MainWindow` и `AddApplicationWindow`, проверяет перенос длинных
+названий, путей и PID с автоматической высотой строк. Проверяет четыре комбинации
+StartMinimized/MinimizeToTray, minimize, X, реальные обработчики tray Open/Exit,
+сохранение и повторную загрузку локальных предпочтений. Хост отключает только
+фоновые IPC timers и завершение всего тестового процесса при закрытии окна;
+не управляет service и не изменяет пользовательские настройки/автозапуск.
+
+MinimizeToTray OFF: обычное сворачивание в панель задач, X завершает GUI,
+tray icon отсутствует. ON: minimize/X скрывают окно, Open восстанавливает,
+Exit завершает GUI. StartMinimized использует тот же выбранный режим и применяется
+однократно при старте. Сохранение переключает текущую политику сразу. Закрытие GUI
+не останавливает службу.
+
+Общий собственный ComboBox/ComboBoxItem template задаёт тёмные closed/popup/item,
+hover, selected и readable disabled состояния. Native тест применяет production
+шаблон ко всем шести dropdown, проверяет настоящие visual-tree brushes, перемещение
+мыши на control/item, WPF keyboard routing (arrows/F4/Enter/Escape), focus и Tab
+traversal. `bin/native-ui-tests/*.png` содержит runtime render для визуального
+контроля. В CI это artifact `desktop-native-ui-evidence`; fixture-данные на PNG не
+являются сетевой телеметрией. Старые 51 model/IPC тест и published EXE smoke остаются.

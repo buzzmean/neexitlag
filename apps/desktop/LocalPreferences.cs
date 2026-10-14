@@ -9,20 +9,21 @@ public sealed class LocalPreferences
     }
     public bool MinimizeToTray { get; set; } = true;
     static string PathName => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NeExitLag", "desktop.json");
-    public static LocalPreferences Load()
+    public static LocalPreferences Load(string? path = null)
     {
         try
         {
-            return JsonSerializer.Deserialize<LocalPreferences>(File.ReadAllText(PathName)) ?? new();
+            return JsonSerializer.Deserialize<LocalPreferences>(File.ReadAllText(path ?? PathName)) ?? new();
         }
         catch { return new(); }
     }
-    public void Save()
+    public void Save(string? path = null)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(PathName)!);
-        string temporary = PathName + ".tmp";
+        path ??= PathName;
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        string temporary = path + ".tmp";
         File.WriteAllText(temporary, JsonSerializer.Serialize(this));
-        File.Move(temporary, PathName, true);
+        File.Move(temporary, path, true);
     }
     public static bool AutoStart
     {

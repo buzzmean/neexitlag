@@ -7,9 +7,15 @@ namespace Neexitlag.Desktop;
 public partial class MainWindow : Window
 {
     readonly DesktopViewModel model = new(new WindowsServiceClient()); readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromSeconds(2) }; readonly CancellationTokenSource lifetime = new();
-    readonly LocalPreferences preferences = LocalPreferences.Load(); readonly System.Windows.Forms.NotifyIcon tray; readonly System.Drawing.Icon trayImage; bool exiting, settingsLoaded;
-    public MainWindow()
+    readonly LocalPreferences preferences; readonly bool shutdownOnClose; readonly string? preferencesPath; readonly System.Windows.Forms.NotifyIcon tray; readonly System.Drawing.Icon trayImage; bool exiting, settingsLoaded, startupApplied;
+    public MainWindow() : this(LocalPreferences.Load(), true, true) { }
+    // The native test host uses the same BAML, event handlers and NotifyIcon,
+    // without starting IPC timers or shutting down the host Application.
+    internal MainWindow(LocalPreferences preferences, bool background, bool shutdownOnClose, string? preferencesPath = null)
     {
+        this.preferences = preferences;
+        this.shutdownOnClose = shutdownOnClose;
+        this.preferencesPath = preferencesPath;
         InitializeComponent();
  LocalPorts.Text="443";LocalSplitPosition.Text="1";
         DataContext = model;
@@ -27,7 +33,7 @@ public partial class MainWindow : Window
         {
             Icon = trayImage,
             Text = "NeExitLag",
-            Visible = true
+            Visible = preferences.MinimizeToTray
         };
         var menu = new System.Windows.Forms.ContextMenuStrip();
         menu.Items.Add(Text.Get("OpenApp"), null, (_, _) => Dispatcher.Invoke(ShowFromTray));
@@ -38,12 +44,37 @@ public partial class MainWindow : Window
         menu.Opening += (_, _) => { enable.Enabled = model.Available && !model.Busy && !model.Optimizing; disable.Enabled = model.Available && !model.Busy && model.Optimizing; };
         tray.ContextMenuStrip = menu;
         tray.DoubleClick += (_, _) => Dispatcher.Invoke(ShowFromTray);
-        Loaded += async (_, _) => { if (preferences.StartMinimized) Hide(); await Refresh(); };
+        Loaded += async (_, _) => { ApplyStartupState(); if (background) await Refresh(); };
         timer.Tick += async (_, _) => await Refresh();
-        timer.Start();
+        if (background) timer.Start();
         Closing += OnClosing;
         StateChanged += (_, _) => { if (WindowState == WindowState.Minimized && preferences.MinimizeToTray) Hide(); };
-        Closed += (_, _) => { timer.Stop(); lifetime.Cancel(); tray.Visible = false; tray.ContextMenuStrip?.Dispose(); tray.Dispose(); trayImage.Dispose(); System.Windows.Application.Current.Shutdown(); };
+        Closed += (_, _) => { timer.Stop(); lifetime.Cancel(); tray.Visible = false; tray.ContextMenuStrip?.Dispose(); tray.Dispose(); trayImage.Dispose(); if (shutdownOnClose) System.Windows.Application.Current.Shutdown(); };
+    }
+    internal bool TrayVisible => tray.Visible;
+    internal System.Windows.Forms.NotifyIcon TrayIcon => tray;
+    void ApplyStartupState()
+    {
+        if (startupApplied) return;
+        startupApplied = true;
+        if (preferences.StartMinimized)
+            WindowState = WindowState.Minimized; // StateChanged hides only when tray mode is enabled.
+    }
+    internal void SaveLocalPreferences(bool startMinimized, bool minimizeToTray)
+    {
+        // Persist first: a failed save must not silently change runtime behavior.
+        new LocalPreferences { StartMinimized = startMinimized, MinimizeToTray = minimizeToTray }.Save(preferencesPath);
+        preferences.StartMinimized = startMinimized;
+        preferences.MinimizeToTray = minimizeToTray;
+        tray.Visible = minimizeToTray;
+        if (!minimizeToTray && !IsVisible)
+        {
+            // Disabling tray mode restores a taskbar window immediately.
+            Show();
+            WindowState = WindowState.Minimized;
+        }
+        else if (minimizeToTray && WindowState == WindowState.Minimized)
+            Hide();
     }
     public void ShowFromTray()
     {
@@ -52,14 +83,14 @@ public partial class MainWindow : Window
             WindowState = WindowState.Normal;
         Activate();
     }
-    void Exit()
+    internal void Exit()
     {
         exiting = true;
         Close();
     }
     void OnClosing(object? sender, CancelEventArgs e)
     {
-        if (!exiting && preferences.MinimizeToTray && (model.Available || WindowsServiceClient.IsRunning()))
+        if (!exiting && preferences.MinimizeToTray)
         {
             e.Cancel = true;
             Hide();
@@ -211,9 +242,7 @@ public partial class MainWindow : Window
             }, lifetime.Token))
                 return;
             LocalPreferences.SetAutoStart(Launch.IsChecked == true);
-            preferences.StartMinimized = StartMinimized.IsChecked == true;
-            preferences.MinimizeToTray = MinimizeToTray.IsChecked == true;
-            preferences.Save();
+            SaveLocalPreferences(StartMinimized.IsChecked == true, MinimizeToTray.IsChecked == true);
             ShowMessage(model.Available ? "SettingsSaved" : "LocalSettingsSaved");
         }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }

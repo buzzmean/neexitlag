@@ -51,6 +51,13 @@ jobs:
       - run: dotnet test --nologo
       - run: ./tools/windows/build-desktop.ps1
         shell: pwsh
+      - run: dotnet run --project tests/desktop-native/NeExitLag.Desktop.NativeTests.csproj --configuration Release
+        timeout-minutes: 3
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desktop-native-ui-evidence
+          path: bin/native-ui-tests/
       - run: ./tests/windows-tools/desktop-smoke.ps1
         shell: pwsh
       - uses: actions/upload-artifact@v4
