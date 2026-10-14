@@ -82,9 +82,15 @@ function Get-V2ExceptionKind([Exception]$ErrorObject){
 function Test-V2NetworkCycle($Snapshot,$State){
  $vpn=@(Get-V2Value $Snapshot 'vpn' @());if($vpn.Count){throw ('VPN present in network snapshot: '+($vpn -join ', ')+'. Turn Happ OFF and wait for a fresh service scan (up to 30 seconds).')}
  if((Get-V2Value $Snapshot 'error' '') -or !(Get-V2Value $Snapshot 'fingerprint' '') -or @(Get-V2Value $Snapshot 'conflicts' @()).Count){throw 'Valid network fingerprint without capture conflicts required'}
- $stamp=[string](Get-V2Value $Snapshot 'observed_at' '')
- $parsed=[DateTimeOffset]::MinValue
- if(![DateTimeOffset]::TryParse($stamp,[ref]$parsed) -or ([DateTimeOffset]::UtcNow-$parsed).TotalSeconds -gt 45 -or $parsed -gt [DateTimeOffset]::UtcNow.AddSeconds(5)){throw 'Fresh network refresh timestamp required'}
+ $value=Get-V2Value $Snapshot 'observed_at' ''
+ $parsed=[DateTimeOffset]::MinValue;$valid=$false
+ # PS7 ConvertFrom-Json can return DateTime; casting that to string drops its
+ # UTC kind and then TryParse would reinterpret it in the Windows local zone.
+ if($value -is [DateTimeOffset]){$parsed=$value;$valid=$true}
+ elseif($value -is [DateTime]){if($value.Kind -ne [DateTimeKind]::Unspecified){$parsed=[DateTimeOffset]$value;$valid=$true}}
+ else{$valid=[DateTimeOffset]::TryParse([string]$value,[ref]$parsed)}
+ if(!$valid -or ([DateTimeOffset]::UtcNow-$parsed).TotalSeconds -gt 45 -or $parsed -gt [DateTimeOffset]::UtcNow.AddSeconds(5)){throw 'Fresh network refresh timestamp required'}
+ $stamp=$parsed.ToUniversalTime().ToString('o',[Globalization.CultureInfo]::InvariantCulture)
  if($stamp -ne $State.last_refresh){
   if($State.last_refresh -and $parsed -le [DateTimeOffset]::Parse($State.last_refresh)){throw 'Network refresh timestamp moved backwards'}
   if($State.fingerprint -eq $Snapshot.fingerprint){$State.cycles++}else{$State.fingerprint=$Snapshot.fingerprint;$State.cycles=1}

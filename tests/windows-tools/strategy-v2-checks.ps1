@@ -120,6 +120,7 @@ if($env:OS -eq 'Windows_NT'){
  $stdout=Join-Path $nativeDir 'stdout.txt';$stderr=Join-Path $nativeDir 'stderr.txt'
  $native=Microsoft.PowerShell.Management\Start-Process -FilePath $env:ComSpec -ArgumentList '/d /c "echo v2-out & echo v2-err 1>&2"' -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
  try{
+  [void]$native.Handle # Retain the real exit handle before PS5.1 can lose it.
   Check ($native.WaitForExit(10000)) 'Redirected child did not exit';$native.WaitForExit();$native.Refresh()
   Check ($native.ExitCode -eq 0 -and (Get-Content $stdout -Raw) -match 'v2-out' -and (Get-Content $stderr -Raw) -match 'v2-err') 'Real Windows redirected process evidence invalid'
   $issues=@(Stop-V2TrialBrowser $native $nativeDir);Check (!$issues.Count) 'Already exited redirected Windows child cleanup failed'
@@ -148,3 +149,18 @@ foreach($field in @('remoteIPAddress','remotePort','status','securityState','pro
  Check ($null -ne $caught -and (Get-V2ExceptionKind $caught) -eq 'CDP/INSTRUMENTATION_FAILURE') ('Missing response property learned as loss: '+$field)
 }
 Write-Host 'PASS optional CDP response fields are instrumentation failures, not network-loss measurements'
+# JSON dates differ across PS5.1/7. Preserve the instant and UTC kind, regardless
+# of Windows culture/time zone; stringifying DateTime first loses that evidence.
+foreach($representation in @('json','datetime','datetimeoffset')){
+ $state=@{last_refresh='';fingerprint='';cycles=0}
+ $stamp=[DateTimeOffset]::UtcNow.AddSeconds(-30)
+ $n=[pscustomobject]@{fingerprint='isp';observed_at=$stamp.ToString('o');vpn=@();conflicts=@()}
+ switch($representation){'json'{$n=$n|ConvertTo-Json|ConvertFrom-Json};'datetime'{$n.observed_at=$stamp.UtcDateTime};'datetimeoffset'{$n.observed_at=$stamp.ToOffset([TimeSpan]::FromHours(3))}}
+ Check (!(Test-V2NetworkCycle $n $state)) ('Typed date accepted first refresh: '+$representation)
+ # The same instant with an explicit +03 offset remains the SAME refresh.
+ $n.observed_at=$stamp.ToOffset([TimeSpan]::FromHours(3)).ToString('o')
+ Check (!(Test-V2NetworkCycle $n $state)) 'Offset formatting counted as a new OS refresh'
+ $n.observed_at=[DateTime]::UtcNow
+ Check (Test-V2NetworkCycle $n $state) ('Typed UTC date rejected: '+$representation)
+}
+Write-Host 'PASS JSON/string/DateTime/DateTimeOffset UTC refresh identity without culture or timezone loss'
