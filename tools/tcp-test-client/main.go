@@ -102,7 +102,7 @@ func probe(ctx context.Context, endpoint, token, caFile, mode string) (a Attempt
 		a.Error = e.Error()
 		return
 	}
-	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("X-Neexitlag-Proof", webprobe.SignRequest(token, "GET", u.Path, nonce))
 	wsKey := ""
 	if mode == "websocket" {
 		wsKey = base64.StdEncoding.EncodeToString(nonceBytes)
@@ -136,7 +136,7 @@ func probe(ctx context.Context, endpoint, token, caFile, mode string) (a Attempt
 		a.Error = e.Error()
 		return
 	}
-	if observation.Nonce != nonce || net.ParseIP(observation.Source) == nil {
+	if observation.Nonce != nonce || net.ParseIP(observation.Source) == nil || !webprobe.VerifyObservation(token, observation) {
 		a.Error = "invalid destination nonce/source"
 		return
 	}

@@ -9,8 +9,10 @@ import (
 	"crypto/x509"
 	"errors"
 	"github.com/buzzmean/neexitlag/core/protocol"
+	"github.com/buzzmean/neexitlag/core/routing"
 	"github.com/buzzmean/neexitlag/internal/webprobe"
 	"github.com/quic-go/quic-go/http3"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -302,14 +304,14 @@ func TestRealHTTP3ThroughAuthenticatedRelay(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("X-Neexitlag-Proof", webprobe.SignRequest(token, "GET", "/observe", request.URL.Query().Get("nonce")))
 	response, e := (&http.Client{Transport: transport}).Do(request)
 	if e != nil {
 		t.Fatal(e)
 	}
 	defer response.Body.Close()
 	observation, e := webprobe.ReadObservation(response.Body)
-	if e != nil || response.ProtoMajor != 3 || observation.Protocol != "HTTP/3.0" || !observation.TLS || observation.Nonce != "1234567890abcdef" {
+	if e != nil || response.ProtoMajor != 3 || observation.Protocol != "HTTP/3.0" || !observation.TLS || observation.Nonce != "1234567890abcdef" || !webprobe.VerifyObservation(token, observation) {
 		t.Fatalf("%+v %v", observation, e)
 	}
 }
@@ -337,14 +339,95 @@ func TestHTTPSHTTP2OverAuthenticatedTCPRelay(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("X-Neexitlag-Proof", webprobe.SignRequest(token, "GET", "/observe", request.URL.Query().Get("nonce")))
 	response, e := (&http.Client{Transport: tr}).Do(request)
 	if e != nil {
 		t.Fatal(e)
 	}
 	defer response.Body.Close()
 	o, e := webprobe.ReadObservation(response.Body)
-	if e != nil || !o.TLS || o.Protocol != "HTTP/2.0" || o.Nonce != "0123456789abcdef" || response.ProtoMajor != 2 {
+	if e != nil || !o.TLS || o.Protocol != "HTTP/2.0" || o.Nonce != "0123456789abcdef" || !webprobe.VerifyObservation(token, o) || response.ProtoMajor != 2 {
 		t.Fatalf("%+v %v", o, e)
+	}
+}
+
+func TestRealTCPRoutePinningAndNativeOpenFailureFallback(t *testing.T) {
+	_, _, client, _, _ := testRelay(t)
+	target, e := net.Listen("tcp4", "127.0.0.1:0")
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer target.Close()
+	var workers sync.WaitGroup
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			c, e := target.Accept()
+			if e != nil {
+				return
+			}
+			workers.Add(1)
+			go func() { defer workers.Done(); defer c.Close(); _, _ = io.Copy(c, c) }()
+		}
+	}()
+	defer func() { target.Close(); <-done; workers.Wait() }()
+	engine := routing.New(10)
+	engine.SetRelay("VPS-01", client)
+	engine.SetPolicy("selected", routing.Policy{Route: routing.Route{RelayID: "VPS-01"}})
+	f := routing.Flow{Protocol: "tcp", PID: 42, ProcessPath: "selected.exe", ApplicationID: "selected", Source: netip.MustParseAddrPort("127.0.0.1:50001"), Destination: target.Addr().(*net.TCPAddr).AddrPort()}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	first, e := engine.OpenTCP(ctx, f)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer first.Close()
+	engine.SetPolicy("selected", routing.Policy{})
+	if _, e = first.Write([]byte("pin")); e != nil {
+		t.Fatal(e)
+	}
+	b := make([]byte, 3)
+	if _, e = io.ReadFull(first, b); e != nil || string(b) != "pin" {
+		t.Fatal(e, string(b))
+	}
+	if snapshot := engine.Snapshot(); len(snapshot) != 1 || snapshot[0].Route.RelayID != "VPS-01" {
+		t.Fatal("existing TCP migrated", snapshot)
+	}
+	f.Source = netip.MustParseAddrPort("127.0.0.1:50002")
+	second, e := engine.OpenTCP(ctx, f)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer second.Close()
+	found := false
+	for _, flow := range engine.Snapshot() {
+		if flow.Source == f.Source {
+			found = flow.Route.Direct()
+		}
+	}
+	if !found {
+		t.Fatal("new TCP ignored changed policy")
+	}
+	engine.SetPolicy("selected", routing.Policy{Route: routing.Route{RelayID: "unavailable"}})
+	f.Source = netip.MustParseAddrPort("127.0.0.1:50003")
+	fallback, e := engine.OpenTCP(ctx, f)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer fallback.Close()
+	found = false
+	for _, flow := range engine.Snapshot() {
+		if flow.Source == f.Source {
+			found = flow.Route.Direct()
+		}
+	}
+	if !found {
+		t.Fatal("opening failure did not use native DIRECT")
+	}
+	client.Close()
+	_ = first.SetReadDeadline(time.Now().Add(time.Second))
+	if _, e = first.Read(b); e == nil {
+		t.Fatal("dead relay TCP silently migrated")
 	}
 }

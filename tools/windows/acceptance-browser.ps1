@@ -12,12 +12,13 @@ $ErrorActionPreference='Stop'
 Assert-Administrator
 $ChromePath=(Resolve-Path $ChromePath).Path
 foreach($argument in @($ChromePath,$URL,$ReportDirectory)){if($argument.Contains('"')){throw 'Quote in argument'}}
-$uri=[Uri]$URL;if($uri.Scheme -ne 'https'){throw 'Trusted HTTPS destination URL required'}
+$uri=[Uri]$URL;if($uri.Scheme -ne 'https' -or $uri.AbsolutePath -ne '/'){throw 'Trusted HTTPS destination URL required'}
 # Separate, temporary browser data. Never attach to a user's regular browser.
 if(@(Get-Process -ErrorAction SilentlyContinue|Where-Object{try{$_.Path -ieq $ChromePath}catch{$false}}).Count -gt 0){throw 'Close this browser before acceptance: the executable profile applies to all its processes'}
 New-Item -ItemType Directory -Force $ReportDirectory|Out-Null;$ReportDirectory=(Resolve-Path $ReportDirectory).Path
 $run=[Guid]::NewGuid().ToString('N');$data=Join-Path $ReportDirectory "$run-profile";$netlog=Join-Path $ReportDirectory "$run-netlog.json";$profileId='!browser-'+$run
 $client=$null;$socket=$null;$original=Invoke-ServiceIPC 'status';$proof=@{mode=$Mode;url=$URL;status='FAIL';note='TCP/QUIC modes are separate; DNS netlog is evidence, not system DNS routing'}
+function Sign-WebMessage([string]$Key,[string]$Message){$h=[Security.Cryptography.HMACSHA256]::new([Text.Encoding]::UTF8.GetBytes($Key));try{return ([BitConverter]::ToString($h.ComputeHash([Text.Encoding]::UTF8.GetBytes($Message)))).Replace('-','').ToLowerInvariant()}finally{$h.Dispose()}}
 function CDP([string]$Method,$Params){
  $script:requestID++;$id=$script:requestID
  $bytes=[Text.Encoding]::UTF8.GetBytes((@{id=$id;method=$Method;params=$Params}|ConvertTo-Json -Depth 12 -Compress))
@@ -43,26 +44,34 @@ try {
  $socket=[Net.WebSockets.ClientWebSocket]::new();$cts=[Threading.CancellationTokenSource]::new(5000);try{$socket.ConnectAsync([Uri]$page.webSocketDebuggerUrl,$cts.Token).GetAwaiter().GetResult()}finally{$cts.Dispose()}
  $script:requestID=0
  [void](CDP 'Network.enable' @{})
- [void](CDP 'Network.setExtraHTTPHeaders' @{headers=@{Authorization=('Bearer '+[IO.File]::ReadAllText((Resolve-Path $TokenFile).Path).Trim())}})
+ $token=[IO.File]::ReadAllText((Resolve-Path $TokenFile).Path).Trim()
  $observations=@()
  # First navigation discovers Alt-Svc; repeated navigations let Chromium choose
  # QUIC naturally. QUIC mode never forces a winner or assumes UDP443 means H3.
  for($i=0;$i -lt 6;$i++){
   $nonce=[Guid]::NewGuid().ToString('N');$target=$URL.TrimEnd('/')+'/observe?nonce='+$nonce
+  $signature=Sign-WebMessage $token ("request`nGET`n/observe`n"+$nonce)
+  [void](CDP 'Network.setExtraHTTPHeaders' @{headers=@{'X-Neexitlag-Proof'=$signature}})
   [void](CDP 'Page.navigate' @{url=$target})
   $observation=$null;$deadline=[DateTime]::UtcNow.AddSeconds(15)
   while([DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 300;$r=CDP 'Runtime.evaluate' @{expression='document.body ? document.body.innerText : ""';returnByValue=$true};if($null -ne $r.result.PSObject.Properties['value']){try{$candidate=([string]$r.result.value)|ConvertFrom-Json;if($candidate.nonce -eq $nonce){$observation=$candidate;break}}catch{}}}
   if($null -eq $observation -or $observation.source -ne $RelayEgress -or !$observation.tls){throw 'Browser HTTPS source/TLS/nonce proof failed (check destination certificate trust)'}
+  $expectedProof=Sign-WebMessage $token ("response`n"+$observation.nonce+"`n"+$observation.source+"`n"+$observation.protocol+"`ntrue")
+  if($null -eq $observation.PSObject.Properties['proof'] -or $observation.proof -cne $expectedProof){throw 'Invalid destination HMAC proof'}
   $observations+=$observation
  }
  $capture=Invoke-ServiceIPC 'capture.diagnostics'
- $pids=@(Get-Process|Where-Object{try{$_.Path -ieq $ChromePath}catch{$false}}|ForEach-Object{$_.Id})
+ $processes=@(Get-Process|Where-Object{try{$_.Path -ieq $ChromePath}catch{$false}}|ForEach-Object{[pscustomobject]@{pid=$_.Id;exe=$_.Path;creation_time=[uint64]$_.StartTime.ToUniversalTime().ToFileTimeUtc()}})
+ $pids=@($processes|ForEach-Object{$_.pid})
  $protocol=if($Mode -eq 'TCP'){'tcp'}else{'udp'}
  $expectedDestinations=@();foreach($ip in [Net.Dns]::GetHostAddresses($uri.Host)|Where-Object{$_.AddressFamily -eq [Net.Sockets.AddressFamily]::InterNetwork}){$expectedDestinations+=($ip.ToString()+':'+$uri.Port)}
- $flows=@($capture.flows|Where-Object{$pids -contains $_.pid -and $_.exe -ieq $ChromePath -and $_.protocol -eq $protocol -and $expectedDestinations -contains $_.destination -and $_.selected_route -eq 'RELAY' -and $_.relay_id -eq 'VPS-01' -and $_.counters.captured_packets -gt 0 -and $_.counters.relayed_packets -gt 0 -and $_.counters.relay_reply_packets -gt 0 -and $_.counters.direct_packets -eq 0})
+ $leaks=@($capture.flows|Where-Object{$pids -contains $_.pid -and $_.exe -ieq $ChromePath -and $expectedDestinations -contains $_.destination -and $_.counters.direct_packets -gt 0})
+ if($leaks.Count -gt 0){throw 'Controlled browser destination has DIRECT traffic'}
+ $flows=@($capture.flows|Where-Object{$pids -contains $_.pid -and $_.exe -ieq $ChromePath -and $_.protocol -eq $protocol -and $expectedDestinations -contains $_.destination -and $_.selected_route -eq 'RELAY' -and $_.relay_id -eq 'VPS-01' -and $_.counters.captured_packets -gt 0 -and $_.counters.relayed_packets -gt 0 -and $_.counters.relayed_bytes -gt 0 -and $_.counters.relay_reply_packets -gt 0 -and $_.counters.relay_reply_bytes -gt 0 -and $_.counters.direct_packets -eq 0})
  if($flows.Count -eq 0){throw 'Browser transport capture proof missing'}
+ foreach($flow in $flows){if(@($processes|Where-Object{$_.pid -eq $flow.pid -and $_.creation_time -eq $flow.creation_time}).Count -ne 1){throw 'Browser process creation-time mismatch'}}
  if($Mode -eq 'QUIC' -and @($observations|Where-Object{$_.protocol -eq 'HTTP/3.0'}).Count -eq 0){throw 'QUIC enabled but no real HTTP/3 response; not a QUIC PASS'}
- $proof.observations=$observations;$proof.flows=$flows;$proof.pids=$pids;$proof.status='PASS'
+ $proof.observations=$observations;$proof.flows=$flows;$proof.pids=$pids;$proof.processes=$processes;$proof.status='PASS'
  [void](CDP 'Network.setExtraHTTPHeaders' @{headers=@{}})
  try{[void](CDP 'Browser.close' @{})}catch{}
 } catch {

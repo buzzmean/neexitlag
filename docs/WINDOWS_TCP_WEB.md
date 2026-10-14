@@ -15,7 +15,8 @@ its destination-open ACK. On opening failure, DIRECT policy reinjects the origin
 SYN unchanged. BLOCK-on-failure suppresses it. No application payload is replayed.
 The listener response is reflected back with the original destination tuple.
 Only IP/port headers/checksums change; Windows owns TCP sequence/ACK/retransmission,
-TLS, HTTP/2, WebSocket and application data pass unchanged. No MITM or certificate
+TLS, HTTP/2, WebSocket and application data pass unchanged. Requests and destination observations are nonce-bound HMAC-SHA256 authenticated;
+the shared token is never sent, including the plaintext HTTP test. No MITM or certificate
 substitution. Loopback IPv4 and unknown process identities bypass; service-owned
 sockets bypass even if a profile names the service executable.
 
