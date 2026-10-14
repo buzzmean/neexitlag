@@ -149,7 +149,10 @@ func PacketDomain(p []byte) string {
 	if !(bytes.HasPrefix(p, []byte("GET ")) || bytes.HasPrefix(p, []byte("POST ")) || bytes.HasPrefix(p, []byte("HEAD ")) || bytes.HasPrefix(p, []byte("CONNECT "))) {
 		return ""
 	}
-	s := string(p)
+	return httpDomain(string(p))
+}
+
+func httpDomain(s string) string {
 	if !strings.Contains(s, "\r\n\r\n") {
 		return ""
 	}
@@ -160,7 +163,9 @@ func PacketDomain(p []byte) string {
 				v = v[:i]
 			}
 			d, _ := domain(v)
-			return d
+			// Copy only the hostname: a substring would retain the whole HTTP request,
+			// including headers not needed for routing, after this packet returns.
+			return strings.Clone(d)
 		}
 	}
 	return ""

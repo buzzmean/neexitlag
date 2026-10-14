@@ -20,6 +20,11 @@ func (c *Controller) watchNetwork() {
 		ctx, cancel := context.WithTimeout(c.ctx, 8*time.Second)
 		n := windowsplatform.InspectNetwork(ctx)
 		cancel()
+		if n.Error != "" {
+			if previous := c.network.Load(); previous != nil {
+				n.Conflicts = append([]string(nil), previous.Conflicts...)
+			}
+		}
 		c.network.Store(&n)
 		c.Local.Suspend(len(n.Conflicts) > 0)
 		c.Learned.Cleanup(time.Now())

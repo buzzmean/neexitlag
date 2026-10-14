@@ -8,9 +8,11 @@ import (
 	"github.com/buzzmean/neexitlag/core/protocol"
 	"net"
 	"net/netip"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unsafe"
 )
 
 func profile() Profile {
@@ -403,5 +405,20 @@ func TestDataDrivenSplitPosition(t *testing.T) {
 	p.SplitPosition = 513
 	if e.Reload(Config{Version: 1, Enabled: true, User: []Profile{p}}) == nil {
 		t.Fatal("unbounded split offset")
+	}
+}
+
+// A retained Host must own its storage, not keep the rest of an HTTP request
+// (cookies/authorization/body) alive in per-flow state after the packet returns.
+func TestHTTPDomainDoesNotRetainRequestStorage(t *testing.T) {
+	request := "GET / HTTP/1.1\r\nHost: example.test\r\nAuthorization: " + strings.Repeat("sensitive", 512) + "\r\n\r\n"
+	got := httpDomain(request)
+	if got != "example.test" {
+		t.Fatal(got)
+	}
+	first := uintptr(unsafe.Pointer(unsafe.StringData(request)))
+	host := uintptr(unsafe.Pointer(unsafe.StringData(got)))
+	if host >= first && host < first+uintptr(len(request)) {
+		t.Fatal("Host retains unrelated HTTP request bytes")
 	}
 }
