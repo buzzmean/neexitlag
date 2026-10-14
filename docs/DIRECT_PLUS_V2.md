@@ -287,4 +287,3 @@ Page.getFrameTree.frameTree.frame.id теперь даёт явную instrument
 а не network failure. Cleanup ловит race taskkill/уже завершившегося процесса и
 сохраняет cleanup_errors, не перезаписывая результат trial. Эти ветки проверяются
 на PS7 и Windows PS5.1; есть реальный redirected Start-Process regression.
-
