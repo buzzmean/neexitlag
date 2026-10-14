@@ -252,6 +252,12 @@ public sealed class DesktopViewModel : Observable
         if (await Act(async () => { await client.Call<Snapshot>("optimize", new { enabled }, ct); }, ct))
             await RefreshAsync(ct);
     }
+    public RunningApplicationsViewModel CreateApplicationPicker() => new(client);
+    public async Task<bool?> AddApplicationFromFileAsync(Func<string?> chooseFile, CancellationToken ct = default)
+    {
+        string? path = chooseFile();
+        return path is null ? null : await AddApplicationAsync(path, ct);
+    }
     public async Task<bool> AddApplicationAsync(string path, CancellationToken ct = default)
     {
         if (!System.IO.Path.IsPathFullyQualified(path) || !path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) || !File.Exists(path))
@@ -259,16 +265,36 @@ public sealed class DesktopViewModel : Observable
             Error = Text.Get("InvalidExecutable");
             return false;
         }
-        if (Snapshot?.Profiles.Any(p => p.Executables.Any(e => string.Equals(e, path, StringComparison.OrdinalIgnoreCase))) == true)
-        {
-            Error = Text.Get("AlreadyAdded");
-            return false;
-        }
+        path = System.IO.Path.GetFullPath(path);
         var profile = new Profile { Id = "custom-" + Guid.NewGuid().ToString("N"), Name = System.IO.Path.GetFileNameWithoutExtension(path), Executables = [path], Mode = "AUTO", Custom = true };
-        bool ok = await Act(async () => { await client.Call<Profile[]>("profile.set", profile, ct); }, ct);
-        if (ok)
-            await RefreshAsync(ct);
+        bool duplicate = false;
+        bool ok = await Act(async () =>
+        {
+            // Recheck current service state inside the mutation gate. An old GUI
+            // snapshot or two rapid clicks must not create duplicate profiles.
+            var existing = await client.Call<Profile[]>("profiles", cancellationToken: ct);
+            duplicate = existing.Any(p => p.Executables.Any(e => SameExecutable(e, path)));
+            if (duplicate) return;
+            var saved = await client.Call<Profile[]>("profile.set", profile, ct);
+            if (Snapshot is { } snapshot) snapshot.Profiles = saved;
+            foreach (var p in saved)
+            {
+                var row = Applications.FirstOrDefault(a => a.Profile.Id == p.Id);
+                if (row is null)
+                {
+                    row = new(); row.Update(p, null, null); Applications.Add(row);
+                }
+            }
+        }, ct);
+        if (duplicate) { Error = Text.Get("AlreadyAdded"); return false; }
+        // Profile mutation already returned the authoritative list. Close the
+        // picker immediately; ordinary polling will fill live process evidence.
         return ok;
+    }
+    static bool SameExecutable(string a, string b)
+    {
+        try { return System.IO.Path.IsPathFullyQualified(a) && string.Equals(System.IO.Path.GetFullPath(a), b, StringComparison.OrdinalIgnoreCase); }
+        catch (Exception e) when (e is ArgumentException or NotSupportedException or System.IO.PathTooLongException) { return false; }
     }
     public async Task<bool> SetProfileAsync(Profile original, string mode, string? relay, CancellationToken ct = default)
     {
@@ -277,7 +303,7 @@ public sealed class DesktopViewModel : Observable
             Error = Text.Get("BlockUnsupported");
             return false;
         }
-        if (!new[] { "AUTO", "DIRECT", "MANUAL", "BLOCK" }.Contains(mode))
+        if (!new[] { "AUTO", "DIRECT", "DIRECT_PLUS", "MANUAL", "BLOCK" }.Contains(mode))
         {
             Error = Text.Get("CommandRejected");
             return false;

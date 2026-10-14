@@ -527,4 +527,14 @@
 <data name="LocalLoadFirst" xml:space="preserve"><value>Сначала загрузите текущие стратегии, чтобы сохранить существующие правила.</value></data>
 <data name="LocalTcpCustom" xml:space="preserve"><value>TCP: настраиваемая сегментация</value></data>
 <data name="LocalSplitPosition" xml:space="preserve"><value>Позиция для настраиваемой TCP-стратегии (1–512)</value></data>
+  <data name="RunningApplicationsHint" xml:space="preserve"><value>Выберите запущенное приложение. Несколько процессов одного приложения показаны одной строкой. Приложение будет добавлено по полному пути к exe.</value></data>
+  <data name="RefreshProcesses" xml:space="preserve"><value>Обновить</value></data>
+  <data name="SearchApplications" xml:space="preserve"><value>Поиск по названию, exe, пути или PID</value></data>
+  <data name="ProcessIdentifiers" xml:space="preserve"><value>PID процессов</value></data>
+  <data name="ChooseFileManually" xml:space="preserve"><value>Выбрать файл вручную</value></data>
+  <data name="Add" xml:space="preserve"><value>Добавить</value></data>
+  <data name="RunningProcessCount" xml:space="preserve"><value>Процессов: {0}</value></data>
+  <data name="RunningLoading" xml:space="preserve"><value>Загрузка запущенных приложений…</value></data>
+  <data name="RunningEmpty" xml:space="preserve"><value>Приложения не найдены. Обновите список, измените поиск или выберите файл вручную.</value></data>
+  <data name="RunningTruncated" xml:space="preserve"><value>Список ограничен. Некоторые приложения или процессы не показаны; можно выбрать файл вручную.</value></data>
 </root>

@@ -14,6 +14,7 @@ public sealed class FakeService : IServiceClient
         object result = method switch
         {
             "status" or "optimize" => State,
+            "profiles" => State.Profiles,
             "processes" => Array.Empty<ProcessIdentity>(),
             "capture.diagnostics" => new CaptureEvidence(),
             "profile.set" or "profile.delete" => State.Profiles,

@@ -132,12 +132,7 @@ public partial class MainWindow : Window
     }
     async void Reconnect(object sender, RoutedEventArgs e) => await Refresh();
     async void ToggleOptimize(object sender, RoutedEventArgs e) => await Execute(() => model.OptimizeAsync(!model.Optimizing, lifetime.Token));
-    async void AddApplication(object sender, RoutedEventArgs e)
-    {
-        var picker = new OpenFileDialog { Title = Text.Get("ChooseExecutable"), Filter = Text.Get("ExecutableFilter"), CheckFileExists = true, Multiselect = false };
-        if (picker.ShowDialog(this) == true)
-            await Execute(async () => { await model.AddApplicationAsync(picker.FileName, lifetime.Token); });
-    }
+    void AddApplication(object sender, RoutedEventArgs e) => new AddApplicationWindow(this, model, lifetime.Token).ShowDialog();
     void ApplicationSelected(object sender, SelectionChangedEventArgs e)
     {
         if (AppGrid.SelectedItem is ApplicationRow row)
