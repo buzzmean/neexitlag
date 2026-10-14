@@ -78,6 +78,8 @@ type State struct {
 	failed                                         bool
 }
 type Result struct {
+	Inspection *Inspection
+
 	Revision         string
 	Suppress         bool
 	FakePackets      uint64
@@ -329,13 +331,19 @@ func (e *LocalStrategyEngine) Process(p []byte, st *State, m Metadata) (r Result
 	st.generation = s.generation
 	st.inspected++
 	e.inspected.Add(1)
+	if m.Protocol == "tcp" {
+		r.Inspection = inspectHello(payload)
+	}
 	if !st.matched {
 		if m.Protocol == "tcp" {
 			m.Domain = PacketDomain(payload)
 		}
 		if excluded(s, m) {
 			st.done = true
-			return Result{}
+			if r.Inspection != nil {
+				r.Inspection.Detail += "; existing exclusion/unknown-domain policy denied the profile"
+			}
+			return r
 		}
 		for i := range s.profiles {
 			if (m.StrategyID == "" || s.profiles[i].ID == m.StrategyID) && s.profiles[i].Match(m) {
@@ -345,7 +353,10 @@ func (e *LocalStrategyEngine) Process(p []byte, st *State, m Metadata) (r Result
 					m.StrategyID = st.selectedID
 					if !e.Guard(m) {
 						st.done = true
-						return Result{}
+						if r.Inspection != nil {
+							r.Inspection.Detail = "existing runtime eligibility guard rejected the strategy; no transform attempted"
+						}
+						return r
 					}
 				}
 				st.matched = true
@@ -355,7 +366,11 @@ func (e *LocalStrategyEngine) Process(p []byte, st *State, m Metadata) (r Result
 		// No reassembly or guessing when metadata is absent; never modify midstream.
 		if !st.matched {
 			st.done = true
-			return Result{}
+			if r.Inspection != nil && r.Inspection.Domain != "" {
+				r.Inspection.Reason = "DOMAIN_NOT_MATCHED"
+				r.Inspection.Detail = "observed SNI did not match the selected enabled app/port/domain/IP profile"
+			}
+			return r
 		}
 	}
 	c := &s.profiles[st.selectedIndex]
@@ -386,6 +401,13 @@ func (e *LocalStrategyEngine) Process(p []byte, st *State, m Metadata) (r Result
 		st.applied = true
 	}
 	r.Active = st.applied
+	if r.Inspection != nil && r.Modified {
+		r.Inspection.Reason = "TRANSFORM_PLANNED"
+		r.Inspection.Detail = "not yet committed to wire"
+	}
+	if r.Inspection != nil && !r.Modified && r.Inspection.Domain != "" {
+		r.Inspection.Detail = "matched profile but packet plan not eligible (handshake/sequence/TTL/size/flags/positions); native pass-through"
+	}
 	return r
 }
 func strategyID(s *State) string { return s.selectedID }

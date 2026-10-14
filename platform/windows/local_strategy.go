@@ -18,17 +18,30 @@ func SendLocal(d Decision, state *localstrategy.State, id ProcessIdentity, tuple
 		return err
 	}
 	r := d.Local.Process(p, state, localstrategy.Metadata{StrategyID: d.LocalStrategyID, Application: id.Path, Protocol: tuple.Protocol, Destination: tuple.Destination})
+	defer evidence.RecordLocalInspection(id, tuple, r.Inspection)
 	if r.Suppress {
 		d.Local.Commit(r, len(p))
 		evidence.RecordQuicFallback(id, tuple, r.Strategy, r.Preset)
 		return nil
 	}
 	if r.Modified {
+		inspection := r.Inspection
+		if inspection != nil {
+			inspection.OutputPacketsPlanned = len(r.Packets)
+		}
 		for _, q := range r.Packets {
 			if err := send(q); err != nil {
+				if inspection != nil {
+					inspection.SendFailed = true
+					inspection.Reason = "TRANSFORM_SEND_FAILED"
+					inspection.Detail = "full plan not committed; inspect partial output count"
+				}
 				d.Local.Fail(state)
 				r = localstrategy.Result{Failed: true}
 				break
+			}
+			if inspection != nil {
+				inspection.OutputPacketsSent++
 			}
 		}
 		if r.Modified {

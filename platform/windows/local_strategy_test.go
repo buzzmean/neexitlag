@@ -335,6 +335,9 @@ func TestLocalChainFullSendEvidenceAndFailure(t *testing.T) {
 			if f.Route != "DIRECT" || f.Counters.DirectPlus != 0 || f.Counters.FakeTLS != 0 {
 				t.Fatal("partial plan falsely committed", f)
 			}
+			if f.LocalInspection == nil || !f.LocalInspection.SendFailed || f.LocalInspection.OutputPacketsSent != 1 || f.LocalInspection.Reason != "TRANSFORM_SEND_FAILED" {
+				t.Fatal("partial output diagnosis missing", f.LocalInspection)
+			}
 			continue
 		}
 		if count != 4 || f.Route != "DIRECT_PLUS" || f.Counters.FakeTLS != 1 || f.FakeTTL != 5 || f.Preset != "youtube" || f.Counters.Relayed != 0 || f.Counters.DirectPlus != 1 {
@@ -346,5 +349,35 @@ func TestLocalChainFullSendEvidenceAndFailure(t *testing.T) {
 		if f = ledger.Snapshot(42).Flows[0]; f.Route != "DIRECT_PLUS" || f.Counters.FakeTLS != 1 || f.Counters.DirectPlus != 1 {
 			t.Fatal("ACK lost real plan evidence", f)
 		}
+	}
+}
+
+func TestPassiveInspectionSurvivesACKWithoutChangingRoute(t *testing.T) {
+	e := localstrategy.New()
+	if err := e.Reload(localstrategy.Config{Version: 1, Enabled: true, User: []localstrategy.Profile{{ID: "sni", Version: 1, Application: "chosen.exe", Protocol: "tcp", Ports: []uint16{443}, Domains: []string{"www.youtube.com"}, Strategy: "chain", Actions: []localstrategy.Action{{Kind: "tcp-multisplit", Anchor: "sni", Positions: []uint16{1}}}, Cutoff: 1, Enabled: true}}}); err != nil {
+		t.Fatal(err)
+	}
+	ledger := NewEvidenceLedger()
+	st := &localstrategy.State{}
+	id := ProcessIdentity{PID: 42, CreationTime: 10, Path: "chosen.exe"}
+	tuple := Tuple{"tcp", netip.MustParseAddrPort("192.0.2.1:1234"), netip.MustParseAddrPort("203.0.113.9:443")}
+	d := Decision{Route: routing.Route{Kind: routing.DirectPlusRoute}, Local: e, LocalStrategyID: "sni"}
+	hello := localTestHello(t)
+	for _, p := range [][]byte{localTCPPacket(24, hello[:30]), localTCPPacket(16, nil), localTCPPacket(17, nil)} {
+		if err := SendLocal(d, st, id, tuple, p, func([]byte) error { return nil }, ledger); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f := ledger.Snapshot(42).Flows[0]
+	if f.LocalInspection == nil || f.LocalInspection.Reason != "CLIENTHELLO_INCOMPLETE" || f.Route != "DIRECT" || f.Counters.DirectPlus != 0 || f.Counters.Relayed != 0 || f.Counters.Direct != 3 {
+		t.Fatalf("passive diagnostic changed routing/counters: %+v", f)
+	}
+	f.LocalInspection.Reason = "external snapshot mutation"
+	if ledger.Snapshot(42).Flows[0].LocalInspection.Reason != "CLIENTHELLO_INCOMPLETE" {
+		t.Fatal("snapshot retained mutable ledger pointer")
+	}
+	ledger.BeginFlow(id, tuple)
+	if len(ledger.Snapshot(42).Flows) != 0 {
+		t.Fatal("reused tuple retained old inspection")
 	}
 }

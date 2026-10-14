@@ -28,6 +28,8 @@ type CaptureCounters struct {
 	Replies         uint64 `json:"relay_reply_packets"`
 }
 type FlowEvidence struct {
+	LocalInspection *localstrategy.Inspection `json:"local_inspection,omitempty"`
+
 	StrategyRevision string          `json:"strategy_revision,omitempty"`
 	Preset           string          `json:"preset,omitempty"`
 	Chain            string          `json:"chain,omitempty"`
@@ -159,6 +161,10 @@ func (l *EvidenceLedger) snapshotTarget(pid uint32, destination string, active m
 	for k, v := range l.flows {
 		v.Active = active[k]
 		if (pid == 0 || v.PID == pid) && (destination == "" || v.Destination == destination) {
+			if v.LocalInspection != nil {
+				copy := *v.LocalInspection
+				v.LocalInspection = &copy
+			}
 			out.Flows = append(out.Flows, v)
 		}
 	}
@@ -285,6 +291,21 @@ func (l *EvidenceLedger) RecordDomain(id ProcessIdentity, t Tuple, domain string
 	k := evidenceKey{id.PID, id.CreationTime, t}
 	if v, ok := l.flows[k]; ok && v.Domain == "" {
 		v.Domain = domain
+		l.flows[k] = v
+	}
+}
+
+// Passive first-payload diagnostics never change route, chain or wire counters.
+func (l *EvidenceLedger) RecordLocalInspection(id ProcessIdentity, t Tuple, d *localstrategy.Inspection) {
+	if d == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	k := evidenceKey{id.PID, id.CreationTime, t}
+	if v, ok := l.flows[k]; ok && v.LocalInspection == nil {
+		copy := *d
+		v.LocalInspection = &copy
 		l.flows[k] = v
 	}
 }

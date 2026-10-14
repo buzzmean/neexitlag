@@ -95,3 +95,91 @@ B. Chrome/YouTube: закройте Chrome, добавьте его полный
 C. ChatGPT: сохраните существующий MANUAL VPS-01 контроль. Если это тот же Chrome.exe, тестируйте режимы последовательно и верните его в RELAY после B; для одновременного контроля используйте другой browser exe с MANUAL VPS-01. Разные browser data directories одного exe не являются разными application identities. AUTO умеет только уже измеренные IP:port, не обещает произвольный per-domain YouTube DIRECT+/ChatGPT RELAY.
 
 При FAIL сохраняйте `.e2e/strategy-v2/*-proof.json`, GUI/capture diagnostics, actual observed mode/identity/protocol. Не пересылайте browser profile/cookies/credentials. В CI реальные external Discord/YouTube/Happ-OFF PASS не фабрикуются.
+
+## Поправка к реальному baseline и диагностика failures
+
+Оператор уточнил 2026-10-14: предыдущий `strategy-tester-v2` с `DIRECT=True`
+работал при включённом Happ VPN. Этот результат **исключён из ISP baseline,
+анализа эффективности DIRECT+ и доказательств**. Не переносите его в новый summary
+или выводы о чистом DIRECT. Старые proof-файлы не переписываются и не импортируются
+тестером в новый run; cached recommendation отдельно помечается и не считается
+подтверждённой без успешного strict proof именно текущего run.
+
+Новый операторский прогон с Happ полностью OFF:
+
+| Trial | Результат оператора |
+|---|---|
+| DIRECT | False |
+| DIRECT+ split1 / sni / disorder | False / False / False |
+| DIRECT+ fake2 / fake5 / fake8-disorder / fake5-only | False / False / False / False |
+| MANUAL VPS-01 | True |
+| повторный DIRECT | False |
+
+У failures было исключение `GetResult: Операция была отменена`. Оно само по себе
+не доказывает ни применение transform, ни его отсутствие, ни причину сетевого
+отказа. В этом прогоне нет real PASS ни одного DIRECT+ candidate; работающий
+контроль — authenticated RELAY. Задним числом counters/причины не восстанавливаем.
+Новая диагностика требует нового rerun, а не переинтерпретации старых failures.
+
+Каждый trial теперь сохраняет `classification`, массив `classifications`, phase,
+цепочку типов/сообщений исключений и `diagnostic`. Категории независимы: например,
+`NO_TRANSFORM + CLIENTHELLO_INCOMPLETE + NETWORK_TIMEOUT` либо
+`TRANSFORM_APPLIED_CONNECTION_FAILED + NETWORK_TIMEOUT`.
+
+- `NO_TRANSFORM`: в полном отфильтрованном snapshot есть captured target traffic,
+  но нет committed TCP transform. Это не заявление, что ISP отверг стратегию.
+- `TRANSFORM_APPLIED_CONNECTION_FAILED`: exact PID/creation/exe/destination и
+  strategy подтверждают committed TCP transform, а браузер сообщил network failure
+  или истёк navigation deadline при отзывчивом CDP. Счётчики не доказывают доставку
+  пакетов remote peer или работоспособность приложения.
+- `CLIENTHELLO_INCOMPLETE`: пассивно наблюдаемые TLS/handshake lengths превышают
+  доступный payload/record. Payload не сохраняется и reassembly не добавлено.
+- `SNI_NOT_FOUND`: структурно полный ClientHello без server_name. Отсутствие
+  diagnostic/SNI в старом service не подменяется этим выводом.
+- `DOMAIN_NOT_MATCHED`: observed outer SNI не получил match выбранного enabled
+  app/port/domain/IP profile; причины фильтров и исключений нельзя угадывать из URL.
+- `QUIC_FALLBACK_APPLIED`: отдельный положительный UDP counter; не TCP transform,
+  не доказательство fallback на HTTP/2 и не самостоятельный PASS.
+- `NETWORK_TIMEOUT`: навигационный deadline/явный browser `net::ERR_TIMED_OUT`.
+- `CDP/INSTRUMENTATION_FAILURE`: ошибка startup/debugger/RPC/evidence collection.
+  Отменённый .NET Task в CDP классифицируется по exception metadata/типам,
+  независимо от языка Windows; не превращается автоматически в network timeout.
+
+Для partial send есть `TRANSFORM_SEND_FAILED` / `PARTIAL_OUTPUT` с числом реально
+успешных send calls и длиной плана. Старые counters по-прежнему commit только
+полностью отправленный план. Partial output не становится ни PASS, ни ложным
+«ничего не отправлено». HTTP/evidence validation failures также не подменяются
+транспортным timeout. Strict PASS validation не ослаблена.
+
+Console и proof выводят captured_packets, direct_plus_packets/bytes,
+fake_tls_packets, quic_fallback_packets, relayed_bytes и per-flow PID, protocol,
+route, observed SNI/domain, applied chain/fake TTL, inspection и размеры hello.
+Configured chain/TTL показаны отдельно: конфигурация не является доказательством
+применения. При отсутствующих/foreign identity данных выводится UNKNOWN; truncated
+snapshot сохраняет положительные counters, но не доказывает отрицание transform.
+ACK/FIN не затирают first-payload inspection. Никаких TLS payload, cookies или
+содержимого страницы в proof нет.
+
+Не применённый или не подтверждённый TCP candidate и instrumentation failure не
+записываются как сетевой провал стратегии в AUTO cache. Scoring engine, packet
+plans и маршрутизация не изменены. Последний cached winner без successful proof
+текущего run не выдаётся за verified recommendation.
+
+Для CLIENTHELLO/SNI причин обновите service из нового `windows-real-e2e-tools`
+artifact и checkout scripts; GUI менять для этой диагностики не требуется.
+Со старым service tester остаётся совместимым, но точная passive причина будет
+UNAVAILABLE, а не выдуманным CLIENTHELLO_INCOMPLETE/SNI_NOT_FOUND.
+
+Rerun в elevated PowerShell при Happ **полностью OFF**, закрыв все Chrome processes:
+
+```powershell
+git switch codex/direct-plus-flowseal
+git pull --ff-only origin codex/direct-plus-flowseal
+.\tools\windows\strategy-tester-v2.ps1 `
+  -AppPath 'C:\Program Files\Google\Chrome\Application\chrome.exe' `
+  -Preset youtube -URL 'https://www.youtube.com/'
+```
+
+Пришлите новый `*-summary.json` и `*-proof.json`. Не передавайте временные browser
+profiles, cookies, token files или credentials. Real YouTube playback по-прежнему
+проверяется отдельно от HTTPS navigation.
