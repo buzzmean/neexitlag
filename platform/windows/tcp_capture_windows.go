@@ -189,6 +189,7 @@ func (t *tcpRedirect) packets(classify Classifier) {
 			}
 		}
 		t.state.mu.Lock()
+		t.b.evidence.BeginFlow(id, tuple)
 		e = t.state.add(tuple, id, decision, mode, time.Now())
 		if e == nil {
 			t.state.mu.Unlock()

@@ -86,9 +86,20 @@ func increment(c *CaptureCounters, event string) {
 func (l *EvidenceLedger) Record(id ProcessIdentity, t Tuple, event, relay string) {
 	l.RecordBytes(id, t, event, relay, 0)
 }
+
+// BeginFlow retires evidence for a reused tuple, without resetting lifetime totals.
+// Call once when the capture backend creates a new flow, not for retransmitted SYNs.
+func (l *EvidenceLedger) BeginFlow(id ProcessIdentity, t Tuple) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.flows, evidenceKey{id.PID, id.CreationTime, t})
+}
 func (l *EvidenceLedger) RecordBytes(id ProcessIdentity, t Tuple, event, relay string, bytes uint64) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.recordBytesLocked(id, t, event, relay, bytes)
+}
+func (l *EvidenceLedger) recordBytesLocked(id ProcessIdentity, t Tuple, event, relay string, bytes uint64) {
 	increment(&l.totals, event)
 	incrementBytes(&l.totals, event, bytes)
 	if id.PID == 0 || id.CreationTime == 0 || id.Path == "" {
@@ -118,7 +129,9 @@ func (l *EvidenceLedger) RecordBytes(id ProcessIdentity, t Tuple, event, relay s
 	} else if event == "relay" || event == "reply" {
 		v.Route = "RELAY"
 		v.RelayID = relay
-	} else if event == "direct" {
+	} else if event == "direct" && v.Route != "DIRECT_PLUS" {
+		// Native packets describe packet handling, not a new flow decision.
+		// Only RecordLocal can establish successful DIRECT+ use.
 		v.Route = "DIRECT"
 		v.RelayID = ""
 	}
@@ -197,12 +210,13 @@ func (l *EvidenceLedger) AddBytes(id ProcessIdentity, t Tuple, event, relay stri
 	}
 }
 
-// DIRECT+ counts are original outbound IPv4 packet bytes, never a guessed VPS
-// saving. The comparison baseline (would this have used RELAY?) is unknown.
+// RecordLocal counts only transformed original packets/bytes after ALL output
+// packets have been sent successfully. Metadata and counters publish atomically.
+// These are not a guessed VPS saving or a proof of application-level success.
 func (l *EvidenceLedger) RecordLocal(id ProcessIdentity, t Tuple, strategy, domain string, n uint64) {
-	l.RecordBytes(id, t, "local", "", n)
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.recordBytesLocked(id, t, "local", "", n)
 	key := evidenceKey{id.PID, id.CreationTime, t}
 	v, ok := l.flows[key]
 	if ok {

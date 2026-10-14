@@ -11,6 +11,7 @@ function Assert-DirectPlusEvidence($Report,$Evidence,[int]$PIDValue,[string]$Exe
  foreach($f in $flows){$captured+=$f.counters.captured_packets;$capturedBytes+=$f.counters.captured_bytes;$directBytes+=$f.counters.direct_bytes;$relayBytes+=$f.counters.relayed_bytes;$replyBytes+=$f.counters.relay_reply_bytes;$relay+=$f.counters.relayed_packets;$direct+=$f.counters.direct_packets;$plus+=$f.counters.direct_plus_packets;$replies+=$f.counters.relay_reply_packets;$bytes+=$f.counters.direct_plus_bytes
  if($Route -eq 'RELAY' -and ($f.selected_route -ne 'RELAY' -or $f.relay_id -ne 'VPS-01')){throw 'Relay route mismatch'}
  if($Route -eq 'DIRECT_PLUS' -and $f.selected_route -ne 'DIRECT_PLUS'){throw 'DIRECT+ transform did not apply to every connection'}
+ if($Route -eq 'DIRECT_PLUS' -and ($f.counters.direct_plus_packets -le 0 -or $f.counters.direct_plus_bytes -le 0)){throw 'DIRECT+ modification counters missing for a connection'}
  if($Route -eq 'DIRECT' -and $f.selected_route -ne 'DIRECT'){throw 'DIRECT route mismatch'} }
  if($captured -le 0 -or $capturedBytes -le 0){throw 'No captured packets'}
  if($Route -eq 'DIRECT_PLUS' -and ($plus -le 0 -or $bytes -le 0 -or $relay -ne 0)){throw 'No real DIRECT+ modification/evidence or relay leak'}

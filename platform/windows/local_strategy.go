@@ -34,12 +34,12 @@ func SendLocal(d Decision, state *localstrategy.State, id ProcessIdentity, tuple
 	}
 	err := send(p)
 	if err == nil {
+		// The engine's flow-byte metric includes unchanged packets after a
+		// successful transform. Capture counters distinguish actual modification
+		// from native ACK/FIN/cutoff pass-through. Fail() clears Applied first.
+		r.Active = state.Applied()
 		d.Local.Commit(r, len(p))
-		if r.Strategy != "" && state.Applied() {
-			evidence.RecordLocal(id, tuple, r.Strategy, r.Domain, uint64(len(p)))
-		} else {
-			evidence.RecordBytes(id, tuple, "direct", "", uint64(len(p)))
-		}
+		evidence.RecordBytes(id, tuple, "direct", "", uint64(len(p)))
 	}
 	return err
 }

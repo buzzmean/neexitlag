@@ -54,11 +54,29 @@ Invoke-ServiceIPC 'local.set' @{version=1;enabled=$true;builtin=@();user=$Rules}
 Keep the existing VPS target/token/endpoint CA from WINDOWS_TCP_WEB.md; no new VPS is needed. If using artifact extraction, pass `-Binaries` explicitly to its root or use packaged tools/windows scripts that detect the adjacent executables. Retain all `.e2e` reports privately (they contain metadata, not TLS payload/token).
 
 ```powershell
+$ErrorActionPreference = 'Stop'
 git fetch origin
 git switch codex/direct-plus-flowseal
 git pull --ff-only origin codex/direct-plus-flowseal
 # With Go installed, otherwise download windows-real-e2e-tools from this PR:
 .\tools\windows\build-e2e.ps1
+
+# Elevated PowerShell: replace ONLY the installed service executable.
+# Existing credentials, service config, local strategies and ACL stay in place.
+$replacement = (Resolve-Path .\bin\windows-e2e\neexitlag-service.exe).Path
+$svc = Get-CimInstance Win32_Service -Filter "Name='neexitlag'"
+if ($null -eq $svc) { throw 'neexitlag service is not installed' }
+if ($svc.PathName -match '^"([^"\r\n]+)"') { $installed = $Matches[1] }
+elseif ($svc.PathName -match '^(\S+\.exe)(?:\s|$)') { $installed = $Matches[1] }
+else { throw 'Cannot safely parse service executable path' }
+Stop-Service neexitlag
+(Get-Service neexitlag).WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
+Copy-Item $replacement $installed -Force
+Start-Service neexitlag
+(Get-Service neexitlag).WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
+
+# Repeat the reported HTTP acceptance (same existing token):
+.\tools\windows\acceptance-direct-plus.ps1 -URL 'http://2.56.177.4:40080' -TokenFile '.\.e2e\bundle\windows\echo.token'
 
 # Three ordinary apps at the same external endpoint, simultaneous windows:
 .\tools\windows\acceptance-direct-plus.ps1 -URL 'http://2.56.177.4:40080' -TokenFile 'C:\secure\echo.token'
@@ -88,7 +106,9 @@ Cache is volatile, bounded to 1024 targets × 8 variants, TTL 15min (AUTO additi
 
 Existing optimizer.Score evaluates actual RTT/jitter/loss/failure/stability, with only a 5ms equivalent RELAY cost tie-break. Fresh healthy target DIRECT wins. No scoped evidence -> existing AUTO stays unchanged. Global good echo quality does not prove a specific destination works. AUTO never performs infinite candidate tests on game traffic.
 
-Inspection counts only eligible initial payload packets; successful modified/extra counts commit after injection. DIRECT+ bytes count original outbound IP bytes of flows after a transformation, including later cutoff pass-through, not relay tunnel overhead or response download bytes. `relay_savings_measured=false`; `bytes_relay_avoided` remains 0/unknown without a measured counterfactual. GUI says savings unmeasured. No payload/TLS contents are logged. CPU/performance numbers below are microbenchmarks, not Internet claims.
+Inspection counts only eligible initial payload packets; successful modified/extra counts commit after injection. Capture `direct_plus_packets/bytes` count only original outbound IP packets/bytes whose transformed outputs were all successfully reinjected (one original counts once, even when split into two). Unchanged SYN/ACK/FIN, unsupported packets and post-cutoff pass-through count in `direct_packets/bytes`, including after a successful transform. `selected_route=DIRECT_PLUS` records actual successful use during the current flow, persists across these native packets or later fail-open, and retains the successful strategy/domain; it does not promise every packet was modified. Before the first completely successful transform, fail-open remains DIRECT with zero modification counters. DIRECT+ never adds relay counters. A new TCP connection, including reuse of the same process/tuple with a new SYN sequence, resets flow evidence but preserves lifetime totals. Flow counters/route/strategy/domain publish atomically. Acceptance still requires DIRECT_PLUS and positive modification packet/byte counters for **every** independent connection, not just positive totals.
+
+The separate engine `local.metrics.bytes_direct_plus` is a flow-usage metric: original outbound bytes from the first successful transform onward while its strategy state remains applied, including unchanged ACK/FIN/cutoff pass-through. It is not the capture modification counter, relay tunnel overhead or response download bytes. `relay_savings_measured=false`; `bytes_relay_avoided` remains 0/unknown without a measured counterfactual. GUI says savings unmeasured. No payload/TLS contents are logged. CPU/performance numbers below are microbenchmarks, not Internet claims.
 
 ```sh
 go test -race ./core/localstrategy ./platform/windows ./services/client-service

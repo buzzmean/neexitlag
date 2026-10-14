@@ -322,10 +322,6 @@ func (b *WinDivertBackend) packets(classify Classifier) {
 				}
 			}
 		}
-		b.evidence.RecordBytes(identity, tuple, "captured", "", uint64(len(packet)))
-		if known && identity.PID == uint32(os.Getpid()) {
-			b.evidence.Record(identity, tuple, "self", "")
-		}
 		b.associations.Touch(tuple)
 		b.mu.Lock()
 		f := b.flows[tuple]
@@ -340,6 +336,13 @@ func (b *WinDivertBackend) packets(classify Classifier) {
 			f.once.Do(func() { close(f.done) })
 			delete(b.flows, tuple)
 			f = nil
+		}
+		if f == nil {
+			b.evidence.BeginFlow(identity, tuple)
+		}
+		b.evidence.RecordBytes(identity, tuple, "captured", "", uint64(len(packet)))
+		if known && identity.PID == uint32(os.Getpid()) {
+			b.evidence.Record(identity, tuple, "self", "")
 		}
 		if f == nil {
 			decision := Decision{Route: routing.Route{}}

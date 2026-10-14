@@ -21,3 +21,19 @@ Assert-LocalEffectiveProfile $snapshot $exe '!test' 'DIRECT_PLUS' 's'
 $snapshot.profiles+=@([pscustomobject]@{id='!aaa';mode='DIRECT';custom=$true;executables=@($exe)})
 Reject {Assert-LocalEffectiveProfile $snapshot $exe '!test' 'DIRECT_PLUS' 's'}
 Write-Host 'PASS local acceptance rejects a shadowed profile before launching traffic'
+
+# Two independent connections: aggregate positive counters cannot conceal an
+# untransformed second connection, even if a stale route label says DIRECT_PLUS.
+$report.attempts[0].success=$true
+$second=$flow | ConvertTo-Json -Depth 10 | ConvertFrom-Json
+$e.flows=@($flow,$second)
+$report.attempts=@($report.attempts[0],$report.attempts[0])
+[void](Assert-DirectPlusEvidence $report $e 42 $exe 'DIRECT_PLUS' '192.0.2.9' $destination 2)
+$second.selected_route='DIRECT'
+Reject {[void](Assert-DirectPlusEvidence $report $e 42 $exe 'DIRECT_PLUS' '192.0.2.9' $destination 2)}
+$second.selected_route='DIRECT_PLUS'
+$second.counters.direct_plus_packets=0
+Reject {[void](Assert-DirectPlusEvidence $report $e 42 $exe 'DIRECT_PLUS' '192.0.2.9' $destination 2)}
+$second.counters.direct_plus_packets=2;$second.counters.direct_plus_bytes=0
+Reject {[void](Assert-DirectPlusEvidence $report $e 42 $exe 'DIRECT_PLUS' '192.0.2.9' $destination 2)}
+Write-Host 'PASS every connection requires its own route AND actual modification counters'
