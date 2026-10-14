@@ -139,3 +139,12 @@ class V2OptionalReplySocket {
 $script:socket=[V2OptionalReplySocket]::new();$script:cdpID=0;$script:navID=-2
 try{$optional=CDP 'Browser.getVersion' @{};Check ($null -eq $optional) 'Optional CDP result invented data'}finally{$script:socket=$null}
 Write-Host 'PASS actual CDP roundtrip with absent result under StrictMode Latest'
+$complete=[pscustomobject]@{remoteIPAddress='203.0.113.9';remotePort=443;status=200;securityState='secure';protocol='h2'}
+$meta=Get-V2HTTPSObservation $complete 12.5
+Check ($meta.success -and $meta.tls -and $meta.destination -eq '203.0.113.9:443') 'Valid HTTPS evidence lost'
+foreach($field in @('remoteIPAddress','remotePort','status','securityState','protocol')){
+ $missing=$complete.PSObject.Copy();$missing.PSObject.Properties.Remove($field);$caught=$null
+ try{Get-V2HTTPSObservation $missing 12.5|Out-Null}catch{$caught=$_.Exception}
+ Check ($null -ne $caught -and (Get-V2ExceptionKind $caught) -eq 'CDP/INSTRUMENTATION_FAILURE') ('Missing response property learned as loss: '+$field)
+}
+Write-Host 'PASS optional CDP response fields are instrumentation failures, not network-loss measurements'

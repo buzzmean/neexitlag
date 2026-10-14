@@ -118,3 +118,12 @@ function Stop-V2TrialBrowser($Browser,[string]$Data){
  try{if(Test-Path $Data){Remove-Item $Data -Recurse -Force -ErrorAction Stop}}catch{$issues+='Temporary browser profile remains; delete privately, never share: '+$Data}
  return $issues
 }
+function Get-V2HTTPSObservation($Response,[double]$ElapsedMS){
+ try{
+  foreach($field in @('remoteIPAddress','remotePort','status','securityState','protocol')){if($null -eq (Get-V2Value $Response $field) -or [string](Get-V2Value $Response $field) -eq ''){throw ('CDP response evidence missing '+$field)}}
+  $ip=[Net.IPAddress]::Parse([string](Get-V2Value $Response 'remoteIPAddress' ''))
+  $port=[int](Get-V2Value $Response 'remotePort' 0);$status=[int](Get-V2Value $Response 'status' 0)
+  if($ip.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork -or $port -lt 1 -or $port -gt 65535 -or $status -lt 100 -or $status -gt 599){throw 'Invalid or unsupported IPv4 CDP response evidence'}
+  return @{success=($status -ge 200 -and $status -lt 400);status=$status;tls=((Get-V2Value $Response 'securityState' '') -eq 'secure');protocol=[string](Get-V2Value $Response 'protocol' '');destination=($ip.ToString()+':'+$port);response_ms=$ElapsedMS}
+ }catch{$failure=[InvalidOperationException]::new($_.Exception.Message,$_.Exception);$failure.Data['v2_failure_kind']='CDP/INSTRUMENTATION_FAILURE';throw $failure}
+}

@@ -52,7 +52,11 @@ function CDP([string]$Method,$Parameters,[switch]$NoWait){
    $stream=[IO.MemoryStream]::new()
    try{do{$bytes=New-Object byte[] 16384;$message=$script:socket.ReceiveAsync([ArraySegment[byte]]::new($bytes),$cts.Token).GetAwaiter().GetResult();if($message.MessageType -eq [Net.WebSockets.WebSocketMessageType]::Close){throw 'CDP closed'};$stream.Write($bytes,0,$message.Count);if($stream.Length -gt 262144){throw 'Bounded CDP message exceeded'}}while(!$message.EndOfMessage);$r=[Text.Encoding]::UTF8.GetString($stream.ToArray())|ConvertFrom-Json}finally{$stream.Dispose()}
    $methodValue=Get-V2Value $r 'method' ''
-   if($methodValue -eq 'Network.responseReceived' -and (Get-V2Value (Get-V2Value $r 'params') 'type' '') -eq 'Document'){$script:responses[[string](Get-V2Value (Get-V2Value $r 'params') 'requestId' '')]=@{response=(Get-V2Value (Get-V2Value $r 'params') 'response');frame_id=(Get-V2Value (Get-V2Value $r 'params') 'frameId' '')}}
+   if($methodValue -eq 'Network.responseReceived' -and (Get-V2Value (Get-V2Value $r 'params') 'type' '') -eq 'Document'){
+    $parameters=Get-V2Value $r 'params';$document=Get-V2Value $parameters 'response';$frameID=[string](Get-V2Value $parameters 'frameId' '');$requestID=[string](Get-V2Value $parameters 'requestId' '')
+    if(!$document -or !$frameID -or !$requestID -or !(Get-V2Value $document 'url' '')){throw 'CDP Document response lacks frame/request/response identity'}
+    $script:responses[$requestID]=@{response=$document;frame_id=$frameID}
+   }
    if($methodValue -eq 'Network.loadingFinished'){$script:finished[[string](Get-V2Value (Get-V2Value $r 'params') 'requestId' '')]=$true}
    if($methodValue -eq 'Network.loadingFailed'){$script:failed[[string](Get-V2Value (Get-V2Value $r 'params') 'requestId' '')]=[string](Get-V2Value (Get-V2Value $r 'params') 'errorText' '')}
    if($script:responses.Count -gt 128 -or $script:finished.Count -gt 1024 -or $script:failed.Count -gt 128){throw 'Bounded CDP event table exceeded'}
@@ -129,10 +133,9 @@ function Trial([string]$Mode,[string]$Strategy,[int]$Index){
   }
   if($null -eq $response){$measurementValid=$true;$result.failure_kind='NETWORK_TIMEOUT';throw 'No completed target HTTPS response before navigation deadline (CDP responsive)'}
   $measurementValid=$true
-  $clock.Stop();$ip=[Net.IPAddress]::Parse([string]$response.remoteIPAddress)
-  if($ip.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork){throw 'IPv6 target: no transparent IPv6 DIRECT+ claim'}
-  $destination=$ip.ToString()+':'+[int]$response.remotePort
-  $observation=@{success=($response.status -ge 200 -and $response.status -lt 400);status=[int]$response.status;tls=($response.securityState -eq 'secure');protocol=[string]$response.protocol;destination=$destination;response_ms=$clock.Elapsed.TotalMilliseconds}
+  $clock.Stop();$result.phase='response_evidence'
+  $observation=Get-V2HTTPSObservation $response $clock.Elapsed.TotalMilliseconds
+  $destination=[string]$observation.destination
   $result.observation=$observation
   $result.phase='route_evidence'
   $identities=@(Invoke-ServiceIPC 'processes' @{executables=@($AppPath)})
