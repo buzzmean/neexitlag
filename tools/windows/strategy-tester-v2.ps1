@@ -74,12 +74,17 @@ function Trial([string]$Mode,[string]$Strategy,[int]$Index){
   $quicFlag=if($Mode -eq 'DIRECT_PLUS'){''}else{'--disable-quic'}
   $args="$quicFlag --headless=new --no-first-run --no-default-browser-check --disable-background-networking --user-data-dir=`"$data`" --host-resolver-rules=`"MAP $($uri.DnsSafeHost) $TargetIPv4, EXCLUDE localhost`" --remote-debugging-address=127.0.0.1 --remote-debugging-port=0 about:blank"
   $browser=Start-Process -FilePath $AppPath -ArgumentList $args -PassThru
-  $deadline=[DateTime]::UtcNow.AddSeconds($TimeoutSeconds);$portFile=Join-Path $data 'DevToolsActivePort'
-  while(!(Test-Path $portFile)){if($browser.HasExited -or [DateTime]::UtcNow -ge $deadline){throw 'App did not expose isolated Chromium/Electron CDP; automatic login/messages are not supported'};Start-Sleep -Milliseconds 100}
-  $port=[int](Get-Content $portFile)[0];if($port -lt 1 -or $port -gt 65535){throw 'Invalid CDP port'}
-  $pageList=Invoke-RestMethod "http://127.0.0.1:$port/json/list" -TimeoutSec 3
-  $pages=@($pageList|Where-Object{$_.type -eq 'page'})
-  if(!$pages.Count){throw 'No isolated app page'}
+  $portFile=Join-Path $data 'DevToolsActivePort'
+  # Reuse the final-snapshot readiness wait: a partial port file or a listening
+  # debugger with no page yet is startup progress, not a failed network trial.
+  $ready=Wait-AcceptanceReadiness -TimeoutMS ($TimeoutSeconds*1000) -PollMS 100 -GetSnapshot {
+   if($browser.HasExited){throw 'App exited before isolated CDP became ready (unsupported launcher/Electron mode)'}
+   $port=0;$pages=@()
+   if(Test-Path $portFile){$lines=@(Get-Content $portFile);if($lines.Count -gt 0){[void][int]::TryParse([string]$lines[0],[ref]$port)}}
+   if($port -ge 1 -and $port -le 65535){$pageList=Invoke-RestMethod "http://127.0.0.1:$port/json/list" -TimeoutSec 2;$pages=@($pageList|Where-Object{$_.type -eq 'page'})}
+   [pscustomobject]@{ready=($pages.Count -gt 0);port=$port;pages=$pages;missing=@('isolated Chromium/Electron DevTools port and page')}
+  } -Evaluate {param($s)$s}
+  $port=$ready.port;$pages=@($ready.pages)
   $ws=[Uri]$pages[0].webSocketDebuggerUrl
   if($ws.Host -notin @('127.0.0.1','localhost') -or $ws.Port -ne $port){throw 'CDP must remain on the isolated loopback port'}
   $script:socket=[Net.WebSockets.ClientWebSocket]::new();$cts=[Threading.CancellationTokenSource]::new(5000)
@@ -87,13 +92,12 @@ function Trial([string]$Mode,[string]$Strategy,[int]$Index){
   [void](CDP 'Network.enable' @{});[void](CDP 'Network.setCacheDisabled' @{cacheDisabled=$true});[void](CDP 'Network.setBypassServiceWorker' @{bypass=$true})
   $tree=CDP 'Page.getFrameTree' @{};$mainFrame=[string]$tree.frameTree.frame.id
   $script:navError='';$script:navID=$script:cdpID+1
-  $deadline=[DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
   $clock=[Diagnostics.Stopwatch]::StartNew()
   # A blocked connection may delay Page.navigate's response for a minute.
   # Send it asynchronously, keep pumping CDP, and apply our navigation deadline.
   CDP 'Page.navigate' @{url=$URL} -NoWait
   $response=$null
-  while([DateTime]::UtcNow -lt $deadline){
+  while($true){
    # A harmless protocol round trip pumps Network events, not page code.
    [void](CDP 'Page.getFrameTree' @{})
    if($script:navError){$measurementValid=$true;throw ('Navigation failed: '+$script:navError)}
@@ -101,7 +105,9 @@ function Trial([string]$Mode,[string]$Strategy,[int]$Index){
     $entry=$script:responses[$key];$candidate=$entry.response;$u=[Uri]$candidate.url
     if($entry.frame_id -eq $mainFrame -and $u.DnsSafeHost -ieq $uri.DnsSafeHost -and $script:finished.ContainsKey($key) -and !$script:failed.ContainsKey($key)){$response=$candidate;break}
    }
-   if($null -ne $response){break};Start-Sleep -Milliseconds 100
+   if($null -ne $response){break}
+   if($clock.Elapsed.TotalSeconds -ge $TimeoutSeconds){break}
+   Start-Sleep -Milliseconds 100
   }
   if($null -eq $response){$measurementValid=$true;throw 'No completed target HTTPS response before timeout'}
   $measurementValid=$true
