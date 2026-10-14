@@ -7,14 +7,15 @@ import (
 )
 
 type tcpEntry struct {
-	tuple    Tuple
-	identity ProcessIdentity
-	decision Decision
-	mode     string // opening, relay, direct, block, closed
-	virtual  uint16
-	last     time.Time
-	upstream net.Conn
-	local    net.Conn
+	tuple           Tuple
+	initialSequence uint32
+	identity        ProcessIdentity
+	decision        Decision
+	mode            string // opening, relay, direct, block, closed
+	virtual         uint16
+	last            time.Time
+	upstream        net.Conn
+	local           net.Conn
 }
 
 // All methods/entry access require mu. Closed mappings are quarantined so late
@@ -36,6 +37,9 @@ func (s *tcpState) add(t Tuple, id ProcessIdentity, d Decision, mode string, now
 	}
 	e := &tcpEntry{tuple: t, identity: id, decision: d, mode: mode, last: now}
 	if mode == "opening" {
+		if len(s.ports) >= s.limit {
+			return nil
+		}
 		for i := 0; i < 45536; i++ {
 			p := s.next
 			s.next++
@@ -53,6 +57,30 @@ func (s *tcpState) add(t Tuple, id ProcessIdentity, d Decision, mode string, now
 		}
 	}
 	s.entries[t] = e
+	return e
+}
+func (s *tcpState) retire(e *tcpEntry, now time.Time) {
+	if e.upstream != nil {
+		e.upstream.Close()
+		e.upstream = nil
+	}
+	if e.local != nil {
+		e.local.Close()
+		e.local = nil
+	}
+	e.mode = "closed"
+	e.last = now
+}
+
+// A new SYN sequence means a new native TCP connection, even if Windows reuses
+// the same tuple. Keep the old virtual port quarantined, not its routing policy.
+func (s *tcpState) existing(t Tuple, flags byte, sequence uint32, now time.Time) *tcpEntry {
+	e := s.entries[t]
+	if e != nil && flags&0x12 == 2 && sequence != e.initialSequence {
+		s.retire(e, now)
+		delete(s.entries, t)
+		return nil
+	}
 	return e
 }
 func (s *tcpState) expire(now time.Time) {
@@ -74,6 +102,10 @@ func (s *tcpState) expire(now time.Time) {
 		if age <= timeout {
 			continue
 		}
+		if e.virtual != 0 && e.mode != "closed" {
+			s.retire(e, now)
+			continue
+		}
 		if e.upstream != nil {
 			e.upstream.Close()
 		}
@@ -83,6 +115,11 @@ func (s *tcpState) expire(now time.Time) {
 		delete(s.entries, t)
 		if e.virtual != 0 {
 			delete(s.ports, e.virtual)
+		}
+	}
+	for p, e := range s.ports {
+		if s.entries[e.tuple] != e && e.mode == "closed" && now.Sub(e.last) > 4*time.Minute {
+			delete(s.ports, p)
 		}
 	}
 }

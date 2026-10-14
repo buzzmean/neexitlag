@@ -80,10 +80,11 @@ func TestTCPBoundedStateCollisionPinAndCleanup(t *testing.T) {
 	s.expire(now.Add(10 * time.Second))
 	b.last = now.Add(-20 * time.Second)
 	s.expire(now.Add(11 * time.Second))
-	if s.entries[tuple] != a || s.entries[other] != nil {
+	if s.entries[tuple] != a || s.entries[other].mode != "closed" {
 		t.Fatal("active evicted / opening leaked")
 	}
 	s.expire(now.Add(3 * time.Hour))
+	s.expire(now.Add(3*time.Hour + 5*time.Minute))
 	if len(s.entries) != 0 || len(s.ports) != 0 {
 		t.Fatal("state leaked")
 	}
@@ -155,5 +156,31 @@ func TestIPv6SocketGuardSelectedOnly(t *testing.T) {
 	selected.PID = 43
 	if BlockUnsupportedIPv6(selected, tuple, 4, 1, classify) {
 		t.Fatal("unselected blocked")
+	}
+}
+
+func TestNewTCPSynReusesTupleWithoutInheritingOldRoute(t *testing.T) {
+	s := newTCPState(4)
+	now := time.Now()
+	tuple := testTuple()
+	old := s.add(tuple, ProcessIdentity{}, Decision{Route: routing.Route{RelayID: "A"}}, "opening", now)
+	old.initialSequence = 123
+	if s.existing(tuple, 2, 123, now) != old {
+		t.Fatal("retransmission changed route")
+	}
+	if s.existing(tuple, 16, 456, now) != old {
+		t.Fatal("established packet changed route")
+	}
+	if s.existing(tuple, 2, 456, now) != nil || s.ports[old.virtual] != old || old.mode != "closed" {
+		t.Fatal("new connection inherited old policy or virtual port reused")
+	}
+	replacement := s.add(tuple, ProcessIdentity{}, Decision{}, "direct", now)
+	replacement.initialSequence = 456
+	if replacement == nil || replacement.decision.Route.RelayID != "" {
+		t.Fatal("new route not used")
+	}
+	s.expire(now.Add(5 * time.Minute))
+	if len(s.ports) != 0 {
+		t.Fatal("retired virtual port leaked")
 	}
 }

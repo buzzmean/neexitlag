@@ -4,6 +4,7 @@ package windowsplatform
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
@@ -139,7 +140,8 @@ func (t *tcpRedirect) packets(classify Classifier) {
 			}
 			continue
 		}
-		e = t.state.entries[tuple]
+		sequence := binary.BigEndian.Uint32(p[int(p[0]&15)*4+4:])
+		e = t.state.existing(tuple, flags, sequence, time.Now())
 		if e != nil {
 			e.last = time.Now()
 			t.record(e, "captured", len(p))
@@ -192,6 +194,7 @@ func (t *tcpRedirect) packets(classify Classifier) {
 			}
 			continue
 		}
+		e.initialSequence = sequence
 		t.record(e, "captured", len(p))
 		if self {
 			t.record(e, "self", len(p))
@@ -306,8 +309,10 @@ func (t *tcpRedirect) pipe(e *tcpEntry, local, up net.Conn) {
 	up.Close()
 	<-done
 	t.state.mu.Lock()
-	e.mode = "closed"
-	e.last = time.Now()
+	if e.mode != "closed" {
+		e.mode = "closed"
+		e.last = time.Now()
+	}
 	e.local = nil
 	e.upstream = nil
 	t.state.mu.Unlock()
