@@ -31,7 +31,7 @@ function Assert-BrowserObservation($Observation,[string]$Key,[string]$Nonce,[boo
  if($Observation.proof -cne $expected){throw 'Invalid destination HMAC proof'}
 }
 function Navigate-Observation([string]$BaseURL,[bool]$TLSRequired){
- $nonce=[Guid]::NewGuid().ToString('N');$target=$BaseURL.TrimEnd('/')+'/observe?nonce='+$nonce
+ $nonce=[Guid]::NewGuid().ToString('N');$target=([Uri]($BaseURL.TrimEnd('/')+'/observe?nonce='+$nonce)).AbsoluteUri
  $signature=Sign-WebMessage $token ("request`nGET`n/observe`n"+$nonce)
  [void](CDP 'Network.setExtraHTTPHeaders' @{headers=@{'X-Neexitlag-Proof'=$signature}})
  [void](CDP 'Page.navigate' @{url=$target})
