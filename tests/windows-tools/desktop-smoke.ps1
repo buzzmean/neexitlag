@@ -10,7 +10,8 @@ $first=$null;$second=$null
 # the user's persisted tray preference. Restore the original bytes in finally.
 $preferencesPath=Join-Path $env:LOCALAPPDATA 'NeExitLag\desktop.json'
 $hadPreferences=Test-Path -LiteralPath $preferencesPath
-$previousPreferences=if($hadPreferences){[IO.File]::ReadAllBytes($preferencesPath)}else{$null}
+$previousPreferences=$null
+if($hadPreferences){$previousPreferences=[IO.File]::ReadAllBytes($preferencesPath)}
 try {
  [void][IO.Directory]::CreateDirectory((Split-Path $preferencesPath))
  [IO.File]::WriteAllText($preferencesPath,'{"StartMinimized":false,"MinimizeToTray":false}')
