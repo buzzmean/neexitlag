@@ -30,6 +30,24 @@ function Merge-SimPage($State,$Page){
  $State.Cursor=[pscustomobject]@{ledger_id=$ledger;after_update=$next}
  return $more
 }
+function Test-SimDisorder($Flow){
+ # Strategy is a configured profile ID, not necessarily an action name.
+ # New evidence records the applied action chain. Exact tokens avoid accepting
+ # a profile merely because its ID contains the word disorder.
+ $chain=[string](Get-SimValue $Flow 'chain' '')
+ if($chain){return $chain -match '(^|\s*\+\s*)tcp-disorder($|\s*\+\s*)'}
+ return (Get-SimValue $Flow 'strategy' '') -eq 'disorder'
+}
+function Add-SimDropGates($Proof,$Before,$After){
+ foreach($name in @('capture_queue_drops','worker_saturation_drops')){
+  $start=Get-SimValue (Get-SimValue (Get-SimValue $Before 'capture') $name) 'count' -1
+  $end=Get-SimValue (Get-SimValue (Get-SimValue $After 'capture') $name) 'count' -1
+  if($start -lt 0 -or $end -lt $start){throw "Drop baseline unavailable or service restarted: $name"}
+  $delta=$end-$start
+  $Proof|Add-Member -NotePropertyName ($name+'_delta') -NotePropertyValue $delta
+  if($delta -ne 0){$Proof.transport_evidence_pass=$false}
+ }
+}
 function Get-SimProof($State,[string[]]$RequiredProcesses){
  if($State.Lost){throw 'Incomplete capture cannot establish no leaks'}
  $all=@($State.Flows.Values);$required=@($all|Where-Object{
@@ -43,7 +61,7 @@ function Get-SimProof($State,[string[]]$RequiredProcesses){
  $leaks=@($required|Where-Object{[uint64](Get-SimValue (Get-SimValue $_ 'counters') 'direct_bytes' 0) -gt 0 -or [uint64](Get-SimValue (Get-SimValue $_ 'counters') 'direct_packets' 0) -gt 0})
  $failures=@($required|Where-Object{
   $open=Get-SimValue $_ 'relay_open'
-  (Get-SimValue $_ 'selected_route' '') -like 'BLOCK*' -or [bool](Get-SimValue $_ 'relay_required_blocked' $false) -or (Get-SimValue $_ 'fallback_reason' '') -in @('RELAY_OPEN_FAILED','TRANSPORT_FAILED') -or (Get-SimValue $open 'failure_reason' '')
+  (Get-SimValue $_ 'selected_route' '') -like 'BLOCK*' -or [bool](Get-SimValue $_ 'relay_required_blocked' $false) -or (Get-SimValue $_ 'fallback_reason' '') -in @('RELAY_OPEN_FAILED','TRANSPORT_FAILED') -or (Get-SimValue $open 'failure_reason' '') -or (Get-SimValue $_ 'failure_cause' '')
  })
  $apps=@();foreach($name in $RequiredProcesses){
   $flows=@($required|Where-Object{([string](Get-SimValue $_ 'exe' '')).Replace('\','/').Split('/')[-1] -ieq $name})
@@ -58,7 +76,7 @@ function Get-SimProof($State,[string[]]$RequiredProcesses){
  })
  $badYouTube=@($youtube|Where-Object{
   $c=Get-SimValue $_ 'counters';$p=Get-SimValue $_ 'policy'
-  (Get-SimValue $_ 'selected_route' '') -ne 'DIRECT_PLUS' -or (Get-SimValue $_ 'strategy' '') -ne 'disorder' -or (Get-SimValue $p 'source' '') -ne 'configured_baseline' -or [uint64](Get-SimValue $c 'direct_plus_packets' 0) -eq 0 -or [uint64](Get-SimValue $c 'relayed_bytes' 0) -ne 0
+  (Get-SimValue $_ 'selected_route' '') -ne 'DIRECT_PLUS' -or !(Test-SimDisorder $_) -or (Get-SimValue $p 'source' '') -ne 'configured_baseline' -or [uint64](Get-SimValue $c 'direct_plus_packets' 0) -eq 0 -or [uint64](Get-SimValue $c 'relayed_bytes' 0) -ne 0
  })
  return [pscustomobject]@{complete_evidence=$true;flow_records=$all.Count;required_flows=$required.Count;direct_leaks=$leaks.Count;protected_failures=$failures.Count;media_transport_failures=$mediaFailures.Count;applications=$apps;youtube_flows=$youtube.Count;youtube_invalid=$badYouTube.Count;transport_evidence_pass=($required.Count -gt 0 -and $leaks.Count -eq 0 -and $failures.Count -eq 0 -and $mediaFailures.Count -eq 0 -and @($apps|Where-Object{!$_.responding}).Count -eq 0 -and $youtube.Count -gt 0 -and $badYouTube.Count -eq 0);application_acceptance='OPERATOR_OBSERVATION_REQUIRED'}
 }

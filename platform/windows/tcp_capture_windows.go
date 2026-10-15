@@ -207,7 +207,8 @@ func (t *tcpRedirect) packets(classify Classifier) {
 			} else if mode == "direct" {
 				err = e.localBuffer.Push(e.decision, &e.localState, e.identity, e.tuple, p, func(q []byte) error { return t.send(q, a) }, t.b.evidence, time.Now())
 			} else if mode == "block" || mode == "closed" {
-				t.b.drop(e.identity, e.tuple)
+				t.b.Drops.Add(1)
+				t.b.evidence.RecordDrop(e.identity, e.tuple, tcpPacketDropCause(mode), mode == "block")
 			}
 			t.state.mu.Unlock()
 			if err != nil && t.b.ctx.Err() == nil {
@@ -290,6 +291,7 @@ func (t *tcpRedirect) packets(classify Classifier) {
 			default:
 				if decision.BlockOnFailure {
 					e.mode = "block"
+					t.b.evidence.RecordDrop(e.identity, e.tuple, "TCP_OPEN_CAPACITY", true)
 				} else {
 					e.mode = "direct"
 					err = t.send(p, a)
@@ -382,6 +384,7 @@ func (t *tcpRedirect) accept() {
 			default:
 				c.Close()
 				t.state.mu.Lock()
+				t.b.evidence.RecordFailure(e.identity, e.tuple, "TCP_OPEN_CAPACITY", true)
 				t.state.retire(e, time.Now())
 				t.state.mu.Unlock()
 				t.wg.Done()
@@ -437,12 +440,27 @@ func (t *tcpRedirect) copy(e *tcpEntry, dst, src net.Conn, event string) {
 				}
 			}
 			if werr != nil {
+				t.finishCopy(e, event, nil, werr)
 				return
 			}
 		}
 		if err != nil {
+			t.finishCopy(e, event, err, nil)
 			return
 		}
+	}
+}
+func (t *tcpRedirect) finishCopy(e *tcpEntry, event string, readErr, writeErr error) {
+	t.state.mu.Lock()
+	defer t.state.mu.Unlock()
+	stopping := t.b.ctx.Err() != nil || e.mode == "closed" || e.normalTeardown
+	cause := tcpCopyFailure(event, readErr, writeErr, stopping)
+	if cause != "" {
+		t.b.evidence.RecordFailure(e.identity, e.tuple, cause, e.decision.BlockOnFailure)
+	}
+	if tcpNormalEnd(event, readErr, writeErr) {
+		e.normalTeardown = true
+		t.b.evidence.RecordLifecycle(e.identity, e.tuple, "TCP_CLOSED")
 	}
 }
 func writeTCP(w io.Writer, p []byte) (int, error) {
@@ -587,6 +605,7 @@ func (t *tcpRedirect) deferredOpen(e *tcpEntry, c net.Conn) {
 			t.b.evidence.AddBytes(e.identity, e.tuple, event, d.Route.RelayID, uint64(n))
 		}
 		if werr != nil {
+			t.finishCopy(e, "relay", nil, werr)
 			c.Close()
 			up.Close()
 			t.state.mu.Lock()

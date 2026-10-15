@@ -40,13 +40,9 @@ try{
  Receive-SimPages
  $after=Invoke-ServiceIPC 'quality.diagnostics';Save-SimJson $after 'quality-after.json'
  $before=Get-Content -LiteralPath (Join-Path $run 'quality-before.json') -Raw|ConvertFrom-Json
- $beforeDrops=Get-SimValue (Get-SimValue (Get-SimValue $before 'capture') 'capture_queue_drops') 'count' -1
- $afterDrops=Get-SimValue (Get-SimValue (Get-SimValue $after 'capture') 'capture_queue_drops') 'count' -1
- if($beforeDrops -lt 0 -or $afterDrops -lt $beforeDrops){throw 'Queue drop baseline unavailable or service restarted'}
  $captureComplete=$true
  $proof=Get-SimProof $state $RequiredProcesses
- $proof|Add-Member -NotePropertyName capture_queue_drops_delta -NotePropertyValue ($afterDrops-$beforeDrops)
- if($proof.capture_queue_drops_delta -ne 0){$proof.transport_evidence_pass=$false}
+ Add-SimDropGates $proof $before $after
  Save-SimJson $proof 'proof.json'
  if(!$proof.transport_evidence_pass){throw 'Transport evidence gate failed; inspect proof, pages, per-flow open/queue diagnostics and pool samples'}
  Write-Host "TRANSPORT EVIDENCE PASS. Application loading, video and Discord voice still require operator observations. Reports: $run"

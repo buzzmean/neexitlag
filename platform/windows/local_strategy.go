@@ -53,7 +53,7 @@ func SendLocal(d Decision, state *localstrategy.State, id ProcessIdentity, tuple
 	if d.BlockOnFailure && state != nil && !state.Applied() {
 		if payload, ok := packetPayloadForPolicy(p, tuple.Protocol); ok && payload > 0 {
 			evidence.RecordPolicy(id, tuple, d, "LOCAL_STRATEGY_FAILED_BLOCK")
-			evidence.Record(id, tuple, "drop", "")
+			evidence.RecordDrop(id, tuple, "LOCAL_STRATEGY_FAILED_BLOCK", true)
 			return nil
 		}
 	}

@@ -56,6 +56,9 @@ jobs:
           path: bin/native-ui-tests/
       - run: go build ./...
       - run: go test ./core/... ./platform/windows ./services/client-service
+      - name: Native Windows capture lifecycle race regressions
+        run: go test -race -timeout 90s ./platform/windows -run 'TestUDPForwardNative|TestTCPNativePipe|TestUDPAdmission|TestUDPIdleBoundary|TestTCPDropAndFailureEvidence|TestTCPCopyFailureClassification|TestWorkerRejection'
+        timeout-minutes: 4
       - run: dotnet build --nologo
       - run: dotnet test --nologo
       - run: ./tests/windows-tools/build-desktop-ps51.ps1

@@ -36,6 +36,9 @@ type CaptureCounters struct {
 	Replies            uint64 `json:"relay_reply_packets"`
 }
 type FlowEvidence struct {
+	FailureCause    string `json:"failure_cause,omitempty"`
+	DropCause       string `json:"last_drop_cause,omitempty"`
+	Lifecycle       string `json:"lifecycle,omitempty"`
 	updateSeq       uint64
 	recordKey       evidenceKey
 	RelayOpen       *RelayOpenEvidence         `json:"relay_open,omitempty"`
@@ -223,19 +226,13 @@ func (l *EvidenceLedger) recordBytesLocked(id ProcessIdentity, t Tuple, event, r
 	v.LastSeen = time.Now()
 	increment(&v.Counters, event)
 	incrementBytes(&v.Counters, event, bytes)
-	if event == "drop" && (v.Policy.Action == flowpolicy.Block || v.Policy.Fallback == flowpolicy.Required || v.Policy.Fallback == flowpolicy.FlowRelay || v.Policy.Fallback == flowpolicy.FailBlock) {
-		if v.Route != "BLOCK_UNSUPPORTED_IPV6" {
-			v.Route = "BLOCK"
-		}
-		v.RequiredBlocked = v.Policy.Fallback == flowpolicy.Required
-	}
 	if event == "ipv6_blocked" {
 		v.Route = "BLOCK_UNSUPPORTED_IPV6"
 		v.RelayID = ""
-	} else if event == "relay" || event == "reply" {
+	} else if (event == "relay" || event == "reply") && !v.RequiredBlocked && v.FailureCause == "" {
 		v.Route = "RELAY"
 		v.RelayID = relay
-	} else if (event == "direct" || event == "direct_proxy") && v.Route != "DIRECT_PLUS" {
+	} else if (event == "direct" || event == "direct_proxy") && v.Route != "DIRECT_PLUS" && !v.RequiredBlocked {
 		// Native packets describe packet handling, not a new flow decision.
 		// Only RecordLocal can establish successful DIRECT+ use.
 		v.Route = "DIRECT"

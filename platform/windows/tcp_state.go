@@ -8,6 +8,7 @@ import (
 )
 
 type tcpEntry struct {
+	normalTeardown    bool
 	localState        localstrategy.State
 	localBuffer       LocalTCPBuffer
 	domainInspections uint8

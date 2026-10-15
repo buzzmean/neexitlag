@@ -58,14 +58,16 @@ type WinDivertBackend struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
 	wg            sync.WaitGroup
-	workers       chan struct{}
+	packetWriter  func([]byte, [80]byte) error // optional native test seam; production uses WinDivert
+	openWorkers   chan struct{}                // setup only; never held for UDP flow lifetime
+	admission     udpAdmission
 	cache         *ProcessCache
 	tcp           *tcpRedirect
 	evidence      *EvidenceLedger
 }
 
 func NewWinDivert(files DriverFiles, engine *routing.Engine) *WinDivertBackend {
-	return &WinDivertBackend{Files: files, Engine: engine, status: CaptureStatus{Backend: "WinDivert", Capabilities: Capabilities{UDP: true, TCP: true, IPv4: true, Transparent: true}}, flows: make(map[Tuple]*captureFlow), associations: NewAssociations(8192), workers: make(chan struct{}, 64), cache: NewProcessCache(NewDiscovery(), IsCurrent), evidence: NewEvidenceLedger()}
+	return &WinDivertBackend{Files: files, Engine: engine, status: CaptureStatus{Backend: "WinDivert", Capabilities: Capabilities{UDP: true, TCP: true, IPv4: true, Transparent: true}}, flows: make(map[Tuple]*captureFlow), associations: NewAssociations(8192), openWorkers: make(chan struct{}, 64), cache: NewProcessCache(NewDiscovery(), IsCurrent), evidence: NewEvidenceLedger()}
 }
 func (b *WinDivertBackend) Status() CaptureStatus { b.mu.Lock(); defer b.mu.Unlock(); return b.status }
 func (d *divertDLL) openHandle(filter string, layer uintptr, flags uintptr) (uintptr, error) {
@@ -273,6 +275,9 @@ func (b *WinDivertBackend) fail(e error) {
 	b.cancel()
 }
 func (b *WinDivertBackend) inject(d *divertDLL, p []byte, a [80]byte) error {
+	if b.packetWriter != nil {
+		return b.packetWriter(p, a)
+	}
 	d.checksum.Call(uintptr(unsafe.Pointer(&p[0])), uintptr(len(p)), uintptr(unsafe.Pointer(&a[0])), 0)
 	var sent uint32
 	ok, _, e := d.send.Call(b.network, uintptr(unsafe.Pointer(&p[0])), uintptr(len(p)), uintptr(unsafe.Pointer(&sent)), uintptr(unsafe.Pointer(&a[0])))
@@ -358,6 +363,7 @@ func (b *WinDivertBackend) packets(classify Classifier) {
 			if len(b.flows) >= 8192 {
 				b.mu.Unlock()
 				if decision.Block || decision.BlockOnFailure || decision.ProbeDirect {
+					b.evidence.RecordFailure(identity, tuple, "UDP_FLOW_TABLE_CAPACITY", true)
 					b.drop(identity, tuple)
 				} else {
 					if err := b.inject(d, packet, address); err != nil {
@@ -372,16 +378,19 @@ func (b *WinDivertBackend) packets(classify Classifier) {
 			if (!decision.Route.Direct() || decision.ProbeDirect) && !decision.Block {
 				f.opening = true
 				f.queue = make(chan queuedDatagram, 32)
-				f.template = append([]byte(nil), packet...)
+				f.template = udpReplyTemplate(packet)
 			}
 			b.flows[tuple] = f
 			b.evidence.RecordPolicy(identity, tuple, decision, "")
 			if (!decision.Route.Direct() || decision.ProbeDirect) && !decision.Block {
-				select {
-				case b.workers <- struct{}{}:
+				if b.admission.acquire(decision.ProbeDirect) {
 					b.wg.Add(1)
 					go b.forward(tuple, f, d)
-				default:
+				} else {
+					f.opening = false
+					f.queue = nil
+					f.template = nil
+					b.evidence.RecordFailure(identity, tuple, "UDP_WORKER_CAPACITY", true)
 					if f.decision.BlockOnFailure || f.decision.ProbeDirect {
 						f.dropCause = telemetry.WorkerSaturation
 						f.decision.Block = true
@@ -442,23 +451,39 @@ func (b *WinDivertBackend) packets(classify Classifier) {
 		default:
 			b.LocalDrops.Drop(telemetry.CaptureQueue)
 			b.evidence.RecordUDPQueue(identity, tuple, cap(f.queue), f.opening, true, 0)
-			b.drop(identity, tuple)
+			b.Drops.Add(1)
+			b.evidence.RecordDrop(identity, tuple, "UDP_QUEUE_CAPACITY", false)
 		}
 		b.mu.Unlock()
 	}
 }
 func (b *WinDivertBackend) forward(tuple Tuple, f *captureFlow, d *divertDLL) {
 	defer b.wg.Done()
-	defer func() { <-b.workers }()
+	defer func() {
+		b.mu.Lock()
+		f.queue = nil
+		f.template = nil
+		b.admission.release(f.decision.ProbeDirect)
+		b.mu.Unlock()
+	}()
 	ctx, cancel := context.WithTimeout(b.ctx, 750*time.Millisecond)
 	var datagram routing.Datagram
 	var err error
 	adaptive := f.decision.ProbeDirect
 	openStarted := time.Now()
-	if adaptive {
-		datagram, err = b.Engine.OpenAdaptiveUDP(ctx, f.decision.Flow, f.decision.Policy.RelayID, 3*time.Second)
-	} else {
-		datagram, err = b.Engine.OpenUDP(ctx, f.decision.Flow)
+	// Limit simultaneous setup work, not the number of live sockets. Admission
+	// is already reserved; waiting shares the existing 750ms setup budget.
+	select {
+	case b.openWorkers <- struct{}{}:
+		if adaptive {
+			datagram, err = b.Engine.OpenAdaptiveUDP(ctx, f.decision.Flow, f.decision.Policy.RelayID, 3*time.Second)
+		} else {
+			datagram, err = b.Engine.OpenUDP(ctx, f.decision.Flow)
+		}
+		<-b.openWorkers
+	case <-ctx.Done():
+		err = ctx.Err()
+		b.evidence.RecordFailure(f.identity, tuple, "UDP_OPEN_CAPACITY", f.decision.BlockOnFailure || adaptive)
 	}
 	cancel()
 	b.mu.Lock()
@@ -494,9 +519,14 @@ func (b *WinDivertBackend) forward(tuple Tuple, f *captureFlow, d *divertDLL) {
 		healthMu.Lock()
 		defer healthMu.Unlock()
 		if a, ok := datagram.(*routing.AdaptiveUDP); ok {
-			b.evidence.RecordUDPHealth(f.identity, tuple, a.Health())
+			// Adaptive transition can open relay while holding its mutex. Never
+			// wait for it under the shared capture-map lock.
+			health, route := a.Health(), a.Route()
 			b.mu.Lock()
-			f.decision.Route = a.Route()
+			if b.flows[tuple] == f {
+				b.evidence.RecordUDPHealth(f.identity, tuple, health)
+				f.decision.Route = route
+			}
 			b.mu.Unlock()
 		}
 	}
@@ -523,6 +553,13 @@ func (b *WinDivertBackend) forward(tuple Tuple, f *captureFlow, d *divertDLL) {
 				}
 				return
 			}
+			b.mu.Lock()
+			if b.flows[tuple] != f {
+				b.mu.Unlock()
+				return
+			}
+			f.lastSeen = time.Now()
+			b.mu.Unlock()
 			packet, e := ReplyUDP(f.template, payload)
 			if e != nil {
 				b.LocalDrops.Attempt(telemetry.ReplyReinjection)
@@ -538,21 +575,45 @@ func (b *WinDivertBackend) forward(tuple Tuple, f *captureFlow, d *divertDLL) {
 				b.fail(err)
 				return
 			}
+			var adaptiveRoute routing.Route
+			if a, ok := datagram.(*routing.AdaptiveUDP); ok {
+				adaptiveRoute = a.Route()
+			}
 			b.mu.Lock()
 			route := f.decision.Route.RelayID
-			if a, ok := datagram.(*routing.AdaptiveUDP); ok {
-				route = a.Route().RelayID
-				f.decision.Route = routing.Route{RelayID: route}
+			if adaptive {
+				route = adaptiveRoute.RelayID
+				f.decision.Route = adaptiveRoute
 			}
-			b.mu.Unlock()
+			if b.flows[tuple] != f {
+				b.mu.Unlock()
+				return
+			}
 			event := "reply"
 			if route == "" {
 				event = "direct_reply"
 			}
 			b.evidence.RecordBytes(f.identity, tuple, event, route, uint64(len(payload)))
+			b.mu.Unlock()
 			b.RX.Add(uint64(len(payload)))
 		}
 	}()
+	idleTick := time.NewTicker(time.Second)
+	defer idleTick.Stop()
+	retireIdle := func() bool {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		if b.flows[tuple] != f || !udpIdle(time.Now(), f.lastSeen, len(f.queue), udpIdleLimit(tuple, adaptive)) {
+			return false
+		}
+		// Close tracked Engine state before exposing a vacant capture tuple.
+		// No pending application payload is replayed or discarded here.
+		datagram.Close()
+		f.once.Do(func() { close(f.done) })
+		delete(b.flows, tuple)
+		b.evidence.RecordLifecycle(f.identity, tuple, "UDP_IDLE_EXPIRED")
+		return true
+	}
 	for {
 		select {
 		case <-b.ctx.Done():
@@ -563,7 +624,16 @@ func (b *WinDivertBackend) forward(tuple Tuple, f *captureFlow, d *divertDLL) {
 			datagram.Close()
 			<-done
 			return
+		case <-idleTick.C:
+			if retireIdle() {
+				datagram.Close()
+				<-done
+				return
+			}
 		case <-done:
+			if retireIdle() {
+				return
+			}
 			b.fallback(tuple, f, d, nil)
 			return
 		case queued := <-f.queue:
@@ -577,11 +647,15 @@ func (b *WinDivertBackend) forward(tuple Tuple, f *captureFlow, d *divertDLL) {
 				<-done
 				return
 			}
+			var adaptiveRoute routing.Route
+			if a, ok := datagram.(*routing.AdaptiveUDP); ok {
+				adaptiveRoute = a.Route()
+			}
 			b.mu.Lock()
 			route := f.decision.Route.RelayID
-			if a, ok := datagram.(*routing.AdaptiveUDP); ok {
-				route = a.Route().RelayID
-				f.decision.Route = routing.Route{RelayID: route}
+			if adaptive {
+				route = adaptiveRoute.RelayID
+				f.decision.Route = adaptiveRoute
 			}
 			b.mu.Unlock()
 			event := "relay"
@@ -651,6 +725,7 @@ func (b *WinDivertBackend) fallback(tuple Tuple, f *captureFlow, d *divertDLL, f
 	}
 	b.mu.Unlock()
 	b.evidence.RecordPolicy(f.identity, tuple, b.flowDecision(f), "TRANSPORT_FAILED")
+	b.evidence.RecordFailure(f.identity, tuple, "TRANSPORT_FAILED", block)
 	inject := func(payload []byte) {
 		if block {
 			b.drop(f.identity, tuple)
@@ -698,7 +773,7 @@ func (b *WinDivertBackend) cleanup() {
 			b.v6guard.Cleanup(now)
 			b.mu.Lock()
 			for t, f := range b.flows {
-				if now.Sub(f.lastSeen) > 60*time.Second {
+				if f.queue == nil && now.Sub(f.lastSeen) > 60*time.Second {
 					f.once.Do(func() { close(f.done) })
 					delete(b.flows, t)
 				}
@@ -710,7 +785,7 @@ func (b *WinDivertBackend) cleanup() {
 
 func (b *WinDivertBackend) drop(id ProcessIdentity, t Tuple) {
 	b.Drops.Add(1)
-	b.evidence.Record(id, t, "drop", "")
+	b.evidence.RecordDrop(id, t, "POLICY_BLOCK", true)
 }
 
 func (b *WinDivertBackend) flowDecision(f *captureFlow) Decision {

@@ -93,7 +93,7 @@ func (b *LocalTCPBuffer) deliver(d Decision, st *localstrategy.State, id Process
 	if d.BlockOnFailure && !st.Applied() {
 		l.RecordPolicy(id, t, d, "LOCAL_STRATEGY_FAILED_BLOCK")
 		for range batch.Originals {
-			l.Record(id, t, "drop", "")
+			l.RecordDrop(id, t, "LOCAL_STRATEGY_FAILED_BLOCK", true)
 		}
 		return nil
 	}
