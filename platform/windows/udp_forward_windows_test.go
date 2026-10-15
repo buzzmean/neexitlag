@@ -301,7 +301,15 @@ func testTCPNativePipe(t *testing.T, broken bool) {
 	b.evidence.BeginFlow(id, tuple)
 	b.evidence.RecordPolicy(id, tuple, d, "")
 	b.evidence.RecordUpstreamOpened(id, tuple, d.Route)
-	b.wg.Add(1)
+	redirect.wg.Add(1)
+	t.Cleanup(func() {
+		b.cancel()
+		app.Close()
+		local.Close()
+		up.Close()
+		target.Close()
+		redirect.wg.Wait()
+	})
 	go redirect.pipe(e, local, up)
 	go func() {
 		data := make([]byte, 4)
