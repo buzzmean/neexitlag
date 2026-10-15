@@ -1,6 +1,7 @@
 package clientservice
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/tls"
@@ -170,17 +171,41 @@ func (s *remoteState) apply(ctx context.Context, cfg security.Config) error {
 		if e := c.Selector.Configure(cfg.RoutingParameters); e != nil {
 			return e
 		}
-		for _, p := range cfg.ApplicationProfiles {
-			c.mu.Lock()
-			_, local := c.localProfiles[p.ID]
-			c.mu.Unlock()
-			if !local {
-				if e := c.Profiles.Upsert(p); e != nil {
-					return e
+		c.activationMu.Lock()
+		applyErr := func() error {
+			for _, p := range cfg.ApplicationProfiles {
+				c.mu.Lock()
+				_, local := c.localProfiles[p.ID]
+				c.mu.Unlock()
+				if !local {
+					same := false
+					for _, old := range c.Profiles.List() {
+						if old.ID == p.ID {
+							a, _ := json.Marshal(old)
+							b, _ := json.Marshal(p)
+							same = bytes.Equal(a, b)
+						}
+					}
+					if !same {
+						if e := c.reconfigure(p.ID, func() error {
+							if err := c.Profiles.Upsert(p); err != nil {
+								return err
+							}
+							c.syncPolicies()
+							return nil
+						}); e != nil {
+							return e
+						}
+					}
 				}
 			}
+			c.syncPolicies()
+			return nil
+		}()
+		c.activationMu.Unlock()
+		if applyErr != nil {
+			return applyErr
 		}
-		c.syncPolicies()
 		s.version = cfg.Version
 	}
 	// Signed removals retire only that relay; other pools/flows remain independent.

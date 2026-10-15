@@ -3,6 +3,7 @@ package windowsplatform
 import (
 	"errors"
 	"io"
+	"net"
 )
 
 func tcpPacketDropCause(mode string) string {
@@ -28,4 +29,20 @@ func tcpCopyFailure(event string, readErr, writeErr error, stopping bool) string
 }
 func tcpNormalEnd(event string, readErr, writeErr error) bool {
 	return (event == "reply" && errors.Is(readErr, io.EOF)) || (event == "relay" && readErr != nil && !errors.Is(readErr, io.EOF)) || (event == "reply" && writeErr != nil)
+}
+
+// Abortive close prevents a pre-policy native proxy send buffer being flushed
+// after a route edit. Authenticated stream wrappers keep their existing close.
+func abortHotTCP(c net.Conn) {
+	if c == nil {
+		return
+	}
+	if a, ok := c.(interface{ Abort() error }); ok {
+		_ = a.Abort()
+		return
+	}
+	if a, ok := c.(interface{ SetLinger(int) error }); ok {
+		_ = a.SetLinger(0)
+	}
+	_ = c.Close()
 }

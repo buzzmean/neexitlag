@@ -544,3 +544,26 @@ func refreshApplicationState(st *State, m Metadata, s *snapshot) bool {
 	}
 	return true
 }
+
+// ApplicationRevision is content-scoped; unrelated presets do not reconnect apps.
+func (e *LocalStrategyEngine) ApplicationRevision(apps []string) string {
+	s := e.current.Load()
+	matched := []Profile{}
+	for _, p := range s.profiles {
+		for _, app := range apps {
+			if appMatch(p.Application, app) {
+				matched = append(matched, p.Profile)
+				break
+			}
+		}
+	}
+	if len(matched) == 0 {
+		return ""
+	}
+	raw, _ := json.Marshal(struct {
+		Enabled  bool
+		Profiles []Profile
+	}{s.config.Enabled, matched})
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}

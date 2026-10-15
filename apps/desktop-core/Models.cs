@@ -103,8 +103,17 @@ public sealed class ServiceSettings
     }
     public string Failover { get; set; } = "DIRECT"; public string UpdateChannel { get; set; } = "stable";
 }
+public sealed class HotAttachStatus
+{
+ public ulong Epoch {get;set;}
+ public string State {get;set;}="";
+ public string? Error {get;set;}
+ public int Pending {get;set;}
+ public int TcpReset {get;set;}
+}
 public sealed class Snapshot
 {
+ public HotAttachStatus? HotAttach {get;set;}
     public string Version { get; set; } = ""; public bool Connected
     {
         get; set;

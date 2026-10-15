@@ -121,7 +121,23 @@ func (c *Controller) setLocalConfig(v localstrategy.Config) (any, error) {
 			return nil, err
 		}
 	}
-	if err := c.Local.Reload(v); err != nil {
+	// Keep unmatched application connections intact on local-only config edits.
+	next := localstrategy.New()
+	if err := next.Reload(v); err != nil {
+		return nil, err
+	}
+	ids := []string{}
+	for _, p := range c.Profiles.List() {
+		if c.Local.ApplicationRevision(p.Executables) != next.ApplicationRevision(p.Executables) {
+			ids = append(ids, p.ID)
+		}
+	}
+	change := func() error { return c.Local.Reload(v) }
+	if len(ids) > 0 {
+		if err := c.reconfigureApplications(ids, change); err != nil {
+			return nil, err
+		}
+	} else if err := change(); err != nil {
 		return nil, err
 	}
 	return c.Local.Config(), nil

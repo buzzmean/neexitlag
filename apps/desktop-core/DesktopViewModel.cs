@@ -108,7 +108,7 @@ public sealed class DesktopViewModel : Observable
     public ObservableCollection<DiagnosticRow> Diagnostics { get; } = []; public ObservableCollection<MeasurementRow> Measurements { get; } = []; public ObservableCollection<string> Changes { get; } = [];
     public ObservableCollection<Choice> ProfileFallbacks {get;}=[new("",Text.Get("InheritFallback")),new("FAIL_OPEN_DIRECT",Text.Get("DirectConnection")),new("RELAY_REQUIRED",Text.Get("RequiredRelayFallback")),new("BLOCK",Text.Get("Block"))];
     public ObservableCollection<Choice> Modes { get; } = [new("AUTO", Text.Mode("AUTO")), new("DIRECT", Text.Mode("DIRECT")), new("DIRECT_PLUS",Text.Mode("DIRECT_PLUS")), new("MANUAL", Text.Mode("MANUAL"))];
-    public bool Optimizing => Available && Snapshot?.Optimizing == true; public string OptimizeLabel => Text.Get(Optimizing ? "DisableOptimization" : "EnableOptimization"); public string OptimizationStatus => Text.Get(!Available ? "NoData" : Optimizing ? "OptimizationOn" : "OptimizationOff");
+    public bool Optimizing => Available && Snapshot?.Optimizing == true; public string OptimizeLabel => Text.Get(Optimizing ? "DisableOptimization" : "EnableOptimization"); public string OptimizationStatus => Text.Get(!Available ? "NoData" : !Optimizing ? "OptimizationOff" : Snapshot?.HotAttach?.State switch {"HOT_ATTACH_RECONNECTING" or "HOT_ATTACH_PREPARING"=>"HotAttachReconnecting","HOT_ATTACH_INCOMPLETE"=>"HotAttachIncomplete",_=>"OptimizationOn"});
     public string Primary => Available ? Text.Route(Snapshot?.Primary) : Text.Get("NoData");
     public string ActiveApps => !Available ? Text.Get("NoData") : Snapshot?.ActiveApps.Length > 0 ? string.Join(", ", Snapshot.ActiveApps.Select(id => Snapshot.Profiles.FirstOrDefault(p => p.Id == id)?.Name ?? id)) : Text.Get("NoActiveApps");
     public string Rx => Available && Snapshot is { } s ? Text.Bytes(s.RxBytes) : Text.Get("NoData"); public string Tx => Available && Snapshot is { } s ? Text.Bytes(s.TxBytes) : Text.Get("NoData");
@@ -376,6 +376,7 @@ public sealed class DesktopViewModel : Observable
             var checks = await client.Call<Check[]>("diagnostics", cancellationToken: ct);
             var s = await client.Call<Snapshot>("status", cancellationToken: ct);
             var rows = new List<DiagnosticRow> { new(Text.Get("ServiceName"), Text.Get("Working"), Text.Get("ServiceWorking")), new(Text.Get("DriverName"), Text.Get(s.Backend.Ready ? "Working" : string.IsNullOrEmpty(s.Backend.Error) ? "NotAvailable" : "Error"), Text.Get(s.Backend.Ready ? "DriverReady" : string.IsNullOrEmpty(s.Backend.Error) ? "DriverIdle" : "DriverFailure")) };
+            if(s.HotAttach is { } hot) rows.Add(new("HOT ATTACH",Text.Get(hot.State=="HOT_ATTACH_INCOMPLETE"?"Error":hot.State is "HOT_ATTACH_RECONNECTING" or "HOT_ATTACH_PREPARING"?"HotAttachReconnecting":"Working"),$"{Text.Get("HotAttachNetworkHint")} {hot.TcpReset}; {hot.Pending}. {hot.Error}"));
             foreach (var c in checks)
             {
                 string key = c.Name switch

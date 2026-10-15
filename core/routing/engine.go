@@ -339,3 +339,15 @@ func (f *trackedTCP) CloseWrite() error {
 	}
 	return errors.New("half-close unsupported")
 }
+
+// Abort is used only for an explicit per-application policy activation. It drops
+// native pending sends rather than flushing an obsolete DIRECT egress on close.
+func (f *trackedTCP) Abort() error {
+	if a, ok := f.Conn.(interface{ SetLinger(int) error }); ok {
+		_ = a.SetLinger(0)
+	}
+	if a, ok := f.Conn.(interface{ Abort() error }); ok {
+		_ = a.Abort()
+	}
+	return f.Close()
+}

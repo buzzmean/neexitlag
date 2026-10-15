@@ -47,26 +47,28 @@ type Settings struct {
 	UpdateChannel string `json:"update_channel"`
 }
 type Snapshot struct {
-	RelayTransport *RelayTransportReadiness      `json:"relay_transport,omitempty"`
-	Version        string                        `json:"version"`
-	Connected      bool                          `json:"connected"`
-	Optimizing     bool                          `json:"optimizing"`
-	Demo           bool                          `json:"demo"`
-	Backend        windowsplatform.CaptureStatus `json:"backend"`
-	Primary        string                        `json:"primary"`
-	Secondary      string                        `json:"secondary"`
-	Tertiary       string                        `json:"tertiary"`
-	Routes         []RouteView                   `json:"routes"`
-	Profiles       []profiles.Profile            `json:"profiles"`
-	RXBytes        uint64                        `json:"rx_bytes"`
-	TXBytes        uint64                        `json:"tx_bytes"`
-	History        optimizer.RouteHistory        `json:"history"`
-	Flows          []routing.Flow                `json:"flows"`
-	Settings       Settings                      `json:"settings"`
-	ControlPlane   string                        `json:"control_plane"`
-	ActiveApps     []string                      `json:"active_apps"`
+	HotAttach      *windowsplatform.HotAttachStatus `json:"hot_attach,omitempty"`
+	RelayTransport *RelayTransportReadiness         `json:"relay_transport,omitempty"`
+	Version        string                           `json:"version"`
+	Connected      bool                             `json:"connected"`
+	Optimizing     bool                             `json:"optimizing"`
+	Demo           bool                             `json:"demo"`
+	Backend        windowsplatform.CaptureStatus    `json:"backend"`
+	Primary        string                           `json:"primary"`
+	Secondary      string                           `json:"secondary"`
+	Tertiary       string                           `json:"tertiary"`
+	Routes         []RouteView                      `json:"routes"`
+	Profiles       []profiles.Profile               `json:"profiles"`
+	RXBytes        uint64                           `json:"rx_bytes"`
+	TXBytes        uint64                           `json:"tx_bytes"`
+	History        optimizer.RouteHistory           `json:"history"`
+	Flows          []routing.Flow                   `json:"flows"`
+	Settings       Settings                         `json:"settings"`
+	ControlPlane   string                           `json:"control_plane"`
+	ActiveApps     []string                         `json:"active_apps"`
 }
 type Controller struct {
+	activationMu                sync.Mutex
 	relayPools                  map[string]*transport.Pool
 	autoJobs                    map[string]autoLease
 	groupBindings               map[uint32]groupBinding
@@ -286,6 +288,7 @@ func (c *Controller) Classify(identity windowsplatform.ProcessIdentity, t window
 	}
 	f := routing.Flow{Protocol: t.Protocol, Source: t.Source, Destination: t.Destination, PID: identity.PID, ProcessPath: identity.Path, ApplicationID: profile.ID}
 	decision.Flow = f
+	decision.Revision = c.policyRevision(profile)
 	c.mu.Lock()
 	decision.BlockOnFailure = c.settings.Failover == "BLOCK"
 	c.mu.Unlock()
@@ -415,7 +418,7 @@ func (c *Controller) Snapshot() Snapshot {
 		rx += brx
 		tx += btx
 	}
-	snapshot := Snapshot{Version: "0.3.0-dev", Connected: c.Demo || backend.Ready, Optimizing: enabled && (c.Demo || backend.Ready), Demo: c.Demo, Backend: backend, Primary: selection.Primary, Secondary: selection.Secondary, Tertiary: selection.Tertiary, Routes: views, Profiles: c.Profiles.List(), RXBytes: rx, TXBytes: tx, History: history, Flows: flows, Settings: settings, ControlPlane: c.ControlPlaneURL, ActiveApps: apps}
+	snapshot := Snapshot{HotAttach: c.hotAttachStatus(), Version: "0.3.0-dev", Connected: c.Demo || backend.Ready, Optimizing: enabled && (c.Demo || backend.Ready), Demo: c.Demo, Backend: backend, Primary: selection.Primary, Secondary: selection.Secondary, Tertiary: selection.Tertiary, Routes: views, Profiles: c.Profiles.List(), RXBytes: rx, TXBytes: tx, History: history, Flows: flows, Settings: settings, ControlPlane: c.ControlPlaneURL, ActiveApps: apps}
 	// Keep mandatory profile/quality fields; shorten display history to the IPC frame.
 	for {
 		raw, _ := json.Marshal(snapshot)
@@ -439,6 +442,11 @@ func (c *Controller) Snapshot() Snapshot {
 	return snapshot
 }
 func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMessage) (any, error) {
+	switch method {
+	case "optimize", "profile.set", "profile.delete", "settings.set", "local.set", "local.preset.apply", "auto.commit":
+		c.activationMu.Lock()
+		defer c.activationMu.Unlock()
+	}
 	switch method {
 	case "local.presets", "local.preset.apply", "local.get", "local.set", "local.metrics", "local.network", "local.record", "local.recommend", "local.compare":
 		return c.handleLocal(method, raw)
@@ -545,6 +553,8 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 			return backend.Diagnostics(query.PID), nil
 		}
 		return nil, errors.New("capture diagnostics unavailable on this backend")
+	case "hot_attach.status":
+		return c.hotAttachStatus(), nil
 	case "status":
 		return c.Snapshot(), nil
 	case "profiles":
@@ -564,12 +574,19 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 			c.mu.Unlock()
 			return nil, errors.New("only local custom profiles can be removed")
 		}
-		delete(c.localProfiles, query.ID)
 		c.mu.Unlock()
-		c.Profiles.Delete(query.ID)
-		c.Engine.SetPolicy(query.ID, routing.Policy{})
-		if e := c.saveProfiles(); e != nil {
+		if e := c.reconfigure(query.ID, func() error {
+			c.mu.Lock()
+			delete(c.localProfiles, query.ID)
+			c.mu.Unlock()
+			c.Profiles.Delete(query.ID)
+			c.Engine.SetPolicy(query.ID, routing.Policy{})
+			return nil
+		}); e != nil {
 			return nil, e
+		}
+		if err := c.saveProfiles(); err != nil {
+			return nil, err
 		}
 		return c.Profiles.List(), nil
 	case "auto.plan", "auto.commit":
@@ -637,16 +654,33 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		if p.Mode == profiles.Block && !c.Demo && (c.Backend == nil || !c.Backend.Status().Capabilities.TCP) {
 			return nil, errors.New("BLOCK profile requires UDP/TCP capture; current backend does not provide it")
 		}
-		if e := c.Profiles.Upsert(p); e != nil {
+		if err := p.Validate(); err != nil {
+			return nil, err
+		}
+		for _, old := range c.Profiles.List() {
+			if old.ID == p.ID {
+				a, _ := json.Marshal(old)
+				b, _ := json.Marshal(p)
+				if bytes.Equal(a, b) {
+					return c.Profiles.List(), nil
+				}
+			}
+		}
+		if e := c.reconfigure(p.ID, func() error {
+			if e := c.Profiles.Upsert(p); e != nil {
+				return e
+			}
+			c.mu.Lock()
+			c.localProfiles[p.ID] = p
+			c.mu.Unlock()
+			c.syncPolicies()
+			return nil
+		}); e != nil {
 			return nil, e
 		}
-		c.mu.Lock()
-		c.localProfiles[p.ID] = p
-		c.mu.Unlock()
-		if e := c.saveProfiles(); e != nil {
-			return nil, e
+		if err := c.saveProfiles(); err != nil {
+			return nil, err
 		}
-		c.syncPolicies()
 		return c.Profiles.List(), nil
 	case "optimize":
 		var v struct {
@@ -658,10 +692,19 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		if !c.Demo && c.Backend == nil {
 			return nil, errors.New("Windows capture backend is not configured")
 		}
+		c.mu.Lock()
+		wasEnabled := c.enabled
+		if v.Enabled {
+			c.enabled = true
+		}
+		c.mu.Unlock()
 		if c.Backend != nil {
 			if v.Enabled {
 				if !c.Backend.Status().Ready {
 					if e := c.Backend.Start(c.ctx, c.Classify); e != nil {
+						c.mu.Lock()
+						c.enabled = wasEnabled
+						c.mu.Unlock()
 						return nil, e
 					}
 				}
@@ -674,6 +717,11 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		c.mu.Lock()
 		c.enabled = v.Enabled
 		c.mu.Unlock()
+		if v.Enabled && !wasEnabled {
+			if b, ok := c.Backend.(interface{ RequestHotAttach(string) }); ok {
+				b.RequestHotAttach("optimize_enabled")
+			}
+		}
 		c.Measurements.Active.Store(v.Enabled)
 		return c.Snapshot(), nil
 	case "settings.set":
@@ -685,12 +733,27 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 			return nil, errors.New("invalid settings")
 		}
 		c.mu.Lock()
-		c.settings = s
+		oldSettings := c.settings
 		c.mu.Unlock()
-		if e := c.saveSettings(); e != nil {
-			return nil, e
+		apply := func() error {
+			c.mu.Lock()
+			c.settings = s
+			c.mu.Unlock()
+			c.syncPolicies()
+			return nil
 		}
-		c.syncPolicies()
+		var updateErr error
+		if oldSettings.Automatic != s.Automatic || oldSettings.Failover != s.Failover {
+			updateErr = c.reconfigure("", apply)
+		} else {
+			updateErr = apply()
+		}
+		if updateErr != nil {
+			return nil, updateErr
+		}
+		if err := c.saveSettings(); err != nil {
+			return nil, err
+		}
 		return s, nil
 	case "diagnostics":
 		return c.Diagnostics(ctx), nil

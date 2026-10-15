@@ -63,16 +63,21 @@ func (c *Controller) handleAuto(method string, raw json.RawMessage) (any, error)
 			p.AutoNetwork = ""
 			p.LocalStrategyID = ""
 		}
-		if err := c.Profiles.Upsert(p); err != nil {
+		if err := c.reconfigure(p.ID, func() error {
+			if err := c.Profiles.Upsert(p); err != nil {
+				return err
+			}
+			c.mu.Lock()
+			c.localProfiles[p.ID] = p
+			c.mu.Unlock()
+			c.syncPolicies()
+			return nil
+		}); err != nil {
 			return nil, err
 		}
-		c.mu.Lock()
-		c.localProfiles[p.ID] = p
-		c.mu.Unlock()
 		if err := c.saveProfiles(); err != nil {
 			return nil, err
 		}
-		c.syncPolicies()
 		return map[string]any{"status": "measured", "route": result.Action, "source": result.Source}, nil
 	}
 	if c.hasBaseline(p, n.Fingerprint) && p.LocalStrategyID != "" {

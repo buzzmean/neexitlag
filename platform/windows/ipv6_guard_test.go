@@ -37,8 +37,8 @@ func TestIPv6NetworkGuardParsingAndIdentityIsolation(t *testing.T) {
 	}
 	fresh := &IPv6Guard{}
 	id.PID = 42
-	if fresh.Block(id, tuple, 16, relay, 1, now) {
-		t.Fatal("existing TCP retargeted")
+	if !fresh.Block(id, tuple, 16, relay, 1, now) {
+		t.Fatal("HOT_ATTACH existing protected IPv6 leaked")
 	}
 	if (&IPv6Guard{}).Block(id, tuple, 2, relay, 42, now) {
 		t.Fatal("service blocked")

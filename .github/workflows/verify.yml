@@ -57,7 +57,7 @@ jobs:
       - run: go build ./...
       - run: go test ./core/... ./platform/windows ./services/client-service
       - name: Native Windows capture lifecycle race regressions
-        run: go test -race -timeout 90s ./platform/windows -run 'TestUDPForwardNative|TestTCPNativePipe|TestUDPAdmission|TestUDPIdleBoundary|TestTCPDropAndFailureEvidence|TestTCPCopyFailureClassification|TestWorkerRejection'
+        run: go test -race -timeout 90s ./platform/windows -run 'TestUDPForwardNative|TestTCPNativePipe|TestUDPAdmission|TestUDPIdleBoundary|TestTCPDropAndFailureEvidence|TestTCPCopyFailureClassification|TestWorkerRejection|TestHotAttach|TestNativeHotAttach'
         timeout-minutes: 4
       - run: dotnet build --nologo
       - run: dotnet test --nologo
@@ -115,6 +115,10 @@ jobs:
       - run: ./tests/windows-tools/simultaneous-checks.ps1
         shell: pwsh
       - run: ./tests/windows-tools/simultaneous-checks.ps1
+        shell: powershell
+      - run: ./tests/windows-tools/hot-attach-checks.ps1
+        shell: pwsh
+      - run: ./tests/windows-tools/hot-attach-checks.ps1
         shell: powershell
       - run: ./tests/windows-tools/ipc-smoke.ps1
         shell: pwsh

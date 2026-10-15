@@ -80,11 +80,15 @@ func captureFixture(t *testing.T) (*WinDivertBackend, *captureTestRelay) {
 	t.Cleanup(func() { b.cancel(); b.wg.Wait() })
 	return b, r
 }
-func startCaptureTestFlow(t *testing.T, b *WinDivertBackend, port uint16, media bool, dest netip.AddrPort) (Tuple, *captureFlow) {
+func startCaptureTestFlow(t *testing.T, b *WinDivertBackend, port uint16, media bool, dest netip.AddrPort, applications ...string) (Tuple, *captureFlow) {
 	t.Helper()
 	tuple := Tuple{Protocol: "udp", Source: netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), port), Destination: dest}
 	id := ProcessIdentity{PID: uint32(port), CreationTime: 1, Path: "app.exe"}
-	flow := routing.Flow{Protocol: "udp", Source: tuple.Source, Destination: tuple.Destination, PID: id.PID, ProcessPath: id.Path, ApplicationID: "test"}
+	application := "test"
+	if len(applications) > 0 {
+		application = applications[0]
+	}
+	flow := routing.Flow{Protocol: "udp", Source: tuple.Source, Destination: tuple.Destination, PID: id.PID, ProcessPath: id.Path, ApplicationID: application}
 	route := routing.Route{RelayID: "VPS-01"}
 	policy := flowpolicy.Result{Action: flowpolicy.RelayRequired, Fallback: flowpolicy.Required}
 	if media {

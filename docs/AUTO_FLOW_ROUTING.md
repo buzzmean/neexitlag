@@ -235,7 +235,7 @@ DIRECT_PLUS settings until the corresponding migration is verified.
 
 3. Select Chrome, click **AUTO · Оптимизировать**. Its existing selected strategy
    is bound to the fresh network/strategy revision; `configured_baseline` must skip
-   finite trials. Reopen Chrome for new flow decisions, repeat playback/seek and
+   finite trials. Keep Chrome running; HOT ATTACH reconnects its selected TCP flows. Repeat playback/seek and
    zero-relay check. A new network may start bounded isolated verification; normal
    Chrome must remain unaffected by the temporary process-scoped profile.
 
@@ -245,7 +245,7 @@ DIRECT_PLUS settings until the corresponding migration is verified.
    positive relay request/reply bytes and no selected Edge DIRECT payload flows.
 
 5. **ChatGPT Windows app:** keep global BLOCK for this first gate. Select its root
-   ChatGPT.exe profile, click AUTO. Restart the app and relevant helpers. Verify
+   ChatGPT.exe profile, click AUTO. Keep the app and relevant helpers running. Verify HOT ATTACH and
    login and workspace, exact PID/birth/path/group evidence for ChatGPT.exe and all
    observed codex helpers. If any helper is unattributed, stop migration and inspect
    its ancestry/install identity; do not remove global protection or assume it has
@@ -261,7 +261,7 @@ DIRECT_PLUS settings until the corresponding migration is verified.
    .\tools\windows\migrate-auto.ps1 -ProfileIds 'YOUR-CHATGPT-PROFILE-ID' -RestoreGlobalDirect
    ```
 
-   Reopen apps. The script saves before.json under the invoking user's private
+   Keep apps running; HOT ATTACH applies updated policies to fresh connections. The script saves before.json under the invoking user's private
    LocalAppData. It never touches /etc/neexitlag or enrollment files. Explicit
    `-RestoreGlobalDirect` requires an OpenAI AUTO profile and does not itself prove
    all helpers have passed runtime acceptance; the operator gate above is required.
@@ -321,3 +321,5 @@ of a single 64-stream client. See [session pool, incremental capture and exact
 Windows retest](RELAY_SESSION_POOL.md). The reported real simultaneous test at
 fd06ea3 failed; CI does not supersede that result. New real Windows verification
 is required. Existing application policies and DIRECT+ strategy are unchanged.
+
+HOT ATTACH activation/reconnect semantics, GUI state, safety boundary and release acceptance: [WINDOWS_HOT_ATTACH.md](WINDOWS_HOT_ATTACH.md). Old controlled test steps that close apps for a binary/service update are maintenance precautions, not a product requirement to restart apps after Optimize.

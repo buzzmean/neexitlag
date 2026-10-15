@@ -25,14 +25,15 @@ type delegatedTCP struct {
 	decision Decision
 }
 type tcpRedirect struct {
-	delegated map[Tuple]delegatedTCP
-	b         *WinDivertBackend
-	handle    uintptr
-	listener  *net.TCPListener
-	port      uint16
-	state     *tcpState
-	slots     chan struct{}
-	wg        sync.WaitGroup
+	delegatedMu sync.Mutex
+	delegated   map[Tuple]delegatedTCP
+	b           *WinDivertBackend
+	handle      uintptr
+	listener    *net.TCPListener
+	port        uint16
+	state       *tcpState
+	slots       chan struct{}
+	wg          sync.WaitGroup
 }
 
 func (b *WinDivertBackend) startTCP(d *divertDLL) (*tcpRedirect, error) {
@@ -43,7 +44,7 @@ func (b *WinDivertBackend) startTCP(d *divertDLL) (*tcpRedirect, error) {
 	port := uint16(l.Addr().(*net.TCPAddr).Port)
 	// Inbound physical connections to the internal listener are dropped. Reflected
 	// packets injected below this handle are the only admitted listener traffic.
-	filter := fmt.Sprintf("ip and tcp and !impostor and ((outbound and !loopback) or (inbound and (tcp.DstPort == %d or (tcp.Syn and tcp.Ack))))", port)
+	filter := fmt.Sprintf("ip and tcp and !impostor and ((outbound and !loopback) or (inbound and (!loopback or tcp.DstPort == %d)))", port)
 	h, err := d.openHandle(filter, 0, 0)
 	if err != nil {
 		l.Close()
@@ -89,6 +90,9 @@ func (t *tcpRedirect) stop() {
 	t.b.proc().close.Call(t.handle)
 }
 func (t *tcpRedirect) send(p []byte, a [80]byte) error {
+	if t.b.packetWriter != nil {
+		return t.b.packetWriter(p, a)
+	}
 	d := t.b.proc()
 	d.checksum.Call(uintptr(unsafe.Pointer(&p[0])), uintptr(len(p)), uintptr(unsafe.Pointer(&a[0])), 0)
 	var n uint32
@@ -147,176 +151,226 @@ func (t *tcpRedirect) packets(classify Classifier) {
 		if n == 0 || n > uint32(len(buf)) {
 			continue
 		}
-		p := buf[:n]
-		tuple, flags, _, err := ParseTCP(p)
-		if err != nil {
+		t.processPacket(buf[:n], a, classify)
+	}
+}
+func (t *tcpRedirect) processPacket(p []byte, a [80]byte, classify Classifier) {
+	t.b.policyMu.RLock()
+	defer t.b.policyMu.RUnlock()
+
+	tuple, flags, _, err := ParseTCP(p)
+	if err != nil {
+		if err = t.send(p, a); err != nil && t.b.ctx.Err() == nil {
+			t.b.fail(err)
+		}
+		return
+	}
+	// External traffic to the interception listener is never admitted.
+	// Native SYN/ACK observation shares this handle; it is reinjected
+	// unchanged and only confirms an exact existing DIRECT+ handshake.
+	if a[10]&2 == 0 {
+		if tuple.Destination.Port() != t.port {
+			reverse := Tuple{Protocol: "tcp", Source: tuple.Destination, Destination: tuple.Source}
+			if t.blockNativeInbound(reverse, classify) {
+				t.b.hotBlocked()
+				return
+			}
+			t.state.mu.Lock()
+			if e := t.state.entries[reverse]; e != nil && e.mode == "direct" && e.decision.Route.Local() && p[0] == 0x45 && flags&0x3f == 0x12 && 20+int(p[32]>>4)*4 == len(p) {
+				e.localState.ConfirmHandshake(binary.BigEndian.Uint32(p[28:]), binary.BigEndian.Uint32(p[24:]))
+			}
+			t.state.mu.Unlock()
 			if err = t.send(p, a); err != nil && t.b.ctx.Err() == nil {
 				t.b.fail(err)
 			}
-			continue
 		}
-		// External traffic to the interception listener is never admitted.
-		// Native SYN/ACK observation shares this handle; it is reinjected
-		// unchanged and only confirms an exact existing DIRECT+ handshake.
-		if a[10]&2 == 0 {
-			if tuple.Destination.Port() != t.port {
-				reverse := Tuple{Protocol: "tcp", Source: tuple.Destination, Destination: tuple.Source}
-				t.state.mu.Lock()
-				if e := t.state.entries[reverse]; e != nil && e.mode == "direct" && e.decision.Route.Local() && p[0] == 0x45 && flags&0x3f == 0x12 && 20+int(p[32]>>4)*4 == len(p) {
-					e.localState.ConfirmHandshake(binary.BigEndian.Uint32(p[28:]), binary.BigEndian.Uint32(p[24:]))
-				}
-				t.state.mu.Unlock()
-				if err = t.send(p, a); err != nil && t.b.ctx.Err() == nil {
-					t.b.fail(err)
-				}
-			}
-			continue
-		}
-		t.state.mu.Lock()
-		// Service listener responses have an exact mapping; do not trust a port alone.
-		e := t.state.ports[tuple.Destination.Port()]
-		if tuple.Source.Port() == t.port && e != nil && tuple.Source.Addr() == e.tuple.Source.Addr() && tuple.Destination.Addr() == e.tuple.Destination.Addr() {
-			e.last = time.Now()
-			err = t.reflect(e, p, a, true)
-			t.state.mu.Unlock()
-			if err != nil && t.b.ctx.Err() == nil {
-				t.b.fail(err)
-			}
-			continue
-		}
-		sequence := binary.BigEndian.Uint32(p[int(p[0]&15)*4+4:])
-		if old := t.state.entries[tuple]; old != nil && flags&0x12 == 2 && sequence != old.initialSequence {
-			if flushErr := old.localBuffer.Flush(old.decision, &old.localState, old.identity, old.tuple, time.Now(), "NO_TRANSFORM", t.b.evidence); flushErr != nil {
-				t.b.fail(flushErr)
-			}
-		}
-		e = t.state.existing(tuple, flags, sequence, time.Now())
-		if e != nil {
-			e.last = time.Now()
-			t.record(e, "captured", len(p))
-			if e.domainInspections < 8 && p[0] == 0x45 {
-				e.domainInspections++
-				h := 20 + int(p[32]>>4)*4
-				if h <= len(p) {
-					t.b.evidence.RecordDomain(e.identity, e.tuple, localstrategy.PacketDomain(p[h:]))
-				}
-			}
-			mode := e.mode
-			if mode == "relay" {
-				err = t.reflect(e, p, a, false)
-			} else if mode == "direct" {
-				err = e.localBuffer.Push(e.decision, &e.localState, e.identity, e.tuple, p, func(q []byte) error { return t.send(q, a) }, t.b.evidence, time.Now())
-			} else if mode == "block" || mode == "closed" {
-				t.b.Drops.Add(1)
-				t.b.evidence.RecordDrop(e.identity, e.tuple, tcpPacketDropCause(mode), mode == "block")
-			}
-			t.state.mu.Unlock()
-			if err != nil && t.b.ctx.Err() == nil {
-				t.b.fail(err)
-			}
-			continue
-		}
+		return
+	}
+	t.state.mu.Lock()
+	// Service listener responses have an exact mapping; do not trust a port alone.
+	e := t.state.ports[tuple.Destination.Port()]
+	if tuple.Source.Port() == t.port && e != nil && tuple.Source.Addr() == e.tuple.Source.Addr() && tuple.Destination.Addr() == e.tuple.Destination.Addr() {
+		e.last = time.Now()
+		err = t.reflect(e, p, a, true)
 		t.state.mu.Unlock()
-		// Capture only new SYNs. Midstream packets never acquire a new route.
-		id := ProcessIdentity{}
-		t.b.associations.mu.RLock()
-		association, known := t.b.associations.items[tuple]
-		t.b.associations.mu.RUnlock()
-		if known && IsCurrent(association.Identity) {
-			id = association.Identity
-		} else {
-			pid, ownerErr := resolveTCPOwner(tuple)
-			if ownerErr == nil {
-				id, _ = t.b.cache.Lookup(pid)
-			}
+		if err != nil && t.b.ctx.Err() == nil {
+			t.b.fail(err)
 		}
-		decision, self := ClassifyCapture(id, tuple, uint32(os.Getpid()), classify)
-		t.state.mu.Lock()
-		delegated, owned := t.delegated[tuple]
-		t.state.mu.Unlock()
-		if owned {
-			id = delegated.owner.identity
-			decision = delegated.decision
-			self = false
+		return
+	}
+	sequence := binary.BigEndian.Uint32(p[int(p[0]&15)*4+4:])
+	if old := t.state.entries[tuple]; old != nil && flags&0x12 == 2 && sequence != old.initialSequence {
+		if flushErr := old.localBuffer.Flush(old.decision, &old.localState, old.identity, old.tuple, time.Now(), "NO_TRANSFORM", t.b.evidence); flushErr != nil {
+			t.b.fail(flushErr)
 		}
-		mode := "direct"
-		if flags&0x12 != 0x02 || self {
-			decision.Local = nil
-			decision.Route = routing.Route{}
-			decision.Block = false
-			decision.BlockOnFailure = false
-			decision.Deferred = false
-			decision.ResolveDomain = nil
-			if !self {
-				decision.Policy = flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailOpen, Source: "existing_tcp", Reason: "pre-existing TCP connection is not reclassified"}
-			}
-		}
-		if flags&0x12 == 0x02 && !self && id.PID != 0 {
-			if decision.Block {
-				mode = "block"
-			} else if !decision.Route.Direct() || decision.Deferred {
-				mode = "opening"
-			}
-		}
-		t.state.mu.Lock()
-		t.b.evidence.BeginFlow(id, tuple)
-		t.b.evidence.RecordPolicy(id, tuple, decision, "")
-		e = t.state.add(tuple, id, decision, mode, time.Now())
-		if e == nil {
-			t.state.mu.Unlock()
-			if decision.Block || decision.BlockOnFailure {
-				t.b.drop(id, tuple)
-			} else {
-				_ = t.send(p, a)
-			}
-			continue
-		}
-		e.initialSequence = sequence
+	}
+	e = t.state.existing(tuple, flags, sequence, time.Now())
+	if e != nil {
+		e.last = time.Now()
 		t.record(e, "captured", len(p))
-		if self {
-			t.record(e, "self", len(p))
-		}
-		if mode == "opening" {
-			select {
-			case t.slots <- struct{}{}:
-				t.wg.Add(1)
-				if decision.Deferred {
-					t.wg.Done()
-					e.mode = "relay"
-					err = t.reflect(e, p, a, false)
-					<-t.slots
-				} else {
-					go t.open(e, append([]byte(nil), p...), a)
-				}
-			default:
-				if decision.BlockOnFailure {
-					e.mode = "block"
-					t.b.evidence.RecordDrop(e.identity, e.tuple, "TCP_OPEN_CAPACITY", true)
-				} else {
-					e.mode = "direct"
-					err = t.send(p, a)
-					t.record(e, "direct", len(p))
-				}
+		if e.domainInspections < 8 && p[0] == 0x45 {
+			e.domainInspections++
+			h := 20 + int(p[32]>>4)*4
+			if h <= len(p) {
+				t.b.evidence.RecordDomain(e.identity, e.tuple, localstrategy.PacketDomain(p[h:]))
 			}
+		}
+		epoch := t.b.policyEpoch.Load()
+		if e.hotEpoch != epoch && e.mode != "hot_attach" && e.mode != "closed" {
+			latest := classify(e.identity, e.tuple)
+			if latest.Revision != e.decision.Revision && needsHotAttach(latest) {
+				t.state.retire(e, time.Now())
+				e.mode = "hot_attach"
+				e.decision = latest
+				t.b.evidence.RecordLifecycle(e.identity, e.tuple, "HOT_ATTACH_RETIRED")
+				t.b.evidence.BeginFlow(e.identity, e.tuple)
+				t.b.evidence.RecordPolicy(e.identity, e.tuple, latest, "")
+				t.b.evidence.RecordHotAttach(e.identity, e.tuple, t.b.hot.snapshot().Epoch, "HOT_ATTACH_PREEXISTING", latest.Revision)
+			}
+			e.hotEpoch = epoch
+		}
+		mode := e.mode
+		if mode == "relay" {
+			err = t.reflect(e, p, a, false)
 		} else if mode == "direct" {
 			err = e.localBuffer.Push(e.decision, &e.localState, e.identity, e.tuple, p, func(q []byte) error { return t.send(q, a) }, t.b.evidence, time.Now())
-		} else {
-			t.b.drop(id, tuple)
+		} else if mode == "hot_attach" {
+			t.b.hotBlocked()
+			t.b.Drops.Add(1)
+			t.b.evidence.RecordDrop(e.identity, e.tuple, "HOT_ATTACH_PENDING", false)
+			t.resetFromPacket(p, a)
+		} else if mode == "block" || mode == "closed" {
+			t.b.Drops.Add(1)
+			t.b.evidence.RecordDrop(e.identity, e.tuple, tcpPacketDropCause(mode), mode == "block")
 		}
 		t.state.mu.Unlock()
 		if err != nil && t.b.ctx.Err() == nil {
 			t.b.fail(err)
 		}
+		return
+	}
+	t.state.mu.Unlock()
+	// Capture only new SYNs. Midstream packets never acquire a new route.
+	id := ProcessIdentity{}
+	t.b.associations.mu.RLock()
+	association, known := t.b.associations.items[tuple]
+	t.b.associations.mu.RUnlock()
+	if known && IsCurrent(association.Identity) {
+		id = association.Identity
+	} else {
+		pid, ownerErr := resolveTCPOwner(tuple)
+		if ownerErr == nil {
+			id, _ = t.b.cache.Lookup(pid)
+		}
+	}
+	decision, self := ClassifyCapture(id, tuple, uint32(os.Getpid()), classify)
+	t.delegatedMu.Lock()
+	delegated, owned := t.delegated[tuple]
+	t.delegatedMu.Unlock()
+	if owned {
+		id = delegated.owner.identity
+		decision = delegated.decision
+		self = false
+	}
+	mode := "direct"
+	if !self && (t.b.hotFrozen(decision) || flags&0x12 != 0x02 && needsHotAttach(decision)) {
+		t.quarantineNative(id, tuple, decision, p, a)
+		return
+	}
+	if flags&0x12 != 0x02 || self {
+		decision.Local = nil
+		decision.Route = routing.Route{}
+		decision.Block = false
+		decision.BlockOnFailure = false
+		decision.Deferred = false
+		decision.ResolveDomain = nil
+		if !self {
+			decision.Policy = flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailOpen, Source: "existing_tcp", Reason: "pre-existing TCP connection is not reclassified"}
+		}
+	}
+	if flags&0x12 == 0x02 && !self && id.PID != 0 {
+		if decision.Block {
+			mode = "block"
+		} else if !decision.Route.Direct() || decision.Deferred {
+			mode = "opening"
+		}
+	}
+	t.state.mu.Lock()
+	t.b.evidence.BeginFlow(id, tuple)
+	t.b.evidence.RecordPolicy(id, tuple, decision, "")
+	e = t.state.add(tuple, id, decision, mode, time.Now())
+	if e == nil {
+		t.state.mu.Unlock()
+		if decision.Block || decision.BlockOnFailure {
+			t.b.drop(id, tuple)
+		} else {
+			_ = t.send(p, a)
+		}
+		return
+	}
+	e.hotEpoch = t.b.policyEpoch.Load()
+	t.b.evidence.RecordHotAttach(id, tuple, t.b.hot.snapshot().Epoch, "HOT_ATTACH_NEW_FLOW", decision.Revision)
+	e.initialSequence = sequence
+	t.record(e, "captured", len(p))
+	if self {
+		t.record(e, "self", len(p))
+	}
+	if mode == "opening" {
+		select {
+		case t.slots <- struct{}{}:
+			t.wg.Add(1)
+			if decision.Deferred {
+				t.wg.Done()
+				e.mode = "relay"
+				err = t.reflect(e, p, a, false)
+				<-t.slots
+			} else {
+				e.openDone = make(chan struct{})
+				go t.open(e, append([]byte(nil), p...), a)
+			}
+		default:
+			if decision.BlockOnFailure {
+				e.mode = "block"
+				t.b.evidence.RecordDrop(e.identity, e.tuple, "TCP_OPEN_CAPACITY", true)
+			} else {
+				e.mode = "direct"
+				err = t.send(p, a)
+				t.record(e, "direct", len(p))
+			}
+		}
+	} else if mode == "direct" {
+		err = e.localBuffer.Push(e.decision, &e.localState, e.identity, e.tuple, p, func(q []byte) error { return t.send(q, a) }, t.b.evidence, time.Now())
+	} else {
+		t.b.drop(id, tuple)
+	}
+	t.state.mu.Unlock()
+	if err != nil && t.b.ctx.Err() == nil {
+		t.b.fail(err)
 	}
 }
+
 func (t *tcpRedirect) open(e *tcpEntry, syn []byte, a [80]byte) {
 	defer t.wg.Done()
+	defer e.finishOpen()
 	defer func() { <-t.slots }()
+	t.state.mu.Lock()
+	valid := t.state.entries[e.tuple] == e && e.mode == "opening"
+	t.state.mu.Unlock()
+	if !valid {
+		return
+	}
 	ctx, cancel := context.WithTimeout(t.b.ctx, 5*time.Second)
+	t.state.mu.Lock()
+	e.openCancel = cancel
+	retired := e.mode != "opening"
+	t.state.mu.Unlock()
+	if retired {
+		cancel()
+		return
+	}
 	openStarted := time.Now()
 	up, err := t.b.Engine.OpenTCP(ctx, e.decision.Flow)
 	cancel()
-	t.b.evidence.RecordRelayOpen(e.identity, e.tuple, openStarted, err)
 	route := e.decision.Route
 	if err == nil {
 		for _, f := range t.b.Engine.Snapshot() {
@@ -334,6 +388,7 @@ func (t *tcpRedirect) open(e *tcpEntry, syn []byte, a [80]byte) {
 		}
 		return
 	}
+	t.b.evidence.RecordRelayOpen(e.identity, e.tuple, openStarted, err)
 	if err != nil || route.Direct() {
 		if up != nil {
 			up.Close()
@@ -374,6 +429,9 @@ func (t *tcpRedirect) accept() {
 			continue
 		}
 		e.local = c
+		if e.decision.Deferred {
+			e.openDone = make(chan struct{})
+		}
 		up := e.upstream
 		t.wg.Add(1)
 		t.state.mu.Unlock()
@@ -385,6 +443,7 @@ func (t *tcpRedirect) accept() {
 				c.Close()
 				t.state.mu.Lock()
 				t.b.evidence.RecordFailure(e.identity, e.tuple, "TCP_OPEN_CAPACITY", true)
+				e.finishOpen()
 				t.state.retire(e, time.Now())
 				t.state.mu.Unlock()
 				t.wg.Done()
@@ -453,7 +512,7 @@ func (t *tcpRedirect) copy(e *tcpEntry, dst, src net.Conn, event string) {
 func (t *tcpRedirect) finishCopy(e *tcpEntry, event string, readErr, writeErr error) {
 	t.state.mu.Lock()
 	defer t.state.mu.Unlock()
-	stopping := t.b.ctx.Err() != nil || e.mode == "closed" || e.normalTeardown
+	stopping := t.b.ctx.Err() != nil || (e.mode == "closed" || e.mode == "hot_attach") || e.normalTeardown
 	cause := tcpCopyFailure(event, readErr, writeErr, stopping)
 	if cause != "" {
 		t.b.evidence.RecordFailure(e.identity, e.tuple, cause, e.decision.BlockOnFailure)
@@ -506,12 +565,21 @@ func (t *tcpRedirect) cleanup() {
 // after outer SNI. A failure closes this connection, never retries its TLS bytes
 // on a different egress. Only a future connection can choose a different route.
 func (t *tcpRedirect) deferredOpen(e *tcpEntry, c net.Conn) {
+	defer e.finishOpen()
 	held := true
 	defer func() {
 		if held {
 			<-t.slots
 		}
 	}()
+	t.state.mu.Lock()
+	valid := t.state.entries[e.tuple] == e && e.mode == "relay"
+	t.state.mu.Unlock()
+	if !valid {
+		c.Close()
+		t.wg.Done()
+		return
+	}
 	data, domain, reason := ReadDeferredHello(c)
 	if reason == "CLIENT_CLOSED_BEFORE_DATA" {
 		t.state.mu.Lock()
@@ -522,7 +590,7 @@ func (t *tcpRedirect) deferredOpen(e *tcpEntry, c net.Conn) {
 	}
 	d := ResolveDeferredDecision(e.decision, domain, reason)
 	t.state.mu.Lock()
-	if t.b.ctx.Err() != nil || e.mode == "closed" {
+	if t.b.ctx.Err() != nil || (e.mode == "closed" || e.mode == "hot_attach") {
 		t.state.mu.Unlock()
 		c.Close()
 		t.wg.Done()
@@ -542,16 +610,23 @@ func (t *tcpRedirect) deferredOpen(e *tcpEntry, c net.Conn) {
 	}
 	requested := d.Route
 	ctx, cancel := context.WithTimeout(t.b.ctx, 5*time.Second)
+	t.state.mu.Lock()
+	e.openCancel = cancel
+	retired := e.mode == "hot_attach" || e.mode == "closed"
+	t.state.mu.Unlock()
+	if retired {
+		cancel()
+		c.Close()
+		t.wg.Done()
+		return
+	}
 	var up net.Conn
 	var err error
+	openStarted := time.Now()
 	if d.Route.Local() {
 		up, err = t.dialLocalStrategy(ctx, e, d)
 	} else {
-		openStarted := time.Now()
 		up, err = t.b.Engine.OpenTCP(ctx, d.Flow)
-		if !d.Route.Direct() {
-			t.b.evidence.RecordRelayOpen(e.identity, e.tuple, openStarted, err)
-		}
 	}
 	cancel()
 	if err != nil && !d.BlockOnFailure && t.b.ctx.Err() == nil && (!requested.Direct() || requested.Local()) {
@@ -574,11 +649,21 @@ func (t *tcpRedirect) deferredOpen(e *tcpEntry, c net.Conn) {
 		}
 	}
 	t.state.mu.Lock()
+	if t.state.entries[e.tuple] != e || e.mode == "hot_attach" || e.mode == "closed" {
+		t.state.mu.Unlock()
+		abortHotTCP(up)
+		c.Close()
+		t.wg.Done()
+		return
+	}
 	e.decision = d
+	if !requested.Direct() {
+		t.b.evidence.RecordRelayOpen(e.identity, e.tuple, openStarted, err)
+	}
 	if reason == "UPSTREAM_OPEN_FAIL_OPEN_DIRECT" {
 		t.b.evidence.RecordPolicy(e.identity, e.tuple, d, reason)
 	}
-	if err != nil || t.b.ctx.Err() != nil || e.mode == "closed" {
+	if err != nil || t.b.ctx.Err() != nil || (e.mode == "closed" || e.mode == "hot_attach") {
 		if up != nil {
 			up.Close()
 		}
@@ -618,6 +703,7 @@ func (t *tcpRedirect) deferredOpen(e *tcpEntry, c net.Conn) {
 	data = nil
 	<-t.slots
 	held = false
+	e.finishOpen()
 	t.pipe(e, c, up)
 }
 func (t *tcpRedirect) dialLocalStrategy(ctx context.Context, e *tcpEntry, d Decision) (net.Conn, error) {
@@ -641,8 +727,8 @@ func (t *tcpRedirect) dialLocalStrategy(ctx context.Context, e *tcpEntry, d Deci
 				return
 			}
 			bound = Tuple{Protocol: "tcp", Source: netip.AddrPortFrom(e.tuple.Source.Addr(), uint16(v.Port)), Destination: e.tuple.Destination}
-			t.state.mu.Lock()
-			defer t.state.mu.Unlock()
+			t.delegatedMu.Lock()
+			defer t.delegatedMu.Unlock()
 			if len(t.delegated) >= 128 || !t.b.evidence.BindUpstream(e.identity, bound, e.tuple) {
 				bindErr = fmt.Errorf("delegated TCP limit")
 				return
@@ -659,13 +745,26 @@ func (t *tcpRedirect) dialLocalStrategy(ctx context.Context, e *tcpEntry, d Deci
 	}}
 	c, err := dialer.DialContext(ctx, "tcp4", e.tuple.Destination.String())
 	if err != nil {
-		t.state.mu.Lock()
-		delete(t.delegated, bound)
-		t.state.mu.Unlock()
-		t.b.evidence.UnbindUpstream(e.identity, bound)
+		t.releaseDelegated(bound, e.identity)
 		return nil, err
 	}
-	return &delegatedConn{Conn: c, release: func() { t.state.mu.Lock(); delete(t.delegated, bound); t.state.mu.Unlock() }}, nil
+	return &delegatedConn{Conn: c, release: func() { t.releaseDelegated(bound, e.identity) }}, nil
+}
+
+// Closing a delegated upstream can happen while state.mu is held. Its release
+// must not re-enter that mutex or leave aliases pointing at a new policy epoch.
+func (t *tcpRedirect) releaseDelegated(bound Tuple, id ProcessIdentity) {
+	t.delegatedMu.Lock()
+	delete(t.delegated, bound)
+	t.delegatedMu.Unlock()
+	t.b.evidence.UnbindUpstream(id, bound)
+}
+
+func (c *delegatedConn) Abort() error {
+	if tcp, ok := c.Conn.(*net.TCPConn); ok {
+		_ = tcp.SetLinger(0)
+	}
+	return c.Close()
 }
 
 type delegatedConn struct {

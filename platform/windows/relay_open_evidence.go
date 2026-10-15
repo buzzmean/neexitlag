@@ -33,6 +33,14 @@ func (l *EvidenceLedger) RecordRelayOpen(id ProcessIdentity, t Tuple, start time
 	if !ok {
 		return
 	}
+	if v.HotAttach != nil {
+		h := *v.HotAttach
+		h.State = "HOT_ATTACH_ROUTE_OPENED"
+		if err != nil {
+			h.State = "HOT_ATTACH_ROUTE_FAILED"
+		}
+		v.HotAttach = &h
+	}
 	v.RelayOpen = &RelayOpenEvidence{float64(time.Since(start)) / float64(time.Millisecond), reason}
 	l.storeLocked(k, v)
 }

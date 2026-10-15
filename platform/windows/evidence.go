@@ -36,9 +36,10 @@ type CaptureCounters struct {
 	Replies            uint64 `json:"relay_reply_packets"`
 }
 type FlowEvidence struct {
-	FailureCause    string `json:"failure_cause,omitempty"`
-	DropCause       string `json:"last_drop_cause,omitempty"`
-	Lifecycle       string `json:"lifecycle,omitempty"`
+	HotAttach       *HotAttachFlow `json:"hot_attach,omitempty"`
+	FailureCause    string         `json:"failure_cause,omitempty"`
+	DropCause       string         `json:"last_drop_cause,omitempty"`
+	Lifecycle       string         `json:"lifecycle,omitempty"`
 	updateSeq       uint64
 	recordKey       evidenceKey
 	RelayOpen       *RelayOpenEvidence         `json:"relay_open,omitempty"`
@@ -226,6 +227,11 @@ func (l *EvidenceLedger) recordBytesLocked(id ProcessIdentity, t Tuple, event, r
 	v.LastSeen = time.Now()
 	increment(&v.Counters, event)
 	incrementBytes(&v.Counters, event, bytes)
+	if v.HotAttach != nil && (event == "relay" || event == "direct" || event == "reply") {
+		h := *v.HotAttach
+		h.State = "HOT_ATTACH_ROUTE_USED"
+		v.HotAttach = &h
+	}
 	if event == "ipv6_blocked" {
 		v.Route = "BLOCK_UNSUPPORTED_IPV6"
 		v.RelayID = ""
@@ -354,6 +360,11 @@ func (l *EvidenceLedger) RecordLocalResult(id ProcessIdentity, t Tuple, r locals
 	v, ok := l.lookupLocked(key)
 	if ok {
 		v.Route = "DIRECT_PLUS"
+		if v.HotAttach != nil {
+			h := *v.HotAttach
+			h.State = "HOT_ATTACH_TRANSFORM_APPLIED"
+			v.HotAttach = &h
+		}
 		v.RelayID = ""
 		v.Strategy = r.Strategy
 		v.Domain = r.Domain
@@ -376,6 +387,11 @@ func (l *EvidenceLedger) RecordQuicFallback(id ProcessIdentity, t Tuple, strateg
 	k := l.keyLocked(id, t)
 	if v, ok := l.lookupLocked(k); ok {
 		v.Route = "DIRECT_PLUS"
+		if v.HotAttach != nil {
+			h := *v.HotAttach
+			h.State = "HOT_ATTACH_TRANSFORM_APPLIED"
+			v.HotAttach = &h
+		}
 		v.RelayID = ""
 		v.Strategy = strategy
 		v.Preset = preset

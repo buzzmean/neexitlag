@@ -1,6 +1,7 @@
 package windowsplatform
 
 import (
+	"context"
 	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"net"
 	"sync"
@@ -8,6 +9,10 @@ import (
 )
 
 type tcpEntry struct {
+	openCancel        context.CancelFunc
+	openDone          chan struct{}
+	openOnce          sync.Once
+	hotEpoch          uint64
 	normalTeardown    bool
 	localState        localstrategy.State
 	localBuffer       LocalTCPBuffer
@@ -126,5 +131,11 @@ func (s *tcpState) expire(now time.Time) {
 		if s.entries[e.tuple] != e && e.mode == "closed" && now.Sub(e.last) > 4*time.Minute {
 			delete(s.ports, p)
 		}
+	}
+}
+
+func (e *tcpEntry) finishOpen() {
+	if e.openDone != nil {
+		e.openOnce.Do(func() { close(e.openDone) })
 	}
 }

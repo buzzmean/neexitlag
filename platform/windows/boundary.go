@@ -34,6 +34,7 @@ type CaptureStatus struct {
 	Capabilities Capabilities `json:"capabilities"`
 }
 type Decision struct {
+	Revision        string
 	Policy          flowpolicy.Result
 	Group, Network  string
 	ProbeDirect     bool
