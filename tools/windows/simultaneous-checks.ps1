@@ -4,6 +4,11 @@ function Get-SimValue($Object,[string]$Name,$Default=$null){
  if($Object -is [System.Collections.IDictionary]){if($Object.Contains($Name)){return $Object[$Name]};return $Default}
  $p=$Object.PSObject.Properties[$Name];if($null -ne $p){return $p.Value};return $Default
 }
+function Test-SimHas($Object,[string]$Name){
+ if($null -eq $Object){return $false}
+ if($Object -is [System.Collections.IDictionary]){return $Object.Contains($Name)}
+ return $null -ne $Object.PSObject.Properties[$Name]
+}
 function Merge-SimPage($State,$Page){
  $cursor=Get-SimValue $Page 'cursor';$ledger=[string](Get-SimValue $cursor 'ledger_id' '')
  $next=[uint64](Get-SimValue $cursor 'after_update' -1)
@@ -31,6 +36,10 @@ function Get-SimProof($State,[string[]]$RequiredProcesses){
   $policy=Get-SimValue $_ 'policy'
   (Get-SimValue $policy 'action' '') -eq 'RELAY_REQUIRED' -or (Get-SimValue $policy 'fallback' '') -eq 'RELAY_REQUIRED'
  })
+ foreach($f in $required){$c=Get-SimValue $f 'counters';foreach($name in @('direct_bytes','direct_packets','relayed_bytes','relay_reply_bytes')){if(!(Test-SimHas $c $name)){throw "Missing protected counter: $name"}}}
+ $mediaFailures=@($all|Where-Object{
+  (Get-SimValue (Get-SimValue $_ 'policy') 'fallback' '') -eq 'FLOW_RELAY_FALLBACK' -and ((Get-SimValue $_ 'selected_route' '') -like 'BLOCK*' -or (Get-SimValue $_ 'fallback_reason' '') -eq 'TRANSPORT_FAILED')
+ })
  $leaks=@($required|Where-Object{[uint64](Get-SimValue (Get-SimValue $_ 'counters') 'direct_bytes' 0) -gt 0 -or [uint64](Get-SimValue (Get-SimValue $_ 'counters') 'direct_packets' 0) -gt 0})
  $failures=@($required|Where-Object{
   $open=Get-SimValue $_ 'relay_open'
@@ -45,11 +54,11 @@ function Get-SimProof($State,[string[]]$RequiredProcesses){
  $youtube=@($all|Where-Object{
   $exe=([string](Get-SimValue $_ 'exe' '')).Replace('\','/').Split('/')[-1]
   $hostName=[string](Get-SimValue $_ 'domain' '')
-  $exe -ieq 'chrome.exe' -and $hostName -match '(^|\.)(youtube\.com|googlevideo\.com|ytimg\.com)$'
+  $exe -ieq 'chrome.exe' -and (Get-SimValue $_ 'protocol' '') -eq 'tcp' -and $hostName -match '(^|\.)(youtube\.com|googlevideo\.com|ytimg\.com)$'
  })
  $badYouTube=@($youtube|Where-Object{
   $c=Get-SimValue $_ 'counters';$p=Get-SimValue $_ 'policy'
   (Get-SimValue $_ 'selected_route' '') -ne 'DIRECT_PLUS' -or (Get-SimValue $_ 'strategy' '') -ne 'disorder' -or (Get-SimValue $p 'source' '') -ne 'configured_baseline' -or [uint64](Get-SimValue $c 'direct_plus_packets' 0) -eq 0 -or [uint64](Get-SimValue $c 'relayed_bytes' 0) -ne 0
  })
- return [pscustomobject]@{complete_evidence=$true;flow_records=$all.Count;required_flows=$required.Count;direct_leaks=$leaks.Count;protected_failures=$failures.Count;applications=$apps;youtube_flows=$youtube.Count;youtube_invalid=$badYouTube.Count;transport_evidence_pass=($required.Count -gt 0 -and $leaks.Count -eq 0 -and $failures.Count -eq 0 -and @($apps|Where-Object{!$_.responding}).Count -eq 0 -and $youtube.Count -gt 0 -and $badYouTube.Count -eq 0);application_acceptance='OPERATOR_OBSERVATION_REQUIRED'}
+ return [pscustomobject]@{complete_evidence=$true;flow_records=$all.Count;required_flows=$required.Count;direct_leaks=$leaks.Count;protected_failures=$failures.Count;media_transport_failures=$mediaFailures.Count;applications=$apps;youtube_flows=$youtube.Count;youtube_invalid=$badYouTube.Count;transport_evidence_pass=($required.Count -gt 0 -and $leaks.Count -eq 0 -and $failures.Count -eq 0 -and $mediaFailures.Count -eq 0 -and @($apps|Where-Object{!$_.responding}).Count -eq 0 -and $youtube.Count -gt 0 -and $badYouTube.Count -eq 0);application_acceptance='OPERATOR_OBSERVATION_REQUIRED'}
 }

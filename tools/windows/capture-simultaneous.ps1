@@ -17,6 +17,7 @@ $pageNumber=0;$sample=0;$failure=$null;$captureComplete=$false
 function Save-SimJson($Value,[string]$Name){$Value|ConvertTo-Json -Depth 28|Set-Content -LiteralPath (Join-Path $run $Name) -Encoding UTF8}
 function Receive-SimPages {
  for($batch=0;$batch -lt 128;$batch++){
+  if($watch.Elapsed.TotalSeconds -gt ($DurationSeconds+15)){throw 'Capture wall-time bound exceeded: incomplete evidence'}
   if($script:pageNumber -ge $MaxPages){throw 'Capture page/disk bound reached: incomplete evidence'}
   $page=Invoke-ServiceIPC 'capture.changes' @{cursor=$state.Cursor}
   Save-SimJson $page ('page-{0:D5}.json' -f $script:pageNumber);$script:pageNumber++

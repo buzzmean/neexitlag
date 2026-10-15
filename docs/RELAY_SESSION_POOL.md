@@ -124,7 +124,11 @@ samples, retains at most 8192 distinct flow snapshots, and limits capture to
 600 seconds / 4096 pages (defaults 120 seconds / 2048 pages). It rejects lag,
 restart, missing target evidence, any required-flow DIRECT packet/byte, protected
 BLOCK/open failures, missing bidirectional relay bytes per required executable,
-invalid YouTube DIRECT+ evidence and nonzero capture_queue_drops delta. A successful
+invalid YouTube TCP DIRECT+ evidence, failed adaptive media transports and
+nonzero capture_queue_drops delta. Missing protected counters cannot default to
+zero. Capture draining has a 15-second final grace beyond the selected duration,
+then fails incomplete; per-IPC deadlines stay bounded. UDP/QUIC records remain
+in the page archive and are not falsely required to have TCP transform counters. A successful
 transport evidence gate explicitly requires separate real application observations;
 it is not a browser load/video/voice success claim.
 

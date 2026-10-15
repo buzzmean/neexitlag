@@ -304,6 +304,10 @@ func (p *Pool) acquire(ctx context.Context, probe bool) (*poolSession, error) {
 		var best *poolSession
 		blocked := false
 		for _, s := range p.sessions {
+			if s.client.conn.Context().Err() != nil {
+				blocked = true
+				continue
+			}
 			limit := p.cfg.SessionFlows
 			if !probe {
 				limit -= p.cfg.ProbeReserve
@@ -502,7 +506,7 @@ func (p *Pool) Snapshot() PoolSnapshot {
 		out.CreatingSessions = 1
 	}
 	for _, s := range p.sessions {
-		healthy := !p.closed && alive(s.client)
+		healthy := !p.closed && s.client.conn.Context().Err() == nil && alive(s.client)
 		out.ActiveSessions++
 		if healthy {
 			out.HealthySessions++
@@ -611,7 +615,7 @@ type poolProbe struct {
 }
 
 func (d *poolProbe) scoped(err error) error {
-	if err != nil && !alive(d.session) && d.pool.Healthy() {
+	if err != nil && (d.session.conn.Context().Err() != nil || !alive(d.session)) && d.pool.Healthy() {
 		return errors.Join(telemetry.ErrIsolatedSession, err)
 	}
 	return err
@@ -629,7 +633,7 @@ func (p *Pool) admissionError(err error) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for _, s := range p.sessions {
-		if alive(s.client) {
+		if s.client.conn.Context().Err() == nil && alive(s.client) {
 			return &OpenError{"admission_timeout", errors.Join(ErrCapacity, err)}
 		}
 	}
