@@ -2,6 +2,7 @@ package routing
 
 import (
 	"context"
+	"errors"
 	"github.com/buzzmean/neexitlag/tools/echo"
 	"net"
 	"net/netip"
@@ -144,4 +145,26 @@ func TestPinnedDecisionDoesNotRunApplicationAUTOSelectorAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	d.Close()
+}
+
+type socketPollTimeout struct{}
+
+func (socketPollTimeout) Error() string   { return "socket deadline elapsed before context timer" }
+func (socketPollTimeout) Timeout() bool   { return true }
+func (socketPollTimeout) Temporary() bool { return true }
+
+type pollDatagram struct{ closed bool }
+
+func (p *pollDatagram) Send([]byte) error                       { return nil }
+func (p *pollDatagram) Receive(context.Context) ([]byte, error) { return nil, socketPollTimeout{} }
+func (p *pollDatagram) Close() error                            { p.closed = true; return nil }
+func TestNativeSocketPollTimeoutIsNotDirectFailure(t *testing.T) {
+	for _, replied := range []bool{false, true} {
+		current := &pollDatagram{}
+		d := &AdaptiveUDP{current: current, started: time.Now(), deadline: 3 * time.Second, replied: replied}
+		_, err := d.Receive(context.Background())
+		if !errors.Is(err, context.DeadlineExceeded) || current.closed || d.transitioned || d.Reason() != "" {
+			t.Fatal("poll timeout became a routing failure", replied, err, d.reason)
+		}
+	}
 }

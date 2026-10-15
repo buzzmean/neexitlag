@@ -47,6 +47,7 @@ Relative to checkpoint `9412250c2372398d5f938ee0fff692fbfa18c2ad`.
 - [tests/desktop/ClientTests.cs](../tests/desktop/ClientTests.cs)
 - [tests/desktop/FlowPolicyTests.cs](../tests/desktop/FlowPolicyTests.cs)
 - [tests/windows-tools/build-desktop-ps51.ps1](../tests/windows-tools/build-desktop-ps51.ps1)
+- [tests/windows-tools/strategy-v2-browser-correlation.ps1](../tests/windows-tools/strategy-v2-browser-correlation.ps1)
 - [tests/windows-tools/strategy-v2-checks.ps1](../tests/windows-tools/strategy-v2-checks.ps1)
 - [tools/windows/auto-optimize.ps1](../tools/windows/auto-optimize.ps1)
 - [tools/windows/build-desktop.ps1](../tools/windows/build-desktop.ps1)

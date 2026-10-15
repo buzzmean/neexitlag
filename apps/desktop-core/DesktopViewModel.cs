@@ -51,7 +51,7 @@ public sealed class ApplicationRow : Observable
         var livePaths=active?.Where(f=>f.ProcessGroup==profile.Id&&f.IdentityCurrent&&profile.Executables.Any(exe=>string.Equals(exe.Replace('\\','/').Split('/').Last(),f.Exe.Replace('\\','/').Split('/').Last(),StringComparison.OrdinalIgnoreCase))).Select(f=>f.Exe).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         if(livePaths is {Length:>0})executablePath=string.Join(", ",livePaths);
         bool relay=active?.Any(f=>f.SelectedRoute=="RELAY"&&f.Counters.RelayedBytes>0)==true;
-        bool direct=active?.Any(f=>f.SelectedRoute=="DIRECT"&&f.Counters.DirectPackets>0)==true;
+        bool direct=active?.Any(f=>f.SelectedRoute=="DIRECT"&&f.Counters.DirectPackets>0&&(f.Policy?.Fallback!="FLOW_RELAY_FALLBACK"||f.Counters.DirectReplyPackets>0))==true;
         UserStatus=active is null||active.Length==0?Text.Get("NoData"):active.Any(f=>f.SelectedRoute.StartsWith("BLOCK",StringComparison.Ordinal)||f.RelayRequiredBlocked)?Text.Get("ProtectedFlowBlocked"):relay&&direct?Text.Get("HybridRoute"):relay?Text.Get("ProtectedRoute"):active.Any(f=>f.Counters.DirectPlusPackets>0)?Text.Get("AppliedDirectOptimization"):direct?Text.Get("DirectConnection"):Text.Get("AutoChecking");
         if(capture?.Truncated==true)UserStatus=Text.Get("PartialRouteEvidence")+" "+UserStatus;
         if(active?.Length>0)processStatus=Text.Get("Active");

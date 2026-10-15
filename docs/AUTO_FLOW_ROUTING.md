@@ -119,7 +119,8 @@ user. Privileged capture stays in the authenticated service. No UAC is requested
 Chrome has a finite YouTube HTTPS adapter using the existing seven candidates,
 real DIRECT/RELAY controls and exact socket/target proof. A lease/cooldown bounds
 work to one attempt per application/network per ten minutes, at most sixteen
-leases. Failed/quarantined candidates are excluded. The worker has a ten-minute
+leases. Failed/quarantined candidates are excluded. Browser cold startup has a separate 45-second readiness budget with a final
+deadline snapshot; navigation/HTTPS measurement keeps its own timeout. The worker has a ten-minute
 limit, bounded output and private per-run proof files. It does not run in a
 continuous background traffic loop. Other applications without an application-
 level adapter use their scoped preset/default; no generic TCP ACK is called

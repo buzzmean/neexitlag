@@ -86,6 +86,11 @@ jobs:
       - run: ./tests/windows-tools/strategy-v2-browser-correlation.ps1
         shell: powershell
         timeout-minutes: 2
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-correlation-failure
+          path: bin/browser-correlation/
       - run: ./tests/windows-tools/tcp-web-checks.ps1
         shell: pwsh
       - run: ./tests/windows-tools/tcp-web-checks.ps1

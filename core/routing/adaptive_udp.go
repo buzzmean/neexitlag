@@ -3,6 +3,7 @@ package routing
 import (
 	"context"
 	"errors"
+	"net"
 	"sync"
 	"time"
 )
@@ -155,12 +156,19 @@ func (d *AdaptiveUDP) Receive(ctx context.Context) ([]byte, error) {
 		}
 		return b, nil
 	}
-	if d.transitioned || ctx.Err() == context.Canceled {
+	if ctx.Err() == context.Canceled {
 		return nil, err
 	}
-	timeout := errors.Is(err, context.DeadlineExceeded)
-	if timeout && (!probe || time.Now().Before(until)) {
+	var networkError net.Error
+	timeout := errors.Is(err, context.DeadlineExceeded) || errors.As(err, &networkError) && networkError.Timeout()
+	if d.transitioned {
+		if timeout {
+			return nil, context.DeadlineExceeded
+		}
 		return nil, err
+	}
+	if timeout && (!probe || time.Now().Before(until)) {
+		return nil, context.DeadlineExceeded
 	}
 	reason := "DIRECT_RECEIVE_FAILED"
 	if timeout {

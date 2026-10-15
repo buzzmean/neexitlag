@@ -4,6 +4,7 @@ param(
  [Parameter(Mandatory=$true)][ValidateSet('discord','youtube')][string]$Preset,
  [Parameter(Mandatory=$true)][string]$URL,
  [ValidateRange(5,30)][int]$TimeoutSeconds=15,
+ [ValidateRange(10,90)][int]$StartupTimeoutSeconds=45,
  [string]$ReportDirectory=(Join-Path $PSScriptRoot '..\..\.e2e\strategy-v2'),
  [string]$TargetIPv4='',
  [switch]$NoQuicFallback,
@@ -103,7 +104,7 @@ function Trial([string]$Mode,[string]$Strategy,[int]$Index){
   $portFile=Join-Path $data 'DevToolsActivePort'
   # Reuse the final-snapshot readiness wait: a partial port file or a listening
   # debugger with no page yet is startup progress, not a failed network trial.
-  $ready=Wait-AcceptanceReadiness -TimeoutMS ($TimeoutSeconds*1000) -PollMS 100 -GetSnapshot {
+  $ready=Wait-AcceptanceReadiness -TimeoutMS ($StartupTimeoutSeconds*1000) -PollMS 100 -GetSnapshot {
    if($browser.HasExited){throw 'App exited before isolated CDP became ready (unsupported launcher/Electron mode)'}
    $port=0;$pages=@()
    if(Test-Path $portFile){$lines=@(Get-Content $portFile);if($lines.Count -gt 0){[void][int]::TryParse([string]$lines[0],[ref]$port)}}
