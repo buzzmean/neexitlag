@@ -206,10 +206,10 @@ Credentials, service.json, enrollment, trust, IPC token, existing state and glob
 BLOCK remain in place. For rollback stop service, copy `.before-auto.bak` over the
 same path, restore `$acl`, restart. Before making profile changes save an IPC status
 snapshot as below; configuration rollback is explicit, not a destructive reset.
-Run the updated GUI without elevation from the extracted GUI directory. If local
-PowerShell execution policy blocks bundled unsigned scripts, report that error;
-this change does not alter machine execution policy automatically. The operator
-may unblock a verified downloaded bundle according to their Windows policy.
+Run the updated GUI without elevation from the extracted GUI directory. The bundled helper is launched with process-scoped PowerShell execution policy
+for that child only, without elevation or a persistent machine/user policy change.
+Enforced enterprise Group Policy remains authoritative; if it blocks the helper,
+the GUI retains diagnostics instead of pretending measurement succeeded.
 
 ## Exact migration and real Windows acceptance, Happ OFF
 

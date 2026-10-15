@@ -219,7 +219,7 @@ public partial class MainWindow : Window
             if(!File.Exists(script))throw new InvalidOperationException(Text.Get("AutoToolsMissing"));
             var output=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"NeExitLag","auto-output");Directory.CreateDirectory(output);
             var start=new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"WindowsPowerShell","v1.0","powershell.exe")){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};
-            foreach(var value in new[]{"-NoProfile","-File",script,"-ProfileId",row.Profile.Id})start.ArgumentList.Add(value);
+            foreach(var value in new[]{"-NoProfile","-ExecutionPolicy","Bypass","-File",script,"-ProfileId",row.Profile.Id})start.ArgumentList.Add(value);
             using var process=System.Diagnostics.Process.Start(start) ?? throw new InvalidOperationException(Text.Get("AutoStartFailed"));
             using var deadline=CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);deadline.CancelAfter(TimeSpan.FromMinutes(10));
             var stdout=ReadAutoOutput(process.StandardOutput,deadline.Token);var stderr=ReadAutoOutput(process.StandardError,deadline.Token);
