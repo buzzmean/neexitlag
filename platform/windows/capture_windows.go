@@ -349,9 +349,10 @@ func (b *WinDivertBackend) packets(classify Classifier) {
 			if known {
 				decision, _ = ClassifyCapture(identity, tuple, uint32(os.Getpid()), classify)
 			}
+			b.evidence.RecordPolicy(identity, tuple, decision, "")
 			if len(b.flows) >= 8192 {
 				b.mu.Unlock()
-				if decision.Block || decision.BlockOnFailure {
+				if decision.Block || decision.BlockOnFailure || decision.ProbeDirect {
 					b.drop(identity, tuple)
 				} else {
 					if err := b.inject(d, packet, address); err != nil {
@@ -375,7 +376,7 @@ func (b *WinDivertBackend) packets(classify Classifier) {
 					b.wg.Add(1)
 					go b.forward(tuple, f, d)
 				default:
-					if f.decision.BlockOnFailure {
+					if f.decision.BlockOnFailure || f.decision.ProbeDirect {
 						f.dropCause = telemetry.WorkerSaturation
 						f.decision.Block = true
 					} else {
