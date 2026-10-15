@@ -167,7 +167,9 @@ Rollback: stop service, restore `$backup` to `$installed`, restore `$acl`, resta
 * `apps/desktop-core/Models.cs`, `DesktopViewModel.cs`,
   `tests/desktop/FlowPolicyTests.cs`: backward-compatible DTO and confirmed status.
 * `services/client-service/flow_policy_test.go`: UDP/443 required/DNS not media.
-* This document and `AUTO_FLOW_ROUTING.md`: semantics and focused update/retest.
+* `tools/windows/build-e2e.ps1`: include this instruction in the downloadable
+  service/tools archive. This document and `AUTO_FLOW_ROUTING.md`: semantics
+  and focused update/retest.
 
 Run `go build ./...`, `go test -race -p 2 -timeout 120s ./...`, `go vet ./...`,
 `GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...`, and
