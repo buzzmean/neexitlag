@@ -32,6 +32,9 @@ func sessionConnected(session acceptanceRelay) bool {
 	if session == nil {
 		return false
 	}
+	if pooled, ok := session.(interface{ Healthy() bool }); ok {
+		return pooled.Healthy()
+	}
 	select {
 	case <-session.Done():
 		return false
@@ -50,7 +53,13 @@ func (c *Controller) acceptanceReadiness(ctx context.Context, id string) Snapsho
 			evidence.Reason = "configured_probe_target_unavailable"
 		} else {
 			attempt, cancel := context.WithTimeout(ctx, 3*time.Second)
-			flow, err := source.session.OpenDatagram(attempt, source.target)
+			open := source.session.OpenDatagram
+			if probe, ok := source.session.(interface {
+				OpenProbeDatagram(context.Context, netip.AddrPort) (routing.Datagram, error)
+			}); ok {
+				open = probe.OpenProbeDatagram
+			}
+			flow, err := open(attempt, source.target)
 			cancel()
 			if err != nil {
 				evidence.Reason = "relay_flow_open_failed"

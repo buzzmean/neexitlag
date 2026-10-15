@@ -36,6 +36,10 @@ type CaptureCounters struct {
 	Replies            uint64 `json:"relay_reply_packets"`
 }
 type FlowEvidence struct {
+	updateSeq       uint64
+	recordKey       evidenceKey
+	RelayOpen       *RelayOpenEvidence         `json:"relay_open,omitempty"`
+	UDPQueue        *UDPQueueEvidence          `json:"udp_queue,omitempty"`
 	UDPHealth       *routing.UDPHealthEvidence `json:"udp_health,omitempty"`
 	UpstreamSource  string                     `json:"upstream_source,omitempty"`
 	Policy          flowpolicy.Result          `json:"policy,omitempty"`
@@ -100,18 +104,21 @@ type evidenceKey struct {
 	Tuple   Tuple
 }
 type EvidenceLedger struct {
-	ledgerID                string
-	nextFlowID, lostRecords uint64
-	mu                      sync.Mutex
-	totals                  CaptureCounters
-	flows                   map[evidenceKey]FlowEvidence
-	aliases                 map[evidenceKey]evidenceKey
+	nextUpdate, lostThroughUpdate uint64
+	retired                       map[uint64]FlowEvidence
+	retiredKeys                   map[evidenceKey]uint64
+	ledgerID                      string
+	nextFlowID, lostRecords       uint64
+	mu                            sync.Mutex
+	totals                        CaptureCounters
+	flows                         map[evidenceKey]FlowEvidence
+	aliases                       map[evidenceKey]evidenceKey
 }
 
 func NewEvidenceLedger() *EvidenceLedger {
 	nonce := make([]byte, 16)
 	_, _ = rand.Read(nonce)
-	return &EvidenceLedger{ledgerID: hex.EncodeToString(nonce), flows: map[evidenceKey]FlowEvidence{}, aliases: map[evidenceKey]evidenceKey{}}
+	return &EvidenceLedger{retired: map[uint64]FlowEvidence{}, retiredKeys: map[evidenceKey]uint64{}, ledgerID: hex.EncodeToString(nonce), flows: map[evidenceKey]FlowEvidence{}, aliases: map[evidenceKey]evidenceKey{}}
 }
 func increment(c *CaptureCounters, event string) {
 	switch event {
@@ -154,20 +161,17 @@ func (l *EvidenceLedger) BeginFlow(id ProcessIdentity, t Tuple) {
 	if key.Tuple != t {
 		return
 	}
-	delete(l.flows, key)
+	l.retireLocked(key)
 	if id.PID != 0 && id.CreationTime != 0 && id.Path != "" {
 		l.createFlowLocked(key)
 	}
 }
 func (l *EvidenceLedger) createFlowLocked(key evidenceKey) (FlowEvidence, bool) {
-	if len(l.flows) >= 1024 {
-		l.lostRecords++
-		return FlowEvidence{}, false
-	}
+	l.roomLocked()
 	l.nextFlowID++
 	now := time.Now()
 	v := FlowEvidence{pending: true, FlowID: l.nextFlowID, StartedAt: now, LastSeen: now}
-	l.flows[key] = v
+	l.storeLocked(key, v)
 	return v, true
 }
 func (l *EvidenceLedger) markerLocked() EvidenceMarker {
@@ -190,9 +194,11 @@ func (l *EvidenceLedger) recordBytesLocked(id ProcessIdentity, t Tuple, event, r
 		return
 	}
 	key := l.keyLocked(id, t)
-	v, exists := l.flows[key]
+	v, exists := l.lookupLocked(key)
 	if !exists && key.Tuple != t {
 		l.lostRecords++
+		l.nextUpdate++
+		l.lostThroughUpdate = l.nextUpdate
 		return
 	}
 	if !exists {
@@ -235,7 +241,7 @@ func (l *EvidenceLedger) recordBytesLocked(id ProcessIdentity, t Tuple, event, r
 		v.Route = "DIRECT"
 		v.RelayID = ""
 	}
-	l.flows[key] = v
+	l.storeLocked(key, v)
 }
 func (l *EvidenceLedger) Snapshot(pid uint32) CaptureEvidence { return l.snapshot(pid, nil) }
 func (l *EvidenceLedger) snapshot(pid uint32, active map[evidenceKey]bool) CaptureEvidence {
@@ -262,14 +268,7 @@ func (l *EvidenceLedger) SnapshotQuery(q EvidenceQuery, active map[evidenceKey]b
 		}
 		v.Active = active[k]
 		if (q.PID == 0 || v.PID == q.PID) && (q.CreationTime == 0 || v.CreationTime == q.CreationTime) && (q.Destination == "" || v.Destination == q.Destination) && (q.Source == "" || v.Source == q.Source) && (q.Since == nil || v.FlowID > q.Since.AfterFlowID) && (q.Domain == "" || strings.EqualFold(v.Domain, q.Domain) || v.LocalInspection != nil && (strings.EqualFold(v.LocalInspection.Domain, q.Domain) || strings.EqualFold(v.LocalInspection.ObservedSNI, q.Domain))) {
-			if v.UDPHealth != nil {
-				copy := *v.UDPHealth
-				v.UDPHealth = &copy
-			}
-			if v.LocalInspection != nil {
-				copy := *v.LocalInspection
-				v.LocalInspection = &copy
-			}
+			v = cloneFlow(v)
 			out.Flows = append(out.Flows, v)
 		}
 	}
@@ -298,7 +297,7 @@ func (l *EvidenceLedger) Cleanup(now time.Time) {
 	defer l.mu.Unlock()
 	for k, v := range l.flows {
 		if now.Sub(v.LastSeen) > 5*time.Minute {
-			delete(l.flows, k)
+			l.retireLocked(k)
 		}
 	}
 }
@@ -337,10 +336,10 @@ func (l *EvidenceLedger) AddBytes(id ProcessIdentity, t Tuple, event, relay stri
 	defer l.mu.Unlock()
 	incrementBytes(&l.totals, event, n)
 	key := l.keyLocked(id, t)
-	if v, ok := l.flows[key]; ok {
+	if v, ok := l.lookupLocked(key); ok {
 		incrementBytes(&v.Counters, event, n)
 		v.LastSeen = time.Now()
-		l.flows[key] = v
+		l.storeLocked(key, v)
 	}
 }
 
@@ -355,7 +354,7 @@ func (l *EvidenceLedger) RecordLocalResult(id ProcessIdentity, t Tuple, r locals
 	defer l.mu.Unlock()
 	l.recordBytesLocked(id, t, "local", "", n)
 	key := l.keyLocked(id, t)
-	v, ok := l.flows[key]
+	v, ok := l.lookupLocked(key)
 	if ok {
 		v.Route = "DIRECT_PLUS"
 		v.RelayID = ""
@@ -369,7 +368,7 @@ func (l *EvidenceLedger) RecordLocalResult(id ProcessIdentity, t Tuple, r locals
 			v.Counters.FakeTLS += r.FakePackets
 			l.totals.FakeTLS += r.FakePackets
 		}
-		l.flows[key] = v
+		l.storeLocked(key, v)
 	}
 }
 
@@ -378,13 +377,13 @@ func (l *EvidenceLedger) RecordQuicFallback(id ProcessIdentity, t Tuple, strateg
 	defer l.mu.Unlock()
 	l.recordBytesLocked(id, t, "quic_fallback", "", 0)
 	k := l.keyLocked(id, t)
-	if v, ok := l.flows[k]; ok {
+	if v, ok := l.lookupLocked(k); ok {
 		v.Route = "DIRECT_PLUS"
 		v.RelayID = ""
 		v.Strategy = strategy
 		v.Preset = preset
 		v.Chain = "HTTP/3/QUIC → TCP fallback"
-		l.flows[k] = v
+		l.storeLocked(k, v)
 	}
 }
 
@@ -396,9 +395,9 @@ func (l *EvidenceLedger) RecordDomain(id ProcessIdentity, t Tuple, domain string
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	k := l.keyLocked(id, t)
-	if v, ok := l.flows[k]; ok && v.Domain == "" {
+	if v, ok := l.lookupLocked(k); ok && v.Domain == "" {
 		v.Domain = domain
-		l.flows[k] = v
+		l.storeLocked(k, v)
 	}
 }
 
@@ -410,10 +409,10 @@ func (l *EvidenceLedger) RecordLocalInspection(id ProcessIdentity, t Tuple, d *l
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	k := l.keyLocked(id, t)
-	if v, ok := l.flows[k]; ok && (v.LocalInspection == nil || d.SegmentsSeen > 0 && (v.LocalInspection.Reason == "REASSEMBLY_STARTED" || v.LocalInspection.Reason == "REASSEMBLY_WAITING" || v.LocalInspection.Reason == "REASSEMBLY_OUT_OF_ORDER")) {
+	if v, ok := l.lookupLocked(k); ok && (v.LocalInspection == nil || d.SegmentsSeen > 0 && (v.LocalInspection.Reason == "REASSEMBLY_STARTED" || v.LocalInspection.Reason == "REASSEMBLY_WAITING" || v.LocalInspection.Reason == "REASSEMBLY_OUT_OF_ORDER")) {
 		copy := *d
 		v.LocalInspection = &copy
-		l.flows[k] = v
+		l.storeLocked(k, v)
 	}
 }
 
@@ -437,12 +436,12 @@ func (l *EvidenceLedger) BindUpstream(id ProcessIdentity, upstream, original Tup
 		return false
 	}
 	key := evidenceKey{id.PID, id.CreationTime, original}
-	if _, ok := l.flows[key]; !ok {
+	if _, ok := l.lookupLocked(key); !ok {
 		return false
 	}
-	v := l.flows[key]
+	v, _ := l.lookupLocked(key)
 	v.UpstreamSource = upstream.Source.String()
-	l.flows[key] = v
+	l.storeLocked(key, v)
 	l.aliases[evidenceKey{id.PID, id.CreationTime, upstream}] = key
 	return true
 }
@@ -455,7 +454,7 @@ func (l *EvidenceLedger) RecordPolicy(id ProcessIdentity, t Tuple, d Decision, r
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	key := l.keyLocked(id, t)
-	v, ok := l.flows[key]
+	v, ok := l.lookupLocked(key)
 	if !ok {
 		return
 	}
@@ -465,7 +464,7 @@ func (l *EvidenceLedger) RecordPolicy(id ProcessIdentity, t Tuple, d Decision, r
 	if reason != "" {
 		v.FallbackReason = reason
 	}
-	l.flows[key] = v
+	l.storeLocked(key, v)
 }
 func (l *EvidenceLedger) pruneAliases(keep func(Tuple) bool) {
 	l.mu.Lock()
@@ -481,7 +480,7 @@ func (l *EvidenceLedger) RecordUpstreamOpened(id ProcessIdentity, t Tuple, r rou
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	key := l.keyLocked(id, t)
-	if v, ok := l.flows[key]; ok {
+	if v, ok := l.lookupLocked(key); ok {
 		if v.Route != "DIRECT_PLUS" {
 			v.Route = string(r.Type())
 			if r.Local() {
@@ -489,7 +488,7 @@ func (l *EvidenceLedger) RecordUpstreamOpened(id ProcessIdentity, t Tuple, r rou
 			}
 			v.RelayID = r.RelayID
 		}
-		l.flows[key] = v
+		l.storeLocked(key, v)
 	}
 }
 
@@ -497,11 +496,11 @@ func (l *EvidenceLedger) RecordInitialPolicy(id ProcessIdentity, t Tuple, d Deci
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	key := l.keyLocked(id, t)
-	if v, ok := l.flows[key]; ok && v.Policy.Source == "" {
+	if v, ok := l.lookupLocked(key); ok && v.Policy.Source == "" {
 		v.Policy = d.Policy
 		v.Group = d.Group
 		v.Network = d.Network
-		l.flows[key] = v
+		l.storeLocked(key, v)
 	}
 }
 
@@ -511,7 +510,7 @@ func (l *EvidenceLedger) RecordUDPHealth(id ProcessIdentity, t Tuple, health rou
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	key := l.keyLocked(id, t)
-	v, ok := l.flows[key]
+	v, ok := l.lookupLocked(key)
 	if !ok {
 		return
 	}
@@ -519,5 +518,5 @@ func (l *EvidenceLedger) RecordUDPHealth(id ProcessIdentity, t Tuple, health rou
 	if health.State == routing.FlowRelayFallback {
 		v.FallbackReason = health.Reason
 	}
-	l.flows[key] = v
+	l.storeLocked(key, v)
 }

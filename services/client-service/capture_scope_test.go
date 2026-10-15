@@ -100,3 +100,30 @@ func TestSuccessfulChainRecordUsesExactTrialFlow(t *testing.T) {
 		t.Fatal("wrong flow generation accepted")
 	}
 }
+
+func (b *scopedTestBackend) CaptureChangeMarker() windowsplatform.ChangeCursor {
+	return b.ledger.ChangeMarker()
+}
+func (b *scopedTestBackend) CaptureChanges(q windowsplatform.ChangeQuery) (windowsplatform.ChangePage, error) {
+	return b.ledger.ChangePage(q)
+}
+func TestCaptureChangesIPCIsBoundedAndStrict(t *testing.T) {
+	c := New(context.Background())
+	defer c.Close()
+	l := windowsplatform.NewEvidenceLedger()
+	c.Backend = &scopedTestBackend{l}
+	cursor, err := c.Handle(context.Background(), "capture.changes.marker", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(windowsplatform.ChangeQuery{Cursor: cursor.(windowsplatform.ChangeCursor)})
+	if _, err = c.Handle(context.Background(), "capture.changes", raw); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = c.Handle(context.Background(), "capture.changes", json.RawMessage(`{"cursor":{"ledger_id":"foreign","after_update":0}}`)); err == nil {
+		t.Fatal("foreign cursor accepted")
+	}
+	if _, err = c.Handle(context.Background(), "capture.changes", json.RawMessage(`{"cursor":{},"unknown":1}`)); err == nil {
+		t.Fatal("unknown request field accepted")
+	}
+}

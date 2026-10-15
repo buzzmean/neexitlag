@@ -20,11 +20,16 @@ import (
 	"unsafe"
 )
 
+type queuedDatagram struct {
+	payload  []byte
+	enqueued time.Time
+}
 type captureFlow struct {
+	opening    bool
 	localState localstrategy.State
 	decision   Decision
 	dropCause  telemetry.Category
-	queue      chan []byte
+	queue      chan queuedDatagram
 	done       chan struct{}
 	once       sync.Once
 	datagram   routing.Datagram
@@ -365,7 +370,8 @@ func (b *WinDivertBackend) packets(classify Classifier) {
 			}
 			f = &captureFlow{decision: decision, dropCause: telemetry.Policy, identity: identity, endpoint: association.Endpoint, done: make(chan struct{}), address: address}
 			if (!decision.Route.Direct() || decision.ProbeDirect) && !decision.Block {
-				f.queue = make(chan []byte, 32)
+				f.opening = true
+				f.queue = make(chan queuedDatagram, 32)
 				f.template = append([]byte(nil), packet...)
 			}
 			b.flows[tuple] = f
@@ -431,9 +437,11 @@ func (b *WinDivertBackend) packets(classify Classifier) {
 		}
 		b.LocalDrops.Attempt(telemetry.CaptureQueue)
 		select {
-		case f.queue <- append([]byte(nil), payload...):
+		case f.queue <- queuedDatagram{append([]byte(nil), payload...), time.Now()}:
+			b.evidence.RecordUDPQueue(identity, tuple, len(f.queue), f.opening, false, 0)
 		default:
 			b.LocalDrops.Drop(telemetry.CaptureQueue)
+			b.evidence.RecordUDPQueue(identity, tuple, cap(f.queue), f.opening, true, 0)
 			b.drop(identity, tuple)
 		}
 		b.mu.Unlock()
@@ -446,12 +454,19 @@ func (b *WinDivertBackend) forward(tuple Tuple, f *captureFlow, d *divertDLL) {
 	var datagram routing.Datagram
 	var err error
 	adaptive := f.decision.ProbeDirect
+	openStarted := time.Now()
 	if adaptive {
 		datagram, err = b.Engine.OpenAdaptiveUDP(ctx, f.decision.Flow, f.decision.Policy.RelayID, 3*time.Second)
 	} else {
 		datagram, err = b.Engine.OpenUDP(ctx, f.decision.Flow)
 	}
 	cancel()
+	b.mu.Lock()
+	f.opening = false
+	b.mu.Unlock()
+	if !adaptive {
+		b.evidence.RecordRelayOpen(f.identity, tuple, openStarted, err)
+	}
 	if err == nil {
 		for _, flow := range b.Engine.Snapshot() {
 			if flow.PID == f.decision.Flow.PID && flow.Source == tuple.Source && flow.Destination == tuple.Destination {
@@ -551,7 +566,9 @@ func (b *WinDivertBackend) forward(tuple Tuple, f *captureFlow, d *divertDLL) {
 		case <-done:
 			b.fallback(tuple, f, d, nil)
 			return
-		case payload := <-f.queue:
+		case queued := <-f.queue:
+			payload := queued.payload
+			b.evidence.RecordUDPQueue(f.identity, tuple, 0, false, false, time.Since(queued.enqueued))
 			sendErr := datagram.Send(payload)
 			publishHealth()
 			if sendErr != nil {
@@ -588,6 +605,10 @@ func (b *WinDivertBackend) Traffic() (uint64, uint64) { return b.RX.Load(), b.TX
 
 func (b *WinDivertBackend) Diagnostics(pid uint32) CaptureEvidence {
 	return b.DiagnosticsTarget(pid, "")
+}
+func (b *WinDivertBackend) CaptureChangeMarker() ChangeCursor { return b.evidence.ChangeMarker() }
+func (b *WinDivertBackend) CaptureChanges(q ChangeQuery) (ChangePage, error) {
+	return b.evidence.ChangePage(q)
 }
 func (b *WinDivertBackend) CaptureMarker() EvidenceMarker { return b.evidence.Marker() }
 func (b *WinDivertBackend) DiagnosticsTarget(pid uint32, destination string) CaptureEvidence {
@@ -654,8 +675,9 @@ func (b *WinDivertBackend) fallback(tuple Tuple, f *captureFlow, d *divertDLL, f
 	}
 	for {
 		select {
-		case payload := <-f.queue:
-			inject(payload)
+		case queued := <-f.queue:
+			b.evidence.RecordUDPQueue(f.identity, tuple, 0, false, false, time.Since(queued.enqueued))
+			inject(queued.payload)
 		default:
 			return
 		}

@@ -311,8 +311,10 @@ func (t *tcpRedirect) open(e *tcpEntry, syn []byte, a [80]byte) {
 	defer t.wg.Done()
 	defer func() { <-t.slots }()
 	ctx, cancel := context.WithTimeout(t.b.ctx, 5*time.Second)
+	openStarted := time.Now()
 	up, err := t.b.Engine.OpenTCP(ctx, e.decision.Flow)
 	cancel()
+	t.b.evidence.RecordRelayOpen(e.identity, e.tuple, openStarted, err)
 	route := e.decision.Route
 	if err == nil {
 		for _, f := range t.b.Engine.Snapshot() {
@@ -527,7 +529,11 @@ func (t *tcpRedirect) deferredOpen(e *tcpEntry, c net.Conn) {
 	if d.Route.Local() {
 		up, err = t.dialLocalStrategy(ctx, e, d)
 	} else {
+		openStarted := time.Now()
 		up, err = t.b.Engine.OpenTCP(ctx, d.Flow)
+		if !d.Route.Direct() {
+			t.b.evidence.RecordRelayOpen(e.identity, e.tuple, openStarted, err)
+		}
 	}
 	cancel()
 	if err != nil && !d.BlockOnFailure && t.b.ctx.Err() == nil && (!requested.Direct() || requested.Local()) {

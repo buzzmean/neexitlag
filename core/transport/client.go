@@ -17,6 +17,7 @@ import (
 )
 
 var ErrClosed = errors.New("flow or session closed")
+var ErrRelayRejected = errors.New("relay rejected flow")
 
 type Client struct {
 	conn           *quic.Conn
@@ -76,9 +77,9 @@ func (c *Client) open(ctx context.Context, kind byte, dst netip.AddrPort) (*quic
 		c.Close()
 		return nil, 0, errors.New("flow IDs exhausted")
 	}
-	s, e := c.conn.OpenStreamSync(ctx)
+	s, e := c.conn.OpenStream()
 	if e != nil {
-		return nil, 0, e
+		return nil, 0, streamCapacity(e)
 	}
 	deadline := time.Now().Add(5 * time.Second)
 	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
@@ -91,7 +92,7 @@ func (c *Client) open(ctx context.Context, kind byte, dst netip.AddrPort) (*quic
 		var ack [1]byte
 		_, e = io.ReadFull(s, ack[:])
 		if e == nil && ack[0] != 0 {
-			e = errors.New("relay rejected flow")
+			e = ErrRelayRejected
 		}
 	}
 	if e != nil {
@@ -105,7 +106,7 @@ func (c *Client) open(ctx context.Context, kind byte, dst netip.AddrPort) (*quic
 func (c *Client) OpenUDP(ctx context.Context, dst netip.AddrPort) (*UDPFlow, error) {
 	s, id, e := c.open(ctx, protocol.UDP, dst)
 	if e != nil {
-		if !errors.Is(ctx.Err(), context.Canceled) && !telemetry.IsLocal(e) {
+		if c.conn.Context().Err() != nil && !errors.Is(ctx.Err(), context.Canceled) && !telemetry.IsLocal(e) {
 			c.reportFailure("transport_open_failed")
 		}
 		return nil, e

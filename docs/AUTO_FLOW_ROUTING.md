@@ -313,3 +313,11 @@ DIRECT_PLUS settings until the corresponding migration is verified.
     configured fallback. Test bounds, relay outage, service stop, concurrent opens
     and delegated-socket cleanup. This gate is mandatory before calling the late
     proxy path production verified.
+
+## Relay capacity and simultaneous follow-up
+
+The service now publishes a bounded authenticated session pool per VPS instead
+of a single 64-stream client. See [session pool, incremental capture and exact
+Windows retest](RELAY_SESSION_POOL.md). The reported real simultaneous test at
+fd06ea3 failed; CI does not supersede that result. New real Windows verification
+is required. Existing application policies and DIRECT+ strategy are unchanged.

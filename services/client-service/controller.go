@@ -15,6 +15,7 @@ import (
 	"github.com/buzzmean/neexitlag/core/routing"
 	"github.com/buzzmean/neexitlag/core/security"
 	"github.com/buzzmean/neexitlag/core/telemetry"
+	"github.com/buzzmean/neexitlag/core/transport"
 	windowsplatform "github.com/buzzmean/neexitlag/platform/windows"
 	"net"
 	"net/http"
@@ -66,6 +67,7 @@ type Snapshot struct {
 	ActiveApps     []string                      `json:"active_apps"`
 }
 type Controller struct {
+	relayPools                  map[string]*transport.Pool
 	autoJobs                    map[string]autoLease
 	groupBindings               map[uint32]groupBinding
 	autoMu                      sync.Mutex
@@ -104,7 +106,7 @@ type Controller struct {
 
 func New(ctx context.Context) *Controller {
 	ctx, cancel := context.WithCancel(ctx)
-	c := &Controller{AutoLearned: flowpolicy.NewLearning(), groupBindings: map[uint32]groupBinding{}, autoJobs: map[string]autoLease{}, discovery: windowsplatform.NewDiscovery(), Local: localstrategy.New(), Learned: localstrategy.NewCache(1024), Engine: routing.New(4096), Selector: optimizer.New(optimizer.DefaultParameters()), Measurements: measurement.New(measurement.Defaults()), Profiles: profiles.New(profiles.Defaults()), recentApps: make(map[string]time.Time), localProfiles: make(map[string]profiles.Profile), acceptanceRelays: make(map[string]acceptanceRelaySource), transportDrops: make(map[string]func() map[string]telemetry.Metric), settings: Settings{Automatic: true, Failover: "DIRECT", UpdateChannel: "stable"}, ctx: ctx, cancel: cancel}
+	c := &Controller{relayPools: map[string]*transport.Pool{}, AutoLearned: flowpolicy.NewLearning(), groupBindings: map[uint32]groupBinding{}, autoJobs: map[string]autoLease{}, discovery: windowsplatform.NewDiscovery(), Local: localstrategy.New(), Learned: localstrategy.NewCache(1024), Engine: routing.New(4096), Selector: optimizer.New(optimizer.DefaultParameters()), Measurements: measurement.New(measurement.Defaults()), Profiles: profiles.New(profiles.Defaults()), recentApps: make(map[string]time.Time), localProfiles: make(map[string]profiles.Profile), acceptanceRelays: make(map[string]acceptanceRelaySource), transportDrops: make(map[string]func() map[string]telemetry.Metric), settings: Settings{Automatic: true, Failover: "DIRECT", UpdateChannel: "stable"}, ctx: ctx, cancel: cancel}
 	c.Local.Guard = func(m localstrategy.Metadata) bool {
 		if c.autoCandidateQuarantined(m) {
 			return false
@@ -451,8 +453,43 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 			return nil, errors.New("configured relay ID required")
 		}
 		return c.acceptanceReadiness(ctx, query.RelayID), nil
+	case "relay.pool.diagnostics":
+		var query struct {
+			RelayID string `json:"relay_id"`
+		}
+		if err := security.Parse(raw, &query); err != nil {
+			return nil, err
+		}
+		if query.RelayID == "" || len(query.RelayID) > 128 {
+			return nil, errors.New("configured relay ID required")
+		}
+		c.mu.Lock()
+		pool := c.relayPools[query.RelayID]
+		c.mu.Unlock()
+		if pool == nil {
+			return nil, errors.New("relay pool unavailable")
+		}
+		return pool.Snapshot(), nil
 	case "quality.diagnostics":
 		return c.DropDiagnostics(), nil
+	case "capture.changes.marker":
+		if backend, ok := c.Backend.(interface {
+			CaptureChangeMarker() windowsplatform.ChangeCursor
+		}); ok {
+			return backend.CaptureChangeMarker(), nil
+		}
+		return nil, errors.New("capture change cursor unavailable; update backend")
+	case "capture.changes":
+		var query windowsplatform.ChangeQuery
+		if err := security.Parse(raw, &query); err != nil {
+			return nil, err
+		}
+		if backend, ok := c.Backend.(interface {
+			CaptureChanges(windowsplatform.ChangeQuery) (windowsplatform.ChangePage, error)
+		}); ok {
+			return backend.CaptureChanges(query)
+		}
+		return nil, errors.New("capture changes unavailable; update backend")
 	case "capture.marker":
 		if backend, ok := c.Backend.(interface {
 			CaptureMarker() windowsplatform.EvidenceMarker
