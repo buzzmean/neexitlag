@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/buzzmean/neexitlag/core/flowpolicy"
+	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"github.com/buzzmean/neexitlag/core/optimizer"
 	"github.com/buzzmean/neexitlag/core/profiles"
 	wp "github.com/buzzmean/neexitlag/platform/windows"
@@ -224,4 +225,21 @@ func (c *Controller) baselineRevision(p profiles.Profile) string {
 }
 func (c *Controller) hasBaseline(p profiles.Profile, network string) bool {
 	return p.AutoNetwork != "" && p.AutoNetwork == network && p.AutoRevision != "" && p.AutoRevision == c.baselineRevision(p)
+}
+
+func (c *Controller) autoCandidateQuarantined(m localstrategy.Metadata) bool {
+	n := c.network.Load()
+	if n == nil || n.Fingerprint == "" || m.Domain == "" {
+		return false
+	}
+	for _, p := range c.Profiles.List() {
+		for _, exe := range p.Executables {
+			if strings.EqualFold(strings.ReplaceAll(exe, "\\", "/"), strings.ReplaceAll(m.Application, "\\", "/")) {
+				if c.AutoLearned.Quarantined(c.learnKey(p, n.Fingerprint, m.Protocol, m.Domain, m.Destination.Port()), m.StrategyID, time.Now()) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }

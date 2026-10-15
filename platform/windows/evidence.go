@@ -36,6 +36,7 @@ type CaptureCounters struct {
 	Replies            uint64 `json:"relay_reply_packets"`
 }
 type FlowEvidence struct {
+	UpstreamSource  string            `json:"upstream_source,omitempty"`
 	Policy          flowpolicy.Result `json:"policy,omitempty"`
 	Group           string            `json:"process_group,omitempty"`
 	Network         string            `json:"network_fingerprint,omitempty"`
@@ -432,6 +433,9 @@ func (l *EvidenceLedger) BindUpstream(id ProcessIdentity, upstream, original Tup
 	if _, ok := l.flows[key]; !ok {
 		return false
 	}
+	v := l.flows[key]
+	v.UpstreamSource = upstream.Source.String()
+	l.flows[key] = v
 	l.aliases[evidenceKey{id.PID, id.CreationTime, upstream}] = key
 	return true
 }

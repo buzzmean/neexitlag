@@ -531,6 +531,7 @@ func (t *tcpRedirect) deferredOpen(e *tcpEntry, c net.Conn) {
 		t.wg.Done()
 		return
 	}
+	requested := d.Route
 	ctx, cancel := context.WithTimeout(t.b.ctx, 5*time.Second)
 	var up net.Conn
 	var err error
@@ -562,6 +563,9 @@ func (t *tcpRedirect) deferredOpen(e *tcpEntry, c net.Conn) {
 		return
 	}
 	e.upstream = up
+	if !requested.Direct() && d.Route.Direct() {
+		t.b.evidence.RecordPolicy(e.identity, e.tuple, d, "RELAY_FELL_BACK_DIRECT")
+	}
 	t.b.evidence.RecordUpstreamOpened(e.identity, e.tuple, d.Route)
 	t.state.mu.Unlock()
 	if len(data) > 0 {
