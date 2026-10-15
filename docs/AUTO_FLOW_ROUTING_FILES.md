@@ -28,6 +28,7 @@ Relative to checkpoint `9412250c2372398d5f938ee0fff692fbfa18c2ad`.
 - [platform/windows/deferred_tcp.go](../platform/windows/deferred_tcp.go)
 - [platform/windows/deferred_tcp_test.go](../platform/windows/deferred_tcp_test.go)
 - [platform/windows/discovery_windows.go](../platform/windows/discovery_windows.go)
+- [platform/windows/discovery_windows_test.go](../platform/windows/discovery_windows_test.go)
 - [platform/windows/evidence.go](../platform/windows/evidence.go)
 - [platform/windows/ipv6_guard.go](../platform/windows/ipv6_guard.go)
 - [platform/windows/ipv6_guard_windows.go](../platform/windows/ipv6_guard_windows.go)
