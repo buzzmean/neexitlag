@@ -59,5 +59,5 @@ try{
 }finally{
  try{Save-HotJson (Invoke-ServiceIPC 'status') 'status-after.json'}catch{}
  # Restore only prior Optimize state, never profiles, app processes or credentials.
- if(!(Get-SimValue $original 'optimizing' $false)){try{[void](Invoke-ServiceIPC 'optimize' @{enabled=$false})}catch{}}
+ try{[void](Invoke-ServiceIPC 'optimize' @{enabled=[bool](Get-SimValue $original 'optimizing' $false)})}catch{Save-HotJson @{error=$_.Exception.Message;action='restore_original_optimize_state'} 'RESTORE-FAIL.json';Write-Warning 'Failed to restore original Optimize state; inspect RESTORE-FAIL.json and service status'}
 }

@@ -194,8 +194,9 @@ advances bounded evidence cursors, rejects loss/restart/incomplete generations,
 and requires fresh required bidirectional relay and YouTube DIRECT+ configured-
 baseline/disorder/real transform/zero relay evidence. Both queue and worker drop
 deltas must be zero. It never launches or restarts applications or modifies profiles.
-It does temporarily toggle Optimize; it restores OFF if originally OFF and leaves
-existing profiles/credentials untouched. Reports explicitly retain
+It does temporarily toggle Optimize and restores the original ON/OFF state even
+on failure; restoration errors are saved explicitly. Existing profiles/credentials
+are untouched. Reports explicitly retain
 OPERATOR_OBSERVATION_REQUIRED for application acceptance.
 
 Release requires all eight observations, not merely a transport-proof PASS:
