@@ -10,7 +10,10 @@ function Get-V2ObservedDomain($Flow){
  return ''
 }
 function Get-V2TrialIdentities([string]$Exe,[long]$NotBefore){
- $items=@(Invoke-ServiceIPC 'processes' @{executables=@($Exe)}|Where-Object{
+ $q=@{executables=@($Exe)}
+ $rootVar=Get-Variable -Name trialRoot -Scope Script -ErrorAction SilentlyContinue
+ if($rootVar -and $rootVar.Value){$q.root_pid=$rootVar.Value.PID;$q.root_creation_time=$rootVar.Value.CreationTime}
+ $items=@(Invoke-ServiceIPC 'processes' $q|Where-Object{
   (Get-V2Value $_ 'Path' '') -ieq $Exe -and [long](Get-V2Value $_ 'CreationTime' 0) -ge $NotBefore -and [long](Get-V2Value $_ 'PID' 0) -gt 0
  }|Sort-Object PID,CreationTime -Unique)
  if($items.Count -gt 128){Throw-V2Ambiguous 'Trial process identity bound exceeded'}

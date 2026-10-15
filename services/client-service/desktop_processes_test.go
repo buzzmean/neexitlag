@@ -113,3 +113,14 @@ func TestProcessesQueryKeepsLegacyArrayContract(t *testing.T) {
 		}
 	}
 }
+
+func TestProcessFamilyRequiresEveryExactParentBirth(t *testing.T) {
+	all := []windowsplatform.ProcessIdentity{{PID: 1, CreationTime: 10, Path: "chrome.exe"}, {PID: 2, CreationTime: 20, ParentPID: 1, ParentCreationTime: 10, Path: "chrome.exe"}, {PID: 3, CreationTime: 30, ParentPID: 2, ParentCreationTime: 19, Path: "chrome.exe"}, {PID: 4, CreationTime: 20, Path: "chrome.exe"}}
+	result := processFamily(all, 1, 10)
+	if len(result) != 2 {
+		t.Fatal("foreign/reused process borrowed trial scope", result)
+	}
+	if len(processFamily(all, 1, 11)) != 0 {
+		t.Fatal("reused root PID accepted")
+	}
+}

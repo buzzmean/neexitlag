@@ -17,6 +17,8 @@ func listProcesses(raw json.RawMessage) (any, error) {
 }
 func listProcessesFrom(raw json.RawMessage, discover func() ([]windowsplatform.ProcessIdentity, error), interactive func(uint32) bool) (any, error) {
 	var query struct {
+		RootPID      uint32   `json:"root_pid"`
+		RootCreation uint64   `json:"root_creation_time"`
 		Executables  []string `json:"executables"`
 		Applications bool     `json:"applications"`
 		Limit        int      `json:"limit"`
@@ -26,8 +28,11 @@ func listProcessesFrom(raw json.RawMessage, discover func() ([]windowsplatform.P
 			return nil, err
 		}
 	}
+	if (query.RootPID == 0) != (query.RootCreation == 0) {
+		return nil, errors.New("exact root birth required")
+	}
 	if query.Applications {
-		if len(query.Executables) > 0 || query.Limit < 0 || query.Limit > maxRunningApplications {
+		if query.RootPID != 0 || len(query.Executables) > 0 || query.Limit < 0 || query.Limit > maxRunningApplications {
 			return nil, errors.New("invalid application query")
 		}
 		if query.Limit == 0 {
@@ -51,6 +56,9 @@ func listProcessesFrom(raw json.RawMessage, discover func() ([]windowsplatform.P
 	if query.Applications {
 		return runningApplications(all, interactive, query.Limit), nil
 	}
+	if query.RootPID != 0 {
+		all = processFamily(all, query.RootPID, query.RootCreation)
+	}
 	return filterProcesses(all, query.Executables), nil
 }
 func filterProcesses(all []windowsplatform.ProcessIdentity, executables []string) []windowsplatform.ProcessIdentity {
@@ -65,4 +73,31 @@ func filterProcesses(all []windowsplatform.ProcessIdentity, executables []string
 		}
 	}
 	return result
+}
+
+func processFamily(all []windowsplatform.ProcessIdentity, pid uint32, birth uint64) []windowsplatform.ProcessIdentity {
+	byPID := map[uint32]windowsplatform.ProcessIdentity{}
+	for _, v := range all {
+		byPID[v.PID] = v
+	}
+	root, ok := byPID[pid]
+	if !ok || root.CreationTime != birth {
+		return []windowsplatform.ProcessIdentity{}
+	}
+	out := []windowsplatform.ProcessIdentity{}
+	for _, v := range all {
+		cur := v
+		for n := 0; n < 16; n++ {
+			if cur.PID == pid && cur.CreationTime == birth {
+				out = append(out, v)
+				break
+			}
+			parent, ok := byPID[cur.ParentPID]
+			if !ok || parent.CreationTime != cur.ParentCreationTime || parent.CreationTime > cur.CreationTime {
+				break
+			}
+			cur = parent
+		}
+	}
+	return out
 }

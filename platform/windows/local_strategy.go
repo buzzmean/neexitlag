@@ -50,6 +50,13 @@ func SendLocal(d Decision, state *localstrategy.State, id ProcessIdentity, tuple
 			return nil
 		}
 	}
+	if d.BlockOnFailure && state != nil && !state.Applied() {
+		if payload, ok := packetPayloadForPolicy(p, tuple.Protocol); ok && payload > 0 {
+			evidence.RecordPolicy(id, tuple, d, "LOCAL_STRATEGY_FAILED_BLOCK")
+			evidence.Record(id, tuple, "drop", "")
+			return nil
+		}
+	}
 	err := send(p)
 	if err == nil {
 		// The engine's flow-byte metric includes unchanged packets after a
@@ -71,4 +78,13 @@ func LocalPacketAddress(p []byte, a [80]byte) [80]byte {
 		a[10] |= 0xa0
 	}
 	return a
+}
+
+func packetPayloadForPolicy(p []byte, protocol string) (int, bool) {
+	if protocol == "tcp" {
+		_, _, data, err := ParseTCP(p)
+		return data, err == nil
+	}
+	_, data, err := ParseUDP(p)
+	return len(data), err == nil
 }

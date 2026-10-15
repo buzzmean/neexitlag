@@ -44,6 +44,8 @@ func (c *Controller) handleLocal(method string, raw json.RawMessage) (any, error
 		if err != nil {
 			return nil, err
 		}
+		c.localMu.Lock()
+		defer c.localMu.Unlock()
 		cfg := c.Local.Config()
 		cfg.Enabled = true
 		kept := []localstrategy.Profile{}
@@ -53,8 +55,7 @@ func (c *Controller) handleLocal(method string, raw json.RawMessage) (any, error
 			}
 		}
 		cfg.User = append(kept, entries...)
-		b, _ := json.Marshal(cfg)
-		saved, err := c.handleLocal("local.set", b)
+		saved, err := c.setLocalConfig(cfg)
 		if err != nil {
 			return nil, err
 		}
@@ -84,6 +85,9 @@ func (c *Controller) handleLocal(method string, raw json.RawMessage) (any, error
 	if err := security.Parse(raw, &v); err != nil {
 		return nil, err
 	}
+	return c.setLocalConfig(v)
+}
+func (c *Controller) setLocalConfig(v localstrategy.Config) (any, error) {
 	if len(v.Builtin) > 0 {
 		return nil, errors.New("built-in strategies are reserved; use user profiles")
 	}

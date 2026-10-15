@@ -85,7 +85,7 @@ func (g *IPv6Guard) Block(id ProcessIdentity, t Tuple, flags byte, d Decision, s
 	if p, ok := g.pins[t]; ok {
 		if p.identity.PID == id.PID && p.identity.CreationTime == id.CreationTime && p.identity.Path == id.Path {
 			p.last = now
-			if t.Protocol == "tcp" && flags&0x12 == 2 && id.PID != self && id.PID != 0 && (d.Block || !d.Route.Direct()) {
+			if t.Protocol == "tcp" && flags&0x12 == 2 && id.PID != self && id.PID != 0 && (d.Block || !d.Route.Direct() || d.Deferred && d.BlockOnFailure) {
 				p.block = true
 			}
 			g.pins[t] = p
@@ -94,9 +94,9 @@ func (g *IPv6Guard) Block(id ProcessIdentity, t Tuple, flags byte, d Decision, s
 		delete(g.pins, t)
 	}
 	if len(g.pins) >= 8192 {
-		return false
-	} // existing fail-open policy on unavailable attribution/state
-	block := id.PID != 0 && id.CreationTime != 0 && id.Path != "" && id.PID != self && (d.Block || !d.Route.Direct())
+		return id.PID != 0 && id.CreationTime != 0 && id.Path != "" && id.PID != self && (t.Protocol != "tcp" || flags&0x12 == 2) && (d.Block || !d.Route.Direct() || d.Deferred && d.BlockOnFailure)
+	} // Saturation may not weaken a protected selected application.
+	block := id.PID != 0 && id.CreationTime != 0 && id.Path != "" && id.PID != self && (d.Block || !d.Route.Direct() || d.Deferred && d.BlockOnFailure)
 	if t.Protocol == "tcp" && flags&0x12 != 2 {
 		block = false
 	} // no retargeting pre-existing TCP

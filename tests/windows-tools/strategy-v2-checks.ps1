@@ -65,6 +65,7 @@ function Get-V2TrialIdentities($Exe,$NotBefore){return $ids}
 function Get-V2ScopedCapture($Marker,$Identities,$Destination){return [pscustomobject]@{truncated=$false;flows=@($fixtureFlow)}}
 $trialAst=$tree.Find({param($a)$a -is [Management.Automation.Language.FunctionDefinitionAst] -and $a.Name -eq 'Trial'},$true)
 Invoke-Expression $trialAst.Extent.Text
+$Automatic=$false
 $AppPath=$exe;$URL='https://www.youtube.com/';$uri=[Uri]$URL;$TargetIPv4='203.0.113.9';$targetDestination=$obs.destination
 $network=[pscustomobject]@{fingerprint='frozen';observed_at=[DateTimeOffset]::UtcNow.ToString('o');vpn=@();conflicts=@()}
 $run=[Guid]::NewGuid().ToString('N');$profileID='!fixture';$candidates=@($candidate);$TimeoutSeconds=5;$script:socket=$null

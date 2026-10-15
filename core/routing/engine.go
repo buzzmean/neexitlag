@@ -35,6 +35,8 @@ type Key struct {
 	PID                 uint32
 }
 type Engine struct {
+	healthMu     sync.Mutex
+	health       map[udpHealthKey]udpHealth
 	mu           sync.Mutex
 	policies     map[string]Policy
 	relays       map[string]Relay
@@ -47,7 +49,7 @@ func New(limit int) *Engine {
 	if limit <= 0 {
 		limit = 4096
 	}
-	return &Engine{policies: make(map[string]Policy), relays: make(map[string]Relay), flows: make(map[Key]Flow), limit: limit}
+	return &Engine{health: map[udpHealthKey]udpHealth{}, policies: make(map[string]Policy), relays: make(map[string]Relay), flows: make(map[Key]Flow), limit: limit}
 }
 func (e *Engine) SetAutoSelector(pick func(Flow) Policy) {
 	e.mu.Lock()
@@ -91,6 +93,10 @@ func (e *Engine) reserve(f Flow) (Key, Policy, Relay, error) {
 		selected := e.selectPolicy(f)
 		selected.BlockOnFailure = p.BlockOnFailure
 		p = selected
+	}
+	if f.PinnedPolicy != nil && f.PID != 0 && f.ProcessPath != "" && f.ApplicationID != "" {
+		p = *f.PinnedPolicy
+		p.Backups = append([]Route(nil), p.Backups...)
 	}
 	if p.Block {
 		return k, p, nil, errors.New("application blocked by policy")

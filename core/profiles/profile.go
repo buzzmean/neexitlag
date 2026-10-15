@@ -3,10 +3,12 @@ package profiles
 import (
 	"encoding/json"
 	"errors"
+	"github.com/buzzmean/neexitlag/core/flowpolicy"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 type Mode string
@@ -19,21 +21,63 @@ const (
 	Block      Mode = "BLOCK"
 )
 
+type TrialScope struct {
+	PID          uint32    `json:"pid"`
+	CreationTime uint64    `json:"creation_time"`
+	Expires      time.Time `json:"expires"`
+}
 type Profile struct {
-	LocalStrategyID string   `json:"local_strategy_id,omitempty"`
-	ID              string   `json:"id"`
-	Name            string   `json:"name"`
-	Executables     []string `json:"executables"`
-	Publisher       string   `json:"publisher,omitempty"`
-	SignatureSHA256 string   `json:"signature_sha256,omitempty"`
-	ProtocolHints   []string `json:"protocol_hints,omitempty"`
-	PortHints       []uint16 `json:"port_hints,omitempty"`
-	Mode            Mode     `json:"mode"`
-	RelayID         string   `json:"relay_id,omitempty"`
-	Custom          bool     `json:"custom"`
+	Trial           *TrialScope          `json:"trial_scope,omitempty"`
+	AutoRevision    string               `json:"auto_revision,omitempty"`
+	AutoNetwork     string               `json:"auto_network,omitempty"`
+	Rules           []flowpolicy.Rule    `json:"rules,omitempty"`
+	Fallback        flowpolicy.Fallback  `json:"fallback,omitempty"`
+	AppPreset       string               `json:"app_preset,omitempty"`
+	Identity        *ApplicationIdentity `json:"identity,omitempty"`
+	LocalStrategyID string               `json:"local_strategy_id,omitempty"`
+	ID              string               `json:"id"`
+	Name            string               `json:"name"`
+	Executables     []string             `json:"executables"`
+	Publisher       string               `json:"publisher,omitempty"`
+	SignatureSHA256 string               `json:"signature_sha256,omitempty"`
+	ProtocolHints   []string             `json:"protocol_hints,omitempty"`
+	PortHints       []uint16             `json:"port_hints,omitempty"`
+	Mode            Mode                 `json:"mode"`
+	RelayID         string               `json:"relay_id,omitempty"`
+	Custom          bool                 `json:"custom"`
 }
 
 func (p Profile) Validate() error {
+	if p.Trial != nil && (p.Trial.PID == 0 || p.Trial.CreationTime == 0 || !strings.HasPrefix(p.ID, "!v2-") || !p.Custom) {
+		return errors.New("invalid trial scope")
+	}
+	if len(p.AppPreset) > 64 {
+		return errors.New("invalid application preset")
+	}
+	if len(p.AutoRevision) > 128 {
+		return errors.New("invalid auto revision")
+	}
+	if len(p.AutoNetwork) > 128 {
+		return errors.New("invalid auto network binding")
+	}
+	if len(p.Rules) > 24 {
+		return errors.New("too many flow rules")
+	}
+	for _, r := range p.Rules {
+		if err := r.Validate(); err != nil {
+			return err
+		}
+	}
+	switch p.Fallback {
+	case "", flowpolicy.FailOpen, flowpolicy.Required, flowpolicy.FailBlock:
+	default:
+		return errors.New("invalid profile fallback")
+	}
+	if p.Identity != nil {
+		if err := p.Identity.Validate(); err != nil {
+			return err
+		}
+	}
 	if len(p.LocalStrategyID) > 64 {
 		return errors.New("invalid local strategy id")
 	}
@@ -64,10 +108,15 @@ type Identity struct {
 	PID                                    uint32
 	Path, Name, Publisher, SignatureSHA256 string
 	CreationTime                           uint64
+	ParentPID                              uint32
+	ParentCreationTime                     uint64
 }
 
 func normalize(s string) string { return strings.ToLower(strings.ReplaceAll(s, "\\", "/")) }
 func (p Profile) Matches(i Identity) bool {
+	if p.Trial != nil && (i.PID != p.Trial.PID || i.CreationTime != p.Trial.CreationTime || !time.Now().Before(p.Trial.Expires)) {
+		return false
+	}
 	if i.PID == 0 || i.Path == "" || i.CreationTime == 0 {
 		return false
 	}
@@ -76,6 +125,9 @@ func (p Profile) Matches(i Identity) bool {
 	}
 	if p.SignatureSHA256 != "" && !strings.EqualFold(p.SignatureSHA256, i.SignatureSHA256) {
 		return false
+	}
+	if p.Identity != nil && p.Identity.Matches(i) {
+		return true
 	}
 	path := normalize(i.Path)
 	for _, exe := range p.Executables {
@@ -107,7 +159,7 @@ func (r *Registry) Upsert(p Profile) error {
 	if e := p.Validate(); e != nil {
 		return e
 	}
-	p.Executables = append([]string(nil), p.Executables...)
+	p = clone(p)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, ok := r.items[p.ID]; !ok && len(r.items) >= 128 {
@@ -132,7 +184,7 @@ func (r *Registry) List() []Profile {
 	defer r.mu.RUnlock()
 	out := make([]Profile, 0, len(r.items))
 	for _, p := range r.items {
-		p.Executables = append([]string(nil), p.Executables...)
+		p = clone(p)
 		out = append(out, p)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
@@ -150,3 +202,23 @@ func (r *Registry) Match(i Identity) (Profile, bool) {
 }
 
 func (r *Registry) Delete(id string) { r.mu.Lock(); defer r.mu.Unlock(); delete(r.items, id) }
+
+func clone(p Profile) Profile {
+	if p.Trial != nil {
+		v := *p.Trial
+		p.Trial = &v
+	}
+	p.Executables = append([]string(nil), p.Executables...)
+	p.Rules = append([]flowpolicy.Rule(nil), p.Rules...)
+	for i := range p.Rules {
+		p.Rules[i].Domains = append([]string(nil), p.Rules[i].Domains...)
+		p.Rules[i].CIDRs = append([]string(nil), p.Rules[i].CIDRs...)
+		p.Rules[i].Ports = append([]flowpolicy.PortRange(nil), p.Rules[i].Ports...)
+	}
+	if p.Identity != nil {
+		v := *p.Identity
+		v.Helpers = append([]string(nil), v.Helpers...)
+		p.Identity = &v
+	}
+	return p
+}

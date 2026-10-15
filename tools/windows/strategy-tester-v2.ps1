@@ -6,13 +6,15 @@ param(
  [ValidateRange(5,30)][int]$TimeoutSeconds=15,
  [string]$ReportDirectory=(Join-Path $PSScriptRoot '..\..\.e2e\strategy-v2'),
  [string]$TargetIPv4='',
- [switch]$NoQuicFallback
+ [switch]$NoQuicFallback,
+ [switch]$Automatic,
+ [string[]]$CandidateIds=@()
 )
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 . (Join-Path $PSScriptRoot 'acceptance-checks.ps1')
 . (Join-Path $PSScriptRoot 'strategy-v2-checks.ps1')
-Assert-Administrator
+if(!$Automatic){Assert-Administrator}
 $Preset=$Preset.ToLowerInvariant()
 $AppPath=(Resolve-Path $AppPath).Path;$uri=[Uri]$URL
 if($uri.Scheme -ne 'https' -or !$uri.IsAbsoluteUri -or $uri.UserInfo -or $uri.HostNameType -ne [UriHostNameType]::Dns){throw 'Public HTTPS hostname URL required; no credentials in URL'}
@@ -20,11 +22,12 @@ foreach($v in @($AppPath,$URL,$ReportDirectory)){if($v.Contains('"')){throw 'Quo
 # Process discovery remains in the service. Never attach a debugger to the
 # regular browser, or mix profiles/flows from pre-existing app instances.
 $running=@(Invoke-ServiceIPC 'processes' @{executables=@($AppPath)})
-if($running.Count){throw 'Close every process of this executable first; existing TCP routes cannot migrate'}
+if($running.Count -and !$Automatic){throw 'Close every process of this executable first; existing TCP routes cannot migrate'}
 New-Item -ItemType Directory -Force $ReportDirectory|Out-Null;$ReportDirectory=(Resolve-Path $ReportDirectory).Path
 $run=[Guid]::NewGuid().ToString('N');$profileID='!v2-'+$run
 $original=Invoke-ServiceIPC 'status'
 Write-Host 'Waiting for two equal network fingerprints from distinct service refresh cycles; Happ must be OFF.'
+$script:trialRoot=$null
 $network=Wait-V2StableNetwork
 $network|ConvertTo-Json -Depth 8|Set-Content (Join-Path $ReportDirectory "$run-network-preflight.json") -Encoding UTF8
 # Resolve once, then pin ONLY this hostname in the isolated test browser.
@@ -39,6 +42,7 @@ if(!@($definition.domains|Where-Object{$uri.DnsSafeHost -ieq $_ -or $uri.DnsSafe
 $install=Invoke-ServiceIPC 'local.preset.apply' @{application=$AppPath;preset=$Preset;quic_fallback=(!$NoQuicFallback)}
 $candidates=@($install.config.user|Where-Object{$_.application -ieq $AppPath -and $_.preset -eq $Preset})
 if(!$candidates.Count -or $candidates.Count -gt 7){throw 'Invalid finite candidate catalog'}
+if($Automatic){$candidates=@($candidates|Where-Object{$_.id -in $CandidateIds})}
 $script:socket=$null;$script:cdpID=0;$script:navID=-2;$script:navError='';$script:responses=@{};$script:finished=@{};$script:failed=@{}
 function CDP([string]$Method,$Parameters,[switch]$NoWait){
  $script:cdpID++;$id=$script:cdpID;$buffer=[Text.Encoding]::UTF8.GetBytes((@{id=$id;method=$Method;params=$Parameters}|ConvertTo-Json -Depth 8 -Compress))
@@ -73,6 +77,7 @@ function CDP([string]$Method,$Parameters,[switch]$NoWait){
 }
 function Trial([string]$Mode,[string]$Strategy,[int]$Index){
  $data=Join-Path ([IO.Path]::GetTempPath()) "neexitlag-v2-$run-$Index-profile";$browser=$null;$identities=@();$capture=$null;$flow=$null
+ $script:trialRoot=$null
  $marker=$null;$identityFloor=0L;$socketLog=Join-Path $data '.private-sockets.json';$proofCapture=$null
  $result=@{report_schema_version=4;started_at=[DateTimeOffset]::UtcNow.ToString('o');mode=$Mode;strategy=$Strategy;success=$false;reason='';observation=$null;measurement=$null;failure_kind='';phase='profile_setup';exception_chain=@();diagnostic_errors=@()};$attempted=$false;$measurementValid=$false
  $candidate=@($candidates|Where-Object{$_.id -eq $Strategy}|Select-Object -First 1);$definitionForTrial=if($candidate.Count){$candidate[0]}else{$null}
@@ -80,12 +85,12 @@ function Trial([string]$Mode,[string]$Strategy,[int]$Index){
   Assert-V2FrozenNetwork $network (Invoke-ServiceIPC 'local.network')
   $marker=Invoke-ServiceIPC 'capture.marker';$result.capture_marker=$marker
   if(!(Get-V2Value $marker 'ledger_id' '')){throw 'Capture marker unavailable; update service'}
-  if(@(Invoke-ServiceIPC 'processes' @{executables=@($AppPath)}).Count){throw 'Previous trial or another browser process remains; close it before a fresh trial'}
+  if(!$Automatic -and @(Invoke-ServiceIPC 'processes' @{executables=@($AppPath)}).Count){throw 'Previous trial or another browser process remains; close it before a fresh trial'}
   $p=@{id=$profileID;name='Finite real application strategy test';executables=@($AppPath);mode=$Mode;custom=$true;local_strategy_id=$Strategy}
   if($Mode -eq 'MANUAL'){$p.relay_id='VPS-01'}
-  [void](Invoke-ServiceIPC 'profile.set' $p)
+  if(!$Automatic){[void](Invoke-ServiceIPC 'profile.set' $p)}
   $effective=Get-AcceptanceProfile (Invoke-ServiceIPC 'status') $AppPath
-  if((Get-V2Value $effective 'id' '') -ne $profileID -or (Get-V2Value $effective 'mode' '') -ne $Mode){throw 'Another application profile shadows tester decision'}
+  if(!$Automatic -and ((Get-V2Value $effective 'id' '') -ne $profileID -or (Get-V2Value $effective 'mode' '') -ne $Mode)){throw 'Another application profile shadows tester decision'}
   $script:responses=@{};$script:finished=@{};$script:failed=@{};$script:cdpID=0
   # DIRECT/RELAY TCP controls use a diagnostic-only QUIC-off flag; DIRECT+
   # trials keep normal QUIC and use the app preset. No certificate bypass.
@@ -106,6 +111,13 @@ function Trial([string]$Mode,[string]$Strategy,[int]$Index){
    [pscustomobject]@{ready=($pages.Count -gt 0);port=$port;pages=$pages;missing=@('isolated Chromium/Electron DevTools port and page')}
   } -Evaluate {param($s)$s}
   $port=$ready.port;$pages=@($ready.pages)
+  if($Automatic){
+   $roots=@(Get-V2TrialIdentities $AppPath $identityFloor|Where-Object{$_.PID -eq $browser.Id})
+   if($roots.Count -ne 1){throw 'Exact isolated browser root identity unavailable'}
+   $script:trialRoot=$roots[0]
+   $p.trial_scope=@{pid=$script:trialRoot.PID;creation_time=$script:trialRoot.CreationTime;expires=[DateTimeOffset]::UtcNow.AddMinutes(10).ToString('o')}
+   [void](Invoke-ServiceIPC 'profile.set' $p)
+  }
   $ws=[Uri]$pages[0].webSocketDebuggerUrl
   if($ws.Host -notin @('127.0.0.1','localhost') -or $ws.Port -ne $port){throw 'CDP must remain on the isolated loopback port'}
   $result.phase='cdp_connect'
@@ -194,6 +206,11 @@ function Trial([string]$Mode,[string]$Strategy,[int]$Index){
  Write-V2TrialDiagnostic $result.diagnostic
  if($mayRecord){
   $record=@{application=$AppPath;destination=$targetDestination;protocol='tcp';network=$network.fingerprint;strategy=$(if($Mode -eq 'MANUAL'){'RELAY'}elseif($Mode -eq 'DIRECT'){'DIRECT'}else{$Strategy});success=$result.success;measurement=$measurement}
+  if(!$flow -and !$result.success -and $Mode -eq 'DIRECT_PLUS' -and !(Get-V2Value $capture 'truncated' $true) -and !(Get-V2Value $capture 'evidence_lost' $false)){
+   $failedTarget=@(Get-V2Value $capture 'flows' @()|Where-Object{(Get-V2ObservedDomain $_) -eq $uri.DnsSafeHost.ToLowerInvariant().TrimEnd('.') -and (Get-V2Value $_ 'strategy' '') -eq $Strategy -and (Get-V2Value (Get-V2Value $_ 'counters') 'direct_plus_packets' 0) -gt 0})
+   if($failedTarget.Count){$flow=$failedTarget[0]}
+  }
+  if($result.success -and $result.observation){$record.observed_hostname=$result.observation.hostname}
   if($flow){$record.pid=$flow.pid;$record.creation_time=$flow.creation_time;$record.capture_marker=$marker;$record.flow_id=$flow.flow_id;$record.source=$flow.source;$record.domain=Get-V2ObservedDomain $flow}
   try{[void](Invoke-ServiceIPC 'local.record' $record);$result.measurement_recorded=$true}catch{
    $result.record_error=$_.Exception.Message
@@ -207,7 +224,7 @@ function Trial([string]$Mode,[string]$Strategy,[int]$Index){
 }
 $results=@()
 try {
- [void](Invoke-ServiceIPC 'optimize' @{enabled=$true})
+ if(!$Automatic){[void](Invoke-ServiceIPC 'optimize' @{enabled=$true})}elseif(!(Get-V2Value $original 'optimizing' $false)){throw 'Enable optimization before automatic measurement'}
  [void](Wait-AcceptanceReadiness -TimeoutMS 30000 -GetSnapshot {Invoke-ServiceIPC 'status'} -Evaluate {param($s)$missing=@();if(!$s.optimizing){$missing+='optimization'};if(!$s.backend.ready -or !$s.backend.capabilities.tcp){$missing+='TCP backend'};[pscustomobject]@{ready=(!$missing.Count);missing=$missing}})
  $results+=Trial 'DIRECT' '' 0
  if((Get-V2Value $results[0] 'instrumentation_failure' $false) -and (Get-V2Value $results[0] 'phase' '') -in @('profile_setup','browser_startup','cdp_connect','cdp_initialize')){throw ('Automatic app instrumentation unavailable; networking is NOT marked failed: '+$results[0].reason)}
@@ -234,5 +251,5 @@ try {
  throw
 }finally{
  try{[void](Invoke-ServiceIPC 'profile.delete' @{id=$profileID})}catch{Write-Warning $_}
- try{[void](Invoke-ServiceIPC 'optimize' @{enabled=[bool](Get-V2Value $original 'optimizing' $false)})}catch{Write-Warning $_}
+ if(!$Automatic){try{[void](Invoke-ServiceIPC 'optimize' @{enabled=[bool](Get-V2Value $original 'optimizing' $false)})}catch{Write-Warning $_}}
 }

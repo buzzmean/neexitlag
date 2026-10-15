@@ -1,6 +1,7 @@
 package localstrategy
 
 import (
+	"bytes"
 	"encoding/binary"
 	"time"
 )
@@ -49,7 +50,7 @@ func (b *HelloBuffer) Flush(st *State, reason string, now time.Time) BufferedRes
 // evaluated normally by Process once an observable outer SNI is available.
 func (e *LocalStrategyEngine) bufferEligible(st *State, m Metadata) bool {
 	s := e.current.Load()
-	if m.Protocol != "tcp" || !m.Destination.Addr().Is4() || !st.synSeen || st.done || st.matched || st.failed || e.suspended.Load() || !s.config.Enabled || st.generation != s.generation {
+	if m.Protocol != "tcp" || !m.Destination.Addr().Is4() || !st.synSeen || st.done || st.matched || st.failed || e.suspended.Load() || !s.config.Enabled || !refreshApplicationState(st, m, s) {
 		return false
 	}
 	for _, c := range s.profiles {
@@ -251,4 +252,34 @@ func assembleHello(stream []byte) (hello []byte, offsets []int, expected int, re
 		pos = end
 	}
 	return nil, nil, need + 5, ""
+}
+
+// InspectHelloStream reuses the bounded record/handshake assembler on an ordered
+// TCP byte stream. Only outer SNI is returned; ECH is never decrypted or guessed.
+func InspectHelloStream(stream []byte) (domain, reason string, complete bool) {
+	if len(stream) > MaxHelloBytes {
+		return "", "REASSEMBLY_LIMIT", true
+	}
+	if len(stream) > 0 && stream[0] != 22 {
+		if bytes.Contains(stream, []byte("\r\n\r\n")) {
+			d := PacketDomain(stream)
+			if d != "" {
+				return d, "HTTP_HOST", true
+			}
+			return "", "DOMAIN_NOT_OBSERVED", true
+		}
+		return "", "CLIENTHELLO_INCOMPLETE", false
+	}
+	hello, _, _, why := assembleHello(stream)
+	if why != "" {
+		return "", why, true
+	}
+	if hello == nil {
+		return "", "CLIENTHELLO_INCOMPLETE", false
+	}
+	d := tlsDomain(hello)
+	if d == "" {
+		return "", "SNI_NOT_FOUND", true
+	}
+	return d, "REASSEMBLY_COMPLETE", true
 }

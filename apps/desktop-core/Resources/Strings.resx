@@ -549,4 +549,11 @@
   <data name="LocalTestV2" xml:space="preserve"><value>Тестер v2 — реальное приложение / HTTPS</value></data>
   <data name="ApplyVariant" xml:space="preserve"><value>Применить выделенный вариант к приложению (MANUAL DIRECT+)</value></data>
   <data name="PresetVersionLabel" xml:space="preserve"><value>Пресет / версия / вариант</value></data>
+  <data name="AutoOptimize" xml:space="preserve"><value>AUTO · Оптимизировать</value></data>
+  <data name="AdvancedDiagnostics" xml:space="preserve"><value>Расширенные настройки / диагностика</value></data>
+  <data name="AutoToolsMissing" xml:space="preserve"><value>Установите tools/windows из того же service/scripts artifact.</value></data>
+  <data name="AutoStartFailed" xml:space="preserve"><value>Не удалось запустить проверку маршрута.</value></data>
+  <data name="AutoProbeFailed" xml:space="preserve"><value>Проверка маршрута не завершена. Диагностика сохранена:</value></data>
+  <data name="AutoChecking" xml:space="preserve"><value>Проверка маршрута…</value></data>
+  <data name="AutoConfigured" xml:space="preserve"><value>AUTO настроен. Текущий маршрут показан по реальным активным потокам.</value></data>
 </root>

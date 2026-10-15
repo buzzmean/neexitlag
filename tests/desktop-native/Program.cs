@@ -131,6 +131,7 @@ internal static class Program
             string section = name is "Fallback" or "Channel" ? "Settings" : name == "LocalMechanism" ? "LocalStrategies" : "Applications";
             foreach (string page in new[] { "Home", "Applications", "Routes", "Statistics", "Diagnostics", "Settings", "LocalStrategies" })
                 ((FrameworkElement)main.FindName(page)).Visibility = page == section ? Visibility.Visible : Visibility.Collapsed;
+            if(section=="Applications"){var advanced=(Expander)main.FindName("AppAdvanced");advanced.IsExpanded=true;}
             var box = (ComboBox)main.FindName(name); box.BringIntoView(); Pump(); box.ApplyTemplate();
             Require(box.Style == style, name + " does not use shared dark style");
             Require(box.Template.FindName("Chrome", box) is Border, name + " native light template still active");
@@ -169,12 +170,21 @@ internal static class Program
         SaveImage(host, "combo-disabled"); Pass("dark ComboBox disabled"); Pass("ComboBox keyboard arrows/F4/Enter/Escape/Tab and focus");
         host.Close(); Pump();
     }
+    static void StrategiesNull()
+    {
+        var main=Window(new(){MinimizeToTray=false});main.Show();Pump();
+        Require(!((Expander)main.FindName("AppAdvanced")).IsExpanded,"Advanced controls exposed by default");
+        var grid=(DataGrid)main.FindName("LocalGrid");
+        var p=System.Text.Json.JsonSerializer.Deserialize<LocalStrategyProfile>("{\"ports\":null,\"domains\":null,\"ips\":null,\"exclude_domains\":null,\"exclude_ips\":null,\"actions\":null}",WireJson.Options)!;
+        grid.ItemsSource=new[]{p};grid.SelectedItem=p;Pump();
+        Require(((System.Windows.Controls.TextBox)main.FindName("LocalDomains")).Text=="","Null arrays were not safe in real WPF selection handler");main.Close();Pump();Pass("real WPF null strategy arrays and collapsed Advanced controls");
+    }
     [STAThread]
     static int Main()
     {
         Directory.CreateDirectory(Output); settings = Path.Combine(Path.GetTempPath(), "neexitlag-native-" + Guid.NewGuid() + ".json");
         var app = new App(); app.InitializeComponent(); app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-        try { Picker(); Lifecycle(); Dropdowns(); Pass("native WPF desktop regression suite"); return 0; }
+        try { Picker(); StrategiesNull(); Lifecycle(); Dropdowns(); Pass("native WPF desktop regression suite"); return 0; }
         catch (Exception e) { Console.Error.WriteLine(e); File.WriteAllText(Path.Combine(Output, "failure.txt"), e.ToString()); return 1; }
         finally { foreach (System.Windows.Window w in app.Windows.Cast<System.Windows.Window>().ToArray()) { if (w is MainWindow m) m.Exit(); else w.Close(); } app.Shutdown(); File.Delete(settings); }
     }

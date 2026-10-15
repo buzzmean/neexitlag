@@ -6,24 +6,33 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"github.com/buzzmean/neexitlag/core/flowpolicy"
 	"github.com/buzzmean/neexitlag/core/localstrategy"
+	"github.com/buzzmean/neexitlag/core/routing"
+	"golang.org/x/sys/windows"
 	"io"
 	"net"
 	"net/netip"
 	"os"
 	"sync"
+	"syscall"
 	"time"
 	"unsafe"
 )
 
+type delegatedTCP struct {
+	owner    *tcpEntry
+	decision Decision
+}
 type tcpRedirect struct {
-	b        *WinDivertBackend
-	handle   uintptr
-	listener *net.TCPListener
-	port     uint16
-	state    *tcpState
-	slots    chan struct{}
-	wg       sync.WaitGroup
+	delegated map[Tuple]delegatedTCP
+	b         *WinDivertBackend
+	handle    uintptr
+	listener  *net.TCPListener
+	port      uint16
+	state     *tcpState
+	slots     chan struct{}
+	wg        sync.WaitGroup
 }
 
 func (b *WinDivertBackend) startTCP(d *divertDLL) (*tcpRedirect, error) {
@@ -43,7 +52,7 @@ func (b *WinDivertBackend) startTCP(d *divertDLL) (*tcpRedirect, error) {
 	d.setParam.Call(h, 0, 2048)
 	d.setParam.Call(h, 1, 100)
 	d.setParam.Call(h, 2, 4*1024*1024)
-	return &tcpRedirect{b: b, handle: h, listener: l, port: port, state: newTCPState(8192), slots: make(chan struct{}, 128)}, nil
+	return &tcpRedirect{b: b, handle: h, listener: l, port: port, state: newTCPState(8192), delegated: map[Tuple]delegatedTCP{}, slots: make(chan struct{}, 128)}, nil
 }
 func (t *tcpRedirect) start(classify Classifier) {
 	t.wg.Add(3)
@@ -107,9 +116,15 @@ func (t *tcpRedirect) reflect(e *tcpEntry, p []byte, a [80]byte, reply bool) err
 	a[10] &= ^byte(2) // inbound
 	err = t.send(out, a)
 	if err == nil {
-		event := "relay"
-		if reply {
-			event = "reply"
+		event := "captured_proxy"
+		if !e.decision.Deferred {
+			event = "relay"
+			if reply {
+				event = "reply"
+			}
+			if e.decision.Route.Direct() {
+				event = "direct_proxy"
+			}
 		}
 		t.record(e, event, 0)
 	}
@@ -215,22 +230,36 @@ func (t *tcpRedirect) packets(classify Classifier) {
 			}
 		}
 		decision, self := ClassifyCapture(id, tuple, uint32(os.Getpid()), classify)
+		t.state.mu.Lock()
+		delegated, owned := t.delegated[tuple]
+		t.state.mu.Unlock()
+		if owned {
+			id = delegated.owner.identity
+			decision = delegated.decision
+			self = false
+		}
 		mode := "direct"
 		if flags&0x12 != 0x02 || self {
 			decision.Local = nil
-			if decision.Route.Local() {
-				decision.Route.Kind = ""
+			decision.Route = routing.Route{}
+			decision.Block = false
+			decision.BlockOnFailure = false
+			decision.Deferred = false
+			decision.ResolveDomain = nil
+			if !self {
+				decision.Policy = flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailOpen, Source: "existing_tcp", Reason: "pre-existing TCP connection is not reclassified"}
 			}
 		}
 		if flags&0x12 == 0x02 && !self && id.PID != 0 {
 			if decision.Block {
 				mode = "block"
-			} else if !decision.Route.Direct() {
+			} else if !decision.Route.Direct() || decision.Deferred {
 				mode = "opening"
 			}
 		}
 		t.state.mu.Lock()
 		t.b.evidence.BeginFlow(id, tuple)
+		t.b.evidence.RecordPolicy(id, tuple, decision, "")
 		e = t.state.add(tuple, id, decision, mode, time.Now())
 		if e == nil {
 			t.state.mu.Unlock()
@@ -250,7 +279,14 @@ func (t *tcpRedirect) packets(classify Classifier) {
 			select {
 			case t.slots <- struct{}{}:
 				t.wg.Add(1)
-				go t.open(e, append([]byte(nil), p...), a)
+				if decision.Deferred {
+					t.wg.Done()
+					e.mode = "relay"
+					err = t.reflect(e, p, a, false)
+					<-t.slots
+				} else {
+					go t.open(e, append([]byte(nil), p...), a)
+				}
 			default:
 				if decision.BlockOnFailure {
 					e.mode = "block"
@@ -299,6 +335,7 @@ func (t *tcpRedirect) open(e *tcpEntry, syn []byte, a [80]byte) {
 			up.Close()
 		}
 		if e.decision.BlockOnFailure {
+			t.b.evidence.RecordPolicy(e.identity, e.tuple, e.decision, "RELAY_OPEN_FAILED")
 			e.mode = "block"
 			t.b.drop(e.identity, e.tuple)
 			return
@@ -327,7 +364,7 @@ func (t *tcpRedirect) accept() {
 		local, remote := c.LocalAddr().(*net.TCPAddr).AddrPort(), c.RemoteAddr().(*net.TCPAddr).AddrPort()
 		t.state.mu.Lock()
 		e := t.state.ports[remote.Port()]
-		if t.b.ctx.Err() != nil || e == nil || e.mode != "relay" || e.local != nil || e.upstream == nil || local.Addr() != e.tuple.Source.Addr() || remote.Addr() != e.tuple.Destination.Addr() {
+		if t.b.ctx.Err() != nil || e == nil || e.mode != "relay" || e.local != nil || (e.upstream == nil && !e.decision.Deferred) || local.Addr() != e.tuple.Source.Addr() || remote.Addr() != e.tuple.Destination.Addr() {
 			t.state.mu.Unlock()
 			c.Close()
 			continue
@@ -336,7 +373,20 @@ func (t *tcpRedirect) accept() {
 		up := e.upstream
 		t.wg.Add(1)
 		t.state.mu.Unlock()
-		go t.pipe(e, c, up)
+		if e.decision.Deferred {
+			select {
+			case t.slots <- struct{}{}:
+				go t.deferredOpen(e, c)
+			default:
+				c.Close()
+				t.state.mu.Lock()
+				t.state.retire(e, time.Now())
+				t.state.mu.Unlock()
+				t.wg.Done()
+			}
+		} else {
+			go t.pipe(e, c, up)
+		}
 	}
 }
 func (t *tcpRedirect) pipe(e *tcpEntry, local, up net.Conn) {
@@ -372,7 +422,11 @@ func (t *tcpRedirect) copy(e *tcpEntry, dst, src net.Conn, event string) {
 			if written > 0 {
 				t.state.mu.Lock()
 				e.last = time.Now()
-				t.b.evidence.AddBytes(e.identity, e.tuple, event, e.decision.Route.RelayID, uint64(written))
+				actualEvent := event
+				if e.decision.Route.Direct() {
+					actualEvent = "direct_proxy"
+				}
+				t.b.evidence.AddBytes(e.identity, e.tuple, actualEvent, e.decision.Route.RelayID, uint64(written))
 				t.state.mu.Unlock()
 				if event == "relay" {
 					t.b.TX.Add(uint64(written))
@@ -422,7 +476,176 @@ func (t *tcpRedirect) cleanup() {
 				}
 			}
 			t.state.expire(now)
+			t.b.evidence.pruneAliases(func(tuple Tuple) bool { return t.state.entries[tuple] != nil })
 			t.state.mu.Unlock()
 		}
 	}
+}
+
+// The app-side handshake has completed locally; upstream is opened exactly once
+// after outer SNI. A failure closes this connection, never retries its TLS bytes
+// on a different egress. Only a future connection can choose a different route.
+func (t *tcpRedirect) deferredOpen(e *tcpEntry, c net.Conn) {
+	held := true
+	defer func() {
+		if held {
+			<-t.slots
+		}
+	}()
+	data, domain, reason := ReadDeferredHello(c)
+	if reason == "CLIENT_CLOSED_BEFORE_DATA" {
+		t.state.mu.Lock()
+		t.state.retire(e, time.Now())
+		t.state.mu.Unlock()
+		t.wg.Done()
+		return
+	}
+	d := e.decision.ResolveDomain(domain)
+	d.Deferred = false
+	d.ResolveDomain = nil
+	if domain == "" && d.BlockOnFailure {
+		d.Block = true
+	}
+	if d.Block {
+		d.Policy.Action = flowpolicy.Block
+		if d.Policy.Fallback == flowpolicy.FailOpen {
+			d.Policy.Fallback = flowpolicy.FailBlock
+		}
+	}
+	t.state.mu.Lock()
+	if t.b.ctx.Err() != nil || e.mode == "closed" {
+		t.state.mu.Unlock()
+		c.Close()
+		t.wg.Done()
+		return
+	}
+	e.decision = d
+	t.b.evidence.RecordPolicy(e.identity, e.tuple, d, reason)
+	t.b.evidence.RecordDomain(e.identity, e.tuple, domain)
+	t.state.mu.Unlock()
+	if d.Block {
+		t.state.mu.Lock()
+		t.b.drop(e.identity, e.tuple)
+		t.state.retire(e, time.Now())
+		t.state.mu.Unlock()
+		t.wg.Done()
+		return
+	}
+	ctx, cancel := context.WithTimeout(t.b.ctx, 5*time.Second)
+	var up net.Conn
+	var err error
+	if d.Route.Local() {
+		up, err = t.dialLocalStrategy(ctx, e, d)
+	} else {
+		up, err = t.b.Engine.OpenTCP(ctx, d.Flow)
+	}
+	cancel()
+	if err == nil && !d.Route.Local() {
+		for _, f := range t.b.Engine.Snapshot() {
+			if f.Protocol == "tcp" && f.PID == e.identity.PID && f.Source == e.tuple.Source && f.Destination == e.tuple.Destination {
+				d.Route = f.Route
+				break
+			}
+		}
+	}
+	t.state.mu.Lock()
+	e.decision = d
+	if err != nil || t.b.ctx.Err() != nil || e.mode == "closed" {
+		if up != nil {
+			up.Close()
+		}
+		t.b.evidence.RecordPolicy(e.identity, e.tuple, d, "UPSTREAM_OPEN_FAILED")
+		t.b.drop(e.identity, e.tuple)
+		t.state.retire(e, time.Now())
+		t.state.mu.Unlock()
+		t.wg.Done()
+		return
+	}
+	e.upstream = up
+	t.b.evidence.RecordUpstreamOpened(e.identity, e.tuple, d.Route)
+	t.state.mu.Unlock()
+	if len(data) > 0 {
+		n, werr := writeTCP(up, data)
+		if n > 0 {
+			event := "direct_proxy"
+			if !d.Route.Direct() {
+				event = "relay"
+			}
+			t.b.evidence.AddBytes(e.identity, e.tuple, event, d.Route.RelayID, uint64(n))
+		}
+		if werr != nil {
+			c.Close()
+			up.Close()
+			t.state.mu.Lock()
+			t.state.retire(e, time.Now())
+			t.state.mu.Unlock()
+			t.wg.Done()
+			return
+		}
+	}
+	data = nil
+	<-t.slots
+	held = false
+	t.pipe(e, c, up)
+}
+func (t *tcpRedirect) dialLocalStrategy(ctx context.Context, e *tcpEntry, d Decision) (net.Conn, error) {
+	var bound Tuple
+	dialer := net.Dialer{Control: func(network, address string, raw syscall.RawConn) error {
+		var bindErr error
+		err := raw.Control(func(fd uintptr) {
+			source := e.tuple.Source.Addr().As4()
+			a := &windows.SockaddrInet4{Addr: source}
+			if bindErr = windows.Bind(windows.Handle(fd), a); bindErr != nil {
+				return
+			}
+			sa, er := windows.Getsockname(windows.Handle(fd))
+			if er != nil {
+				bindErr = er
+				return
+			}
+			v, ok := sa.(*windows.SockaddrInet4)
+			if !ok {
+				bindErr = fmt.Errorf("unsupported upstream socket")
+				return
+			}
+			bound = Tuple{Protocol: "tcp", Source: netip.AddrPortFrom(e.tuple.Source.Addr(), uint16(v.Port)), Destination: e.tuple.Destination}
+			t.state.mu.Lock()
+			defer t.state.mu.Unlock()
+			if len(t.delegated) >= 128 || !t.b.evidence.BindUpstream(e.identity, bound, e.tuple) {
+				bindErr = fmt.Errorf("delegated TCP limit")
+				return
+			}
+			d.Flow = routing.Flow{}
+			d.Deferred = false
+			d.ResolveDomain = nil
+			t.delegated[bound] = delegatedTCP{owner: e, decision: d}
+		})
+		if err != nil {
+			return err
+		}
+		return bindErr
+	}}
+	c, err := dialer.DialContext(ctx, "tcp4", e.tuple.Destination.String())
+	if err != nil {
+		t.state.mu.Lock()
+		delete(t.delegated, bound)
+		t.state.mu.Unlock()
+		t.b.evidence.UnbindUpstream(e.identity, bound)
+		return nil, err
+	}
+	return &delegatedConn{Conn: c, release: func() { t.state.mu.Lock(); delete(t.delegated, bound); t.state.mu.Unlock() }}, nil
+}
+
+type delegatedConn struct {
+	net.Conn
+	once    sync.Once
+	release func()
+}
+
+func (c *delegatedConn) Close() error { err := c.Conn.Close(); c.once.Do(c.release); return err }
+func (c *delegatedConn) CloseWrite() error {
+	if v, ok := c.Conn.(interface{ CloseWrite() error }); ok {
+		return v.CloseWrite()
+	}
+	return nil
 }

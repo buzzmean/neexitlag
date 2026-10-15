@@ -42,13 +42,13 @@ public sealed class ApplicationRow : Observable
         var matched = processes?.Where(p => profile.Executables.Any(exe => Matches(exe, p.Path))).ToArray();
         executablePath = string.Join(", ", profile.Executables.Select(exe => exe.Contains('\\') || exe.Contains('/') ? exe : matched?.FirstOrDefault(p => Matches(exe, p.Path))?.Path ?? $"{exe} ({Text.Get("NoData")})"));
         processStatus = matched is null ? Text.Get("NoData") : Text.Get(matched.Length > 0 ? "Active" : "NotRunning");
-        bool Attributed(CaptureFlow f) => profile.Executables.Any(exe=>Matches(exe,f.Exe)) && (matched?.Any(p=>p.PID==f.Pid&&p.CreationTime==f.CreationTime)==true || processes is null&&f.IdentityCurrent);
+        bool Attributed(CaptureFlow f) => f.ProcessGroup==profile.Id && f.IdentityCurrent || profile.Executables.Any(exe=>Matches(exe,f.Exe)) && (matched?.Any(p=>p.PID==f.Pid&&p.CreationTime==f.CreationTime)==true || processes is null&&f.IdentityCurrent);
         bool FreshFlow(CaptureFlow f) => f.Active || (f.LastSeen<=DateTimeOffset.UtcNow.AddSeconds(1)&&DateTimeOffset.UtcNow-f.LastSeen<TimeSpan.FromSeconds(30));
         var active=capture?.Flows.Where(f=>Attributed(f)&&FreshFlow(f)).ToArray();
         string Summary(Func<CaptureFlow,bool> predicate){var values=active?.Where(predicate).Select(f=>f.SelectedRoute=="BLOCK_UNSUPPORTED_IPV6"?Text.Get("IPv6Blocked"):f.SelectedRoute is "DIRECT" or "DIRECT_PLUS"?Text.Route(f.SelectedRoute):f.SelectedRoute=="RELAY"?Text.Route(f.RelayId):Text.Get("NoData")).Distinct().ToArray();return values is {Length:>0}?string.Join(", ",values):Text.Get("NoData");}
         route=Summary(_=>true);
-        if(processes is null&&active?.Length>0)processStatus=Text.Get("Active");
-        LocalDetails=active is null?Text.Get("NoData"):string.Join("; ",active.Select(f=>$"{f.Strategy}: {f.Domain} {f.Destination} {Text.Route(f.SelectedRoute=="RELAY"?f.RelayId:f.SelectedRoute)} · {f.Preset} {f.Chain} · {(f.FakeTtl>0?$"TTL={f.FakeTtl}":"")} · {Text.Get("LocalModified")}: {f.Counters.DirectPlusPackets} · {Text.Get("RelayTraffic")}: {Text.Bytes(f.Counters.RelayedBytes)} · QUIC→TCP={f.Counters.QuicFallbackPackets}").Distinct());
+        if(active?.Length>0)processStatus=Text.Get("Active");
+        LocalDetails=active is null?Text.Get("NoData"):string.Join("; ",active.Select(f=>$"{f.ProcessGroup} · PID={f.Pid}/{f.CreationTime} · {f.Policy.Action} · {f.Policy.Reason} · {f.Policy.Source} · {f.FallbackReason} · {f.NetworkFingerprint} · blocked={f.RelayRequiredBlocked} · captured={f.Counters.CapturedPackets}/{f.Counters.CapturedBytes} · direct={f.Counters.DirectPackets}/{f.Counters.DirectBytes} · replies={f.Counters.DirectReplyPackets} · direct+={f.Counters.DirectPlusBytes} · {f.Strategy}: {f.Domain} {f.Destination} {Text.Route(f.SelectedRoute=="RELAY"?f.RelayId:f.SelectedRoute)} · {f.Preset} {f.Chain} · {(f.FakeTtl>0?$"TTL={f.FakeTtl}":"")} · {Text.Get("LocalModified")}: {f.Counters.DirectPlusPackets} · {Text.Get("RelayTraffic")}: {Text.Bytes(f.Counters.RelayedBytes)} · QUIC→TCP={f.Counters.QuicFallbackPackets}").Distinct());
         Udp=Summary(f=>f.Protocol=="udp");Tcp=Summary(f=>f.Protocol=="tcp");Ipv4=Summary(f=>f.IpVersion=="IPv4");
         Ipv6=active?.Any(f=>f.IpVersion=="IPv6")==true?Summary(f=>f.IpVersion=="IPv6"):Text.Get("IPv6Unsupported");
         Changed("");
@@ -92,6 +92,7 @@ public sealed class DesktopViewModel : Observable
     {
         get => error; private set => Set(ref error, value);
     }
+    public void SetNotice(string value) => Notice=value;
     public string Notice
     {
         get => notice; private set => Set(ref notice, value);

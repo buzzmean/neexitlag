@@ -34,6 +34,8 @@ func (r Route) Type() RouteKind {
 func (r Route) Direct() bool { return r.RelayID == "" }
 
 type Flow struct {
+	Network                    string  `json:"network_fingerprint,omitempty"`
+	PinnedPolicy               *Policy `json:"-"`
 	Protocol                   string
 	Source, Destination        netip.AddrPort
 	PID                        uint32

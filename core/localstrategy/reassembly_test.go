@@ -404,3 +404,31 @@ func FuzzTCPHelloSegments(f *testing.F) {
 		}
 	})
 }
+
+func TestUnrelatedPresetReloadKeepsPendingYouTubeHello(t *testing.T) {
+	entries, selected, err := PresetProfiles("youtube", `C:\Apps\chrome.exe`, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := New()
+	if err = e.Reload(Config{Version: 1, Enabled: true, User: entries}); err != nil {
+		t.Fatal(err)
+	}
+	// Observe a native SYN, then append another application's profiles while the
+	// Chrome flow waits for payload. It must retain its original app generation.
+	m := metadata()
+	m.Application = `C:\Apps\chrome.exe`
+	m.StrategyID = selected
+	st := &State{}
+	syn := packet(6, nil)
+	syn[33] = 2
+	e.Process(syn, st, m)
+	before := st.applicationRevision
+	discord, _, _ := PresetProfiles("discord", `C:\Apps\Discord.exe`, true)
+	if err = e.Reload(Config{Version: 1, Enabled: true, User: append(entries, discord...)}); err != nil {
+		t.Fatal(err)
+	}
+	if !e.bufferEligible(st, m) || st.applicationRevision != before || st.failed {
+		t.Fatal("Discord update invalidated Chrome")
+	}
+}

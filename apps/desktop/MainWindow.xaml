@@ -45,11 +45,11 @@
      <StackPanel DockPanel.Dock="Top"><WrapPanel>
       <Button Content="{ui:Tr AddApplication}" Click="AddApplication" IsEnabled="{Binding CanControl}"/>
       <Button Content="{ui:Tr RemoveApplication}" Click="DeleteApplication" IsEnabled="{Binding CanControl}"/>
-     </WrapPanel><WrapPanel>
+     </WrapPanel><Button Content="{ui:Tr AutoOptimize}" Click="UseAuto" IsEnabled="{Binding CanControl}" HorizontalAlignment="Left"/><Expander x:Name="AppAdvanced" Header="{ui:Tr AdvancedDiagnostics}"><StackPanel><WrapPanel>
       <ComboBox x:Name="Mode" ItemsSource="{Binding Modes}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedIndex="0" SelectionChanged="ModeChanged"/>
       <ComboBox x:Name="RelayChoice" ItemsSource="{Binding Relays}" DisplayMemberPath="Label" SelectedValuePath="Value" MinWidth="190" IsEnabled="False"/>
       <Button Content="{ui:Tr Apply}" Click="ApplyMode" IsEnabled="{Binding CanControl}"/>
-     </WrapPanel><WrapPanel><ComboBox x:Name="AppPreset" DisplayMemberPath="Label" SelectedValuePath="Id" MinWidth="180"/><CheckBox x:Name="AppQuic" IsChecked="True" Content="{ui:Tr QuicFallback}"/><Button Content="{ui:Tr ApplyPreset}" Click="ApplyPreset" IsEnabled="{Binding CanControl}"/></WrapPanel><TextBlock Text="{ui:Tr ApplicationSelectionHint}" Style="{StaticResource Hint}"/></StackPanel>
+     </WrapPanel><WrapPanel><ComboBox x:Name="AppPreset" DisplayMemberPath="Label" SelectedValuePath="Id" MinWidth="180"/><CheckBox x:Name="AppQuic" IsChecked="True" Content="{ui:Tr QuicFallback}"/><Button Content="{ui:Tr ApplyPreset}" Click="ApplyPreset" IsEnabled="{Binding CanControl}"/></WrapPanel><TextBlock Text="{ui:Tr ApplicationSelectionHint}" Style="{StaticResource Hint}"/></StackPanel></Expander></StackPanel>
      <DataGrid x:Name="AppGrid" ItemsSource="{Binding Applications}" SelectionChanged="ApplicationSelected" SelectionMode="Single"><DataGrid.Columns>
       <DataGridTextColumn Header="{ui:Tr Application}" Binding="{Binding Name}" Width="150"/>
       <DataGridTextColumn Header="{ui:Tr Executable}" Binding="{Binding Path}" Width="2*"/>
@@ -60,7 +60,7 @@
       <DataGridTextColumn Header="{ui:Tr TcpTraffic}" Binding="{Binding Tcp}" Width="130"/>
       <DataGridTextColumn Header="{ui:Tr IPv4Label}" Binding="{Binding Ipv4}" Width="130"/>
       <DataGridTextColumn Header="{ui:Tr IPv6Label}" Binding="{Binding Ipv6}" Width="180"/>
-     <DataGridTextColumn Header="{ui:Tr LocalDetails}" Binding="{Binding LocalDetails}" Width="300"/>
+     <DataGridTextColumn Header="{ui:Tr LocalDetails}" Binding="{Binding LocalDetails}" Width="300" Visibility="Collapsed"/>
      </DataGrid.Columns></DataGrid>
     </DockPanel>
     <DockPanel x:Name="Routes" Visibility="Collapsed"><TextBlock DockPanel.Dock="Top" Text="{ui:Tr RoutesHint}" Style="{StaticResource Hint}"/>

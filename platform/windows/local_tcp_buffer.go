@@ -90,6 +90,13 @@ func (b *LocalTCPBuffer) deliver(d Decision, st *localstrategy.State, id Process
 			return nil
 		}
 	}
+	if d.BlockOnFailure && !st.Applied() {
+		l.RecordPolicy(id, t, d, "LOCAL_STRATEGY_FAILED_BLOCK")
+		for range batch.Originals {
+			l.Record(id, t, "drop", "")
+		}
+		return nil
+	}
 	var firstError error
 	for i, p := range batch.Originals {
 		if err := sends[i](p); err != nil {

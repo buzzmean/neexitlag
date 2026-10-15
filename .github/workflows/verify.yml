@@ -58,6 +58,8 @@ jobs:
       - run: go test ./core/... ./platform/windows ./services/client-service
       - run: dotnet build --nologo
       - run: dotnet test --nologo
+      - run: ./tests/windows-tools/build-desktop-ps51.ps1
+        shell: powershell
       - run: ./tools/windows/build-desktop.ps1
         shell: pwsh
       - run: ./tests/windows-tools/desktop-smoke.ps1
@@ -65,7 +67,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: NeExitLag-win-x64
-          path: bin/release/NeExitLag.exe
+          path: bin/release/
       - run: ./tools/windows/parse-scripts.ps1
         shell: pwsh
       - run: ./tools/windows/build-e2e.ps1

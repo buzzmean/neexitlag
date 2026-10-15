@@ -102,10 +102,11 @@ func (c *Controller) applyLocalAuto(id windowsplatform.ProcessIdentity, t window
 }
 
 type localRecord struct {
-	CaptureMarker *windowsplatform.EvidenceMarker `json:"capture_marker,omitempty"`
-	FlowID        uint64                          `json:"flow_id,omitempty"`
-	Source        string                          `json:"source,omitempty"`
-	Domain        string                          `json:"domain,omitempty"`
+	ObservedHostname string                          `json:"observed_hostname,omitempty"`
+	CaptureMarker    *windowsplatform.EvidenceMarker `json:"capture_marker,omitempty"`
+	FlowID           uint64                          `json:"flow_id,omitempty"`
+	Source           string                          `json:"source,omitempty"`
+	Domain           string                          `json:"domain,omitempty"`
 
 	PID          uint32                     `json:"pid"`
 	CreationTime uint64                     `json:"creation_time"`
@@ -183,6 +184,11 @@ func (c *Controller) handleLocalEvidence(method string, raw json.RawMessage) (an
 			}
 		}
 		if err = c.Learned.Record(k, v.Strategy, v.Measurement, v.Success, time.Now()); err != nil {
+			return nil, err
+		}
+	}
+	if method == "local.record" {
+		if err = c.recordAutoTrial(v); err != nil {
 			return nil, err
 		}
 	}

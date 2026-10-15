@@ -1,0 +1,240 @@
+package clientservice
+
+import (
+	"context"
+	"encoding/json"
+	"github.com/buzzmean/neexitlag/core/flowpolicy"
+	"github.com/buzzmean/neexitlag/core/localstrategy"
+	"github.com/buzzmean/neexitlag/core/profiles"
+	wp "github.com/buzzmean/neexitlag/platform/windows"
+	"net/netip"
+	"strings"
+	"testing"
+	"time"
+)
+
+func policyController(t *testing.T, p profiles.Profile) *Controller {
+	t.Helper()
+	c := New(context.Background())
+	t.Cleanup(c.Close)
+	c.enabled = true
+	if err := c.Profiles.Upsert(p); err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+func policyTuple(proto string, port uint16) wp.Tuple {
+	return wp.Tuple{Protocol: proto, Source: netip.MustParseAddrPort("192.0.2.1:55000"), Destination: netip.AddrPortFrom(netip.MustParseAddr("203.0.113.1"), port)}
+}
+func TestDiscordHybridAndRequiredIsolation(t *testing.T) {
+	p := profiles.Profile{ID: "custom-discord", Name: "Discord", Executables: []string{`C:\Apps\Discord\app-1.0.9212\Discord.exe`}, Mode: profiles.Auto, Custom: true}
+	prepareAuto(&p)
+	c := policyController(t, p)
+	id := wp.ProcessIdentity{PID: 1, CreationTime: 10, Path: `C:\Apps\Discord\app-1.0.9262\Discord.exe`}
+	tcp := c.Classify(id, policyTuple("tcp", 443))
+	udp := c.Classify(id, policyTuple("udp", 19323))
+	quic := c.Classify(id, policyTuple("udp", 443))
+	if tcp.Route.RelayID != "VPS-01" || !tcp.BlockOnFailure || tcp.Flow.PinnedPolicy == nil {
+		t.Fatal(tcp)
+	}
+	if !udp.Route.Direct() || !udp.ProbeDirect || udp.Policy.Fallback != flowpolicy.FlowRelay {
+		t.Fatal(udp)
+	}
+	if quic.ProbeDirect || !quic.BlockOnFailure {
+		t.Fatal("QUIC treated as voice", quic)
+	}
+	if _, err := c.Engine.OpenTCP(context.Background(), tcp.Flow); err == nil {
+		t.Fatal("required leaked through global DIRECT")
+	}
+	other := id
+	other.Path = `C:\Other\Other.exe`
+	if d := c.Classify(other, policyTuple("tcp", 443)); !d.Route.Direct() || d.Block || d.BlockOnFailure {
+		t.Fatal("unrelated application affected", d)
+	}
+}
+func TestDomainDecisionPinnedAcrossProfileChanges(t *testing.T) {
+	p := profiles.Profile{ID: "browser", Name: "Browser", Executables: []string{`C:\Apps\browser.exe`}, Mode: profiles.Auto, Custom: true, Fallback: flowpolicy.FailBlock, Rules: []flowpolicy.Rule{{ID: "auth", Protocol: "tcp", Domains: []string{"auth.example"}, Action: flowpolicy.RelayRequired, RelayID: "VPS-01"}, {ID: "video", Protocol: "tcp", Domains: []string{"video.example"}, Action: flowpolicy.DirectPlus, Strategy: "disorder"}}}
+	c := policyController(t, p)
+	id := wp.ProcessIdentity{PID: 1, CreationTime: 10, Path: p.Executables[0]}
+	syn := c.Classify(id, policyTuple("tcp", 443))
+	if !syn.Deferred || syn.ResolveDomain == nil {
+		t.Fatal("SNI decided at SYN")
+	}
+	a := syn.ResolveDomain("auth.example")
+	b := syn.ResolveDomain("video.example")
+	if a.Route.RelayID != "VPS-01" || !a.BlockOnFailure || !b.Route.Local() {
+		t.Fatal(a, b)
+	}
+	p.Mode = profiles.Direct
+	p.Rules = nil
+	c.Profiles.Upsert(p)
+	if d := syn.ResolveDomain("auth.example"); d.Route.RelayID != "VPS-01" {
+		t.Fatal("live flow reclassified")
+	}
+	if d := c.Classify(id, policyTuple("tcp", 443)); !d.Route.Direct() || d.Deferred {
+		t.Fatal("new connection not updated", d)
+	}
+}
+
+type groupDiscovery struct{ all []wp.ProcessIdentity }
+
+func (g *groupDiscovery) List() ([]wp.ProcessIdentity, error) { return g.all, nil }
+func (g *groupDiscovery) Lookup(pid uint32) (wp.ProcessIdentity, error) {
+	for _, id := range g.all {
+		if id.PID == pid {
+			return id, nil
+		}
+	}
+	return wp.ProcessIdentity{}, wp.ErrUnavailable
+}
+func TestChatGPTHelpersAncestryAndRootExit(t *testing.T) {
+	p := profiles.Profile{ID: "openai", Name: "ChatGPT", Mode: profiles.Auto, Custom: true, Executables: []string{`C:\Apps\ChatGPT.exe`}}
+	prepareAuto(&p)
+	c := policyController(t, p)
+	root := wp.ProcessIdentity{PID: 1, CreationTime: 10, Path: p.Executables[0]}
+	child := wp.ProcessIdentity{PID: 2, CreationTime: 20, ParentPID: 1, ParentCreationTime: 10, Path: `C:\Apps\codex-version-dynamic\codex.exe`}
+	g := &groupDiscovery{[]wp.ProcessIdentity{root, child}}
+	c.discovery = g
+	d := c.Classify(child, policyTuple("tcp", 443))
+	if !d.BlockOnFailure || d.Route.RelayID != "VPS-01" || d.Group != "openai" {
+		t.Fatal(d)
+	}
+	g.all = []wp.ProcessIdentity{child}
+	c.groupAt = time.Time{}
+	if d = c.Classify(child, policyTuple("tcp", 443)); !d.BlockOnFailure {
+		t.Fatal("already attributed helper lost group after root exit")
+	}
+	other := child
+	other.CreationTime = 30
+	other.Path = `C:\Other\codex.exe`
+	other.ParentPID = 0
+	other.ParentCreationTime = 0
+	g.all = []wp.ProcessIdentity{other}
+	c.groupAt = time.Time{}
+	if d = c.Classify(other, policyTuple("tcp", 443)); !d.Route.Direct() || d.BlockOnFailure {
+		t.Fatal("reused PID borrowed protected group")
+	}
+}
+func TestPresetIsolationPreservesChromeAndPendingGeneration(t *testing.T) {
+	c := New(context.Background())
+	defer c.Close()
+	chrome := `C:\Apps\chrome.exe`
+	discord := `C:\Apps\Discord.exe`
+	apply := func(app, preset string) {
+		b, _ := json.Marshal(map[string]any{"application": app, "preset": preset, "quic_fallback": true})
+		if _, err := c.handleLocal("local.preset.apply", b); err != nil {
+			t.Fatal(err)
+		}
+	}
+	apply(chrome, "youtube")
+	before := c.Local.Config().User
+	apply(discord, "discord")
+	after := c.Local.Config().User
+	count := 0
+	for _, p := range before {
+		for _, q := range after {
+			if p.ID == q.ID {
+				a, _ := json.Marshal(p)
+				b, _ := json.Marshal(q)
+				if string(a) != string(b) {
+					t.Fatal("Chrome strategy mutated")
+				}
+				count++
+			}
+		}
+	}
+	if count != len(before) {
+		t.Fatal("Chrome strategy deleted")
+	}
+	if len(c.Profiles.List()) != 3 {
+		t.Fatal("preset mutated routing profiles")
+	}
+}
+func TestTrialRootCannotAffectOrdinaryBrowserOrOldRoot(t *testing.T) {
+	path := `C:\Apps\chrome.exe`
+	normal := profiles.Profile{ID: "normal", Name: "Chrome", Executables: []string{path}, Mode: profiles.Direct, Custom: true}
+	c := policyController(t, normal)
+	root := wp.ProcessIdentity{PID: 100, CreationTime: 10, Path: path}
+	child := wp.ProcessIdentity{PID: 101, CreationTime: 20, ParentPID: 100, ParentCreationTime: 10, Path: path}
+	ordinary := wp.ProcessIdentity{PID: 200, CreationTime: 10, Path: path}
+	c.discovery = &groupDiscovery{[]wp.ProcessIdentity{root, child, ordinary}}
+	temp := profiles.Profile{ID: "!v2-test", Name: "Isolated", Executables: []string{path}, Mode: profiles.Manual, RelayID: "VPS-01", Custom: true, Trial: &profiles.TrialScope{PID: 100, CreationTime: 10, Expires: time.Now().Add(time.Minute)}}
+	raw, _ := json.Marshal(temp)
+	if _, err := c.Handle(context.Background(), "profile.set", raw); err != nil {
+		t.Fatal(err)
+	}
+	if d := c.Classify(child, policyTuple("tcp", 443)); d.Route.RelayID != "VPS-01" {
+		t.Fatal("trial child not scoped", d)
+	}
+	if d := c.Classify(ordinary, policyTuple("tcp", 443)); !d.Route.Direct() {
+		t.Fatal("ordinary browser captured by tester", d)
+	}
+	temp.Trial.PID = 200
+	raw, _ = json.Marshal(temp)
+	if _, err := c.Handle(context.Background(), "profile.set", raw); err != nil {
+		t.Fatal(err)
+	}
+	if d := c.Classify(child, policyTuple("tcp", 443)); !d.Route.Direct() {
+		t.Fatal("old trial binding borrowed new root", d)
+	}
+}
+func TestAutoPlanCooldownAndNoInventedCommit(t *testing.T) {
+	p := profiles.Profile{ID: "chrome", Name: "Chrome", Executables: []string{`C:\Apps\chrome.exe`}, Mode: profiles.Auto, Custom: true}
+	c := policyController(t, p)
+	c.network.Store(&wp.NetworkContext{Fingerprint: "ISP", ObservedAt: time.Now()})
+	raw, _ := json.Marshal(map[string]string{"profile_id": p.ID})
+	plan, err := c.handleAuto("auto.plan", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := plan.(map[string]any)
+	if !m["needs_trial"].(bool) || len(m["candidates"].([]string)) != 7 {
+		t.Fatal(m)
+	}
+	if _, err = c.handleAuto("auto.plan", raw); err == nil {
+		t.Fatal("unbounded repeated probes")
+	}
+	commit, _ := json.Marshal(map[string]string{"profile_id": p.ID, "lease": m["lease"].(string)})
+	if _, err = c.handleAuto("auto.commit", commit); err == nil {
+		t.Fatal("winner invented without proof")
+	}
+	c.network.Store(&wp.NetworkContext{Fingerprint: "other-ISP", ObservedAt: time.Now()})
+	if _, err = c.handleAuto("auto.commit", commit); err == nil {
+		t.Fatal("old network commit accepted")
+	}
+}
+func TestWorkingBaselineSurvivesDiscordButNotOwnStrategyEdit(t *testing.T) {
+	c := New(context.Background())
+	defer c.Close()
+	app := `C:\Apps\chrome.exe`
+	entries, _, _ := localstrategy.PresetProfiles("youtube", app, true)
+	selected := ""
+	for _, p := range entries {
+		if strings.HasSuffix(p.ID, "-disorder") {
+			selected = p.ID
+		}
+	}
+	if selected == "" {
+		t.Fatal("missing existing disorder")
+	}
+	c.Local.Reload(localstrategy.Config{Version: 1, Enabled: true, User: entries})
+	p := profiles.Profile{ID: "chrome", Name: "Chrome", Executables: []string{app}, Mode: profiles.Auto, LocalStrategyID: selected, AutoNetwork: "ISP"}
+	p.AutoRevision = c.baselineRevision(p)
+	if !c.hasBaseline(p, "ISP") {
+		t.Fatal("baseline not bound")
+	}
+	discord, _, _ := localstrategy.PresetProfiles("discord", `C:\Apps\Discord.exe`, true)
+	c.Local.Reload(localstrategy.Config{Version: 1, Enabled: true, User: append(entries, discord...)})
+	if !c.hasBaseline(p, "ISP") {
+		t.Fatal("Discord invalidated YouTube")
+	}
+	for i := range entries {
+		if entries[i].ID == selected {
+			entries[i].Name = "edited candidate"
+		}
+	}
+	c.Local.Reload(localstrategy.Config{Version: 1, Enabled: true, User: entries})
+	if c.hasBaseline(p, "ISP") || c.hasBaseline(p, "new-ISP") {
+		t.Fatal("changed candidate/network reused old baseline")
+	}
+}

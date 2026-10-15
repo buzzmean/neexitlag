@@ -4,6 +4,7 @@ package windowsplatform
 import (
 	"context"
 	"errors"
+	"github.com/buzzmean/neexitlag/core/flowpolicy"
 	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"github.com/buzzmean/neexitlag/core/profiles"
 	"github.com/buzzmean/neexitlag/core/routing"
@@ -33,6 +34,11 @@ type CaptureStatus struct {
 	Capabilities Capabilities `json:"capabilities"`
 }
 type Decision struct {
+	Policy          flowpolicy.Result
+	Group, Network  string
+	ProbeDirect     bool
+	Deferred        bool
+	ResolveDomain   func(string) Decision
 	LocalStrategyID string
 	Local           *localstrategy.LocalStrategyEngine
 	Flow            routing.Flow

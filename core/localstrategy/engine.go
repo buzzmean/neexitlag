@@ -1,6 +1,7 @@
 package localstrategy
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -50,6 +51,7 @@ type compiled struct {
 	excludes ExcludeSet
 }
 type snapshot struct {
+	epochs     map[string]uint64
 	config     Config
 	profiles   []compiled
 	generation uint64
@@ -61,6 +63,7 @@ type Metadata struct {
 	Destination                   netip.AddrPort
 }
 type State struct {
+	applicationRevision                            string
 	logicalHello                                   []byte
 	helloOffsets                                   []int
 	helloPackets                                   [][]byte
@@ -221,6 +224,27 @@ func (e *LocalStrategyEngine) Reload(c Config) error {
 		return err
 	}
 	s.generation = e.revision.Add(1)
+	old := e.current.Load()
+	oldRaw, _ := json.Marshal(old.config)
+	newRaw, _ := json.Marshal(s.config)
+	explicitReset := bytes.Equal(oldRaw, newRaw)
+	s.epochs = map[string]uint64{}
+	for _, p := range s.profiles {
+		epoch := s.generation
+		if !explicitReset {
+			for _, q := range old.profiles {
+				if p.ID == q.ID {
+					a, _ := json.Marshal(p.Profile)
+					b, _ := json.Marshal(q.Profile)
+					if bytes.Equal(a, b) {
+						epoch = old.epochs[q.ID]
+					}
+					break
+				}
+			}
+		}
+		s.epochs[p.ID] = epoch
+	}
 	e.current.Store(s)
 	return nil
 }
@@ -301,7 +325,7 @@ func (e *LocalStrategyEngine) Process(p []byte, st *State, m Metadata) (r Result
 		return Result{Failed: true}
 	}
 	s := e.current.Load()
-	if e.suspended.Load() || !s.config.Enabled || st.generation != 0 && st.generation != s.generation {
+	if e.suspended.Load() || !s.config.Enabled || !refreshApplicationState(st, m, s) {
 		st.Disable()
 		return Result{}
 	}
@@ -473,3 +497,50 @@ func (e *LocalStrategyEngine) Suspend(v bool) { e.suspended.Store(v) }
 func (e *LocalStrategyEngine) Revision() string { return e.current.Load().digest }
 
 func (e *LocalStrategyEngine) Fail(s *State) { s.Disable(); e.errors.Add(1) }
+
+// An unrelated application's preset update must not abort this application's
+// buffered ClientHello or alter its selected compiled profile index.
+func applicationDigest(s *snapshot, app string) string {
+	profiles := []Profile{}
+	epochs := []uint64{}
+	for _, p := range s.profiles {
+		if appMatch(p.Application, app) {
+			profiles = append(profiles, p.Profile)
+			epochs = append(epochs, s.epochs[p.ID])
+		}
+	}
+	raw, _ := json.Marshal(struct {
+		Enabled  bool
+		Profiles []Profile
+		Epochs   []uint64
+	}{s.config.Enabled, profiles, epochs})
+	h := sha256.Sum256(raw)
+	return hex.EncodeToString(h[:])
+}
+func refreshApplicationState(st *State, m Metadata, s *snapshot) bool {
+	if st.generation == s.generation && st.applicationRevision != "" {
+		return true
+	}
+	digest := applicationDigest(s, m.Application)
+	if st.applicationRevision != "" && st.applicationRevision != digest {
+		return false
+	}
+	st.applicationRevision = digest
+	if st.matched {
+		found := false
+		for i, p := range s.profiles {
+			if p.ID == st.selectedID && appMatch(p.Application, m.Application) {
+				st.selectedIndex = i
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	if st.generation != 0 {
+		st.generation = s.generation
+	}
+	return true
+}

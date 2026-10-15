@@ -5,7 +5,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/buzzmean/neexitlag/core/flowpolicy"
 	"github.com/buzzmean/neexitlag/core/localstrategy"
+	"github.com/buzzmean/neexitlag/core/routing"
 	"github.com/buzzmean/neexitlag/core/telemetry"
 	"sort"
 	"strings"
@@ -14,24 +16,31 @@ import (
 )
 
 type CaptureCounters struct {
-	FakeTLS         uint64 `json:"fake_tls_packets"`
-	QuicFallback    uint64 `json:"quic_fallback_packets"`
-	DirectPlus      uint64 `json:"direct_plus_packets"`
-	DirectPlusBytes uint64 `json:"direct_plus_bytes"`
-	IPv6Blocked     uint64 `json:"ipv6_blocked_packets"`
-	CapturedBytes   uint64 `json:"captured_bytes"`
-	RelayedBytes    uint64 `json:"relayed_bytes"`
-	DirectBytes     uint64 `json:"direct_bytes"`
-	ReplyBytes      uint64 `json:"relay_reply_bytes"`
-	Captured        uint64 `json:"captured_packets"`
-	Relayed         uint64 `json:"relayed_packets"`
-	Direct          uint64 `json:"direct_packets"`
-	Dropped         uint64 `json:"dropped_packets"`
-	Reinject        uint64 `json:"reinject_packets"`
-	LoopPrevented   uint64 `json:"loop_prevention_packets"`
-	Replies         uint64 `json:"relay_reply_packets"`
+	DirectReplyPackets uint64 `json:"direct_reply_packets"`
+	DirectReplyBytes   uint64 `json:"direct_reply_bytes"`
+	FakeTLS            uint64 `json:"fake_tls_packets"`
+	QuicFallback       uint64 `json:"quic_fallback_packets"`
+	DirectPlus         uint64 `json:"direct_plus_packets"`
+	DirectPlusBytes    uint64 `json:"direct_plus_bytes"`
+	IPv6Blocked        uint64 `json:"ipv6_blocked_packets"`
+	CapturedBytes      uint64 `json:"captured_bytes"`
+	RelayedBytes       uint64 `json:"relayed_bytes"`
+	DirectBytes        uint64 `json:"direct_bytes"`
+	ReplyBytes         uint64 `json:"relay_reply_bytes"`
+	Captured           uint64 `json:"captured_packets"`
+	Relayed            uint64 `json:"relayed_packets"`
+	Direct             uint64 `json:"direct_packets"`
+	Dropped            uint64 `json:"dropped_packets"`
+	Reinject           uint64 `json:"reinject_packets"`
+	LoopPrevented      uint64 `json:"loop_prevention_packets"`
+	Replies            uint64 `json:"relay_reply_packets"`
 }
 type FlowEvidence struct {
+	Policy          flowpolicy.Result `json:"policy,omitempty"`
+	Group           string            `json:"process_group,omitempty"`
+	Network         string            `json:"network_fingerprint,omitempty"`
+	FallbackReason  string            `json:"fallback_reason,omitempty"`
+	RequiredBlocked bool              `json:"relay_required_blocked,omitempty"`
 	pending         bool
 	FlowID          uint64                    `json:"flow_id"`
 	StartedAt       time.Time                 `json:"started_at"`
@@ -94,15 +103,18 @@ type EvidenceLedger struct {
 	mu                      sync.Mutex
 	totals                  CaptureCounters
 	flows                   map[evidenceKey]FlowEvidence
+	aliases                 map[evidenceKey]evidenceKey
 }
 
 func NewEvidenceLedger() *EvidenceLedger {
 	nonce := make([]byte, 16)
 	_, _ = rand.Read(nonce)
-	return &EvidenceLedger{ledgerID: hex.EncodeToString(nonce), flows: map[evidenceKey]FlowEvidence{}}
+	return &EvidenceLedger{ledgerID: hex.EncodeToString(nonce), flows: map[evidenceKey]FlowEvidence{}, aliases: map[evidenceKey]evidenceKey{}}
 }
 func increment(c *CaptureCounters, event string) {
 	switch event {
+	case "direct_reply":
+		c.DirectReplyPackets++
 	case "quic_fallback":
 		c.QuicFallback++
 	case "local":
@@ -113,7 +125,7 @@ func increment(c *CaptureCounters, event string) {
 		c.Captured++
 	case "relay":
 		c.Relayed++
-	case "direct":
+	case "direct", "direct_proxy":
 		c.Direct++
 	case "drop":
 		c.Dropped++
@@ -136,7 +148,10 @@ func (l *EvidenceLedger) Record(id ProcessIdentity, t Tuple, event, relay string
 func (l *EvidenceLedger) BeginFlow(id ProcessIdentity, t Tuple) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	key := evidenceKey{id.PID, id.CreationTime, t}
+	key := l.keyLocked(id, t)
+	if key.Tuple != t {
+		return
+	}
 	delete(l.flows, key)
 	if id.PID != 0 && id.CreationTime != 0 && id.Path != "" {
 		l.createFlowLocked(key)
@@ -172,8 +187,12 @@ func (l *EvidenceLedger) recordBytesLocked(id ProcessIdentity, t Tuple, event, r
 	if id.PID == 0 || id.CreationTime == 0 || id.Path == "" {
 		return
 	}
-	key := evidenceKey{id.PID, id.CreationTime, t}
+	key := l.keyLocked(id, t)
 	v, exists := l.flows[key]
+	if !exists && key.Tuple != t {
+		l.lostRecords++
+		return
+	}
 	if !exists {
 		var ok bool
 		v, ok = l.createFlowLocked(key)
@@ -190,18 +209,23 @@ func (l *EvidenceLedger) recordBytesLocked(id ProcessIdentity, t Tuple, event, r
 	v.PID = id.PID
 	v.Executable = id.Path
 	v.CreationTime = id.CreationTime
+	t = key.Tuple
 	v.Source = t.Source.String()
 	v.Destination = t.Destination.String()
 	v.LastSeen = time.Now()
 	increment(&v.Counters, event)
 	incrementBytes(&v.Counters, event, bytes)
+	if event == "drop" && (v.Policy.Action == flowpolicy.Block || v.Policy.Fallback == flowpolicy.Required || v.Policy.Fallback == flowpolicy.FlowRelay || v.Policy.Fallback == flowpolicy.FailBlock) {
+		v.Route = "BLOCK"
+		v.RequiredBlocked = v.Policy.Fallback == flowpolicy.Required
+	}
 	if event == "ipv6_blocked" {
 		v.Route = "BLOCK_UNSUPPORTED_IPV6"
 		v.RelayID = ""
 	} else if event == "relay" || event == "reply" {
 		v.Route = "RELAY"
 		v.RelayID = relay
-	} else if event == "direct" && v.Route != "DIRECT_PLUS" {
+	} else if (event == "direct" || event == "direct_proxy") && v.Route != "DIRECT_PLUS" {
 		// Native packets describe packet handling, not a new flow decision.
 		// Only RecordLocal can establish successful DIRECT+ use.
 		v.Route = "DIRECT"
@@ -290,8 +314,10 @@ func incrementBytes(c *CaptureCounters, event string, n uint64) {
 		c.CapturedBytes += n
 	case "relay":
 		c.RelayedBytes += n
-	case "direct":
+	case "direct", "direct_proxy":
 		c.DirectBytes += n
+	case "direct_reply":
+		c.DirectReplyBytes += n
 	case "reply":
 		c.ReplyBytes += n
 	}
@@ -302,7 +328,7 @@ func (l *EvidenceLedger) AddBytes(id ProcessIdentity, t Tuple, event, relay stri
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	incrementBytes(&l.totals, event, n)
-	key := evidenceKey{id.PID, id.CreationTime, t}
+	key := l.keyLocked(id, t)
 	if v, ok := l.flows[key]; ok {
 		incrementBytes(&v.Counters, event, n)
 		v.LastSeen = time.Now()
@@ -320,7 +346,7 @@ func (l *EvidenceLedger) RecordLocalResult(id ProcessIdentity, t Tuple, r locals
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.recordBytesLocked(id, t, "local", "", n)
-	key := evidenceKey{id.PID, id.CreationTime, t}
+	key := l.keyLocked(id, t)
 	v, ok := l.flows[key]
 	if ok {
 		v.Route = "DIRECT_PLUS"
@@ -343,7 +369,7 @@ func (l *EvidenceLedger) RecordQuicFallback(id ProcessIdentity, t Tuple, strateg
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.recordBytesLocked(id, t, "quic_fallback", "", 0)
-	k := evidenceKey{id.PID, id.CreationTime, t}
+	k := l.keyLocked(id, t)
 	if v, ok := l.flows[k]; ok {
 		v.Route = "DIRECT_PLUS"
 		v.RelayID = ""
@@ -361,7 +387,7 @@ func (l *EvidenceLedger) RecordDomain(id ProcessIdentity, t Tuple, domain string
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	k := evidenceKey{id.PID, id.CreationTime, t}
+	k := l.keyLocked(id, t)
 	if v, ok := l.flows[k]; ok && v.Domain == "" {
 		v.Domain = domain
 		l.flows[k] = v
@@ -375,10 +401,83 @@ func (l *EvidenceLedger) RecordLocalInspection(id ProcessIdentity, t Tuple, d *l
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	k := evidenceKey{id.PID, id.CreationTime, t}
+	k := l.keyLocked(id, t)
 	if v, ok := l.flows[k]; ok && (v.LocalInspection == nil || d.SegmentsSeen > 0 && (v.LocalInspection.Reason == "REASSEMBLY_STARTED" || v.LocalInspection.Reason == "REASSEMBLY_WAITING" || v.LocalInspection.Reason == "REASSEMBLY_OUT_OF_ORDER")) {
 		copy := *d
 		v.LocalInspection = &copy
 		l.flows[k] = v
+	}
+}
+
+func (l *EvidenceLedger) keyLocked(id ProcessIdentity, t Tuple) evidenceKey {
+	k := evidenceKey{id.PID, id.CreationTime, t}
+	if a, ok := l.aliases[k]; ok {
+		return a
+	}
+	return k
+}
+
+// BindUpstream is restricted to an internally-created socket before its SYN.
+// Its capture events belong to the original application flow, not service egress.
+func (l *EvidenceLedger) BindUpstream(id ProcessIdentity, upstream, original Tuple) bool {
+	if upstream.Protocol != "tcp" || original.Protocol != "tcp" || upstream.Destination != original.Destination || upstream.Source == original.Source || !upstream.Source.IsValid() {
+		return false
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(l.aliases) >= 1024 {
+		return false
+	}
+	key := evidenceKey{id.PID, id.CreationTime, original}
+	if _, ok := l.flows[key]; !ok {
+		return false
+	}
+	l.aliases[evidenceKey{id.PID, id.CreationTime, upstream}] = key
+	return true
+}
+func (l *EvidenceLedger) UnbindUpstream(id ProcessIdentity, t Tuple) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.aliases, evidenceKey{id.PID, id.CreationTime, t})
+}
+func (l *EvidenceLedger) RecordPolicy(id ProcessIdentity, t Tuple, d Decision, reason string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	key := l.keyLocked(id, t)
+	v, ok := l.flows[key]
+	if !ok {
+		return
+	}
+	v.Policy = d.Policy
+	v.Group = d.Group
+	v.Network = d.Network
+	if reason != "" {
+		v.FallbackReason = reason
+	}
+	l.flows[key] = v
+}
+func (l *EvidenceLedger) pruneAliases(keep func(Tuple) bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for k := range l.aliases {
+		if !keep(k.Tuple) {
+			delete(l.aliases, k)
+		}
+	}
+}
+
+func (l *EvidenceLedger) RecordUpstreamOpened(id ProcessIdentity, t Tuple, r routing.Route) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	key := l.keyLocked(id, t)
+	if v, ok := l.flows[key]; ok {
+		if v.Route != "DIRECT_PLUS" {
+			v.Route = string(r.Type())
+			if r.Local() {
+				v.Route = "DIRECT"
+			}
+			v.RelayID = r.RelayID
+		}
+		l.flows[key] = v
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/buzzmean/neexitlag/core/flowpolicy"
 	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"github.com/buzzmean/neexitlag/core/measurement"
 	"github.com/buzzmean/neexitlag/core/optimizer"
@@ -65,6 +66,14 @@ type Snapshot struct {
 	ActiveApps     []string                      `json:"active_apps"`
 }
 type Controller struct {
+	autoJobs                    map[string]autoLease
+	groupBindings               map[uint32]groupBinding
+	autoMu                      sync.Mutex
+	AutoLearned                 *flowpolicy.Learning
+	groupMu                     sync.Mutex
+	groupAt                     time.Time
+	groupAll                    []profiles.Identity
+	discovery                   windowsplatform.Discovery
 	Learned                     *localstrategy.Cache
 	network                     atomic.Pointer[windowsplatform.NetworkContext]
 	Local                       *localstrategy.LocalStrategyEngine
@@ -95,7 +104,7 @@ type Controller struct {
 
 func New(ctx context.Context) *Controller {
 	ctx, cancel := context.WithCancel(ctx)
-	c := &Controller{Local: localstrategy.New(), Learned: localstrategy.NewCache(1024), Engine: routing.New(4096), Selector: optimizer.New(optimizer.DefaultParameters()), Measurements: measurement.New(measurement.Defaults()), Profiles: profiles.New(profiles.Defaults()), recentApps: make(map[string]time.Time), localProfiles: make(map[string]profiles.Profile), acceptanceRelays: make(map[string]acceptanceRelaySource), transportDrops: make(map[string]func() map[string]telemetry.Metric), settings: Settings{Automatic: true, Failover: "DIRECT", UpdateChannel: "stable"}, ctx: ctx, cancel: cancel}
+	c := &Controller{AutoLearned: flowpolicy.NewLearning(), groupBindings: map[uint32]groupBinding{}, autoJobs: map[string]autoLease{}, discovery: windowsplatform.NewDiscovery(), Local: localstrategy.New(), Learned: localstrategy.NewCache(1024), Engine: routing.New(4096), Selector: optimizer.New(optimizer.DefaultParameters()), Measurements: measurement.New(measurement.Defaults()), Profiles: profiles.New(profiles.Defaults()), recentApps: make(map[string]time.Time), localProfiles: make(map[string]profiles.Profile), acceptanceRelays: make(map[string]acceptanceRelaySource), transportDrops: make(map[string]func() map[string]telemetry.Metric), settings: Settings{Automatic: true, Failover: "DIRECT", UpdateChannel: "stable"}, ctx: ctx, cancel: cancel}
 	c.Local.Guard = func(m localstrategy.Metadata) bool {
 		k, err := c.localKey(m.Application, m.Destination.String(), m.Protocol)
 		return err != nil || !c.Learned.Quarantined(k, m.StrategyID, time.Now())
@@ -165,6 +174,9 @@ func (c *Controller) Close() {
 }
 func (c *Controller) SetCustomPath(path string) error {
 	c.customPath = path
+	if err := c.loadAutoLearning(); err != nil {
+		return err
+	}
 	if err := c.loadLocal(); err != nil {
 		return err
 	}
@@ -195,6 +207,7 @@ func (c *Controller) SetCustomPath(path string) error {
 		return e
 	}
 	for _, p := range all {
+		prepareAuto(&p)
 		c.mu.Lock()
 		c.localProfiles[p.ID] = p
 		c.mu.Unlock()
@@ -212,6 +225,9 @@ func (c *Controller) saveProfiles() error {
 	all := []profiles.Profile{}
 	c.mu.Lock()
 	for _, p := range c.localProfiles {
+		if p.Trial != nil {
+			continue
+		}
 		all = append(all, p)
 	}
 	c.mu.Unlock()
@@ -244,7 +260,7 @@ func (c *Controller) Classify(identity windowsplatform.ProcessIdentity, t window
 	if !enabled {
 		return decision
 	}
-	profile, ok := c.Profiles.Match(identity)
+	profile, ok := c.matchApplication(identity)
 	if !ok {
 		return decision
 	}
@@ -281,7 +297,14 @@ func (c *Controller) Classify(identity windowsplatform.ProcessIdentity, t window
 	if profile.Mode == profiles.Auto {
 		c.applyLocalAuto(identity, t, &decision)
 	}
+	decision = c.scopedDecision(profile, identity, t, decision)
 	if n := c.network.Load(); n != nil && len(n.Conflicts) > 0 {
+		if decision.BlockOnFailure {
+			decision.Block = true
+			decision.Deferred = false
+			decision.ResolveDomain = nil
+			return decision
+		}
 		return windowsplatform.Decision{Flow: f}
 	}
 	return decision
@@ -494,10 +517,38 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 			return nil, e
 		}
 		return c.Profiles.List(), nil
+	case "auto.plan", "auto.commit":
+		c.pruneTrials(time.Now())
+		return c.handleAuto(method, raw)
 	case "profile.set":
+		c.pruneTrials(time.Now())
 		var p profiles.Profile
 		if e := security.Parse(raw, &p); e != nil {
 			return nil, e
+		}
+		if p.Trial != nil {
+			if !time.Now().Before(p.Trial.Expires) || p.Trial.Expires.After(time.Now().Add(15*time.Minute)) {
+				return nil, errors.New("trial lifetime bound")
+			}
+			root, err := c.discovery.Lookup(p.Trial.PID)
+			if err != nil || root.CreationTime != p.Trial.CreationTime || len(p.Executables) != 1 || !strings.EqualFold(root.Path, p.Executables[0]) {
+				return nil, errors.New("trial root identity unavailable")
+			}
+			p.Identity = profiles.IdentityFor(root.Path, "")
+			p.Identity.Helpers = []string{p.Identity.Executable}
+		}
+		prepareAuto(&p)
+		if p.Mode == profiles.Auto && p.LocalStrategyID != "" && p.AutoNetwork == "" {
+			for _, old := range c.Profiles.List() {
+				if old.ID == p.ID && old.Mode == profiles.DirectPlus && old.LocalStrategyID == p.LocalStrategyID {
+					n := c.network.Load()
+					if n == nil || time.Since(n.ObservedAt) > 45*time.Second || len(n.VPN) > 0 || len(n.Conflicts) > 0 {
+						return nil, errors.New("fresh VPN-free network required to adopt configured DIRECT+ into AUTO")
+					}
+					p.AutoNetwork = n.Fingerprint
+					p.AutoRevision = c.baselineRevision(p)
+				}
+			}
 		}
 		if p.Mode == profiles.Block && !c.Demo && (c.Backend == nil || !c.Backend.Status().Capabilities.TCP) {
 			return nil, errors.New("BLOCK profile requires UDP/TCP capture; current backend does not provide it")

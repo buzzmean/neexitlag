@@ -148,10 +148,10 @@ public partial class MainWindow : Window
         if(LocalAuto.IsChecked==true && AppGrid.SelectedItem is ApplicationRow row)await model.SetProfileAsync(row.Profile,"AUTO",null,lifetime.Token);
         LocalCounters.Text=Text.Get("LocalSaved");
     });
-    void SelectLocal(object sender,SelectionChangedEventArgs e){if(LocalGrid.SelectedItem is not LocalStrategyProfile p)return;LocalApp.Text=p.Application;LocalSplitPosition.Text=(p.SplitPosition==0?1:p.SplitPosition).ToString(System.Globalization.CultureInfo.InvariantCulture);LocalPorts.Text=string.Join(",",p.Ports);LocalDomains.Text=string.Join(",",p.Domains);LocalIPs.Text=string.Join(",",p.Ips);LocalExcludeDomains.Text=string.Join(",",p.ExcludeDomains);LocalExcludeIPs.Text=string.Join(",",p.ExcludeIps);foreach(ComboBoxItem item in LocalMechanism.Items)if((string)item.Tag==p.Strategy)LocalMechanism.SelectedItem=item;}
+    void SelectLocal(object sender,SelectionChangedEventArgs e){if(LocalGrid.SelectedItem is not LocalStrategyProfile p)return;LocalApp.Text=p.Application;LocalSplitPosition.Text=(p.SplitPosition==0?1:p.SplitPosition).ToString(System.Globalization.CultureInfo.InvariantCulture);LocalPorts.Text=string.Join(",",p.Ports ?? []);LocalDomains.Text=string.Join(",",p.Domains ?? []);LocalIPs.Text=string.Join(",",p.Ips ?? []);LocalExcludeDomains.Text=string.Join(",",p.ExcludeDomains ?? []);LocalExcludeIPs.Text=string.Join(",",p.ExcludeIps ?? []);foreach(ComboBoxItem item in LocalMechanism.Items)if((string)item.Tag==p.Strategy)LocalMechanism.SelectedItem=item;}
     void AddLocal(object sender,RoutedEventArgs e){
         if(!localLoaded){ShowMessage("LocalLoadFirst");return;}
-        try{var old=LocalGrid.SelectedItem as LocalStrategyProfile;if(old?.Actions.Length>0){ShowMessage("ChainAdvancedReadOnly");return;}var strategy=(string)((ComboBoxItem)LocalMechanism.SelectedItem).Tag;
+        try{var old=LocalGrid.SelectedItem as LocalStrategyProfile;if(old?.Actions?.Length>0){ShowMessage("ChainAdvancedReadOnly");return;}var strategy=(string)((ComboBoxItem)LocalMechanism.SelectedItem).Tag;
         var p=new LocalStrategyProfile{Id=old?.Id??Guid.NewGuid().ToString("N"),Name=System.IO.Path.GetFileNameWithoutExtension(LocalApp.Text),Application=LocalApp.Text,Protocol=strategy.StartsWith("udp-")?"udp":"tcp",Ports=Parts(LocalPorts.Text).Select(ushort.Parse).ToArray(),Domains=Parts(LocalDomains.Text),Ips=Parts(LocalIPs.Text),ExcludeDomains=Parts(LocalExcludeDomains.Text),ExcludeIps=Parts(LocalExcludeIPs.Text),Strategy=strategy,SplitPosition=strategy=="tcp-split"?ushort.Parse(LocalSplitPosition.Text):((ushort)0),Cutoff=old?.Cutoff??2,Priority=old?.Priority??0,Enabled=true};
         if(old is not null)localRules.Remove(old);localRules.Add(p);LocalGrid.ItemsSource=localRules;LocalGrid.SelectedItem=p;
         }catch{ShowMessage("LocalSelect");}
@@ -204,6 +204,37 @@ public partial class MainWindow : Window
     {
         if (RelayChoice is not null)
             RelayChoice.IsEnabled = (string?)Mode.SelectedValue == "MANUAL";
+    }
+    bool autoRunning;
+    async void UseAuto(object sender, RoutedEventArgs e)
+    {
+        if (AppGrid.SelectedItem is not ApplicationRow row) { ShowMessage("SelectApplication"); return; }
+        if(autoRunning)return;autoRunning=true;model.SetNotice(Text.Get("AutoChecking"));
+        try { await Execute(async () => {
+            await model.SetProfileAsync(row.Profile, "AUTO", row.Profile.RelayId, lifetime.Token);
+            await model.OptimizeAsync(true, lifetime.Token);
+            var script=Path.Combine(AppContext.BaseDirectory,"tools","windows","auto-optimize.ps1");
+            if(!File.Exists(script)) { script=Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,"../../../../../tools/windows/auto-optimize.ps1")); }
+            if(!File.Exists(script))throw new InvalidOperationException(Text.Get("AutoToolsMissing"));
+            var output=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"NeExitLag","auto-output");Directory.CreateDirectory(output);
+            var start=new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"WindowsPowerShell","v1.0","powershell.exe")){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};
+            foreach(var value in new[]{"-NoProfile","-File",script,"-ProfileId",row.Profile.Id})start.ArgumentList.Add(value);
+            using var process=System.Diagnostics.Process.Start(start) ?? throw new InvalidOperationException(Text.Get("AutoStartFailed"));
+            using var deadline=CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);deadline.CancelAfter(TimeSpan.FromMinutes(10));
+            var stdout=ReadAutoOutput(process.StandardOutput,deadline.Token);var stderr=ReadAutoOutput(process.StandardError,deadline.Token);
+            try { await process.WaitForExitAsync(deadline.Token); } catch { if(!process.HasExited)process.Kill(true);throw; }
+            await File.WriteAllTextAsync(Path.Combine(output,"latest.stdout.txt"),await stdout,lifetime.Token);
+            await File.WriteAllTextAsync(Path.Combine(output,"latest.stderr.txt"),await stderr,lifetime.Token);
+            if(process.ExitCode!=0)throw new InvalidOperationException(Text.Get("AutoProbeFailed")+" "+output);
+            await model.RefreshAsync(lifetime.Token);
+            model.SetNotice(Text.Get("AutoConfigured"));
+        }); } finally { autoRunning=false; }
+    }
+    static async Task<string> ReadAutoOutput(StreamReader reader,CancellationToken ct)
+    {
+        var saved=new System.Text.StringBuilder();var buffer=new char[4096];bool truncated=false;int n;
+        while((n=await reader.ReadAsync(buffer.AsMemory(),ct))>0){int keep=Math.Min(n,1024*1024-saved.Length);if(keep>0)saved.Append(buffer,0,keep);if(keep<n)truncated=true;}
+        if(truncated)saved.Append("\n[diagnostic output truncated at 1 MiB]\n");return saved.ToString();
     }
     async void ApplyMode(object sender, RoutedEventArgs e)
     {
