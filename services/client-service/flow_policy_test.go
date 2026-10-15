@@ -41,8 +41,11 @@ func TestDiscordHybridAndRequiredIsolation(t *testing.T) {
 	if !udp.Route.Direct() || !udp.ProbeDirect || udp.Policy.Fallback != flowpolicy.FlowRelay {
 		t.Fatal(udp)
 	}
-	if quic.ProbeDirect || !quic.BlockOnFailure {
+	if quic.ProbeDirect || !quic.BlockOnFailure || quic.Route.RelayID != "VPS-01" {
 		t.Fatal("QUIC treated as voice", quic)
+	}
+	if dns := c.Classify(id, policyTuple("udp", 53)); dns.ProbeDirect {
+		t.Fatal("DNS treated as media", dns)
 	}
 	if _, err := c.Engine.OpenTCP(context.Background(), tcp.Flow); err == nil {
 		t.Fatal("required leaked through global DIRECT")

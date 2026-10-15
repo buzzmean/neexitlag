@@ -27,3 +27,41 @@ public class AutoStatusTests
   flow.SelectedRoute="BLOCK";flow.RelayRequiredBlocked=true;row.Update(p,[process],capture);Assert.Equal(Text.Get("ProtectedFlowBlocked"),row.UserStatus);
  }
 }
+
+public class AdaptiveUdpStatusTests
+{
+ [Theory]
+ [InlineData(null)]
+ [InlineData("DIRECT_PROBATION")]
+ [InlineData("FLOW_RELAY_FALLBACK")]
+ public void IsolatedRepliesNeverBecomeConfirmedDirectInGui(string? state)
+ {
+  var (row,p,process,flow)=Fixture();
+  if(state!=null)flow.UdpHealth=new(){State=state,ProbationReplies=2,ProbationReplyBytes=580};
+  row.Update(p,[process],new(){Flows=[flow]});
+  Assert.Equal(Text.Get("AutoChecking"),row.UserStatus);
+ }
+ [Fact] public void ConfirmedDirectAndRealRelayCountersRemainDistinct()
+ {
+  var (row,p,process,flow)=Fixture();
+  flow.UdpHealth=new(){State="DIRECT_CONFIRMED",ProbationReplies=10,ProbationReplyBytes=1000};
+  row.Update(p,[process],new(){Flows=[flow]});Assert.Equal(Text.Get("DirectConnection"),row.UserStatus);
+  flow.SelectedRoute="RELAY";flow.UdpHealth.State="FLOW_RELAY_FALLBACK";flow.UdpHealth.Reason="DIRECT_LIVENESS_LOST";
+  row.Update(p,[process],new(){Flows=[flow]});Assert.Equal(Text.Get("AutoChecking"),row.UserStatus);
+  flow.Counters.RelayedBytes=100;row.Update(p,[process],new(){Flows=[flow]});Assert.Equal(Text.Get("ProtectedRoute"),row.UserStatus);
+  Assert.Contains("DIRECT_LIVENESS_LOST",row.LocalDetails);
+ }
+ [Fact] public void WireHealthEvidenceDeserializesWithoutChangingOldFlows()
+ {
+  var f=JsonSerializer.Deserialize<CaptureFlow>("""{"udp_health":{"state":"DIRECT_PROBATION","probation_replies":2,"probation_reply_bytes":580,"probation_duration_ms":3000,"reply_bins":1,"outbound_bins":8,"degraded_duration_ms":0}}""",WireJson.Options)!;
+  Assert.Equal(580UL,f.UdpHealth!.ProbationReplyBytes);Assert.Equal(3000,f.UdpHealth.ProbationDurationMs);
+  Assert.Null(JsonSerializer.Deserialize<CaptureFlow>("{}",WireJson.Options)!.UdpHealth);
+ }
+ static (ApplicationRow,Profile,ProcessIdentity,CaptureFlow) Fixture()
+ {
+  var p=new Profile{Id="media",Executables=["C:\\media.exe"],Mode="AUTO"};
+  var process=new ProcessIdentity{PID=7,CreationTime=10,Path=p.Executables[0]};
+  var f=new CaptureFlow{Pid=7,CreationTime=10,Exe=process.Path,SelectedRoute="DIRECT",LastSeen=DateTimeOffset.UtcNow,Policy=new(){Fallback="FLOW_RELAY_FALLBACK"},Counters=new(){DirectPackets=10,DirectReplyPackets=2,DirectReplyBytes=580}};
+  return(new(),p,process,f);
+ }
+}

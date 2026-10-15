@@ -158,8 +158,16 @@ public sealed class CaptureEvidence
     public CaptureFlow[] Flows { get; set; } = [];
 }
 public sealed class FlowPolicyEvidence {public string Action {get;set;}="";public string Reason {get;set;}="";public string Source {get;set;}="";public string Fallback {get;set;}="";}
+public sealed class UdpHealthEvidence
+{
+ public string State {get;set;}=""; public string Reason {get;set;}="";
+ public ulong ProbationReplies {get;set;} public ulong ProbationReplyBytes {get;set;}
+ public long ProbationDurationMs {get;set;} public int OutboundBins {get;set;} public int ReplyBins {get;set;}
+ public long DegradedDurationMs {get;set;}
+}
 public sealed class CaptureFlow
 {
+ public UdpHealthEvidence? UdpHealth {get;set;}
  public ulong FlowId {get;set;} public string Source {get;set;}="";public string UpstreamSource {get;set;}="";public DateTimeOffset StartedAt {get;set;}
  public FlowPolicyEvidence Policy {get;set;}=new();public string ProcessGroup {get;set;}="";public string NetworkFingerprint {get;set;}="";public string FallbackReason {get;set;}="";public bool RelayRequiredBlocked {get;set;}
  public string Preset {get;set;}=""; public string Chain {get;set;}=""; public byte FakeTtl {get;set;}

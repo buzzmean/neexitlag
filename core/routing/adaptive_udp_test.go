@@ -159,12 +159,12 @@ func (p *pollDatagram) Send([]byte) error                       { return nil }
 func (p *pollDatagram) Receive(context.Context) ([]byte, error) { return nil, socketPollTimeout{} }
 func (p *pollDatagram) Close() error                            { p.closed = true; return nil }
 func TestNativeSocketPollTimeoutIsNotDirectFailure(t *testing.T) {
-	for _, replied := range []bool{false, true} {
+	for _, state := range []string{DirectProbation, DirectConfirmed} {
 		current := &pollDatagram{}
-		d := &AdaptiveUDP{current: current, started: time.Now(), deadline: 3 * time.Second, replied: replied}
+		d := &AdaptiveUDP{current: current, health: udpCadence{state: state, started: time.Now()}, deadline: 3 * time.Second}
 		_, err := d.Receive(context.Background())
 		if !errors.Is(err, context.DeadlineExceeded) || current.closed || d.transitioned || d.Reason() != "" {
-			t.Fatal("poll timeout became a routing failure", replied, err, d.reason)
+			t.Fatal("poll timeout became a routing failure", state, err, d.reason)
 		}
 	}
 }

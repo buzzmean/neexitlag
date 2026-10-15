@@ -8,20 +8,21 @@ import (
 	"time"
 )
 
-// AdaptiveUDP uses real DIRECT replies. Only the initial no-reply deadline or a
-// real socket error can trigger one transition. Previously sent media is never
+// AdaptiveUDP validates sustained DIRECT cadence without parsing media. It can
+// transition once to required relay, never back. Previously sent media is not
 // replayed; an atomic UDP Send error can retry that unsent datagram on relay.
 type AdaptiveUDP struct {
-	mu                            sync.Mutex
-	readMu                        sync.Mutex
-	current                       Datagram
-	e                             *Engine
-	flow                          Flow
-	relay                         string
-	started                       time.Time
-	deadline                      time.Duration
-	replied, transitioned, closed bool
-	reason                        string
+	mu                   sync.Mutex
+	readMu               sync.Mutex
+	current              Datagram
+	e                    *Engine
+	flow                 Flow
+	relay                string
+	health               udpCadence
+	now                  func() time.Time
+	deadline             time.Duration
+	transitioned, closed bool
+	reason               string
 }
 type udpHealthKey struct{ Application, Network, Destination string }
 type udpHealth struct {
@@ -60,13 +61,14 @@ func (e *Engine) OpenAdaptiveUDP(ctx context.Context, f Flow, relay string, dead
 	if relay == "" || deadline <= 0 || deadline > 10*time.Second {
 		return nil, errors.New("invalid adaptive UDP bound")
 	}
-	a := &AdaptiveUDP{e: e, flow: f, relay: relay, started: time.Now(), deadline: deadline}
+	a := &AdaptiveUDP{e: e, flow: f, relay: relay, deadline: deadline}
 	cached := e.udpCached(f, time.Now())
 	f.PinnedPolicy = &Policy{}
 	if cached {
 		f.PinnedPolicy = &Policy{Route: Route{RelayID: relay}, BlockOnFailure: true}
 		a.transitioned = true
 		a.reason = "LEARNED_RECENT_DIRECT_FAILURE"
+		a.health.fallback(time.Now(), a.reason)
 	}
 	d, err := e.OpenUDP(ctx, f)
 	if err != nil && !cached {
@@ -74,6 +76,7 @@ func (e *Engine) OpenAdaptiveUDP(ctx context.Context, f Flow, relay string, dead
 		d, err = e.OpenUDP(ctx, f)
 		a.transitioned = true
 		a.reason = "DIRECT_OPEN_FAILED"
+		a.health.fallback(time.Now(), a.reason)
 		e.udpObserved(f, true)
 	}
 	if err != nil {
@@ -93,7 +96,9 @@ func (d *AdaptiveUDP) Route() Route {
 func (d *AdaptiveUDP) Reason() string { d.mu.Lock(); defer d.mu.Unlock(); return d.reason }
 func (d *AdaptiveUDP) toRelayLocked(ctx context.Context, reason string) error {
 	d.current.Close()
+	d.transitioned = true // includes failed required-relay setup; never retry DIRECT
 	d.reason = reason
+	d.health.fallback(d.clock(), reason)
 	d.e.udpObserved(d.flow, true)
 	f := d.flow
 	f.PinnedPolicy = &Policy{Route: Route{RelayID: d.relay}, BlockOnFailure: true}
@@ -105,7 +110,6 @@ func (d *AdaptiveUDP) toRelayLocked(ctx context.Context, reason string) error {
 		return err
 	}
 	d.current = next
-	d.transitioned = true
 	return nil
 }
 func (d *AdaptiveUDP) Send(b []byte) error {
@@ -114,7 +118,13 @@ func (d *AdaptiveUDP) Send(b []byte) error {
 	if d.closed {
 		return errors.New("UDP flow closed")
 	}
+	if err := d.checkHealthLocked(context.Background()); err != nil {
+		return err
+	}
 	err := d.current.Send(b)
+	if err == nil && !d.transitioned {
+		d.health.observe(d.clock(), false, len(b))
+	}
 	if err != nil && !d.transitioned {
 		if err = d.toRelayLocked(context.Background(), "DIRECT_SEND_FAILED"); err == nil {
 			err = d.current.Send(b)
@@ -123,6 +133,9 @@ func (d *AdaptiveUDP) Send(b []byte) error {
 	return err
 }
 func (d *AdaptiveUDP) Receive(ctx context.Context) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	d.readMu.Lock()
 	defer d.readMu.Unlock()
 	d.mu.Lock()
@@ -130,13 +143,23 @@ func (d *AdaptiveUDP) Receive(ctx context.Context) ([]byte, error) {
 		d.mu.Unlock()
 		return nil, errors.New("UDP flow closed")
 	}
+	if err := d.checkHealthLocked(ctx); err != nil {
+		d.mu.Unlock()
+		return nil, err
+	}
 	current := d.current
-	probe := !d.replied && !d.transitioned
-	until := d.started.Add(d.deadline)
+	monitor := !d.transitioned && !d.health.started.IsZero()
+	until := d.clock().Add(udpHealthTick)
+	if d.health.stateName() == DirectProbation && !d.health.started.IsZero() {
+		bound := d.health.started.Add(d.deadline)
+		if bound.Before(until) {
+			until = bound
+		}
+	}
 	d.mu.Unlock()
 	readCtx := ctx
 	cancel := func() {}
-	if probe {
+	if monitor {
 		readCtx, cancel = context.WithDeadline(ctx, until)
 	}
 	b, err := current.Receive(readCtx)
@@ -150,9 +173,13 @@ func (d *AdaptiveUDP) Receive(ctx context.Context) ([]byte, error) {
 		return nil, context.DeadlineExceeded
 	}
 	if err == nil {
-		d.replied = true
 		if !d.transitioned {
-			d.e.udpObserved(d.flow, false)
+			d.health.observe(d.clock(), true, len(b))
+			// Return this real DIRECT datagram before any subsequent transition.
+			confirmed, _ := d.health.check(d.clock(), d.deadline)
+			if confirmed {
+				d.e.udpObserved(d.flow, false)
+			}
 		}
 		return b, nil
 	}
@@ -167,14 +194,13 @@ func (d *AdaptiveUDP) Receive(ctx context.Context) ([]byte, error) {
 		}
 		return nil, err
 	}
-	if timeout && (!probe || time.Now().Before(until)) {
+	if timeout {
+		if err = d.checkHealthLocked(ctx); err != nil {
+			return nil, err
+		}
 		return nil, context.DeadlineExceeded
 	}
-	reason := "DIRECT_RECEIVE_FAILED"
-	if timeout {
-		reason = "DIRECT_NO_REPLY_FLOW_RELAY"
-	}
-	if err = d.toRelayLocked(ctx, reason); err != nil {
+	if err = d.toRelayLocked(ctx, "DIRECT_RECEIVE_FAILED"); err != nil {
 		return nil, err
 	}
 	return nil, context.DeadlineExceeded
@@ -184,4 +210,29 @@ func (d *AdaptiveUDP) Close() error {
 	defer d.mu.Unlock()
 	d.closed = true
 	return d.current.Close()
+}
+
+func (d *AdaptiveUDP) clock() time.Time {
+	if d.now != nil {
+		return d.now()
+	}
+	return time.Now()
+}
+func (d *AdaptiveUDP) Health() UDPHealthEvidence {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.health.snapshot(d.clock())
+}
+func (d *AdaptiveUDP) checkHealthLocked(ctx context.Context) error {
+	if d.transitioned {
+		return nil
+	}
+	confirmed, failure := d.health.check(d.clock(), d.deadline)
+	if confirmed {
+		d.e.udpObserved(d.flow, false)
+	}
+	if failure != "" {
+		return d.toRelayLocked(ctx, failure)
+	}
+	return nil
 }

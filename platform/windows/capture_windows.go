@@ -474,6 +474,18 @@ func (b *WinDivertBackend) forward(tuple Tuple, f *captureFlow, d *divertDLL) {
 	}
 
 	defer datagram.Close()
+	var healthMu sync.Mutex // serialize snapshots from send/receive publishers
+	publishHealth := func() {
+		healthMu.Lock()
+		defer healthMu.Unlock()
+		if a, ok := datagram.(*routing.AdaptiveUDP); ok {
+			b.evidence.RecordUDPHealth(f.identity, tuple, a.Health())
+			b.mu.Lock()
+			f.decision.Route = a.Route()
+			b.mu.Unlock()
+		}
+	}
+	publishHealth()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -481,6 +493,7 @@ func (b *WinDivertBackend) forward(tuple Tuple, f *captureFlow, d *divertDLL) {
 			recvCtx, cancel := context.WithTimeout(b.ctx, time.Second)
 			payload, e := datagram.Receive(recvCtx)
 			cancel()
+			publishHealth()
 			if e != nil {
 				if b.ctx.Err() != nil {
 					return
@@ -539,7 +552,9 @@ func (b *WinDivertBackend) forward(tuple Tuple, f *captureFlow, d *divertDLL) {
 			b.fallback(tuple, f, d, nil)
 			return
 		case payload := <-f.queue:
-			if datagram.Send(payload) != nil {
+			sendErr := datagram.Send(payload)
+			publishHealth()
+			if sendErr != nil {
 				b.fallback(tuple, f, d, payload)
 				datagram.Close()
 				<-done

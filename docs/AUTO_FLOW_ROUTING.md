@@ -33,14 +33,16 @@ The current curated AUTO roles are conservative:
   scoped rules can override this application preset deliberately.
 * Discord: all TCP control/update/API, and UDP/443, require relay. High-port UDP
   (>=1024, never UDP/443) is a **media candidate**, not proven voice identification.
-  It first uses a native DIRECT UDP socket and requires a real reply. Three seconds
-  without the first reply causes one transition of that flow to authenticated
-  relay. Missing/failed relay blocks that flow. Real DIRECT socket/open errors can trigger the same one-flow fallback. Successful
-  and failed endpoint observations have a bounded two-minute application/network/
-  endpoint cache (1024 entries). Old media datagrams are not replayed;
-  probe loss is real. A bidirectional DIRECT flow stays DIRECT. Endpoint state
-  expires with the existing bounded two-minute UDP idle-flow table. No server IP
-  or Discord version is hardcoded.
+  It first uses a native DIRECT UDP socket in bounded probation. A single reply
+  or burst is not success: sustained bidirectional cadence must confirm DIRECT.
+  Insufficient probation or sustained cadence degradation can transition only
+  that flow once to authenticated relay. Missing/failed relay blocks that flow.
+  See [adaptive UDP health](ADAPTIVE_UDP_HEALTH.md) for thresholds, evidence,
+  exact update commands and the focused Windows Discord retest. Confirmed success
+  and failure use the bounded two-minute application/network/endpoint cache
+  (1024 entries). Old media datagrams are not replayed; probe loss is real.
+  Flow state uses the existing bounded two-minute UDP idle-flow table. No server
+  IP or Discord version is hardcoded.
 * Chrome: adopts an existing selected DIRECT+ configuration when the user changes
   that working profile to AUTO, bound to a fresh VPN-free network fingerprint and
   that strategy's content revision. Thus the reported working YouTube disorder
@@ -277,13 +279,14 @@ DIRECT_PLUS settings until the corresponding migration is verified.
    updater -> Starting -> login -> messages -> voice. Both Discord.exe update/API
    and its install-scoped Update.exe must relay-required; unrelated Update.exe
    must remain unchanged. Verify high-port UDP is only called a media candidate,
-   actual bidirectional DIRECT response counters are positive, and measure the
+   `udp_health.state` is DIRECT_CONFIRMED with sustained cadence (not just positive
+   reply counters), and measure the
    in-app voice latency against the reported ~310 ms relay baseline. No latency
    improvement is claimed until measured. Keep UDP/443 separate.
 
 9. **Voice failure:** on the Windows client, temporarily drop only the selected
-   media endpoint's DIRECT UDP traffic, with a timed undo. After the initial reply
-   deadline only that UDP tuple may use VPS-01; existing other Discord UDP/TCP and
+   media endpoint's DIRECT UDP traffic, with a timed undo. After failed probation or sustained
+   confirmed cadence degradation only that UDP tuple may use VPS-01; existing other Discord UDP/TCP and
    Chrome flows must retain their routes. Verify new real relayed datagrams and
    replies; do not replay or subtract the lost initial probes. Remove the rule.
    Then test a new DIRECT media flow and idle cleanup/TTL.

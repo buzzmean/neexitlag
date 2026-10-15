@@ -224,3 +224,21 @@ func TestTrialMarkerRejectsRestartFutureAndEvidenceLoss(t *testing.T) {
 		t.Fatal("silent evidence overflow", out, err)
 	}
 }
+
+func TestAdaptiveHealthEvidenceDoesNotInventPacketSuccess(t *testing.T) {
+	l := NewEvidenceLedger()
+	id := ProcessIdentity{PID: 41, Path: "media.exe", CreationTime: 9}
+	tuple := testTuple()
+	l.RecordBytes(id, tuple, "captured", "", 100)
+	l.RecordBytes(id, tuple, "direct_reply", "", 20)
+	l.RecordUDPHealth(id, tuple, routing.UDPHealthEvidence{State: routing.DirectProbation, ProbationReplies: 1, ProbationReplyBytes: 20})
+	first := l.Snapshot(id.PID)
+	l.RecordUDPHealth(id, tuple, routing.UDPHealthEvidence{State: routing.FlowRelayFallback, Reason: routing.DirectInsufficientReplies, ProbationReplies: 1, ProbationReplyBytes: 20, ProbationDurationMS: 3000})
+	after := l.Snapshot(id.PID)
+	if first.Flows[0].UDPHealth.State != routing.DirectProbation || after.Flows[0].UDPHealth.State != routing.FlowRelayFallback || after.Flows[0].FallbackReason != routing.DirectInsufficientReplies {
+		t.Fatal(first, after)
+	}
+	if first.Counters != after.Counters || after.Counters.Relayed != 0 || after.Counters.Replies != 0 {
+		t.Fatal("state manufactured traffic", after)
+	}
+}

@@ -36,12 +36,13 @@ type CaptureCounters struct {
 	Replies            uint64 `json:"relay_reply_packets"`
 }
 type FlowEvidence struct {
-	UpstreamSource  string            `json:"upstream_source,omitempty"`
-	Policy          flowpolicy.Result `json:"policy,omitempty"`
-	Group           string            `json:"process_group,omitempty"`
-	Network         string            `json:"network_fingerprint,omitempty"`
-	FallbackReason  string            `json:"fallback_reason,omitempty"`
-	RequiredBlocked bool              `json:"relay_required_blocked,omitempty"`
+	UDPHealth       *routing.UDPHealthEvidence `json:"udp_health,omitempty"`
+	UpstreamSource  string                     `json:"upstream_source,omitempty"`
+	Policy          flowpolicy.Result          `json:"policy,omitempty"`
+	Group           string                     `json:"process_group,omitempty"`
+	Network         string                     `json:"network_fingerprint,omitempty"`
+	FallbackReason  string                     `json:"fallback_reason,omitempty"`
+	RequiredBlocked bool                       `json:"relay_required_blocked,omitempty"`
 	pending         bool
 	FlowID          uint64                    `json:"flow_id"`
 	StartedAt       time.Time                 `json:"started_at"`
@@ -261,6 +262,10 @@ func (l *EvidenceLedger) SnapshotQuery(q EvidenceQuery, active map[evidenceKey]b
 		}
 		v.Active = active[k]
 		if (q.PID == 0 || v.PID == q.PID) && (q.CreationTime == 0 || v.CreationTime == q.CreationTime) && (q.Destination == "" || v.Destination == q.Destination) && (q.Source == "" || v.Source == q.Source) && (q.Since == nil || v.FlowID > q.Since.AfterFlowID) && (q.Domain == "" || strings.EqualFold(v.Domain, q.Domain) || v.LocalInspection != nil && (strings.EqualFold(v.LocalInspection.Domain, q.Domain) || strings.EqualFold(v.LocalInspection.ObservedSNI, q.Domain))) {
+			if v.UDPHealth != nil {
+				copy := *v.UDPHealth
+				v.UDPHealth = &copy
+			}
 			if v.LocalInspection != nil {
 				copy := *v.LocalInspection
 				v.LocalInspection = &copy
@@ -498,4 +503,21 @@ func (l *EvidenceLedger) RecordInitialPolicy(id ProcessIdentity, t Tuple, d Deci
 		v.Network = d.Network
 		l.flows[key] = v
 	}
+}
+
+// RecordUDPHealth copies metadata only. Publishing a timeout/state change never
+// manufactures packets/bytes or changes the flow's actual packet counters.
+func (l *EvidenceLedger) RecordUDPHealth(id ProcessIdentity, t Tuple, health routing.UDPHealthEvidence) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	key := l.keyLocked(id, t)
+	v, ok := l.flows[key]
+	if !ok {
+		return
+	}
+	v.UDPHealth = &health
+	if health.State == routing.FlowRelayFallback {
+		v.FallbackReason = health.Reason
+	}
+	l.flows[key] = v
 }
