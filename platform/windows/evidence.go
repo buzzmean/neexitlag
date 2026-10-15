@@ -217,7 +217,9 @@ func (l *EvidenceLedger) recordBytesLocked(id ProcessIdentity, t Tuple, event, r
 	increment(&v.Counters, event)
 	incrementBytes(&v.Counters, event, bytes)
 	if event == "drop" && (v.Policy.Action == flowpolicy.Block || v.Policy.Fallback == flowpolicy.Required || v.Policy.Fallback == flowpolicy.FlowRelay || v.Policy.Fallback == flowpolicy.FailBlock) {
-		v.Route = "BLOCK"
+		if v.Route != "BLOCK_UNSUPPORTED_IPV6" {
+			v.Route = "BLOCK"
+		}
 		v.RequiredBlocked = v.Policy.Fallback == flowpolicy.Required
 	}
 	if event == "ipv6_blocked" {
@@ -482,6 +484,18 @@ func (l *EvidenceLedger) RecordUpstreamOpened(id ProcessIdentity, t Tuple, r rou
 			}
 			v.RelayID = r.RelayID
 		}
+		l.flows[key] = v
+	}
+}
+
+func (l *EvidenceLedger) RecordInitialPolicy(id ProcessIdentity, t Tuple, d Decision) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	key := l.keyLocked(id, t)
+	if v, ok := l.flows[key]; ok && v.Policy.Source == "" {
+		v.Policy = d.Policy
+		v.Group = d.Group
+		v.Network = d.Network
 		l.flows[key] = v
 	}
 }

@@ -60,6 +60,7 @@ func (b *WinDivertBackend) guardIPv6(classify Classifier) {
 			}
 			decision, _ := ClassifyCapture(id, t, uint32(os.Getpid()), classify)
 			b.evidence.RecordBytes(id, t, "captured", "", uint64(n))
+			b.evidence.RecordInitialPolicy(id, t, decision)
 			if b.v6guard.Block(id, t, flags, decision, uint32(os.Getpid()), time.Now()) {
 				b.evidence.Record(id, t, "ipv6_blocked", "")
 				b.drop(id, t)

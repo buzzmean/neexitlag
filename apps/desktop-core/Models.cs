@@ -7,6 +7,7 @@ public static class WireJson
 }
 public sealed class Profile
 {
+ [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] public string? Fallback {get;set;}
  [JsonExtensionData] public Dictionary<string,JsonElement>? PolicyData {get;set;}
  public string LocalStrategyId {get;set;}="";
     public string Id { get; set; } = ""; public string Name { get; set; } = ""; public string[] Executables { get; set; } = [];
@@ -34,7 +35,7 @@ public sealed class Profile
     {
         get; set;
     }
-    public Profile Copy() => new() { PolicyData=PolicyData is null?null:new(PolicyData), Id = Id, Name = Name, Executables = [.. Executables], Mode = Mode, RelayId = RelayId, Custom = Custom, LocalStrategyId = LocalStrategyId, Publisher = Publisher, SignatureSha256 = SignatureSha256, ProtocolHints = ProtocolHints, PortHints = PortHints };
+    public Profile Copy() => new() { Fallback=Fallback, PolicyData=PolicyData is null?null:new(PolicyData), Id = Id, Name = Name, Executables = [.. Executables], Mode = Mode, RelayId = RelayId, Custom = Custom, LocalStrategyId = LocalStrategyId, Publisher = Publisher, SignatureSha256 = SignatureSha256, ProtocolHints = ProtocolHints, PortHints = PortHints };
 }
 public sealed class Route
 {
@@ -159,6 +160,7 @@ public sealed class CaptureEvidence
 public sealed class FlowPolicyEvidence {public string Action {get;set;}="";public string Reason {get;set;}="";public string Source {get;set;}="";public string Fallback {get;set;}="";}
 public sealed class CaptureFlow
 {
+ public ulong FlowId {get;set;} public string Source {get;set;}="";public string UpstreamSource {get;set;}="";public DateTimeOffset StartedAt {get;set;}
  public FlowPolicyEvidence Policy {get;set;}=new();public string ProcessGroup {get;set;}="";public string NetworkFingerprint {get;set;}="";public string FallbackReason {get;set;}="";public bool RelayRequiredBlocked {get;set;}
  public string Preset {get;set;}=""; public string Chain {get;set;}=""; public byte FakeTtl {get;set;}
  public bool Active {get;set;} public bool IdentityCurrent {get;set;}

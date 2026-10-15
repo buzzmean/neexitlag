@@ -126,7 +126,7 @@ internal static class Program
     {
         var main = Window(new() { MinimizeToTray = false }); main.Show(); Pump();
         var style = (Style)Application.Current.FindResource(typeof(ComboBox));
-        foreach (string name in new[] { "Mode", "RelayChoice", "AppPreset", "LocalMechanism", "Fallback", "Channel" })
+        foreach (string name in new[] { "Mode", "RelayChoice", "ProfileFallback", "AppPreset", "LocalMechanism", "Fallback", "Channel" })
         {
             string section = name is "Fallback" or "Channel" ? "Settings" : name == "LocalMechanism" ? "LocalStrategies" : "Applications";
             foreach (string page in new[] { "Home", "Applications", "Routes", "Statistics", "Diagnostics", "Settings", "LocalStrategies" })

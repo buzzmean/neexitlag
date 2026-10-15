@@ -6,6 +6,7 @@ import (
 	"github.com/buzzmean/neexitlag/core/flowpolicy"
 	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"github.com/buzzmean/neexitlag/core/profiles"
+	"github.com/buzzmean/neexitlag/core/routing"
 	wp "github.com/buzzmean/neexitlag/platform/windows"
 	"net/netip"
 	"strings"
@@ -236,5 +237,50 @@ func TestWorkingBaselineSurvivesDiscordButNotOwnStrategyEdit(t *testing.T) {
 	c.Local.Reload(localstrategy.Config{Version: 1, Enabled: true, User: entries})
 	if c.hasBaseline(p, "ISP") || c.hasBaseline(p, "new-ISP") {
 		t.Fatal("changed candidate/network reused old baseline")
+	}
+}
+func TestOldClientUpdatePreservesPerProfileSafety(t *testing.T) {
+	p := profiles.Profile{ID: "protected", Name: "OpenAI", Executables: []string{`C:\Apps\ChatGPT.exe`}, Mode: profiles.Auto, Custom: true}
+	prepareAuto(&p)
+	c := policyController(t, p)
+	raw, _ := json.Marshal(map[string]any{"id": p.ID, "name": "Renamed", "executables": p.Executables, "mode": "MANUAL", "relay_id": "VPS-01", "custom": true})
+	if _, err := c.Handle(context.Background(), "profile.set", raw); err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range c.Profiles.List() {
+		if v.ID == p.ID {
+			if v.Fallback != flowpolicy.Required || v.Identity == nil {
+				t.Fatal("old client erased safety", v)
+			}
+		}
+	}
+}
+func TestNetworkChangeBeforeLateDecisionClosesOnlyPendingFlow(t *testing.T) {
+	p := profiles.Profile{ID: "browser", Name: "Browser", Executables: []string{`C:\Apps\browser.exe`}, Mode: profiles.Auto, Custom: true, Rules: []flowpolicy.Rule{{ID: "auth", Protocol: "tcp", Domains: []string{"auth.example"}, Action: flowpolicy.RelayRequired, RelayID: "VPS-01"}}}
+	c := policyController(t, p)
+	c.network.Store(&wp.NetworkContext{Fingerprint: "ISP-a", ObservedAt: time.Now()})
+	d := c.Classify(wp.ProcessIdentity{PID: 1, CreationTime: 1, Path: p.Executables[0]}, policyTuple("tcp", 443))
+	c.network.Store(&wp.NetworkContext{Fingerprint: "ISP-b", ObservedAt: time.Now()})
+	resolved := d.ResolveDomain("auth.example")
+	if !resolved.Block || resolved.Policy.Source != "network_changed" {
+		t.Fatal("old network rule used", resolved)
+	}
+}
+func TestIPv6CannotBypassDeferredDomainRule(t *testing.T) {
+	p := profiles.Profile{ID: "browser", Name: "Browser", Executables: []string{`C:\Apps\browser.exe`}, Mode: profiles.Auto, Custom: true, Rules: []flowpolicy.Rule{{ID: "auth", Protocol: "tcp", Domains: []string{"auth.example"}, Action: flowpolicy.RelayRequired, RelayID: "VPS-01"}}}
+	c := policyController(t, p)
+	tuple := wp.Tuple{Protocol: "tcp", Source: netip.MustParseAddrPort("[2001:db8::1]:1200"), Destination: netip.MustParseAddrPort("[2001:db8::2]:443")}
+	d := c.Classify(wp.ProcessIdentity{PID: 1, CreationTime: 1, Path: p.Executables[0]}, tuple)
+	if !d.Block || d.Deferred || d.Policy.Source != "unsupported_ipv6_domain_policy" {
+		t.Fatal("unsupported domain-aware IPv6 leaked", d)
+	}
+}
+func TestPerProfileRequiredFallbackAlsoReachesTransportPolicy(t *testing.T) {
+	p := profiles.Profile{ID: "manual-required", Name: "Sensitive", Executables: []string{`C:\Apps\sensitive.exe`}, Mode: profiles.Manual, RelayID: "offline", Fallback: flowpolicy.Required, Custom: true}
+	c := policyController(t, p)
+	c.syncPolicies()
+	f := routing.Flow{PID: 1, ProcessPath: p.Executables[0], ApplicationID: p.ID, Source: policyTuple("tcp", 443).Source, Destination: policyTuple("tcp", 443).Destination}
+	if _, err := c.Engine.OpenTCP(context.Background(), f); err == nil {
+		t.Fatal("raw transport bypassed per-profile fallback")
 	}
 }

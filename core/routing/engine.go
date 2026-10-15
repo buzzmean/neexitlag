@@ -89,14 +89,13 @@ func (e *Engine) reserve(f Flow) (Key, Policy, Relay, error) {
 	if f.PID == 0 || f.ProcessPath == "" || f.ApplicationID == "" {
 		p = Policy{}
 	}
-	if p.Auto && e.selectPolicy != nil {
-		selected := e.selectPolicy(f)
-		selected.BlockOnFailure = p.BlockOnFailure
-		p = selected
-	}
 	if f.PinnedPolicy != nil && f.PID != 0 && f.ProcessPath != "" && f.ApplicationID != "" {
 		p = *f.PinnedPolicy
 		p.Backups = append([]Route(nil), p.Backups...)
+	} else if p.Auto && e.selectPolicy != nil {
+		selected := e.selectPolicy(f)
+		selected.BlockOnFailure = p.BlockOnFailure
+		p = selected
 	}
 	if p.Block {
 		return k, p, nil, errors.New("application blocked by policy")

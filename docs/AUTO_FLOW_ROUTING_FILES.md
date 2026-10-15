@@ -30,6 +30,7 @@ Relative to checkpoint `9412250c2372398d5f938ee0fff692fbfa18c2ad`.
 - [platform/windows/discovery_windows.go](../platform/windows/discovery_windows.go)
 - [platform/windows/evidence.go](../platform/windows/evidence.go)
 - [platform/windows/ipv6_guard.go](../platform/windows/ipv6_guard.go)
+- [platform/windows/ipv6_guard_windows.go](../platform/windows/ipv6_guard_windows.go)
 - [platform/windows/local_strategy.go](../platform/windows/local_strategy.go)
 - [platform/windows/local_tcp_buffer.go](../platform/windows/local_tcp_buffer.go)
 - [platform/windows/tcp_capture_windows.go](../platform/windows/tcp_capture_windows.go)

@@ -129,3 +129,19 @@ func TestUDPHealthCacheIsNetworkAndApplicationScoped(t *testing.T) {
 		t.Fatal("cache did not expire")
 	}
 }
+func TestPinnedDecisionDoesNotRunApplicationAUTOSelectorAgain(t *testing.T) {
+	addr, close, err := echo.UDP()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer close()
+	e := New(4)
+	e.SetPolicy("app", Policy{Auto: true})
+	e.SetAutoSelector(func(Flow) Policy { t.Error("pinned decision selected a second time"); return Policy{Block: true} })
+	f := Flow{PID: 1, ProcessPath: "app.exe", ApplicationID: "app", Source: netip.MustParseAddrPort("127.0.0.1:1220"), Destination: netip.MustParseAddrPort(addr.String()), PinnedPolicy: &Policy{}}
+	d, err := e.OpenUDP(context.Background(), f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.Close()
+}

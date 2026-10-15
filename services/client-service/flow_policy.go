@@ -33,6 +33,9 @@ func prepareAuto(p *profiles.Profile) {
 	if p.AppPreset == "" {
 		p.AppPreset = presetFor(*p)
 	}
+	if p.Fallback == "" && (p.AppPreset == "openai" || p.AppPreset == "openai-web" || p.AppPreset == "discord") {
+		p.Fallback = flowpolicy.Required
+	}
 	if p.Identity == nil && p.AppPreset != "" && len(p.Executables) > 0 && strings.ContainsAny(p.Executables[0], "/\\") {
 		p.Identity = profiles.IdentityFor(p.Executables[0], p.AppPreset)
 	}
@@ -145,13 +148,36 @@ func (c *Controller) scopedDecision(p profiles.Profile, id wp.ProcessIdentity, t
 		network = n.Fingerprint
 	}
 	base.Flow.Network = network
-	resolve := func(domain string) wp.Decision { return c.evaluateFlow(p, id, t, base, domain, network) }
+	resolve := func(domain string) wp.Decision {
+		if network != "" {
+			n := c.network.Load()
+			if n == nil || n.Fingerprint != network {
+				d := base
+				d.Block = true
+				d.Deferred = false
+				d.ResolveDomain = nil
+				d.Policy = flowpolicy.Result{Action: flowpolicy.Block, Fallback: flowpolicy.FailBlock, Source: "network_changed", Reason: "network changed before upstream decision"}
+				return d
+			}
+		}
+		return c.evaluateFlow(p, id, t, base, domain, network)
+	}
 	out := resolve("")
 	if t.Protocol == "tcp" && (flowpolicy.NeedsDomain(p.Rules, "tcp") || p.Mode == profiles.Auto && !c.hasBaseline(p, network) && c.AutoLearned.HasApplication(network, applicationKey(p), "tcp", time.Now())) {
 		// The existing redirect accepts the app connection before any upstream is
 		// opened. The closure captures a profile snapshot; edits affect new flows.
 		out.Deferred = true
 		out.ResolveDomain = resolve
+	}
+	if t.Destination.Addr().Is6() && (out.Deferred || out.ProbeDirect) {
+		out.Block = true
+		out.ProbeDirect = false
+		out.Deferred = false
+		out.ResolveDomain = nil
+		out.Policy.Action = flowpolicy.Block
+		out.Policy.Fallback = flowpolicy.FailBlock
+		out.Policy.Source = "unsupported_ipv6_domain_policy"
+		out.Policy.Reason = "IPv6 domain/adaptive UDP decision unsupported; no native bypass"
 	}
 	return out
 }
@@ -245,4 +271,16 @@ func (c *Controller) pruneTrials(now time.Time) {
 			c.Engine.SetPolicy(p.ID, routing.Policy{})
 		}
 	}
+}
+
+func sameProfileExecutables(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for n := range a {
+		if !strings.EqualFold(strings.ReplaceAll(a[n], "\\", "/"), strings.ReplaceAll(b[n], "\\", "/")) {
+			return false
+		}
+	}
+	return true
 }

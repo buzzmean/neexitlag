@@ -1,6 +1,7 @@
 package windowsplatform
 
 import (
+	"github.com/buzzmean/neexitlag/core/flowpolicy"
 	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"io"
 	"net"
@@ -37,4 +38,31 @@ func ReadDeferredHello(c net.Conn) ([]byte, string, string) {
 		}
 	}
 	return data, "", "REASSEMBLY_LIMIT"
+}
+
+func ResolveDeferredDecision(initial Decision, domain, reason string) Decision {
+	if reason == "ECH_OUTER_SNI_ONLY" {
+		domain = ""
+	}
+	if initial.ResolveDomain == nil {
+		initial.Block = true
+		initial.Deferred = false
+		initial.Policy.Action = flowpolicy.Block
+		initial.Policy.Fallback = flowpolicy.FailBlock
+		initial.Policy.Reason = "missing deferred resolver"
+		return initial
+	}
+	d := initial.ResolveDomain(domain)
+	d.Deferred = false
+	d.ResolveDomain = nil
+	if domain == "" && d.BlockOnFailure {
+		d.Block = true
+	}
+	if d.Block {
+		d.Policy.Action = flowpolicy.Block
+		if d.Policy.Fallback == flowpolicy.FailOpen {
+			d.Policy.Fallback = flowpolicy.FailBlock
+		}
+	}
+	return d
 }

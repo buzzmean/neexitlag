@@ -197,6 +197,7 @@ public partial class MainWindow : Window
         if (AppGrid.SelectedItem is ApplicationRow row)
         {
             Mode.SelectedValue = row.Profile.Mode;
+            ProfileFallback.SelectedValue=row.Profile.Fallback ?? "";
             RelayChoice.SelectedValue = row.Profile.RelayId;
         }
     }
@@ -243,7 +244,8 @@ public partial class MainWindow : Window
             ShowMessage("SelectApplication");
             return;
         }
-        await Execute(async () => { await model.SetProfileAsync(row.Profile, (string?)Mode.SelectedValue ?? "AUTO", (string?)RelayChoice.SelectedValue, lifetime.Token); });
+        var copy=row.Profile.Copy();copy.Fallback=(string?)ProfileFallback.SelectedValue ?? "";
+        await Execute(async () => { await model.SetProfileAsync(copy, (string?)Mode.SelectedValue ?? "AUTO", (string?)RelayChoice.SelectedValue, lifetime.Token); });
     }
     async void DeleteApplication(object sender, RoutedEventArgs e)
     {

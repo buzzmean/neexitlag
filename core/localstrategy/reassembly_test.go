@@ -432,3 +432,25 @@ func TestUnrelatedPresetReloadKeepsPendingYouTubeHello(t *testing.T) {
 		t.Fatal("Discord update invalidated Chrome")
 	}
 }
+func TestDeferredECHUsesOpaqueFallbackWithoutGuessingInner(t *testing.T) {
+	p := append([]byte(nil), fakeHello()...)
+	i := 44 + int(p[43])
+	i += 2 + int(binary.BigEndian.Uint16(p[i:]))
+	i += 1 + int(p[i])
+	ext := int(binary.BigEndian.Uint16(p[i:]))
+	p = append(p, 0xfe, 0x0d, 0, 0)
+	binary.BigEndian.PutUint16(p[i:], uint16(ext+4))
+	binary.BigEndian.PutUint16(p[3:], uint16(len(p)-5))
+	handshake := len(p) - 9
+	p[6] = byte(handshake >> 16)
+	p[7] = byte(handshake >> 8)
+	p[8] = byte(handshake)
+	domain, reason, complete := InspectHelloStream(p)
+	if !complete || domain != "www.example.org" || reason != "ECH_OUTER_SNI_ONLY" {
+		t.Fatal(domain, reason, complete)
+	}
+	original := fakeHello()
+	if _, why, ok := InspectHelloStream(original); !ok || why != "REASSEMBLY_COMPLETE" {
+		t.Fatal("native parser changed", why)
+	}
+}

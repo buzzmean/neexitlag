@@ -1,6 +1,7 @@
 package windowsplatform
 
 import (
+	"github.com/buzzmean/neexitlag/core/flowpolicy"
 	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"github.com/buzzmean/neexitlag/core/routing"
 	"net"
@@ -79,5 +80,20 @@ func TestIndependentDelegatedConnectionsCannotBorrowCounters(t *testing.T) {
 	sb, _ := l.SnapshotQuery(EvidenceQuery{Source: b.Source.String()}, nil)
 	if len(sa.Flows) != 1 || sa.Flows[0].Route != "DIRECT_PLUS" || len(sb.Flows) != 1 || sb.Flows[0].Route != "DIRECT" || sb.Flows[0].Counters.DirectPlus != 0 || sa.Flows[0].Counters.Relayed != 0 {
 		t.Fatal(sa, sb)
+	}
+}
+func TestDeferredOpaqueFallbackCannotLeakProtectedFlow(t *testing.T) {
+	seen := "not called"
+	initial := Decision{Deferred: true, ResolveDomain: func(domain string) Decision {
+		seen = domain
+		return Decision{BlockOnFailure: true, Policy: flowpolicy.Result{Action: flowpolicy.RelayRequired, Fallback: flowpolicy.Required}}
+	}}
+	d := ResolveDeferredDecision(initial, "public-name.example", "ECH_OUTER_SNI_ONLY")
+	if seen != "" || !d.Block || d.Deferred || d.ResolveDomain != nil || d.Policy.Action != flowpolicy.Block {
+		t.Fatal("ECH was guessed into a route", seen, d)
+	}
+	d = ResolveDeferredDecision(Decision{Deferred: true}, "example.com", "REASSEMBLY_COMPLETE")
+	if !d.Block {
+		t.Fatal("missing resolver leaked")
 	}
 }

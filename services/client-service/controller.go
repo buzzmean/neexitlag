@@ -159,6 +159,21 @@ func (c *Controller) syncPolicies() {
 		c.mu.Lock()
 		policy.BlockOnFailure = c.settings.Failover == "BLOCK"
 		c.mu.Unlock()
+		if p.Fallback != "" {
+			policy.BlockOnFailure = p.Fallback == flowpolicy.Required || p.Fallback == flowpolicy.FailBlock
+		}
+		if p.Mode == profiles.Auto && (presetFor(p) == "openai" || presetFor(p) == "openai-web") {
+			policy.Auto = false
+			policy.Route = routing.Route{RelayID: p.RelayID}
+			if policy.Route.RelayID == "" {
+				policy.Route.RelayID = "VPS-01"
+			}
+			policy.BlockOnFailure = true
+		}
+		if len(p.Rules) > 0 {
+			policy.Auto = false
+			policy.Block = true
+		} // classified flows supply the exact pinned override
 		c.Engine.SetPolicy(p.ID, policy)
 	}
 }
@@ -528,6 +543,35 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		var p profiles.Profile
 		if e := security.Parse(raw, &p); e != nil {
 			return nil, e
+		}
+		// Old clients omit newly added policy fields. Preserve them for the
+		// same executable identity; explicit null/empty values still clear them.
+		var fields map[string]json.RawMessage
+		if e := json.Unmarshal(raw, &fields); e != nil {
+			return nil, e
+		}
+		for _, old := range c.Profiles.List() {
+			if old.ID == p.ID && sameProfileExecutables(old.Executables, p.Executables) {
+				if _, ok := fields["rules"]; !ok {
+					p.Rules = old.Rules
+				}
+				if _, ok := fields["identity"]; !ok {
+					p.Identity = old.Identity
+				}
+				if _, ok := fields["fallback"]; !ok {
+					p.Fallback = old.Fallback
+				}
+				if _, ok := fields["app_preset"]; !ok {
+					p.AppPreset = old.AppPreset
+				}
+				if _, ok := fields["auto_network"]; !ok {
+					p.AutoNetwork = old.AutoNetwork
+				}
+				if _, ok := fields["auto_revision"]; !ok {
+					p.AutoRevision = old.AutoRevision
+				}
+				break
+			}
 		}
 		if p.Trial != nil {
 			if !time.Now().Before(p.Trial.Expires) || p.Trial.Expires.After(time.Now().Add(15*time.Minute)) {

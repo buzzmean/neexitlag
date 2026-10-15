@@ -31,6 +31,7 @@ public sealed class ApplicationRow : Observable
 {
     public Profile Profile { get; private set; } = new(); public string Name => Profile.Name; public string Path => executablePath; public string Mode => Text.Mode(Profile.Mode);
     string processStatus = Text.Get("NoData"), route = Text.Get("NoData"), executablePath = Text.Get("NoData"); public string ProcessStatus => processStatus; public string Route => route;
+    public string UserStatus {get;private set;}=Text.Get("NoData");
     public string LocalDetails {get;private set;}=Text.Get("NoData");
  public string Udp { get; private set; } = Text.Get("NoData");
  public string Tcp { get; private set; } = Text.Get("NoData");
@@ -47,8 +48,14 @@ public sealed class ApplicationRow : Observable
         var active=capture?.Flows.Where(f=>Attributed(f)&&FreshFlow(f)).ToArray();
         string Summary(Func<CaptureFlow,bool> predicate){var values=active?.Where(predicate).Select(f=>f.SelectedRoute=="BLOCK_UNSUPPORTED_IPV6"?Text.Get("IPv6Blocked"):f.SelectedRoute is "DIRECT" or "DIRECT_PLUS"?Text.Route(f.SelectedRoute):f.SelectedRoute=="RELAY"?Text.Route(f.RelayId):Text.Get("NoData")).Distinct().ToArray();return values is {Length:>0}?string.Join(", ",values):Text.Get("NoData");}
         route=Summary(_=>true);
+        var livePaths=active?.Where(f=>f.ProcessGroup==profile.Id&&f.IdentityCurrent&&profile.Executables.Any(exe=>string.Equals(exe.Replace('\\','/').Split('/').Last(),f.Exe.Replace('\\','/').Split('/').Last(),StringComparison.OrdinalIgnoreCase))).Select(f=>f.Exe).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        if(livePaths is {Length:>0})executablePath=string.Join(", ",livePaths);
+        bool relay=active?.Any(f=>f.SelectedRoute=="RELAY"&&f.Counters.RelayedBytes>0)==true;
+        bool direct=active?.Any(f=>f.SelectedRoute=="DIRECT"&&f.Counters.DirectPackets>0)==true;
+        UserStatus=active is null||active.Length==0?Text.Get("NoData"):active.Any(f=>f.SelectedRoute.StartsWith("BLOCK",StringComparison.Ordinal)||f.RelayRequiredBlocked)?Text.Get("ProtectedFlowBlocked"):relay&&direct?Text.Get("HybridRoute"):relay?Text.Get("ProtectedRoute"):active.Any(f=>f.Counters.DirectPlusPackets>0)?Text.Get("AppliedDirectOptimization"):direct?Text.Get("DirectConnection"):Text.Get("AutoChecking");
+        if(capture?.Truncated==true)UserStatus=Text.Get("PartialRouteEvidence")+" "+UserStatus;
         if(active?.Length>0)processStatus=Text.Get("Active");
-        LocalDetails=active is null?Text.Get("NoData"):string.Join("; ",active.Select(f=>$"{f.ProcessGroup} · PID={f.Pid}/{f.CreationTime} · {f.Policy.Action} · {f.Policy.Reason} · {f.Policy.Source} · {f.FallbackReason} · {f.NetworkFingerprint} · blocked={f.RelayRequiredBlocked} · captured={f.Counters.CapturedPackets}/{f.Counters.CapturedBytes} · direct={f.Counters.DirectPackets}/{f.Counters.DirectBytes} · replies={f.Counters.DirectReplyPackets} · direct+={f.Counters.DirectPlusBytes} · {f.Strategy}: {f.Domain} {f.Destination} {Text.Route(f.SelectedRoute=="RELAY"?f.RelayId:f.SelectedRoute)} · {f.Preset} {f.Chain} · {(f.FakeTtl>0?$"TTL={f.FakeTtl}":"")} · {Text.Get("LocalModified")}: {f.Counters.DirectPlusPackets} · {Text.Get("RelayTraffic")}: {Text.Bytes(f.Counters.RelayedBytes)} · QUIC→TCP={f.Counters.QuicFallbackPackets}").Distinct());
+        LocalDetails=active is null?Text.Get("NoData"):string.Join("; ",active.Select(f=>$"{f.Protocol} · {f.Source} → {f.Destination} · upstream={f.UpstreamSource} · flow={f.FlowId} · {f.ProcessGroup} · {f.Exe} · PID={f.Pid}/{f.CreationTime} · {f.Policy?.Action} · {f.Policy?.Reason} · {f.Policy?.Source} · {f.FallbackReason} · {f.NetworkFingerprint} · blocked={f.RelayRequiredBlocked} · captured={f.Counters.CapturedPackets}/{f.Counters.CapturedBytes} · direct={f.Counters.DirectPackets}/{f.Counters.DirectBytes} · replies={f.Counters.DirectReplyPackets} · direct+={f.Counters.DirectPlusBytes} · {f.Strategy}: {f.Domain} {f.Destination} {Text.Route(f.SelectedRoute=="RELAY"?f.RelayId:f.SelectedRoute)} · {f.Preset} {f.Chain} · {(f.FakeTtl>0?$"TTL={f.FakeTtl}":"")} · {Text.Get("LocalModified")}: {f.Counters.DirectPlusPackets} · {Text.Get("RelayTraffic")}: {Text.Bytes(f.Counters.RelayedBytes)} · QUIC→TCP={f.Counters.QuicFallbackPackets}").Distinct());
         Udp=Summary(f=>f.Protocol=="udp");Tcp=Summary(f=>f.Protocol=="tcp");Ipv4=Summary(f=>f.IpVersion=="IPv4");
         Ipv6=active?.Any(f=>f.IpVersion=="IPv6")==true?Summary(f=>f.IpVersion=="IPv6"):Text.Get("IPv6Unsupported");
         Changed("");
@@ -99,6 +106,7 @@ public sealed class DesktopViewModel : Observable
     }
     public ObservableCollection<ApplicationRow> Applications { get; } = []; public ObservableCollection<RouteRow> Routes { get; } = []; public ObservableCollection<Choice> Relays { get; } = [];
     public ObservableCollection<DiagnosticRow> Diagnostics { get; } = []; public ObservableCollection<MeasurementRow> Measurements { get; } = []; public ObservableCollection<string> Changes { get; } = [];
+    public ObservableCollection<Choice> ProfileFallbacks {get;}=[new("",Text.Get("InheritFallback")),new("FAIL_OPEN_DIRECT",Text.Get("DirectConnection")),new("RELAY_REQUIRED",Text.Get("RequiredRelayFallback")),new("BLOCK",Text.Get("Block"))];
     public ObservableCollection<Choice> Modes { get; } = [new("AUTO", Text.Mode("AUTO")), new("DIRECT", Text.Mode("DIRECT")), new("DIRECT_PLUS",Text.Mode("DIRECT_PLUS")), new("MANUAL", Text.Mode("MANUAL"))];
     public bool Optimizing => Available && Snapshot?.Optimizing == true; public string OptimizeLabel => Text.Get(Optimizing ? "DisableOptimization" : "EnableOptimization"); public string OptimizationStatus => Text.Get(!Available ? "NoData" : Optimizing ? "OptimizationOn" : "OptimizationOff");
     public string Primary => Available ? Text.Route(Snapshot?.Primary) : Text.Get("NoData");

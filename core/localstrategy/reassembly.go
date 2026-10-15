@@ -278,8 +278,49 @@ func InspectHelloStream(stream []byte) (domain, reason string, complete bool) {
 		return "", "CLIENTHELLO_INCOMPLETE", false
 	}
 	d := tlsDomain(hello)
+	if helloHasECH(hello) {
+		return d, "ECH_OUTER_SNI_ONLY", true
+	}
 	if d == "" {
 		return "", "SNI_NOT_FOUND", true
 	}
 	return d, "REASSEMBLY_COMPLETE", true
+}
+
+// Presence is observable; whether an ECH extension is real or GREASE is not
+// guessed. A deferred domain policy must use its explicit opaque-name fallback.
+func helloHasECH(p []byte) bool {
+	if len(p) < 44 {
+		return false
+	}
+	i := 44 + int(p[43])
+	if i+2 > len(p) {
+		return false
+	}
+	i += 2 + int(binary.BigEndian.Uint16(p[i:]))
+	if i >= len(p) {
+		return false
+	}
+	i += 1 + int(p[i])
+	if i+2 > len(p) {
+		return false
+	}
+	end := i + 2 + int(binary.BigEndian.Uint16(p[i:]))
+	i += 2
+	if end > len(p) {
+		return false
+	}
+	for i+4 <= end {
+		k := binary.BigEndian.Uint16(p[i:])
+		n := int(binary.BigEndian.Uint16(p[i+2:]))
+		i += 4
+		if i+n > end {
+			return false
+		}
+		if k == 0xfe0d {
+			return true
+		}
+		i += n
+	}
+	return false
 }

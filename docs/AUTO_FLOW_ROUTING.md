@@ -35,7 +35,9 @@ The current curated AUTO roles are conservative:
   (>=1024, never UDP/443) is a **media candidate**, not proven voice identification.
   It first uses a native DIRECT UDP socket and requires a real reply. Three seconds
   without the first reply causes one transition of that flow to authenticated
-  relay. Missing/failed relay blocks that flow. Old media datagrams are not replayed;
+  relay. Missing/failed relay blocks that flow. Real DIRECT socket/open errors can trigger the same one-flow fallback. Successful
+  and failed endpoint observations have a bounded two-minute application/network/
+  endpoint cache (1024 entries). Old media datagrams are not replayed;
   probe loss is real. A bidirectional DIRECT flow stays DIRECT. Endpoint state
   expires with the existing bounded two-minute UDP idle-flow table. No server IP
   or Discord version is hardcoded.
@@ -54,9 +56,11 @@ not a TLS listener. At most 128 concurrent decision workers retain at most 32 Ki
 32 reads and two seconds of original first bytes each. The existing TLS record /
 ClientHello assembler yields only outer SNI; fragmented HTTP Host is also handled.
 No certificate generation, TLS decryption, inner ECH inference or payload logging.
-Incomplete, missing SNI and unsupported framing take the configured fallback;
+An ECH extension (including indistinguishable GREASE), incomplete/missing SNI or
+unsupported framing takes the configured opaque-name fallback;
 protected fallback blocks instead of leaking DIRECT. No upstream application
-bytes are written before the decision. The unchanged buffered stream is written
+bytes are written before the decision. Explicit fail-open on upstream setup failure
+gets a separate bounded three-second native dial; required/block policies never do. The unchanged buffered stream is written
 once, followed by bounded streaming copies and half-close support.
 
 DIRECT and authenticated relay use the selected pinned upstream. DIRECT+ uses a
@@ -153,7 +157,8 @@ crash with protected applications closed/paused; independent control must reconn
 DIRECT. Do not describe service-off OpenAI reconnects as protected.
 
 Transparent IPv6 relay/transform remains unsupported. Selected protected and
-deferred-protected IPv6 is blocked, including bounded-state saturation; unrelated
+all IPv6 which would require deferred domain classification or monitored UDP
+fallback are blocked, including bounded-state saturation; unrelated
 DIRECT IPv6 remains native. Existing midstream TCP is not silently moved. No IPv6
 support claim without an actual Windows runtime test. System DNS remains unchanged;
 only identified application flows are covered. A system resolver's DNS query is

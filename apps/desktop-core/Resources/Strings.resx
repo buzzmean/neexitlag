@@ -555,5 +555,13 @@
   <data name="AutoStartFailed" xml:space="preserve"><value>Не удалось запустить проверку маршрута.</value></data>
   <data name="AutoProbeFailed" xml:space="preserve"><value>Проверка маршрута не завершена. Диагностика сохранена:</value></data>
   <data name="AutoChecking" xml:space="preserve"><value>Проверка маршрута…</value></data>
-  <data name="AutoConfigured" xml:space="preserve"><value>AUTO настроен. Текущий маршрут показан по реальным активным потокам.</value></data>
+  <data name="AutoConfigured" xml:space="preserve"><value>AUTO настроен для новых соединений. Перезапустите приложение, чтобы применить политику ко всем его потокам.</value></data>
+  <data name="ProtectedFlowBlocked" xml:space="preserve"><value>Защищённый маршрут недоступен</value></data>
+  <data name="ProtectedRoute" xml:space="preserve"><value>Защищённый маршрут</value></data>
+  <data name="HybridRoute" xml:space="preserve"><value>Прямой и защищённый маршрут</value></data>
+  <data name="AppliedDirectOptimization" xml:space="preserve"><value>Прямой маршрут с оптимизацией</value></data>
+  <data name="DirectConnection" xml:space="preserve"><value>Прямое соединение</value></data>
+  <data name="PartialRouteEvidence" xml:space="preserve"><value>Неполные данные:</value></data>
+  <data name="InheritFallback" xml:space="preserve"><value>Резерв: общая политика</value></data>
+  <data name="RequiredRelayFallback" xml:space="preserve"><value>Relay обязателен, без прямого fallback</value></data>
 </root>

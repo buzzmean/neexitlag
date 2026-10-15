@@ -500,18 +500,7 @@ func (t *tcpRedirect) deferredOpen(e *tcpEntry, c net.Conn) {
 		t.wg.Done()
 		return
 	}
-	d := e.decision.ResolveDomain(domain)
-	d.Deferred = false
-	d.ResolveDomain = nil
-	if domain == "" && d.BlockOnFailure {
-		d.Block = true
-	}
-	if d.Block {
-		d.Policy.Action = flowpolicy.Block
-		if d.Policy.Fallback == flowpolicy.FailOpen {
-			d.Policy.Fallback = flowpolicy.FailBlock
-		}
-	}
+	d := ResolveDeferredDecision(e.decision, domain, reason)
 	t.state.mu.Lock()
 	if t.b.ctx.Err() != nil || e.mode == "closed" {
 		t.state.mu.Unlock()
@@ -541,6 +530,17 @@ func (t *tcpRedirect) deferredOpen(e *tcpEntry, c net.Conn) {
 		up, err = t.b.Engine.OpenTCP(ctx, d.Flow)
 	}
 	cancel()
+	if err != nil && !d.BlockOnFailure && t.b.ctx.Err() == nil && (!requested.Direct() || requested.Local()) {
+		// No application bytes have left this proxy yet. An explicitly permitted
+		// native fallback gets its own bounded open budget, not an expired relay ctx.
+		fallback, stop := context.WithTimeout(t.b.ctx, 3*time.Second)
+		up, err = (&net.Dialer{}).DialContext(fallback, "tcp4", e.tuple.Destination.String())
+		stop()
+		if err == nil {
+			d.Route = routing.Route{}
+			reason = "UPSTREAM_OPEN_FAIL_OPEN_DIRECT"
+		}
+	}
 	if err == nil && !d.Route.Local() {
 		for _, f := range t.b.Engine.Snapshot() {
 			if f.Protocol == "tcp" && f.PID == e.identity.PID && f.Source == e.tuple.Source && f.Destination == e.tuple.Destination {
@@ -551,6 +551,9 @@ func (t *tcpRedirect) deferredOpen(e *tcpEntry, c net.Conn) {
 	}
 	t.state.mu.Lock()
 	e.decision = d
+	if reason == "UPSTREAM_OPEN_FAIL_OPEN_DIRECT" {
+		t.b.evidence.RecordPolicy(e.identity, e.tuple, d, reason)
+	}
 	if err != nil || t.b.ctx.Err() != nil || e.mode == "closed" {
 		if up != nil {
 			up.Close()
