@@ -272,11 +272,15 @@ class Upgrade:
         for tool in ['systemctl', 'systemd-run', 'runuser', 'psql', 'pg_dump', 'pg_dumpall', 'pg_restore', 'curl', 'openssl', 'tar']:
             if shutil.which(tool) is None:
                 raise UpgradeError('Required preinstalled dependency missing')
-        for name in [BIN, '/etc/neexitlag', '/var/lib/neexitlag', STATE, BACKUPS]:
+        for name in [BIN, '/etc/systemd/system', '/etc/neexitlag', '/var/lib/neexitlag', STATE, BACKUPS]:
             p = h.path(name)
             while p != h.root:
                 if p.is_symlink():
                     raise UpgradeError('Managed path contains symlink')
+                if p.exists() and str(p) != str(h.path('/var/lib/neexitlag')):
+                    entry = p.stat()
+                    if not h.configuration_owner(entry) or entry.st_mode & 0o022:
+                        raise UpgradeError('Managed path owner/write permissions unsafe')
                 p = p.parent
         fingerprint = config_fingerprint(h)
         for role, names in [('control', ['ca.pem', 'ca.key', 'server.pem', 'server.key', 'signing.key', 'admin.token', 'database.password', 'control-plane.env']), ('relay', ['ca.pem', 'server.pem', 'server.key', 'trust.json', 'heartbeat.token'])]:
@@ -297,11 +301,15 @@ class Upgrade:
             allowed_drops = {GUARD.format(service=service)} | ({DROPIN} if service == 'neexitlag-control-plane' else set())
             if set(drops) - allowed_drops:
                 raise UpgradeError('Unknown service drop-in requires review')
+            for unit in [fragment] + drops:
+                entry = h.path(unit).stat()
+                if h.path(unit).is_symlink() or not h.configuration_owner(entry) or entry.st_mode & 0o022:
+                    raise UpgradeError('Service unit ownership/type/permissions unsafe')
             unit_files += [fragment] + drops
             if service == 'neexitlag-control-plane':
                 cp_text = h.path(DROPIN if DROPIN in drops else fragment).read_text()
             binary = h.path(BIN + '/' + ('relay' if service == 'neexitlag-relay' else 'control-plane'))
-            if not binary.is_file() or binary.is_symlink():
+            if not binary.is_file() or binary.is_symlink() or not h.configuration_owner(binary.stat()) or binary.stat().st_mode & 0o022:
                 raise UpgradeError('Installed binary missing or linked')
             pid = h.systemctl('show', '--value', '--property=MainPID', service)
             if not pid.isdigit() or int(pid) < 1 or h.running_binary_hash(pid) != digest(binary):

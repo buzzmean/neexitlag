@@ -273,6 +273,17 @@ class UpgradeTests(unittest.TestCase):
             self.up.commit(result['id'], self.report)
         self.assertEqual(self.up.load(result['id'])[1]['phase'], 'pending-verification')
 
+    def test_preflight_rejects_writable_binary_and_unit(self):
+        for path in [m.BIN + '/relay', '/etc/systemd/system/neexitlag-relay.service']:
+            p = self.h.path(path)
+            mode = p.stat().st_mode
+            p.chmod(0o777)
+            try:
+                with self.assertRaises(m.UpgradeError):
+                    self.up.preflight(self.bundle, SHA, self.inventory)
+            finally:
+                p.chmod(mode & 0o777)
+
     def test_seed_cleanup_rejects_unknown_arguments_and_never_executes_env(self):
         command = m.clean_cp_command(self.h.unit)
         self.assertNotIn('seed', command)
