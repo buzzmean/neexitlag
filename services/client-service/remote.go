@@ -172,7 +172,17 @@ func (s *remoteState) apply(ctx context.Context, cfg security.Config) error {
 			return e
 		}
 		c.activationMu.Lock()
-		applyErr := func() error {
+		applyErr := func() (err error) {
+			// The same public recovery authorization transaction applies to
+			// signed remote profile updates, not only local IPC commands.
+			if err = c.publishBrowserGuard(true); err != nil {
+				return err
+			}
+			defer func() {
+				if publicationErr := c.publishBrowserGuard(false); publicationErr != nil && err == nil {
+					err = publicationErr
+				}
+			}()
 			for _, p := range cfg.ApplicationProfiles {
 				c.mu.Lock()
 				_, local := c.localProfiles[p.ID]
