@@ -1,0 +1,43 @@
+name: Chrome policy native
+on:
+  push:
+    paths:
+      - '.github/workflows/chrome-native.yml'
+      - 'apps/desktop/Chrome*.cs'
+      - 'core/browserproxy/**'
+      - 'internal/browserfixture/**'
+      - 'platform/windows/browser*'
+      - 'platform/windows/tcp_capture_windows.go'
+      - 'services/client-service/browser*'
+  pull_request:
+    paths:
+      - '.github/workflows/chrome-native.yml'
+      - 'apps/desktop/Chrome*.cs'
+      - 'core/browserproxy/**'
+      - 'internal/browserfixture/**'
+      - 'platform/windows/browser*'
+      - 'platform/windows/tcp_capture_windows.go'
+      - 'services/client-service/browser*'
+permissions:
+  contents: read
+jobs:
+  chrome-policy:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version: '1.25.x'}
+      - run: ./tools/windows/fetch-windivert.ps1
+        shell: pwsh
+      - name: Actual Chrome policy, owner/SID, ECH, native DIRECT+, outage and restart
+        shell: pwsh
+        run: |
+          $env:NEEXITLAG_TEST_DRIVER_DIR=(Resolve-Path .e2e/windivert).Path
+          go test -v -count=1 -timeout 120s ./platform/windows -run '^(TestChromeSitesNativeAcceptance|TestBrowserAliasCleanupBeforeFirstCapturedSYN)$' 2>&1 | Tee-Object chrome-native.log
+          if ($LASTEXITCODE) { throw "Native Chrome regression failed: $LASTEXITCODE" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: chrome-native-evidence
+          path: chrome-native.log

@@ -600,7 +600,7 @@ func (t *tcpRedirect) cleanup() {
 				}
 			}
 			t.state.expire(now)
-			t.b.evidence.pruneAliases(func(tuple Tuple) bool { return t.state.entries[tuple] != nil })
+			t.pruneEvidenceAliases()
 			t.state.mu.Unlock()
 		}
 	}
@@ -803,4 +803,17 @@ func (c *delegatedConn) CloseWrite() error {
 		return v.CloseWrite()
 	}
 	return nil
+}
+
+// Caller holds state.mu. Keep the pre-SYN reservation as well as captured state:
+// cleanup can run between BindUpstream and the first captured SYN. Lock order is
+// state -> delegated -> evidence, matching dialLocalStrategyFrom; no inverse
+// callback lock is acquired from inside EvidenceLedger.pruneAliases.
+func (t *tcpRedirect) pruneEvidenceAliases() {
+	t.delegatedMu.Lock()
+	defer t.delegatedMu.Unlock()
+	t.b.evidence.pruneAliases(func(tuple Tuple) bool {
+		_, reserved := t.delegated[tuple]
+		return reserved || t.state.entries[tuple] != nil
+	})
 }

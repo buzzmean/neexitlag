@@ -204,7 +204,7 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 	if e = policy.SetStringValue("ProxySettings", string(policyJSON)); e != nil {
 		t.Fatal(e)
 	}
-	defer policy.DeleteValue("ProxySettings")
+	defer func() { policy.DeleteValue("ProxySettings"); wp.NotifyChromePolicyChanged() }()
 	args = clean
 
 	rules := []string{}
@@ -301,6 +301,9 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		if err := policy.SetStringValue("ProxySettings", string(recoveryJSON)); err != nil {
 			return err
 		}
+		if err := wp.NotifyChromePolicyChanged(); err != nil {
+			return err
+		}
 		c.Close()
 		return nil
 	}, func() error {
@@ -332,6 +335,9 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 			return errors.New("capture armed while actual Chrome policy was still recovery")
 		}
 		if err = policy.SetStringValue("ProxySettings", string(policyJSON)); err != nil {
+			return err
+		}
+		if err = wp.NotifyChromePolicyChanged(); err != nil {
 			return err
 		}
 		fresh, e := c.Handle(ctx, "browser.prepare", raw)

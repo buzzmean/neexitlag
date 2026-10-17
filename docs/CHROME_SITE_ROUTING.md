@@ -220,6 +220,24 @@ HTTP headers or payload are logged. Failed ordinary synthetic HEAD probes are
 not proof that the browser must use an unavailable relay; only confirmed origin
 results authorize automatic escalation. Explicit required rules are untouched.
 
+Windows Chrome's `PolicyLoaderWin` watches `RegisterGPNotification`, rather
+than individual registry writes. Every owned GUI policy change now queues
+`RefreshPolicy(false)` for the **current user**. It does not refresh machine
+policy or run `gpupdate /force`. A successful queue operation is not readiness:
+the native acceptance waits for a real nonce response whose TCP owner at the
+target is Chrome itself before measuring ordinary DIRECT recovery. Notification
+failure remains an explicit error with the ownership journal intact for rollback.
+Chromium implementation: [PolicyLoaderWin](https://github.com/chromium/chromium/blob/main/components/policy/core/common/policy_loader_win.cc).
+
+The strict pre/post-restart assertions also exposed a separate attribution race:
+50 ms TCP cleanup could remove an internally reserved upstream alias before its
+first SYN reached capture. The transform then happened but was attributed to the
+service-created source tuple instead of its original CONNECT. Cleanup now retains
+both live delegated reservations and captured entries, with the existing bounded
+tables and consistent lock order. A deterministic native regression runs cleanup
+between reservation and SYN for independent connections; counters cannot be borrowed.
+Wire behavior and strategy are unchanged by this metadata fix.
+
 ## Windows update after ff9585a
 
 Close Chrome and the old GUI normally first. In an elevated PowerShell at the

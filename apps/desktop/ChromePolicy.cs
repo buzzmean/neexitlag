@@ -1,10 +1,21 @@
 using Microsoft.Win32;
 using System.Text.Json;
+using System.Runtime.InteropServices;
+using System.ComponentModel;
 namespace Neexitlag.Desktop;
 // Current-user Chrome platform policy only. Never WinINET/WinHTTP/system proxy.
 internal static class ChromePolicy {
  const string Key=@"Software\Policies\Google\Chrome";
  internal static string? TestStatePath;
+ [DllImport("userenv.dll", SetLastError=true)]
+ [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+ [return: MarshalAs(UnmanagedType.Bool)]
+ static extern bool RefreshPolicy([MarshalAs(UnmanagedType.Bool)] bool machine);
+ internal static void NotifyPolicyChanged(){
+  // Chromium PolicyLoaderWin watches RegisterGPNotification, not registry writes.
+  // Queue a CURRENT USER refresh; never machine policy or gpupdate /force.
+  if(!RefreshPolicy(false))throw new Win32Exception(Marshal.GetLastWin32Error(),"Chrome user policy notification failed");
+ }
  static string State=>TestStatePath??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"NeExitLag","chrome-proxy-policy.json");
  internal static string CreateValue(string[] args){
   var pac=args.Single(p=>p.StartsWith("--proxy-pac-url=",StringComparison.Ordinal)).Substring("--proxy-pac-url=".Length);
@@ -26,6 +37,9 @@ internal static class ChromePolicy {
   var pending=State+".tmp";File.WriteAllText(pending,JsonSerializer.Serialize(value));File.Move(pending,State,true);
   try{current.SetValue("ProxySettings",json,RegistryValueKind.String);}
   catch{if(oldState is null)File.Delete(State);else File.WriteAllText(State,oldState);throw;}
+  // Keep the ownership journal if notification fails AFTER the write, so the
+  // activation rollback still recognizes and can replace this exact value.
+  NotifyPolicyChanged();
  }
  internal static void Check(){
   using(var machine=Registry.LocalMachine.OpenSubKey(Key))if(new[]{"ProxySettings","ProxyMode","ProxyPacUrl","ProxyServer"}.Any(p=>machine?.GetValue(p)is not null))throw new InvalidOperationException(Text.Get("ChromeProxyManaged"));
@@ -95,7 +109,7 @@ internal static class ChromePolicy {
   var owned=JsonSerializer.Deserialize<Owned>(File.ReadAllText(State))?.Value;
   using var current=Registry.CurrentUser.OpenSubKey(Key,true);
   if(current?.GetValue("ProxySettings") is object actual&&(!Equals(actual,owned)))throw new InvalidOperationException(Text.Get("ChromeProxyManaged"));
-  current?.DeleteValue("ProxySettings",false);File.Delete(State);
+  current?.DeleteValue("ProxySettings",false);File.Delete(State);NotifyPolicyChanged();
  }
  sealed class Owned {public string Value{get;set;}="";public string? PreviousValue{get;set;}public string? OnlineValue{get;set;}public string? RecoveryValue{get;set;}public bool Temporary{get;set;}public bool WasOptimizing{get;set;}}
 }

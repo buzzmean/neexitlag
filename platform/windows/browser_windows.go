@@ -118,3 +118,14 @@ func ChromeProxyPolicyActive(sid, expected string) bool {
 	}
 	return policy.Mode == "pac_script" && policy.Mandatory && policy.URL == expected
 }
+
+// NotifyChromePolicyChanged queues a current-user Windows policy refresh. Chrome
+// watches RegisterGPNotification, not individual HKCU registry key writes. Call
+// as the policy owner, never as the SYSTEM service on another user's behalf.
+func NotifyChromePolicyChanged() error {
+	r, _, err := windows.NewLazySystemDLL("userenv.dll").NewProc("RefreshPolicy").Call(0)
+	if r == 0 {
+		return err
+	}
+	return nil
+}
