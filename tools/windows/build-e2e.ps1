@@ -15,6 +15,8 @@ try {
  foreach($name in $targets.Keys){& go build -trimpath -o (Join-Path $Output $name) $targets[$name];if($LASTEXITCODE){throw "Build failed: $name"}}
  & go test -c -o (Join-Path $Output 'lease-acceptance.exe') ./tests/integration
  if($LASTEXITCODE){throw 'Lease acceptance build failed'}
+ & go test -c -o (Join-Path $Output 'browser-recovery-acceptance.exe') ./services/client-service/cmd/service
+ if($LASTEXITCODE){throw 'Chrome recovery acceptance build failed'}
  & go test -c -o (Join-Path $Output 'capture-acceptance.exe') ./platform/windows
  if($LASTEXITCODE){throw 'Native capture acceptance build failed'}
  Copy-Item (Join-Path $Output 'tcp-selected.exe') (Join-Path $Output 'tcp-control.exe')

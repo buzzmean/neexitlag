@@ -62,6 +62,23 @@ function Drain-Capture($State,[int]$Stage){
  }
  throw 'Capture did not drain: no complete/no-leak claim allowed'
 }
+function Recovery-Snapshot {
+ $file=Join-Path $env:LOCALAPPDATA 'NeExitLag\chrome-recovery.json'
+ if(!(Test-Path -LiteralPath $file)){return $null}
+ if((Get-Item -LiteralPath $file).Length -gt 262144){throw 'Recovery state exceeds bound'}
+ try{$saved=Get-Content -Raw -LiteralPath $file|ConvertFrom-Json}catch{throw 'Recovery state is invalid'}
+ $helper=Get-Process -Id $saved.process_id -ErrorAction Stop
+ $expected=Join-Path $env:ProgramData 'neexitlag\neexitlag-service.exe'
+ if($helper.Path -ine $expected -or $helper.StartTime.ToUniversalTime().ToFileTimeUtc() -ne $saved.creation_time -or $saved.metadata_token -notmatch '^[0-9a-f]{64}$'){throw 'Recovery helper identity mismatch'}
+ $endpoint=[Uri]('http://'+$saved.address)
+ if($endpoint.Host -ne '127.0.0.1' -or $endpoint.Port -le 0){throw 'Recovery endpoint is not IPv4 loopback'}
+ $handler=[Net.Http.HttpClientHandler]::new();$handler.UseProxy=$false;$handler.AllowAutoRedirect=$false
+ $http=[Net.Http.HttpClient]::new($handler);$http.Timeout=[TimeSpan]::FromSeconds(3);$http.MaxResponseContentBufferSize=65536
+ $request=[Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Get,('http://'+$saved.address+'/status'))
+ $request.Headers.Host='neexitlag-recovery-status.invalid';$request.Headers.Authorization=[Net.Http.Headers.AuthenticationHeaderValue]::new('Bearer',$saved.metadata_token)
+ $reply=$null
+ try{$reply=$http.SendAsync($request).GetAwaiter().GetResult();[void]$reply.EnsureSuccessStatusCode();return ($reply.Content.ReadAsStringAsync().GetAwaiter().GetResult()|ConvertFrom-Json)}finally{if($null -ne $reply){$reply.Dispose()};$request.Dispose();$http.Dispose();$handler.Dispose()}
+}
 try{
  $policy=(Get-ItemProperty -LiteralPath 'HKCU:\Software\Policies\Google\Chrome' -Name ProxySettings).ProxySettings|ConvertFrom-Json
  if($policy.ProxyMode -ne 'pac_script' -or !(Get-SimValue $policy 'ProxyPacMandatory' $false)){throw 'Actual mandatory Chrome PAC policy required; activate Chrome AUTO in the GUI first'}
@@ -98,7 +115,12 @@ try{
    Drain-Capture $state $stage
    $browser=Service 'browser.status'
    if($browser.truncated){throw 'Browser IPC snapshot truncated; no complete route claim'}
-   foreach($record in $browser.records){$records[[string]$record.id]=$record}
+   foreach($record in $browser.records){$records['SERVICE:'+([string]$record.id)]=$record}
+   $recovery=Recovery-Snapshot
+   if($null -ne $recovery){
+    if($recovery.truncated){throw 'Recovery metadata truncated; no complete route claim'}
+    foreach($record in $recovery.records){if($record.evidence_source -ne 'RECOVERY_DIRECT' -or $record.plan.policy.action -ne 'DIRECT'){throw 'Invalid recovery evidence kind'};$records['RECOVERY:'+([string]$record.id)]=$record}
+   }
    Start-Sleep -Milliseconds 300
   }
   Drain-Capture $state $stage
@@ -118,7 +140,8 @@ try{
    if($null -ne $row.document -and $row.document.protocol -eq 'h2'){$h2=$true}
    if($domain -eq 'chatgpt.com'){$ok=$ok -and @($routes|Where-Object{$_.plan.policy.action -eq 'RELAY_REQUIRED' -and $_.plan.policy.relay_id -eq 'VPS-01'}).Count -gt 0}
    if($domain -eq 'www.youtube.com'){$ok=$ok -and @($routes|Where-Object{$_.plan.policy.action -eq 'DIRECT_PLUS' -and $_.direct_plus_applied}).Count -gt 0}
-   $observations+=@{site=$row.site;pass=$ok;document=$row.document;dom_metadata=$dom.result.value;failures=$row.failures;routes=@($routes|Select-Object domain,owner,source,plan,result,sent_bytes,received_bytes,direct_plus_applied)}
+   if($domain -notin @('www.youtube.com','chatgpt.com')){$ok=$ok -and @($routes|Where-Object{$_.plan.policy.action -eq 'DIRECT'}).Count -gt 0}
+   $observations+=@{site=$row.site;pass=$ok;document=$row.document;dom_metadata=$dom.result.value;failures=$row.failures;routes=@($routes|Select-Object domain,owner,source,plan,result,sent_bytes,received_bytes,direct_plus_applied,evidence_source)}
   }
   $leaks=@($state.Flows.Values|Where-Object{$owned.ContainsKey([string]$_.pid) -and $_.policy.action -eq 'RELAY_REQUIRED' -and $_.counters.direct_bytes -gt 0})
   $result=@{stage=$stage;chrome_root_pid=$client.Id;processes=$processes;sites=$observations;evidence_lost=$state.Lost;http2_observed=$h2;protected_direct_leaks=$leaks.Count;pass=(!$state.Lost -and !$script:eventLoss -and $leaks.Count -eq 0 -and $h2 -and @($observations|Where-Object{!$_.pass}).Count -eq 0)}

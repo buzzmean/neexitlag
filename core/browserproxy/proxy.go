@@ -7,7 +7,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/buzzmean/neexitlag/core/flowpolicy"
@@ -64,6 +66,7 @@ type Plan struct {
 	HTTPStatus  int               `json:"http_status,omitempty"`
 }
 type Record struct {
+	EvidenceSource    string    `json:"evidence_source,omitempty"`
 	OpenFailure       string    `json:"open_failure,omitempty"`
 	DirectPlusApplied bool      `json:"direct_plus_applied"`
 	ID                uint64    `json:"id"`
@@ -79,21 +82,27 @@ type Record struct {
 	Received          uint64    `json:"received_bytes"`
 }
 type Snapshot struct {
-	PolicyReady   bool              `json:"policy_ready"`
-	ReadyProfiles []string          `json:"ready_profiles"`
-	Failures      map[string]uint64 `json:"failures"`
-	Truncated     bool              `json:"truncated"`
-	Listening     bool              `json:"listening"`
-	Address       string            `json:"address"`
-	Lost          uint64            `json:"lost"`
-	Records       []Record          `json:"records"`
+	RecoveryAddress string            `json:"recovery_address,omitempty"`
+	PolicyReady     bool              `json:"policy_ready"`
+	ReadyProfiles   []string          `json:"ready_profiles"`
+	Failures        map[string]uint64 `json:"failures"`
+	Truncated       bool              `json:"truncated"`
+	Listening       bool              `json:"listening"`
+	Address         string            `json:"address"`
+	Lost            uint64            `json:"lost"`
+	Records         []Record          `json:"records"`
 }
 type Config struct {
-	Address          string // Empty allocates a port; otherwise fixed loopback only.
-	TransformApplied func(Request, Plan) bool
-	Authorize        func(context.Context, netip.AddrPort, netip.AddrPort) (Owner, error)
-	Plan             func(context.Context, Request) (Plan, error)
-	Open             func(context.Context, Request, Plan) (net.Conn, error)
+	MetadataToken      string
+	AuthorizeMetadata  func(context.Context, netip.AddrPort, netip.AddrPort) error
+	Metadata           func() Snapshot
+	OpenPlan           func(context.Context, Request, Plan) (net.Conn, Plan, error)
+	Address            string // Empty allocates a port; otherwise fixed loopback only.
+	AuthorizeForwarded func(context.Context, netip.AddrPort, netip.AddrPort, netip.AddrPort, netip.AddrPort) (Owner, error)
+	TransformApplied   func(Request, Plan) bool
+	Authorize          func(context.Context, netip.AddrPort, netip.AddrPort) (Owner, error)
+	Plan               func(context.Context, Request) (Plan, error)
+	Open               func(context.Context, Request, Plan) (net.Conn, error)
 }
 type Server struct {
 	cfg        Config
@@ -114,7 +123,7 @@ type Server struct {
 }
 
 func Listen(parent context.Context, cfg Config) (*Server, error) {
-	if cfg.Authorize == nil || cfg.Plan == nil || cfg.Open == nil {
+	if cfg.Authorize == nil || cfg.Plan == nil || cfg.Open == nil && cfg.OpenPlan == nil {
 		return nil, errors.New("browser transport callbacks required")
 	}
 	address := cfg.Address
@@ -305,7 +314,48 @@ func (s *Server) handle(c net.Conn) {
 	if e != nil {
 		return
 	}
-	owner, e := s.cfg.Authorize(ctx, source, local)
+	if !secure && host == "neexitlag-recovery-status.invalid" && request.Method == "GET" && request.URL.Path == "/status" {
+		expected := "Bearer " + s.cfg.MetadataToken
+		if s.cfg.MetadataToken == "" || s.cfg.AuthorizeMetadata == nil || s.cfg.Metadata == nil || subtle.ConstantTimeCompare([]byte(request.Header.Get("Authorization")), []byte(expected)) != 1 || s.cfg.AuthorizeMetadata(ctx, source, local) != nil {
+			writeError(c, 403)
+			return
+		}
+		snapshot := s.cfg.Metadata()
+		raw, err := json.Marshal(snapshot)
+		for err == nil && len(raw) > 58000 && len(snapshot.Records) > 0 {
+			snapshot.Truncated = true
+			snapshot.Records = snapshot.Records[:len(snapshot.Records)-1]
+			raw, err = json.Marshal(snapshot)
+		}
+		if err != nil || len(raw) > 58000 {
+			writeError(c, 503)
+			return
+		}
+		fmt.Fprintf(c, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-store\r\nContent-Length: %d\r\nConnection: close\r\n\r\n", len(raw))
+		c.Write(raw)
+		return
+	}
+	var owner Owner
+	forwarded := request.Header.Get("Neexitlag-Source") != "" || request.Header.Get("Neexitlag-Listener") != "" || request.Header.Get("Neexitlag-Plain") != ""
+	originalSource := source
+	plain := false
+	if forwarded {
+		original, se := netip.ParseAddrPort(request.Header.Get("Neexitlag-Source"))
+		listener, le := netip.ParseAddrPort(request.Header.Get("Neexitlag-Listener"))
+		if !secure || s.cfg.AuthorizeForwarded == nil || se != nil || le != nil || !original.Addr().IsLoopback() || !listener.Addr().IsLoopback() || original.Port() == 0 || listener.Port() == 0 {
+			s.reject("FORWARDED_OWNER_REJECTED")
+			writeError(c, 403)
+			return
+		}
+		owner, e = s.cfg.AuthorizeForwarded(ctx, source, local, original, listener)
+		originalSource = original
+		plain = request.Header.Get("Neexitlag-Plain") == "1"
+	} else {
+		owner, e = s.cfg.Authorize(ctx, source, local)
+	}
+	request.Header.Del("Neexitlag-Source")
+	request.Header.Del("Neexitlag-Listener")
+	request.Header.Del("Neexitlag-Plain")
 	if e != nil {
 		reason := "PROXY_AUTHORIZATION_FAILED"
 		for _, kind := range []error{ErrOwnerLookup, ErrOwnerToken, ErrOwnerSID, ErrOwnerProfile} {
@@ -322,7 +372,7 @@ func (s *Server) handle(c net.Conn) {
 		s.health(c, owner, request.URL.Path)
 		return
 	}
-	q := Request{Owner: owner, Source: source, Host: host, Port: port, Secure: secure}
+	q := Request{Owner: owner, Source: originalSource, Host: host, Port: port, Secure: secure && !plain}
 	plan, planErr := s.cfg.Plan(ctx, q)
 	if planErr != nil {
 		// Keep bounded failure evidence, without recording arbitrary error strings,
@@ -355,7 +405,7 @@ func (s *Server) handle(c net.Conn) {
 		writeError(c, 503)
 		return
 	}
-	s.records[id] = Record{ID: id, Owner: owner, Domain: host, Port: port, Source: source.String(), Plan: plan, Started: time.Now(), Active: true, Result: "OPEN_PENDING"}
+	s.records[id] = Record{ID: id, Owner: owner, Domain: host, Port: port, Source: originalSource.String(), Plan: plan, Started: time.Now(), Active: true, Result: "OPEN_PENDING"}
 	s.mu.Unlock()
 	finish := func(result string, tx, rx uint64) {
 		s.mu.Lock()
@@ -373,7 +423,17 @@ func (s *Server) handle(c net.Conn) {
 		writeError(c, 502)
 		return
 	}
-	upstream, e := s.cfg.Open(ctx, q, plan)
+	var upstream net.Conn
+	if s.cfg.OpenPlan != nil {
+		upstream, plan, e = s.cfg.OpenPlan(ctx, q, plan)
+		s.mu.Lock()
+		r := s.records[id]
+		r.Plan = plan
+		s.records[id] = r
+		s.mu.Unlock()
+	} else {
+		upstream, e = s.cfg.Open(ctx, q, plan)
+	}
 	if e != nil {
 		s.mu.Lock()
 		r := s.records[id]

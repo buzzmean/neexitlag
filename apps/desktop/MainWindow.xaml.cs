@@ -49,7 +49,7 @@ public partial class MainWindow : Window
         if (background) timer.Start();
         Closing += OnClosing;
         StateChanged += (_, _) => { if (WindowState == WindowState.Minimized && preferences.MinimizeToTray) Hide(); };
-        Closed += (_, _) => { timer.Stop(); lifetime.Cancel(); tray.Visible = false; tray.ContextMenuStrip?.Dispose(); tray.Dispose(); trayImage.Dispose(); if (shutdownOnClose) System.Windows.Application.Current.Shutdown(); };
+        Closed += (_, _) => { timer.Stop(); lifetime.Cancel(); chromeRecovery.Dispose(); tray.Visible = false; tray.ContextMenuStrip?.Dispose(); tray.Dispose(); trayImage.Dispose(); if (shutdownOnClose) System.Windows.Application.Current.Shutdown(); };
     }
     internal bool TrayVisible => tray.Visible;
     internal System.Windows.Forms.NotifyIcon TrayIcon => tray;

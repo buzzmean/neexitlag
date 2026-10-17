@@ -25,14 +25,15 @@ import (
 )
 
 type browserRuntime struct {
-	address     string
-	expectedPAC string
-	mu          sync.Mutex
-	server      *browserproxy.Server
-	learned     *flowpolicy.BrowserLearning
-	probes      chan struct{}
-	local       map[string]*localstrategy.LocalStrategyEngine
-	plans       map[flowpolicy.LearnKey]chan struct{}
+	address         string
+	expectedPAC     string
+	recoveryAddress string
+	mu              sync.Mutex
+	server          *browserproxy.Server
+	learned         *flowpolicy.BrowserLearning
+	probes          chan struct{}
+	local           map[string]*localstrategy.LocalStrategyEngine
+	plans           map[flowpolicy.LearnKey]chan struct{}
 }
 
 func newBrowserRuntime() *browserRuntime {
@@ -62,7 +63,7 @@ func (c *Controller) browserProfile(owner browserproxy.Owner) (profilesResult, e
 		return profilesResult{}, errors.New("Chrome owner exited/reused")
 	}
 	p, ok := c.matchApplication(id)
-	if !ok || p.ID != owner.Profile || !browserAuto(p) {
+	if !ok || p.ID != owner.Profile || !chromeProfile(p) || p.Mode != profiles.Auto && p.Mode != profiles.Direct {
 		return profilesResult{}, errors.New("Chrome AUTO profile changed")
 	}
 	network := ""
@@ -70,7 +71,7 @@ func (c *Controller) browserProfile(owner browserproxy.Owner) (profilesResult, e
 		network = n.Fingerprint
 	}
 	c.mu.Lock()
-	enabled := c.enabled && c.settings.Automatic
+	enabled := c.enabled && c.settings.Automatic && p.Mode == profiles.Auto
 	c.mu.Unlock()
 	return profilesResult{profile: p, id: id, network: network, enabled: enabled}, nil
 }
@@ -201,7 +202,9 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 	dest := netip.AddrPortFrom(addresses[0].Unmap(), q.Port)
 	tuple := wp.Tuple{Protocol: "tcp", Source: q.Source, Destination: dest}
 	result := c.browserFlow(current.profile, current.id, tuple, q.Host, current.network)
-	if !current.enabled && !protectedBrowserDomain(q.Host) {
+	if !current.enabled && browserGuardedRule(current.profile, q.Host) {
+		result = flowpolicy.Result{Action: flowpolicy.Block, Fallback: flowpolicy.Required, Source: "browser_recovery_guard", Reason: "protected domain guard while Chrome AUTO is disabled"}
+	} else if !current.enabled && !protectedBrowserDomain(q.Host) {
 		result = flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailOpen, Source: "optimization_disabled", Reason: "user disabled optimization"}
 	}
 	plan := browserproxy.Plan{Network: current.network, Enabled: current.enabled, Policy: result, Destination: dest, Probe: "NOT_PROBED"}
@@ -343,6 +346,7 @@ func (c *Controller) handleBrowser(method string, raw json.RawMessage) (any, err
 			return browserproxy.Snapshot{ReadyProfiles: []string{}, Failures: map[string]uint64{}, Records: []browserproxy.Record{}}, nil
 		}
 		view := c.browser.server.Snapshot()
+		view.RecoveryAddress = c.browser.recoveryAddress
 		view.PolicyReady = wp.ChromeProxyPolicyActive(c.BrowserOwnerSID, c.browser.expectedPAC)
 		sort.Slice(view.Records, func(i, j int) bool { return view.Records[i].ID > view.Records[j].ID })
 		for {
@@ -359,6 +363,7 @@ func (c *Controller) handleBrowser(method string, raw json.RawMessage) (any, err
 		Profile   string `json:"profile_id"`
 		Directory string `json:"directory"`
 		HealthURL string `json:"health_url"`
+		Recovery  string `json:"recovery_address"`
 	}
 	if err := security.Parse(raw, &q); err != nil {
 		return nil, err
@@ -421,7 +426,7 @@ func (c *Controller) handleBrowser(method string, raw json.RawMessage) (any, err
 		return nil, errors.New("selected Chrome AUTO profile and persistent user directory required")
 	}
 	if c.browser.server == nil {
-		server, err := browserproxy.Listen(c.ctx, browserproxy.Config{Address: c.browser.address, Authorize: c.browserOwner, Plan: c.browserPlan, Open: c.browserOpen, TransformApplied: c.browserTransform})
+		server, err := browserproxy.Listen(c.ctx, browserproxy.Config{Address: c.browser.address, Authorize: c.browserOwner, AuthorizeForwarded: c.browserRecoveryOwner, Plan: c.browserPlan, Open: c.browserOpen, TransformApplied: c.browserTransform})
 		if err != nil {
 			return nil, err
 		}
@@ -453,18 +458,27 @@ func (c *Controller) handleBrowser(method string, raw json.RawMessage) (any, err
 	if err != nil {
 		return nil, err
 	}
+	if q.Recovery != "" {
+		args, err = browserproxy.ChromeArgumentsWithRecovery(c.browser.server.Address(), q.Directory, extra, strict, q.Recovery)
+		if err != nil {
+			return nil, err
+		}
+		recovery = append([]string(nil), args...)
+		c.browser.recoveryAddress = q.Recovery
+	}
 	c.browser.expectedPAC = strings.TrimPrefix(args[1], "--proxy-pac-url=")
 	if c.customPath != "" {
 		if err := c.saveBrowserAddress(); err != nil {
 			return nil, err
 		}
 	}
-	return map[string]any{"health_url": healthURL, "arguments": args, "recovery_arguments": recovery, "address": c.browser.server.Address(), "scope": "Chrome launch only; system proxy unchanged", "http3": "HTTP CONNECT uses TCP; QUIC relay transport unchanged", "verification": "origin probe only; authenticated browser page result is not observed"}, nil
+	program, _ := os.Executable()
+	return map[string]any{"recovery_program": program, "recovery_settings": browserproxy.RecoverySettings{GuardFile: c.browserGuardFile(), Primary: c.browser.server.Address(), Domains: extra, Strict: strict, Profile: q.Profile}, "health_url": healthURL, "arguments": args, "recovery_arguments": recovery, "address": c.browser.server.Address(), "scope": "Chrome launch only; system proxy unchanged", "http3": "HTTP CONNECT uses TCP; QUIC relay transport unchanged", "verification": "origin probe only; authenticated browser page result is not observed"}, nil
 }
 
 func (c *Controller) saveBrowserAddress() error {
 	path := filepath.Join(filepath.Dir(c.customPath), "browser-transport.json")
-	raw, _ := json.Marshal(map[string]any{"address": c.browser.address, "ready_profiles": c.browser.server.Snapshot().ReadyProfiles, "expected_pac": c.browser.expectedPAC})
+	raw, _ := json.Marshal(map[string]any{"address": c.browser.address, "ready_profiles": c.browser.server.Snapshot().ReadyProfiles, "expected_pac": c.browser.expectedPAC, "recovery_address": c.browser.recoveryAddress})
 	f, err := os.CreateTemp(filepath.Dir(path), ".browser-transport-*")
 	if err != nil {
 		return err
@@ -489,6 +503,9 @@ func (c *Controller) saveBrowserAddress() error {
 // Restore the existing non-secret local port before normal service startup
 // starts capture. A service restart must not require changing Chrome's PAC.
 func (c *Controller) RestoreBrowserTransport() error {
+	if err := c.publishBrowserGuard(false); err != nil {
+		return err
+	}
 	if c.customPath == "" {
 		return nil
 	}
@@ -500,9 +517,10 @@ func (c *Controller) RestoreBrowserTransport() error {
 		return err
 	}
 	var saved struct {
-		Address       string   `json:"address"`
-		ReadyProfiles []string `json:"ready_profiles"`
-		ExpectedPAC   string   `json:"expected_pac"`
+		Address         string   `json:"address"`
+		ReadyProfiles   []string `json:"ready_profiles"`
+		ExpectedPAC     string   `json:"expected_pac"`
+		RecoveryAddress string   `json:"recovery_address"`
 	}
 	if err = security.Parse(raw, &saved); err != nil {
 		return err
@@ -516,7 +534,8 @@ func (c *Controller) RestoreBrowserTransport() error {
 	defer c.browser.mu.Unlock()
 	c.browser.address = saved.Address
 	c.browser.expectedPAC = saved.ExpectedPAC
-	server, err := browserproxy.Listen(c.ctx, browserproxy.Config{Address: saved.Address, Authorize: c.browserOwner, Plan: c.browserPlan, Open: c.browserOpen, TransformApplied: c.browserTransform})
+	c.browser.recoveryAddress = saved.RecoveryAddress
+	server, err := browserproxy.Listen(c.ctx, browserproxy.Config{Address: saved.Address, Authorize: c.browserOwner, AuthorizeForwarded: c.browserRecoveryOwner, Plan: c.browserPlan, Open: c.browserOpen, TransformApplied: c.browserTransform})
 	if err != nil {
 		return err
 	}
@@ -532,9 +551,45 @@ func (c *Controller) requireChromeActivation() error {
 	c.browser.mu.Lock()
 	defer c.browser.mu.Unlock()
 	for _, p := range c.Profiles.List() {
-		if browserAuto(p) && (c.browser.server == nil || !c.browser.server.Confirmed(p.ID) || !wp.ChromeProxyPolicyActive(c.BrowserOwnerSID, c.browser.expectedPAC)) {
+		if browserAuto(p) && (c.browser.recoveryAddress == "" || c.browser.server == nil || !c.browser.server.Confirmed(p.ID) || !wp.ChromeProxyPolicyActive(c.BrowserOwnerSID, c.browser.expectedPAC)) {
 			return errors.New("Chrome AUTO requires verified CONNECT/PAC activation in Applications before Optimize; no capture state changed")
 		}
 	}
 	return nil
+}
+
+func (c *Controller) browserRecoveryOwner(ctx context.Context, source, local, original, listener netip.AddrPort) (browserproxy.Owner, error) {
+	helper, err := wp.LookupTCPPeer(source, local)
+	if err != nil {
+		return browserproxy.Owner{}, browserproxy.ErrOwnerLookup
+	}
+	executable, err := os.Executable()
+	if c.BrowserRecoveryExecutable != "" {
+		executable = c.BrowserRecoveryExecutable
+	}
+	if err != nil || !strings.EqualFold(helper.Path, executable) {
+		return browserproxy.Owner{}, browserproxy.ErrOwnerProfile
+	}
+	sid, err := wp.ProcessUserSID(helper)
+	if err != nil || sid != c.BrowserOwnerSID {
+		return browserproxy.Owner{}, browserproxy.ErrOwnerSID
+	}
+	return c.browserOwner(ctx, original, listener)
+}
+
+func browserGuardedRule(p profiles.Profile, host string) bool {
+	for _, rule := range append(append([]flowpolicy.Rule{}, p.Rules...), p.BrowserRecoveryRules...) {
+		if rule.Action == flowpolicy.Direct {
+			continue
+		}
+		if len(rule.Domains) == 0 {
+			return true
+		}
+		for _, d := range rule.Domains {
+			if host == d || strings.HasSuffix(host, "."+d) {
+				return true
+			}
+		}
+	}
+	return false
 }

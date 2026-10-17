@@ -59,6 +59,8 @@ func runReady(ctx context.Context, path string, ready func()) error {
 	return clientservice.ServeIPC(ctx, listener, server)
 }
 func main() {
+	recovery := flag.Bool("chrome-recovery", false, "owner-scoped Chrome recovery transport; no service privileges or credentials")
+	recoveryPort := flag.Uint("recovery-port", 0, "persisted IPv4 loopback recovery port")
 	path := flag.String("config", "", "absolute service manifest path")
 	console := flag.Bool("console", false, "run as an interactive service host for diagnostics")
 	flag.Parse()
@@ -73,6 +75,16 @@ func main() {
 		case <-ctx.Done():
 		}
 	}()
+	if *recovery {
+		if *recoveryPort > 65535 {
+			os.Exit(1)
+		}
+		if err := runBrowserRecovery(ctx, uint16(*recoveryPort)); err != nil {
+			slog.Error("Chrome recovery stopped", "class", "RECOVERY_START_FAILED")
+			os.Exit(1)
+		}
+		return
+	}
 	if e := platformRun(ctx, *path, *console); e != nil {
 		slog.Error("client service stopped", "error", e)
 		os.Exit(1)

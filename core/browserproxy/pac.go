@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/netip"
 	"strconv"
 	"strings"
 )
@@ -70,5 +71,28 @@ func ChromeRecoveryArguments(address, profile string, extra []string, strict boo
 	raw = append(raw, []byte(`
 FindProxyForURL=(function(online){return function(url,host){host=host.toLowerCase().replace(/\.$/,'');if(strictProxy)return online(url,host);for(var i=0;i<protectedSuffixes.length;i++){var d=protectedSuffixes[i].toLowerCase().replace(/\.$/,'');if(host===d||host.slice(-(d.length+1))==='.'+d)return online(url,host);}return 'DIRECT';};})(FindProxyForURL);`)...)
 	args[1] = prefix + base64.StdEncoding.EncodeToString(raw)
+	return args, nil
+}
+
+// A separately supervised, owner-scoped CONNECT process is the ordinary-origin
+// recovery path. Never add a bare DIRECT alternative: that bypasses attribution
+// and leaves Chrome's bad-proxy cache skipping the healthy origin planner.
+func ChromeArgumentsWithRecovery(address, profile string, extra []string, strict bool, recovery string) ([]string, error) {
+	args, err := ChromeArgumentsGuarded(address, profile, extra, strict)
+	if err != nil {
+		return nil, err
+	}
+	endpoint, err := netip.ParseAddrPort(recovery)
+	if err != nil || !endpoint.Addr().Is4() || !endpoint.Addr().IsLoopback() || endpoint.Port() == 0 || recovery == address {
+		return nil, fmt.Errorf("distinct IPv4 loopback recovery endpoint required")
+	}
+	const prefix = "--proxy-pac-url=data:application/x-ns-proxy-autoconfig;base64,"
+	script, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(args[1], prefix))
+	if err != nil {
+		return nil, err
+	}
+	script = append(script, []byte(fmt.Sprintf(`
+FindProxyForURL=(function(primary){return function(url,host){host=host.toLowerCase().replace(/\.$/,'');var p=primary(url,host);if(strictProxy)return p;for(var i=0;i<protectedSuffixes.length;i++){var d=protectedSuffixes[i].toLowerCase().replace(/\.$/,'');if(host===d||host.slice(-(d.length+1))==='.'+d)return p;}return p+'; '+p.slice(0,p.lastIndexOf(':')+1)+'%d';};})(FindProxyForURL);`, endpoint.Port()))...)
+	args[1] = prefix + base64.StdEncoding.EncodeToString(script)
 	return args, nil
 }

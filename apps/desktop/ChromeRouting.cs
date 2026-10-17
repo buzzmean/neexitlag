@@ -1,7 +1,9 @@
 using System.Diagnostics;
+using System.Text.Json;
 using System.Windows;
 namespace Neexitlag.Desktop;
 public partial class MainWindow {
+ readonly ChromeRecovery chromeRecovery=new();
  bool chromeActivating,chromeMonitoring;
  static bool IsChrome(Profile profile)=>profile.Executables.Any(p=>p.Replace('\\','/').Split('/').Last().Equals("chrome.exe",StringComparison.OrdinalIgnoreCase));
  async void DisableChromeSites(object sender,RoutedEventArgs e)=>await Execute(async()=>{
@@ -17,7 +19,7 @@ public partial class MainWindow {
  async Task EnableOptimizationAsync(){
   var status=await model.ChromeStatusAsync(lifetime.Token);
   foreach(var row in model.Applications.Where(r=>r.Profile.Mode=="AUTO"&&IsChrome(r.Profile)).ToArray()){
-   if(!status.ReadyProfiles.Contains(row.Profile.Id)){await ActivateChromeSites(row);if(!model.Optimizing)return;}
+   if(status.RecoveryAddress==""||!status.ReadyProfiles.Contains(row.Profile.Id)){await ActivateChromeSites(row);if(!model.Optimizing)return;}
   }
   await model.OptimizeAsync(true,lifetime.Token);
  }
@@ -46,6 +48,8 @@ public partial class MainWindow {
   if(chromeActivating||chromeMonitoring||!ChromePolicy.Monitored)return;
   chromeMonitoring=true;
   try{
+   try{await chromeRecovery.StartAsync(lifetime.Token);model.ApplyRecovery(await chromeRecovery.SnapshotAsync(lifetime.Token));}
+   catch(Exception error)when(error is IOException or System.Net.Http.HttpRequestException or ChromeActivationException or JsonException){model.ApplyRecovery(new());model.SetNotice(Text.Get("ChromeRecoveryUnavailable"));}
    if(!model.Available){ChromePolicy.Suspend(wasOptimizing);return;}
    if(!ChromePolicy.Applied){
     foreach(var p in model.Applications.Where(r=>r.Profile.Mode=="AUTO"&&IsChrome(r.Profile)).Select(r=>r.Profile.Copy()).ToArray()){ChromePolicy.Guard(p);await model.RestoreChromeAsync(p,lifetime.Token);}
@@ -54,12 +58,10 @@ public partial class MainWindow {
    var status=await model.ChromeStatusAsync(lifetime.Token);
    if(!status.Listening){
     ChromePolicy.Suspend(model.Optimizing);
-    if(model.Snapshot?.Backend.Ready==true){
-     // A live capture with a failed listener needs a per-Chrome recovery mode;
-     // never disable other applications or grant OpenAI a DIRECT path.
-     foreach(var p in model.Applications.Where(r=>r.Profile.Mode=="AUTO"&&IsChrome(r.Profile)).Select(r=>r.Profile.Copy()).ToArray()){ChromePolicy.Guard(p);await model.RestoreChromeAsync(p,lifetime.Token);}
-     model.SetNotice(Text.Get("ChromeActivationFailed"));
-    }
+    // The stable PAC already has the owner-scoped recovery CONNECT endpoint.
+    // Native capture never sees opaque ordinary bypass traffic; guarded origins
+    // have no secondary endpoint. Do not toggle policy or disable other apps.
+    model.SetNotice(Text.Get("ChromeRecoveryActive"));
    }else if(ChromePolicy.Suspended){
     var resume=ChromePolicy.Resume();
     if(resume&&!model.Optimizing)await model.RestoreOptimizationAsync(true,lifetime.Token);
@@ -89,7 +91,10 @@ public partial class MainWindow {
   try{
    ChromePolicy.Guard(original);installed=true;
    // Prepare binds the listener without changing routing, profiles or Optimize.
-   launch=await model.PrepareChromeAsync(original,directory,lifetime.Token);
+   await chromeRecovery.StartAsync(lifetime.Token);
+   launch=await model.PrepareChromeAsync(original,directory,lifetime.Token,chromeRecovery.Address);
+   launch.RecoverySettings.Executable=exe;
+   await chromeRecovery.ConfigureAsync(launch.RecoverySettings,lifetime.Token);
    ChromePolicy.Install(launch.Arguments,launch.RecoveryArguments);installed=true;
    // Never restore real user tabs before AUTO is committed: those CONNECTs
    // would race a still-DIRECT profile and get 502 despite a good readiness tab.

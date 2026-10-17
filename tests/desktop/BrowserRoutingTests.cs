@@ -86,6 +86,12 @@ public class BrowserRoutingTests {
   var launch=new BrowserLaunch{Arguments=[@"--user-data-dir=C:\Users\test\Chrome","--proxy-pac-url=data:old-inline-pac","--proxy-bypass-list=<-loopback>","--no-proxy-server","--no-first-run"]};
   Assert.Equal(new[]{@"--user-data-dir=C:\Users\test\Chrome","--no-first-run"},launch.UserArguments());
  }
+ [Fact]public void RecoveryShowsOnlyRealDirectEvidenceAndDropsUnavailablePrimaryClaims(){
+  var vm=new DesktopViewModel(new FakeService());
+  vm.ApplyBrowser(new(){Listening=true,Records=[new(){Domain="chatgpt.com",Active=true,Plan=new(){Policy=new(){Action="RELAY_REQUIRED"}}}]});
+  vm.ApplyRecovery(new(){Listening=true,Records=[new(){Domain="ordinary.example",EvidenceSource="RECOVERY_DIRECT",SentBytes=31,ReceivedBytes=64,Plan=new(){Policy=new(){Action="DIRECT"},Probe="RECOVERY_DIRECT_SOCKET"}},new(){Domain="forged.example",EvidenceSource="RECOVERY_DIRECT",Plan=new(){Policy=new(){Action="RELAY_REQUIRED"}}}]});
+  var record=Assert.Single(vm.BrowserDomains);Assert.Equal("ordinary.example",record.Domain);Assert.Equal("DIRECT",record.Route);Assert.DoesNotContain("PASS",record.Outcome);
+ }
  sealed class BrowserService:IServiceClient{
   public FakeService Fake=new();public bool ConfirmReady=true;
   public Task<T> Call<T>(string method,object? payload=null,CancellationToken cancellationToken=default){

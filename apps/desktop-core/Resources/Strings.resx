@@ -583,4 +583,6 @@
   <data name="ChromeRollbackFailed" xml:space="preserve"><value>Chrome AUTO не активирован. Защитный PAC сохранён, но восстановление профиля не подтверждено. Проверьте доступность службы.</value></data>
   <data name="ChromeGuardFailed" xml:space="preserve"><value>Не удалось установить защитный Chrome PAC. Активация отменена; маршруты не изменены. Проверьте управление Chrome policy.</value></data>
   <data name="ChromeAutomaticDisabled" xml:space="preserve"><value>Для Chrome AUTO включите автоматическую маршрутизацию в настройках. Активация отменена; защитный PAC сохранён.</value></data>
+  <data name="ChromeRecoveryActive" xml:space="preserve"><value>Chrome: резервный DIRECT для обычных сайтов. Защищённые сайты ожидают восстановления службы.</value></data>
+  <data name="ChromeRecoveryUnavailable" xml:space="preserve"><value>Резервный транспорт Chrome не готов. Основной маршрут не изменён; проверьте обновление service/GUI и diagnostics.</value></data>
 </root>

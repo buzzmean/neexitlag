@@ -69,7 +69,7 @@ try {
     $sid=$rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
     if($sid -notin @('S-1-5-18','S-1-5-32-544',$owner)){throw "Unexpected access grant $sid"}
     if($sid -eq $owner) {
-     if($item.FullName -ne $target -and $item.FullName -ne (Join-Path $target 'ipc.token')){throw 'GUI owner gained credential/state access'}
+     if($item.FullName -ne $target -and $item.FullName -ne (Join-Path $target 'ipc.token') -and $item.FullName -ne (Join-Path $target 'neexitlag-service.exe') -and $item.FullName -ne (Join-Path (Join-Path $target 'state') 'browser-recovery-guard.json')){throw 'GUI owner gained credential/state access'}
      if($rule.InheritanceFlags -ne 'None' -or ($rule.FileSystemRights -band [Security.AccessControl.FileSystemRights]::Write)){throw 'GUI access became writable/inheritable'}
     }
    }

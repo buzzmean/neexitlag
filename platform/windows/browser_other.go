@@ -21,5 +21,3 @@ func (*WinDivertBackend) BrowserTransformApplied(ProcessIdentity, netip.AddrPort
 func ProcessUserSID(ProcessIdentity) (string, error) { return "", ErrUnavailable }
 
 func ChromeProxyPolicyActive(string, string) bool { return false }
-
-func NotifyChromePolicyChanged() error { return ErrUnavailable }

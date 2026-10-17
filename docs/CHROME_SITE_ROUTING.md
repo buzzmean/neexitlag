@@ -1,290 +1,192 @@
 # Chrome AUTO by origin — PR #8
 
-No extension is required. This mode is a **Chrome-only loopback HTTP CONNECT/PAC
-transport**. It does not change Windows/WinHTTP/WinINET proxy settings, routes,
-DNS servers, certificates, credentials or the VPS. The existing authenticated QUIC
-relay pool and same-session lease renewal are used without protocol changes.
+No extension, MITM, certificate replacement, Windows proxy, default route or DNS
+server change is required. Initial activation may gracefully restart Chrome.
+Production VPS, credentials, relay tickets and the QUIC/mTLS `/3` lease protocol
+are unchanged.
 
-## Why the previous implementation was wrong
+## Confirmed regression and fix
 
-Chrome AUTO could select an app-wide optimizer winner or a configured YouTube
-baseline before reading SNI/Host. Now every native Chrome AUTO TCP connection
-waits for domain classification and its decision is pinned. A YouTube baseline
-cannot authorize DIRECT+ for OpenAI or ordinary sites. Standalone ChatGPT/Codex,
-Edge and Discord keep their existing application policies.
+The real ff9585a report had `browser.status.listening=false`, no VK CONNECT row,
+and native `BLOCK / POLICY_BLOCK / ECH_OUTER_SNI_ONLY`. AUTO could be published
+before Chrome had a working origin transport. Missing usable SNI was then treated
+as a failed protected open. Chrome DNS/53 also entered the opaque relay policy,
+including requests to a LAN resolver. A stale live-PID FLOW association could
+mistake a reused service socket for Chrome and recursively intercept it.
 
-SNI alone cannot guarantee origin routing: ECH hides the inner name, and HTTP/2
-can send another origin over a connection whose first SNI was different. Request
-metadata alone cannot change that connection's egress safely. Native opaque TCP
-uses authenticated required relay (missing SNI is not an open failure); opaque Chrome UDP uses authenticated required relay,
-never a TCP proof or DNS/IP guess. For complete origin attribution, activate the
-Chrome CONNECT/PAC mode below.
+Activation now binds the listener, installs an owned mandatory Chrome policy,
+and requires a one-use nonce actually requested by Chrome under that policy.
+The service checks TCP owner, executable, creation identity and owner SID, plus
+the current owner-SID policy and fresh local strategy/network prerequisites.
+Only then does the GUI commit AUTO/capture and restore real user tabs. IPC success,
+a listening port, process exit=0 or a false readiness ACK cannot certify AUTO.
+Failure preserves a protected-domain guard, restores a safe Chrome profile and
+reports an error; domain rules survive in `browser_recovery_rules`. Other apps
+are not globally disabled. A legacy AUTO without this activation is rejected.
 
-## Activate without an extension
+Opaque native flows retain their explicit authenticated required-relay route;
+missing SNI is not itself an upstream failure. ECH is not globally disabled.
+DNS/53 bootstrap stays on its existing DIRECT path without granting a 443 bypass.
+TCP resolves the actual tuple owner before a cached FLOW association. Only an
+internally reserved exact DIRECT+ delegation overrides service self exclusion.
+Cleanup retains that reservation even before its first SYN reaches capture;
+otherwise a real transform could lose its original CONNECT attribution.
 
-1. Update/build/install the Windows service and GUI using the existing upgrade
-   procedure (preserve ProgramData identity/credentials).
-2. Select Chrome by its full executable path in **Applications**.
-3. Click **Chrome: AUTO по сайтам** (the ordinary AUTO button uses the same path
-   for Chrome). Save unfinished work and accept a graceful Chrome restart.
-4. The GUI configures only the current user's **Google Chrome ProxySettings**
-   policy and launches Chrome with the same persistent default user-data directory,
-   restoring the previous session. It never kills processes or copies/deletes the
-   Chrome profile. Windows proxy remains untouched. Foreign/organization proxy
-   policy is refused rather than overwritten.
-5. **Отключить PAC Chrome** now switches Chrome AUTO back to DIRECT and retains
-   an owned mandatory protected-domain guard; OpenAI never gets DIRECT fallback.
-   It does not blindly remove security policy. Foreign policies are refused. The default standard Google Chrome profile is supported by the GUI;
-   custom/portable user-data directories need an explicit launch configuration.
+## Stable online and recovery transport
 
-An inline `data:` PAC has no network download failure that silently falls back to
-DIRECT. The owned Chrome policy also sets `ProxyPacMandatory=true`, so a PAC
-evaluation error is fail-closed. Online policy returns only the local proxy for every origin, including DIRECT.
-DIRECT upstreams never need VPS availability. There is no online `; DIRECT`
-alternative: Chrome otherwise caches a failed proxy and keeps bypassing the
-healthy transport after restart. The owned **separate recovery policy** returns
-DIRECT for ordinary origins while retaining strict proxy guards for OpenAI,
-YouTube and explicit non-DIRECT domains. Non-domain rules retain strict mode. Each canonical
-hostname uses a distinct SHA256-derived `*.localhost` proxy name. Chrome resolves
-these names internally to loopback, without system DNS overrides. Distinct proxy
-identities partition Chrome connection pools, including HTTP/2 coalescing. The
-local service reads the CONNECT hostname **before any origin connection or client
-TLS bytes** leave the machine. TLS stays end-to-end between Chrome and the site.
+Changing an HKCU value does not prove that an already-running Chrome applied it.
+Native Windows tests observed `ERR_PROXY_CONNECTION_FAILED` and no Group Policy
+notification even after a queued refresh. Runtime recovery therefore does **not**
+depend on `RefreshPolicy`, `gpupdate`, a Chrome policy reload or browser restart.
 
-The endpoint admits only current, selected Chrome process identities belonging to
-the installation's owner SID, using the existing bounded TCP owner table and
-process discovery. It is not an unauthenticated public/local-user relay endpoint.
+The mandatory inline PAC has a distinct SHA256-derived `*.localhost` proxy name
+for each canonical origin. This partitions Chrome HTTP/2 connection pools even
+when origins share an address/certificate. The policy contains:
 
-The non-secret loopback port is persisted in the existing service state directory
-and restored **before** automatic capture startup. Verified profile IDs are
-persisted with this non-secret port in the ACL-protected state directory. It stays stable across service
-restarts. While the GUI is running, unavailable IPC switches the owned policy to recovery.
-It restores the online policy (and the prior Optimize state) when the listener
-returns; Chrome remains running. A live capture with a failed listener degrades
-only Chrome to guarded recovery and shows an activation error. Without the GUI,
-a stopped proxy is unavailable until service restart or explicit GUI recovery;
-no automatic browser bypass is advertised. Unknown origins selected by reachability learning are
-best-effort AUTO, not an offline security rule; use an explicit required rule for
-a domain that must remain protected when the service is absent. Optimization disable/re-enable closes
-only helper-owned connections so future connections converge without changing an
-established socket's egress. Initial PAC activation may restart Chrome, as allowed
-for this mode. Other applications and their sockets are untouched.
+* OpenAI, YouTube and explicit protected domain rules: **primary CONNECT only**.
+* Ordinary/unknown origins: **primary CONNECT; owner-scoped recovery CONNECT**.
+* Non-domain non-DIRECT rules conservatively retain primary-only behavior.
 
-## Automatic decisions
+There is no bare `; DIRECT` fallback. It would let opaque TLS bypass attribution
+and leave Chrome's bad-proxy cache avoiding the healthy planner after restart.
+Instead, the GUI supervises a separate standard-user instance of the installed
+`neexitlag-service.exe --chrome-recovery`. Its loopback port is persisted. This
+mode never reads the service manifest, device key, token, driver or certificates.
+Its only configuration channel is the GUI's inherited stdin pipe; EOF stops it.
+Each endpoint has the existing 256-connection / 512-record bounds and 16 KiB
+header limit. Headers and diagnostics never include HTTPS content or TLS keys.
 
-* `chatgpt.com`, `openai.com`, `oaistatic.com`, `oaiusercontent.com`, `chat.com` and
-  their subdomains: **RELAY_REQUIRED**, default VPS-01. Domain suffix boundaries
-  are exact; `openai.com.evil.example` does not match. These rules cannot be
-  downgraded by a learned DIRECT result or another domain's custom rule.
-* YouTube/Googlevideo and the existing curated YouTube asset domains: the existing
-  operator-confirmed **DIRECT+** strategy, bound to the same network and revision.
-  It is reused only for these origins, not all Chrome. The native WinDivert engine
-  handles an exact delegated upstream tuple under its original Chrome identity.
-* Unknown ordinary origins start with **DIRECT**. A bounded synthetic `HEAD /`
-  request checks a real HTTP status and normal TLS certificate validation without
-  cookies, authentication, path/query or page-content inspection. On a network/TLS
-  transport failure it tries a domain-only clone of the existing verified local
-  strategy, then authenticated relay. No local candidate is invented as a winner;
-  missing candidates are skipped. DIRECT+ success also requires actual native
-  modified-packet/byte evidence. A TCP ACK alone is never success.
-* An HTTP 4xx/5xx application/WAF/auth response is not PASS and does not trigger
-  repeated login/egress retries. Certificate trust failures are left to Chrome;
-  no certificate exception or MITM is added in production.
+The recovery endpoint validates the real selected Chrome executable, PID/birth
+and owner SID. It never accepts OpenAI/YouTube/custom protected targets, including
+when the primary service is healthy. For an ordinary new connection it first
+tries the primary origin planner. The primary accepts forwarded metadata only
+from the expected installed helper executable under the owner SID, then verifies
+the original live Chrome TCP socket independently. Forwarded PID/path assertions
+are never trusted. Client-supplied forwarding headers are rejected.
 
-Trial evidence includes route, HTTP status/failure class, elapsed time and actual
-transform proof. Planning/timeouts remain visible as failures, not missing rows.
+Only failure to connect to the local primary, before sending application bytes,
+permits emergency ordinary DIRECT. An HTTP rejection, timeout after connecting,
+required-relay failure or established stream error cannot become DIRECT. Existing
+TCP streams keep their original upstream and are never replayed/migrated. New
+connections use the healthy primary even if Chrome still caches the secondary
+proxy. The GUI records suspended/resumed state without replacing the live PAC.
 
-Trials are scoped by application, exact domain, port/scheme, network and policy
-revision. They use at most three real attempts, 1.5 seconds each, four probe
-workers, a 32-origin pending bound and a 512-entry expiring cache. Successful
-origin evidence lasts 15 minutes; terminal failures cool down for one minute.
-Other domains/networks do not inherit the result. Only new upstream connections
-use the selected route; application bytes are never replayed across routes.
-The transport admits at most 256 client connections, retains at most 512 metadata
-records and bounds headers to 16 KiB. IPC views report truncation explicitly.
+Before each emergency DIRECT open, the helper reads an atomic, bounded (1 MiB)
+non-secret `state/browser-recovery-guard.json`. Policy transactions first publish
+a deny guard and then the complete resulting profiles. MANUAL/BLOCK, a deleted
+profile, a new protected domain, missing/invalid state or an interrupted update
+cannot retain an old DIRECT grant. Only SYSTEM/admins write this new file; the
+installation owner receives read access to it. Existing credentials/state ACLs
+are not broadened. Only the installed executable gains owner RX so the helper
+can run without elevation; it remains writable only by SYSTEM/admins.
 
-## Evidence and limits
+The helper exports actual DIRECT socket bytes through an owner-SID and random
+read-only-token protected loopback metadata endpoint. The private pipe delivers
+that token to the GUI; it is not a relay credential. GUI and acceptance merge
+these records with primary evidence and distinguish `RECOVERY_DIRECT`. Socket
+bytes are not represented as captured WinDivert packets. While the primary is
+unavailable the GUI reports it and shows actual recovery records. Keep the GUI
+running for the independent recovery transport. If both local processes are
+unavailable, proxy traffic is unavailable; protected traffic never bypasses it.
 
-The Applications screen lists **domain, route, reason and origin-probe result**.
-A connected tunnel is `TCP_ESTABLISHED_HTTP_RESULT_UNKNOWN`, not page PASS.
-DIRECT+ stays "not confirmed" until real WinDivert transform evidence exists.
-Failed required opens show BLOCK. No request bodies, cookies, page contents or
-TLS keys enter diagnostics.
+## Automatic per-origin decisions
 
-* A successful origin HEAD probe does **not** prove that a logged-in web app,
-  streamed video or every API path succeeds. The product does not claim this.
-* Chrome HTTPS and WebSocket TLS remain encrypted; HTTP/2 runs inside CONNECT.
-  This HTTP CONNECT mode uses TCP, so browser HTTP/3 falls back to TCP. The relay's
-  QUIC/mTLS `/3` transport and other applications' UDP are unchanged. This is not
-  a claim of native per-origin HTTP/3 support.
-* Chrome CONNECT carries the hostname even with ECH/DoH. Origin resolution uses
-  the service's existing system resolver; DNS servers are not changed. DNS
-  privacy and bypass of ISP DNS poisoning are not promised. Resolver failures are
-  explicit. Private/literal origins do not trigger automatic Internet probes.
-* IPv4 is preferred for native DIRECT+. IPv6 DIRECT/relay can use existing TCP
-  transports when available; native IPv6 DIRECT+ is unsupported. No transparent
-  IPv6 runtime support is claimed from cross-builds.
-* Chrome launched without the PAC/policy is not equivalent to this mode. Native
-  SNI guards cannot prove HTTP/2 inner-origin behavior; the GUI's domain table is
-  evidence only for actual CONNECT traffic. Managed/foreign proxy conflicts are
-  refused. Keep the service installed while its Chrome policy is active.
+* `chatgpt.com`, `openai.com`, `oaistatic.com`, `oaiusercontent.com`, `chat.com`,
+  including exact subdomain boundaries: **RELAY_REQUIRED VPS-01**. A learned
+  DIRECT result or another domain's rule cannot downgrade these origins.
+* YouTube/Googlevideo and the existing curated asset domains: the operator's
+  network-confirmed **DIRECT+** baseline. Exact delegated upstream tuples use
+  Chrome's identity in the existing native engine. The GUI requires real modified
+  packet/byte evidence, not strategy intent. Other origins do not inherit it.
+* Unknown origins: real `HEAD /` with normal TLS validation, then a domain-scoped
+  verified local candidate and authenticated relay on network failures. At most
+  three 1.5-second attempts, four workers, 32 pending origins, 500 ms admission,
+  512 cached entries. Cache keys include application, exact domain, port/scheme,
+  network and policy revision; successes last 15 minutes, failures cool down for
+  one minute. A TCP ACK is not success. HTTP/WAF/auth errors are not a page PASS.
+  Failed synthetic trials alone cannot force ordinary browsing onto a dead VPS.
 
-## Automated acceptance (no long manual voice/browser test)
+Unknown learned AUTO is best-effort, not an offline security rule. Use an
+explicit required domain rule for protection during outage. A HEAD success does
+not prove login, media playback, every API path or public ISP availability.
 
-`TestChromePACRealHTTPSOriginIsolation` runs an actual isolated Chrome/Chromium,
-HTTP/2 TLS target and authenticated relay on loopback. Nine origins (the seven public hostnames plus ordinary/blocked test domains) share one IP
-and certificate. A target nonce returned to browser JavaScript is mandatory;
-route intent, TCP ACK or JSON alone cannot PASS. An artificially impaired unknown
-origin rejects local source traffic but accepts the relay's distinct source IP.
-Public OpenAI/YouTube and the production VPS are never contacted by the fixture.
+CONNECT exposes the origin hostname without decrypting TLS, including with ECH
+and Chrome DoH. Upstream resolution uses the existing system resolver; DNS
+privacy/poisoning bypass is not promised. CONNECT carries TCP/HTTPS/WebSocket/H2;
+browser HTTP/3 falls back to TCP in this mode. Other apps' UDP and the relay's
+QUIC/mTLS transport are unchanged. Native per-origin HTTP/3 and IPv6 DIRECT+ are
+not claimed. Foreign/organization proxy policies are refused. The default Chrome
+user-data directory is supported; portable/custom directories need an explicit
+configuration. Use the GUI as the installation's normal owner user.
 
-`TestChromeSitesNativeAcceptance` additionally runs the actual Windows service
-controller, TCP owner/SID checks, signed WinDivert and the existing disorder
-strategy. It requires positive native modified packet/byte counters for YouTube,
-real HTTP(S) responses, authenticated protected traffic, ordinary DIRECT and
-complete evidence. It disables/re-enables optimization, stops the full service
-controller/WinDivert backend, verifies ordinary HTTPS during outage with OpenAI
-fail-closed, restarts the controller on the saved port, and verifies new responses
-in the **same Chrome process**. The target also verifies real ECH/GREASE ClientHellos (bounded ephemeral parsing,
-no payload logs). Windows Chrome runs with its normal sandbox; only
-the root Linux container needs `--no-sandbox`. Every YouTube CONNECT must have its own
-positive native transform evidence. Missing browser/driver/proof cannot be
-reported as PASS.
-The loopback fixture uses 1000-byte socket writes to model Internet MTU; its
-jumbo-MSS packets otherwise exceed the existing engine’s 1500-byte packet bound.
-These are real packets, not synthetic counters; TLS features remain enabled.
-Loopback packet observation is enabled only through a test-binary constructor,
-not a production flag. The Chrome acceptance uses a temporary browser directory
-and a pinned ephemeral test certificate. It also exercises actual current-user
-Chrome PAC policy without the proxy launch flags; the disposable CI user’s value
-is removed afterward, and any foreign policy is refused. Production never enables CDP or ignores
-certificate errors.
+## Automated verification
+
+`TestChromeSitesNativeAcceptance` uses real Chrome with its normal sandbox and
+actual current-user policy, signed WinDivert, a TLS/H2 target and authenticated
+relay. Nine controlled origins share one address/certificate: all seven reported
+hostnames plus ordinary/blocked targets. Real browser-returned per-stage nonces,
+relay source, ECH/GREASE ClientHellos, per-connection native DIRECT+ counters and
+zero protected DIRECT attempts are mandatory. The same Chrome survives Optimize
+off/on and a complete controller/backend stop/restart. A real independent helper
+runs with Administrator membership/optional privileges removed. Only the helper
+TEST BINARY injects controlled DNS; production has no such resolver flag. No
+Windows hosts/DNS or production VPS change is made by this fixture.
+
+The target uses actual 1000-byte socket writes to model Internet MTU: loopback's
+jumbo MSS would otherwise exceed the engine's existing 1500-byte packet bound.
+No TLS feature is disabled and no counters are fabricated. Every phase's evidence
+is retained. Regression tests cover pre-SYN alias cleanup, independent flows,
+stale tuple owners, policy activation failure, guard transactions/removal,
+forged forwarding metadata, protected rejection, no replay/fallback after primary
+rejection, and recovery DIRECT byte provenance. Linux Chromium tests also run
+real controlled HTTPS/H2. These are controlled-origin tests, not Internet PASS.
+
+Build E2E binaries first, then the native fixture (elevated only for WinDivert):
 
 ```powershell
 $env:NEEXITLAG_TEST_DRIVER_DIR=(Resolve-Path .e2e/windivert).Path
+$env:NEEXITLAG_TEST_BROWSER_RECOVERY=(Resolve-Path bin/windows-e2e/browser-recovery-acceptance.exe).Path
 go test -v -timeout 120s ./platform/windows -run '^TestChromeSitesNativeAcceptance$'
 ```
 
-The native acceptance is enabled automatically after the existing driver download
-in Verify CI. Domain-policy, cache/cooldown/stale-evidence, PAC isolation,
-certificate validation, stream preservation and shutdown regressions run in the
-normal Go suite. CI loopback PASS is not public Internet performance evidence.
+## Windows update and short public rerun
 
-
-## Regression ff9585a: confirmed cause and activation transaction
-
-The real Windows report showed `browser.status.listening=false`, no VK CONNECT
-record, and native `BLOCK / POLICY_BLOCK / ECH_OUTER_SNI_ONLY`. AUTO had been
-published before CONNECT/PAC activation. `ResolveDeferredDecision` then treated
-missing usable SNI as a failed protected open and blocked even an explicit
-opaque-name authenticated relay route. Modern Chrome can send ECH GREASE too;
-we do not guess whether its inner name is readable or disable ECH globally.
-A second code defect routed Chrome DNS/53 through the opaque relay policy,
-including queries to the LAN resolver. DNS bootstrap now preserves its existing
-DIRECT path and does not grant any TCP/443 or QUIC bypass.
-
-Activation now proceeds in this order:
-
-1. Save/quit Chrome normally and install a mandatory fail-closed OpenAI recovery
-   guard; no profile or global Optimize change yet.
-2. `browser.prepare` binds the bounded loopback listener and returns a 128-bit,
-   45-second, one-use readiness URL. Bind failure leaves routing unchanged.
-3. Install the owned current-user online PAC. An isolated, empty headless Chrome
-   profile requests the readiness URL through the **actual policy**, without proxy
-   launch flags; real user tabs are not restored before AUTO is ready. TCP owner,
-   creation identity, executable profile and owner SID are checked before proof.
-4. `browser.confirm` verifies that exact nonce. IPC reachability, a listening port
-   or the GUI's own TCP connection cannot certify Chrome readiness.
-5. Publish Chrome AUTO, enable capture, then launch/restore the real user profile. A new AUTO profile and Optimize with
-   an unactivated Chrome AUTO are rejected before capture state changes. Optimize
-   also verifies the actual owner-SID HKCU mandatory online PAC, not merely a
-   listening port or persisted readiness ID. The GUI
-   checks command results and cannot label a rejected command as success.
-6. Failure installs the guarded recovery PAC and restores a safe Chrome profile
-   (legacy/broken AUTO becomes DIRECT). Domain rules are preserved in
-   `browser_recovery_rules` and restored on AUTO reactivation; the guarded recovery
-   profile must not itself defer ordinary ECH back into opaque BLOCK. Confirmed
-   activation proof is revoked when leaving AUTO. Other applications/Optimize are not
-   globally disabled. OpenAI stays blocked/required through the guard, never
-   DIRECT. An incomplete rollback gets an explicit error, not PASS.
-
-Native TCP resolves the current exact tuple owner before trusting cached FLOW
-associations. A still-live old process is not proof of port ownership: ephemeral
-port reuse must not turn service DIRECT/CONNECT sockets into recursive Chrome
-interception. Only exact owned DIRECT+ delegations override the service exclusion.
-
-`browser.status.failures` now distinguishes TCP owner lookup, token access, SID
-mismatch, profile mismatch, malformed/timeout proxy headers, DNS planning,
-upstream failure classes and capacity. No credentials, arbitrary OS error strings,
-HTTP headers or payload are logged. Failed ordinary synthetic HEAD probes are
-not proof that the browser must use an unavailable relay; only confirmed origin
-results authorize automatic escalation. Explicit required rules are untouched.
-
-Windows Chrome's `PolicyLoaderWin` watches `RegisterGPNotification`, rather
-than individual registry writes. Every owned GUI policy change now queues
-`RefreshPolicyEx(false, RP_FORCE)` for the **current user**: a normal refresh
-can skip processing when the GPO version is unchanged by our owned registry write.
-It does not refresh machine policy or launch `gpupdate.exe`. A successful queue operation is not readiness:
-the native acceptance waits for a real nonce response whose TCP owner at the
-target is Chrome itself before measuring ordinary DIRECT recovery. Notification
-failure remains an explicit error with the ownership journal intact for rollback.
-Chromium implementation: [PolicyLoaderWin](https://github.com/chromium/chromium/blob/main/components/policy/core/common/policy_loader_win.cc).
-
-The strict pre/post-restart assertions also exposed a separate attribution race:
-50 ms TCP cleanup could remove an internally reserved upstream alias before its
-first SYN reached capture. The transform then happened but was attributed to the
-service-created source tuple instead of its original CONNECT. Cleanup now retains
-both live delegated reservations and captured entries, with the existing bounded
-tables and consistent lock order. A deterministic native regression runs cleanup
-between reservation and SYN for independent connections; counters cannot be borrowed.
-Wire behavior and strategy are unchanged by this metadata fix.
-
-## Windows update after ff9585a
-
-Close Chrome and the old GUI normally first. In an elevated PowerShell at the
-repository root (no uninstall, enrollment or VPS action):
+Close Chrome and the old GUI normally first. In elevated PowerShell at repo root:
 
 ```powershell
+$ErrorActionPreference='Stop'
 git switch codex/direct-plus-flowseal
 git pull --ff-only origin codex/direct-plus-flowseal
 if ($LASTEXITCODE) { throw 'git pull failed' }
 git rev-parse HEAD
 .\tools\windows\build-e2e.ps1
 .\tools\windows\build-desktop.ps1
-Stop-Service neexitlag
-(Get-Service neexitlag).WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
-Copy-Item .\bin\windows-e2e\neexitlag-service.exe "$env:ProgramData\neexitlag\neexitlag-service.exe" -Force
-Start-Service neexitlag
-(Get-Service neexitlag).WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
+.\tools\windows\update-service.ps1
 ```
 
-Run **the newly built** `bin/release/NeExitLag.exe` as the installation's normal
-Windows user. Select Chrome → **Chrome: AUTO по сайтам** and allow its graceful
-restart/readiness tab. Merely enabling Optimize is not Chrome activation. On a
-legacy installation without a verified PAC state, automatic capture intentionally
-refuses to arm and reports the missing Chrome activation. Existing identity,
-certificates, profiles, local strategy and all VPS files remain intact.
+The updater keeps a persistent binary/ACL backup, replaces only the executable,
+grants owner RX only on it, checks SCM/IPC and rolls back binary/ACL on failure.
+It does not reinstall, enroll, read out credentials or change identity/driver/
+state ACLs. No SSH/VPS action is performed. Then run the newly built
+`bin/release/NeExitLag.exe` as the normal owner user. Select Chrome →
+**Chrome: AUTO по сайтам**, allow the initial graceful restart and keep the GUI
+running. Updating only the service while keeping the old GUI is insufficient.
+Disabling/removing Chrome policy retains the protected guard; Chrome restart may
+be needed to fully apply an explicit policy removal. No user process is killed.
 
-The controlled-origin CI tests are transport/routing evidence, not public
-VK/YouTube/OpenAI availability or logged-in app/video playback acceptance. The
-reported public-site Windows failures are not declared PASS from these fixtures.
-
-After GUI activation, a short public-site check (one isolated Chrome process,
-normal sandbox/TLS, **actual HKCU policy**, no proxy command-line override) is:
+After activation, one short public check (two 30-second rounds, same diagnostic
+Chrome process across local SCM restart, elevated for `-RestartService` only):
 
 ```powershell
-.\tools\windows\acceptance-chrome-sites.ps1
-# Optional, elevated: two 30-second rounds with a local SCM service restart,
-# preserving the exact diagnostic Chrome process; never contacts SSH/VPS admin.
 .\tools\windows\acceptance-chrome-sites.ps1 -RestartService
 ```
 
 It opens VK, ChatGPT, Twitch, Yandex Music, langame, Telegram Web and YouTube
-simultaneously, checks completed real main-document HTTP responses plus API/script
-network failures, observes HTTP/2, requires attributed route/transform evidence,
-and drains bounded capture change cursors. WAF/403, empty/error pages, instrumentation
-loss, missing evidence or queue drops are FAIL. It logs no page text, cookies,
-headers or TLS keys (only DOM length/readiness and public origin metadata).
-This helper has not been run against the user's public Internet connection in CI;
-controlled-origin acceptance is separate. A PASS is not logged-in functionality,
-Discord voice or full video playback proof.
+simultaneously under the real policy, normal sandbox/TLS, with no proxy command
+line override. Real document completion, API/script failures, H2, ordinary DIRECT,
+protected relay, native YouTube transform, recovery provenance, complete capture
+markers and zero capture/saturation drops are checked. Reports are in
+`bin/chrome-sites/`; no page text, headers, cookies, metadata token or TLS keys
+are saved. WAF/403, an empty/error page or missing evidence is FAIL. This public
+helper has not been run against the user's ISP in CI and is not a claim of
+logged-in functionality, voice latency, full video playback or Internet gain.

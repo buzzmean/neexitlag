@@ -1,22 +1,10 @@
 using Microsoft.Win32;
 using System.Text.Json;
-using System.Runtime.InteropServices;
-using System.ComponentModel;
 namespace Neexitlag.Desktop;
 // Current-user Chrome platform policy only. Never WinINET/WinHTTP/system proxy.
 internal static class ChromePolicy {
  const string Key=@"Software\Policies\Google\Chrome";
  internal static string? TestStatePath;
- [DllImport("userenv.dll", SetLastError=true)]
- [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
- [return: MarshalAs(UnmanagedType.Bool)]
- static extern bool RefreshPolicyEx([MarshalAs(UnmanagedType.Bool)] bool machine, uint options);
- internal static void NotifyPolicyChanged(){
-  // Chromium PolicyLoaderWin watches RegisterGPNotification, not registry writes.
-  // Reapply CURRENT USER policy even when GPO version did not change (RP_FORCE).
-  // Never machine policy; no gpupdate.exe or elevated child process.
-  if(!RefreshPolicyEx(false,1))throw new Win32Exception(Marshal.GetLastWin32Error(),"Chrome user policy notification failed");
- }
  static string State=>TestStatePath??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"NeExitLag","chrome-proxy-policy.json");
  internal static string CreateValue(string[] args){
   var pac=args.Single(p=>p.StartsWith("--proxy-pac-url=",StringComparison.Ordinal)).Substring("--proxy-pac-url=".Length);
@@ -38,9 +26,6 @@ internal static class ChromePolicy {
   var pending=State+".tmp";File.WriteAllText(pending,JsonSerializer.Serialize(value));File.Move(pending,State,true);
   try{current.SetValue("ProxySettings",json,RegistryValueKind.String);}
   catch{if(oldState is null)File.Delete(State);else File.WriteAllText(State,oldState);throw;}
-  // Keep the ownership journal if notification fails AFTER the write, so the
-  // activation rollback still recognizes and can replace this exact value.
-  NotifyPolicyChanged();
  }
  internal static void Check(){
   using(var machine=Registry.LocalMachine.OpenSubKey(Key))if(new[]{"ProxySettings","ProxyMode","ProxyPacUrl","ProxyServer"}.Any(p=>machine?.GetValue(p)is not null))throw new InvalidOperationException(Text.Get("ChromeProxyManaged"));
@@ -91,8 +76,9 @@ internal static class ChromePolicy {
   if(!Monitored)return;
   var owned=JsonSerializer.Deserialize<Owned>(File.ReadAllText(State))!;
   if(owned.Temporary||owned.RecoveryValue is null)return;
-  owned.Temporary=true;owned.WasOptimizing=wasOptimizing||owned.WasOptimizing;owned.Value=owned.RecoveryValue;Write(owned);
+  owned.Temporary=true;owned.WasOptimizing=wasOptimizing||owned.WasOptimizing;SaveState(owned);
  }
+ static void SaveState(Owned owned){Check();var pending=State+".tmp";File.WriteAllText(pending,JsonSerializer.Serialize(owned));File.Move(pending,State,true);}
  internal static void RecordOptimization(bool enabled){
   if(!Monitored||Suspended)return;
   var owned=JsonSerializer.Deserialize<Owned>(File.ReadAllText(State))!;
@@ -103,14 +89,14 @@ internal static class ChromePolicy {
  internal static bool Resume(){
   var owned=JsonSerializer.Deserialize<Owned>(File.ReadAllText(State))!;
   if(!owned.Temporary||owned.OnlineValue is null)return false;
-  owned.Temporary=false;owned.Value=owned.OnlineValue;Write(owned);return owned.WasOptimizing;
+  owned.Temporary=false;SaveState(owned);return owned.WasOptimizing;
  }
  internal static void Remove(){
   if(!File.Exists(State))return;
   var owned=JsonSerializer.Deserialize<Owned>(File.ReadAllText(State))?.Value;
   using var current=Registry.CurrentUser.OpenSubKey(Key,true);
   if(current?.GetValue("ProxySettings") is object actual&&(!Equals(actual,owned)))throw new InvalidOperationException(Text.Get("ChromeProxyManaged"));
-  current?.DeleteValue("ProxySettings",false);File.Delete(State);NotifyPolicyChanged();
+  current?.DeleteValue("ProxySettings",false);File.Delete(State);
  }
  sealed class Owned {public string Value{get;set;}="";public string? PreviousValue{get;set;}public string? OnlineValue{get;set;}public string? RecoveryValue{get;set;}public bool Temporary{get;set;}public bool WasOptimizing{get;set;}}
 }

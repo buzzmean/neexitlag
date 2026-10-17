@@ -31,7 +31,7 @@ function Copy-ServiceCredential([string]$Source,[string]$Destination) {
 }
 function Protect-ServiceDirectory([string]$Directory,[string]$OwnerSid) {
  # Replace the DACL, including old explicit grants. Same least-privilege contract
- # as a fresh install: only SYSTEM/admins inherit; GUI owner gets root RX/token R.
+ # as a fresh install: only SYSTEM/admins inherit; GUI owner gets root/binary RX, token/public guard R.
  $fullRoot=(Get-Item -LiteralPath $Directory -Force).FullName
  foreach($item in @((Get-Item -LiteralPath $Directory -Force)) + @(Get-ChildItem -LiteralPath $Directory -Recurse -Force)) {
   if($item.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Refusing ACL changes through a reparse point'}
@@ -46,6 +46,8 @@ function Protect-ServiceDirectory([string]$Directory,[string]$OwnerSid) {
   }
   $rights=$null
   if($item.FullName -eq $fullRoot){$rights=[Security.AccessControl.FileSystemRights]::ReadAndExecute}
+  elseif($item.FullName -eq (Join-Path $fullRoot 'neexitlag-service.exe')){$rights=[Security.AccessControl.FileSystemRights]::ReadAndExecute}
+  elseif($item.FullName -eq (Join-Path (Join-Path $fullRoot 'state') 'browser-recovery-guard.json')){$rights=[Security.AccessControl.FileSystemRights]::Read}
   elseif($item.FullName -eq (Join-Path $fullRoot 'ipc.token')){$rights=[Security.AccessControl.FileSystemRights]::Read}
   if($null -ne $rights){[void]$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($OwnerSid),$rights,[Security.AccessControl.InheritanceFlags]::None,[Security.AccessControl.PropagationFlags]::None,[Security.AccessControl.AccessControlType]::Allow))}
   Set-Acl -LiteralPath $item.FullName -AclObject $acl -ErrorAction Stop

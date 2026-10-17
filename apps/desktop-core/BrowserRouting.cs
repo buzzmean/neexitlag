@@ -1,11 +1,12 @@
 using System.Collections.ObjectModel;
 namespace Neexitlag.Desktop;
 public sealed class ChromeActivationException(string message) : Exception(message) { }
-public sealed class BrowserLaunch {public IEnumerable<string> UserArguments()=>Arguments.Where(p=>!p.StartsWith("--proxy-",StringComparison.Ordinal)&&p!="--no-proxy-server");public string[] RecoveryArguments {get;set;}=[]; public string HealthUrl {get;set;}=""; public string[] Arguments {get;set;}=[]; public string Address {get;set;}=""; public string Scope {get;set;}=""; }
-public sealed class BrowserTransportSnapshot {public string[] ReadyProfiles {get;set;}=[];public Dictionary<string,ulong> Failures {get;set;}=[];public bool Listening {get;set;}public bool Truncated {get;set;}public ulong Lost {get;set;}BrowserConnection[] records=[];public BrowserConnection[] Records {get=>records;set=>records=value??[];}}
+public sealed class BrowserRecoverySettings {public string GuardFile {get;set;}="";public string Primary {get;set;}="";public string Executable {get;set;}="";public string ProfileId {get;set;}="";public string[] ProtectedDomains {get;set;}=[];public bool Strict {get;set;}}
+public sealed class BrowserLaunch {public string RecoveryProgram {get;set;}="";public BrowserRecoverySettings RecoverySettings {get;set;}=new();public IEnumerable<string> UserArguments()=>Arguments.Where(p=>!p.StartsWith("--proxy-",StringComparison.Ordinal)&&p!="--no-proxy-server");public string[] RecoveryArguments {get;set;}=[]; public string HealthUrl {get;set;}=""; public string[] Arguments {get;set;}=[]; public string Address {get;set;}=""; public string Scope {get;set;}=""; }
+public sealed class BrowserTransportSnapshot {public string RecoveryAddress {get;set;}="";public string[] ReadyProfiles {get;set;}=[];public Dictionary<string,ulong> Failures {get;set;}=[];public bool Listening {get;set;}public bool Truncated {get;set;}public ulong Lost {get;set;}BrowserConnection[] records=[];public BrowserConnection[] Records {get=>records;set=>records=value??[];}}
 public sealed class BrowserOwner {public uint Pid {get;set;} public ulong CreationTime {get;set;} public string Exe {get;set;}="";public string ProfileId {get;set;}="";}
 public sealed class BrowserPlan {public FlowPolicyEvidence Policy {get;set;}=new();public string Probe {get;set;}="";public int HttpStatus {get;set;}}
-public sealed class BrowserConnection {
+public sealed class BrowserConnection {public string EvidenceSource {get;set;}="";public DateTimeOffset Started {get;set;}
  public string OpenFailure {get;set;}="";public ulong Id {get;set;}public BrowserOwner Owner {get;set;}=new();public string Domain {get;set;}="";public BrowserPlan Plan {get;set;}=new();public string Result {get;set;}="";public ulong SentBytes {get;set;}public ulong ReceivedBytes {get;set;}public bool Active {get;set;}
  public bool DirectPlusApplied {get;set;}
  public string Route=>(Result=="UPSTREAM_OPEN_FAILED"||Result=="ORIGIN_PLAN_FAILED")?"BLOCK":Plan.Policy.Action=="DIRECT_PLUS"&&!DirectPlusApplied?"DIRECT+ (не подтверждён)" :Plan.Policy.Action=="RELAY_REQUIRED"?"RELAY_REQUIRED · "+Plan.Policy.RelayId:Plan.Policy.Action;
@@ -15,10 +16,16 @@ public sealed class BrowserConnection {
 }
 public sealed partial class DesktopViewModel {
  public ObservableCollection<BrowserConnection> BrowserDomains {get;}=[];
- public void ApplyBrowser(BrowserTransportSnapshot status){
+ BrowserTransportSnapshot primaryBrowser=new();
+ public void ApplyBrowser(BrowserTransportSnapshot status){primaryBrowser=status;ApplyBrowserRecords(status);}
+ void ApplyBrowserRecords(BrowserTransportSnapshot status){
   // Only actual transport records are shown; no assumed success from TCP ACKs.
-  Replace(BrowserDomains,status.Records.OrderByDescending(r=>r.Id).Take(32));
+  Replace(BrowserDomains,status.Records.OrderByDescending(r=>r.Started).ThenByDescending(r=>r.Id).Take(32));
   foreach(var app in Applications)app.ApplyBrowserRecords(status);
+ }
+ public void ApplyRecovery(BrowserTransportSnapshot recovery){
+  BrowserConnection[] original=Available?primaryBrowser.Records:[];
+  ApplyBrowserRecords(new(){Listening=primaryBrowser.Listening&&Available||recovery.Listening,Records=original.Concat(recovery.Records.Where(r=>r.EvidenceSource=="RECOVERY_DIRECT"&&r.Plan.Policy.Action=="DIRECT")).ToArray(),Lost=primaryBrowser.Lost+recovery.Lost,Truncated=primaryBrowser.Truncated||recovery.Truncated});
  }
  public async Task VerifyChromeAsync(Profile profile,BrowserLaunch launch,CancellationToken ct=default){
   if(!launch.HealthUrl.StartsWith("http://neexitlag-health.invalid/ready/",StringComparison.Ordinal))throw new ChromeActivationException(Text.Get("ChromeActivationFailed"));
@@ -59,9 +66,9 @@ public sealed partial class DesktopViewModel {
  }
  public Task<BrowserTransportSnapshot> ChromeStatusAsync(CancellationToken ct=default)=>client.Call<BrowserTransportSnapshot>("browser.status",cancellationToken:ct);
  public Task<ProcessIdentity[]> ChromeProcessesAsync(string exe,CancellationToken ct=default)=>client.Call<ProcessIdentity[]>("processes",new{executables=new[]{exe}},ct);
- public Task<BrowserLaunch> PrepareChromeAsync(Profile profile,string directory,CancellationToken ct=default){
+ public Task<BrowserLaunch> PrepareChromeAsync(Profile profile,string directory,CancellationToken ct=default,string recoveryAddress=""){
   if(!profile.Executables.Any(p=>string.Equals(p.Replace('\\','/').Split('/').Last(),"chrome.exe",StringComparison.OrdinalIgnoreCase)))throw new InvalidOperationException(Text.Get("SelectChromeAuto"));
-  return client.Call<BrowserLaunch>("browser.prepare",new{profile_id=profile.Id,directory},ct);
+  return client.Call<BrowserLaunch>("browser.prepare",new{profile_id=profile.Id,directory,recovery_address=recoveryAddress},ct);
  }
 }
 

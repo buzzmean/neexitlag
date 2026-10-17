@@ -3,6 +3,8 @@
 package windowsplatform_test
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -26,10 +28,13 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
+	"unsafe"
 )
 
 // This test uses real Chrome, real HTTP/2+TLS, real authenticated relay and real
@@ -157,12 +162,80 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 	if _, err = c.Handle(ctx, "optimize", []byte(`{"enabled":true}`)); err != nil {
 		t.Fatal(err)
 	}
+	helperPath := os.Getenv("NEEXITLAG_TEST_BROWSER_RECOVERY")
+	if helperPath == "" {
+		helperPath = filepath.Join("..", "..", "bin", "windows-e2e", "browser-recovery-acceptance.exe")
+	}
+	helperPath, err = filepath.Abs(helperPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.BrowserRecoveryExecutable = helperPath
+	helper := exec.CommandContext(ctx, helperPath, "-test.run=^TestChromeRecoveryChildProcess$", "-test.v=false")
+	helper.Env = append(os.Environ(), "NEEXITLAG_TEST_RECOVERY_CHILD=1")
+	helperToken := restrictedRecoveryToken(t)
+	defer helperToken.Close()
+	helper.SysProcAttr = &syscall.SysProcAttr{Token: syscall.Token(helperToken)}
+	stdin, err := helper.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := helper.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var helperErrors bytes.Buffer
+	helper.Stderr = &helperErrors
+	if err = helper.Start(); err != nil {
+		t.Fatal("restricted recovery helper", err)
+	}
+	defer func() {
+		stdin.Close()
+		done := make(chan error, 1)
+		go func() { done <- helper.Wait() }()
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			helper.Process.Kill()
+			<-done
+		}
+	}()
+	reader := bufio.NewScanner(stdout)
+	reader.Buffer(make([]byte, 4096), 65536)
+	if !reader.Scan() {
+		t.Fatal("helper listener", reader.Err(), helperErrors.String())
+	}
+	var greeting struct {
+		Address string `json:"address"`
+	}
+	if json.Unmarshal(reader.Bytes(), &greeting) != nil || greeting.Address == "" {
+		t.Fatal("invalid helper greeting")
+	}
+	helperID, err := wp.NewDiscovery().Lookup(uint32(helper.Process.Pid))
+	if err != nil {
+		t.Fatal(err)
+	}
 	userData := t.TempDir()
-	raw, _ = json.Marshal(map[string]string{"profile_id": p.ID, "directory": userData})
+	raw, _ = json.Marshal(map[string]string{"profile_id": p.ID, "directory": userData, "recovery_address": greeting.Address})
 	result, err := c.Handle(ctx, "browser.prepare", raw)
 	if err != nil {
 		t.Fatal(err)
 	}
+	recoverySettings := result.(map[string]any)["recovery_settings"].(browserproxy.RecoverySettings)
+	recoverySettings.Executable = chrome
+	if err = json.NewEncoder(stdin).Encode(recoverySettings); err != nil {
+		t.Fatal(err)
+	}
+	if !reader.Scan() {
+		t.Fatal("helper configuration", reader.Err(), helperErrors.String())
+	}
+	var ack struct {
+		Ready bool `json:"ready"`
+	}
+	if json.Unmarshal(reader.Bytes(), &ack) != nil || !ack.Ready {
+		t.Fatal("helper not ready")
+	}
+
 	args := result.(map[string]any)["arguments"].([]string)
 	healthURL := result.(map[string]any)["health_url"].(string)
 
@@ -205,7 +278,7 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 	if e = policy.SetStringValue("ProxySettings", string(policyJSON)); e != nil {
 		t.Fatal(e)
 	}
-	defer func() { policy.DeleteValue("ProxySettings"); wp.NotifyChromePolicyChanged() }()
+	defer policy.DeleteValue("ProxySettings")
 	args = clean
 
 	rules := []string{}
@@ -214,9 +287,6 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 	}
 	args = append(args, "--host-resolver-rules="+strings.Join(rules, ", "))
 	f.ExpectedFailures = map[int][]string{3: {"chatgpt.com", "www.youtube.com", "blocked.example"}}
-	recoveryArgs := result.(map[string]any)["recovery_arguments"].([]string)
-	recoveryPAC := strings.TrimPrefix(recoveryArgs[1], "--proxy-pac-url=")
-	recoveryJSON, _ := json.Marshal(map[string]any{"ProxyMode": "pac_script", "ProxyPacUrl": recoveryPAC, "ProxyPacMandatory": true})
 	// Actual policy, normal sandbox, a disposable health profile. Commit AUTO
 	// before starting/restoring the real multi-origin Chrome process.
 	if err := browserfixture.RunPolicyHealthProbe(ctx, chrome, healthURL, t.TempDir()); err != nil {
@@ -231,30 +301,19 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 	put()
 	f.DirectProbe = func(source netip.AddrPort) bool {
 		id, e := wp.LookupTCPPeer(source, f.Destination())
-		if e != nil || !strings.EqualFold(id.Path, chrome) {
+		if e != nil || id.PID != helperID.PID || id.CreationTime != helperID.CreationTime {
 			return false
 		}
 		sid, e := wp.ProcessUserSID(id)
 		return e == nil && sid == c.BrowserOwnerSID
 	}
-	gpEvent, e := windows.CreateEvent(nil, 1, 0, nil)
-	if e != nil {
-		t.Fatal(e)
-	}
-	defer windows.CloseHandle(gpEvent)
-	userenv := windows.NewLazySystemDLL("userenv.dll")
-	registered, _, registerErr := userenv.NewProc("RegisterGPNotification").Call(uintptr(gpEvent), 0)
-	if registered == 0 {
-		t.Fatal("register user policy evidence", registerErr)
-	}
-	defer userenv.NewProc("UnregisterGPNotification").Call(uintptr(gpEvent))
 	f.StageReady = func(stage int, call func(string, any) (json.RawMessage, error)) error {
 		if stage != 3 {
 			return nil
 		}
-		// Registry writes are not evidence of Chrome applying a policy. Wait
-		// for a nonce GET whose real TCP owner at the target is Chrome itself,
-		// not the service. These readiness probes are not application replies.
+		// The primary controller is closed. Verify an actual nonce GET over the
+		// independent recovery process running with a restricted owner token.
+		// No registry flip, Chrome restart or primary connection is possible.
 		url := fmt.Sprintf("https://ordinary.example:%d/policy-probe?nonce=%s", f.Port(), f.Nonce)
 		quoted, _ := json.Marshal(url)
 		expression := "fetch(" + string(quoted) + ",{cache:'no-store'}).then(r=>r.text()).catch(()=> 'POLICY_PENDING')"
@@ -274,11 +333,7 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 				return nil
 			}
 			if time.Now().After(until) {
-				signal, signalErr := windows.WaitForSingleObject(gpEvent, 0)
-				call("Page.navigate", map[string]any{"url": "chrome://policy"})
-				time.Sleep(500 * time.Millisecond)
-				policyView, _ := call("Runtime.evaluate", map[string]any{"expression": `(function text(n){let s='';for(const c of n.children||[]){s+=(c.shadowRoot?text(c.shadowRoot):c.innerText||'')+'\n';}return s.slice(0,12000)})(document)`, "returnByValue": true})
-				return fmt.Errorf("actual Chrome recovery policy not applied: %s; GP signal=%d error=%v; actual policy UI=%s", raw, signal, signalErr, policyView)
+				return fmt.Errorf("independent recovery CONNECT did not deliver DIRECT nonce: %s", raw)
 			}
 			select {
 			case <-ctx.Done():
@@ -314,16 +369,12 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		if e := sample(); e != nil {
 			return e
 		}
-		if err := policy.SetStringValue("ProxySettings", string(recoveryJSON)); err != nil {
-			return err
-		}
-		if err := wp.NotifyChromePolicyChanged(); err != nil {
-			return err
-		}
+		// PAC stays unchanged; recovery listener is independent of controller.
 		c.Close()
 		return nil
 	}, func() error {
 		c = cs.New(ctx)
+		c.BrowserRecoveryExecutable = helperPath
 		c.BrowserOwnerSID, err = wp.ProcessUserSID(self)
 		if err != nil {
 			return err
@@ -344,16 +395,6 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 			return err
 		}
 		if err = c.RestoreBrowserTransport(); err != nil {
-			return err
-		}
-		// A recovery PAC must NOT silently arm native Chrome AUTO on startup.
-		if _, e := c.Handle(ctx, "optimize", []byte(`{"enabled":true}`)); e == nil {
-			return errors.New("capture armed while actual Chrome policy was still recovery")
-		}
-		if err = policy.SetStringValue("ProxySettings", string(policyJSON)); err != nil {
-			return err
-		}
-		if err = wp.NotifyChromePolicyChanged(); err != nil {
 			return err
 		}
 		fresh, e := c.Handle(ctx, "browser.prepare", raw)
@@ -504,4 +545,26 @@ func (c browserMTUConn) CloseWrite() error {
 		return v.CloseWrite()
 	}
 	return nil
+}
+
+// Exercise the helper without Administrator membership or optional privileges;
+// only the parent requires elevation to load the signed capture driver.
+func restrictedRecoveryToken(t *testing.T) windows.Token {
+	t.Helper()
+	var token windows.Token
+	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY|windows.TOKEN_DUPLICATE|windows.TOKEN_ASSIGN_PRIMARY, &token); err != nil {
+		t.Fatal(err)
+	}
+	defer token.Close()
+	admin, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	disabled := windows.SIDAndAttributes{Sid: admin}
+	var restricted windows.Token
+	result, _, callErr := windows.NewLazySystemDLL("advapi32.dll").NewProc("CreateRestrictedToken").Call(uintptr(token), 1, 1, uintptr(unsafe.Pointer(&disabled)), 0, 0, 0, 0, uintptr(unsafe.Pointer(&restricted)))
+	if result == 0 {
+		t.Fatal("restricted owner token", callErr)
+	}
+	return restricted
 }

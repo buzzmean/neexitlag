@@ -69,8 +69,10 @@ type Snapshot struct {
 	ActiveApps     []string                         `json:"active_apps"`
 }
 type Controller struct {
+	selfExecutable  string
 	BrowserOwnerSID string // Existing installation owner; restrict the loopback endpoint to this user.
 	// In-process fixture injection only; production uses the system resolver/roots.
+	BrowserRecoveryExecutable   string // In-process fixture only; production authenticates its own installed binary.
 	BrowserResolver             *net.Resolver
 	BrowserProbeRoots           *x509.CertPool
 	browser                     *browserRuntime
@@ -115,6 +117,7 @@ type Controller struct {
 func New(ctx context.Context) *Controller {
 	ctx, cancel := context.WithCancel(ctx)
 	c := &Controller{browser: newBrowserRuntime(), relayPools: map[string]*transport.Pool{}, AutoLearned: flowpolicy.NewLearning(), groupBindings: map[uint32]groupBinding{}, autoJobs: map[string]autoLease{}, discovery: windowsplatform.NewDiscovery(), Local: localstrategy.New(), Learned: localstrategy.NewCache(1024), Engine: routing.New(4096), Selector: optimizer.New(optimizer.DefaultParameters()), Measurements: measurement.New(measurement.Defaults()), Profiles: profiles.New(profiles.Defaults()), recentApps: make(map[string]time.Time), localProfiles: make(map[string]profiles.Profile), acceptanceRelays: make(map[string]acceptanceRelaySource), transportDrops: make(map[string]func() map[string]telemetry.Metric), settings: Settings{Automatic: true, Failover: "DIRECT", UpdateChannel: "stable"}, ctx: ctx, cancel: cancel}
+	c.selfExecutable, _ = os.Executable()
 	c.Local.Guard = func(m localstrategy.Metadata) bool {
 		if c.autoCandidateQuarantined(m) {
 			return false
@@ -291,7 +294,7 @@ func (c *Controller) Classify(identity windowsplatform.ProcessIdentity, t window
 	enabled := c.enabled
 	c.mu.Unlock()
 	decision := windowsplatform.Decision{Route: routing.Route{}}
-	if !enabled {
+	if !enabled || c.selfExecutable != "" && strings.EqualFold(identity.Path, c.selfExecutable) {
 		return decision
 	}
 	profile, ok := c.matchApplication(identity)
@@ -453,11 +456,20 @@ func (c *Controller) Snapshot() Snapshot {
 	}
 	return snapshot
 }
-func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMessage) (any, error) {
+func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMessage) (result any, err error) {
 	switch method {
-	case "optimize", "profile.set", "profile.delete", "settings.set", "local.set", "local.preset.apply", "auto.commit":
+	case "optimize", "profile.set", "profile.delete", "settings.set", "local.set", "local.preset.apply", "auto.commit", "browser.prepare", "browser.start", "browser.confirm":
 		c.activationMu.Lock()
 		defer c.activationMu.Unlock()
+		if e := c.publishBrowserGuard(true); e != nil {
+			return nil, e
+		}
+		defer func() {
+			if e := c.publishBrowserGuard(false); e != nil && err == nil {
+				result = nil
+				err = e
+			}
+		}()
 	}
 	switch method {
 	case "browser.start", "browser.prepare", "browser.confirm", "browser.status":
@@ -658,7 +670,7 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		prepareAuto(&p)
 		if browserAuto(p) && c.BrowserOwnerSID != "" {
 			c.browser.mu.Lock()
-			ready := c.browser.server != nil && c.browser.server.Confirmed(p.ID)
+			ready := c.browser.recoveryAddress != "" && c.browser.server != nil && c.browser.server.Confirmed(p.ID)
 			c.browser.mu.Unlock()
 			if !ready {
 				return nil, errors.New("Chrome AUTO not activated: prepare CONNECT, install Chrome PAC and verify readiness before publishing AUTO")

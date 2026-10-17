@@ -213,7 +213,7 @@ internal static class Program
             var first=(string)key.GetValue("ProxySettings")!;
             Require(ChromePolicy.Monitored&&ChromePolicy.Applied&&!ChromePolicy.Suspended,"Online ownership/readiness wrong");
             ChromePolicy.Suspend(true);var guard=(string)key.GetValue("ProxySettings")!;
-            Require(guard!=first&&ChromePolicy.Suspended&&ChromePolicy.Applied,"IPC outage did not install recovery");
+            Require(guard==first&&ChromePolicy.Suspended&&ChromePolicy.Applied,"IPC outage must preserve the stable dual-endpoint PAC");
             ChromePolicy.Suspend(false);Require(ChromePolicy.Resume(),"Repeated outage forgot previous Optimize state");
             Require((string)key.GetValue("ProxySettings")! == first&&!ChromePolicy.Suspended,"Online PAC not restored");
             key.SetValue("ProxySettings",guard);ChromePolicy.Check(); // interrupted known transition is recoverable
