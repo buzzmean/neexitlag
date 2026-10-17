@@ -40,6 +40,7 @@ public partial class MainWindow {
    deadline.Cancel();
    try{await Task.WhenAll(stdout,stderr);}catch(OperationCanceledException)when(process.HasExited&&process.ExitCode==0){}
   }finally{
+   deadline.Cancel(); // Also release diagnostic reads after non-zero exit/cancellation.
    // Own disposable empty health profile ONLY, never the user's Chrome/profile.
    if(!process.HasExited){process.Kill(entireProcessTree:true);await process.WaitForExitAsync(CancellationToken.None);}
    try{Directory.Delete(directory,true);}catch(IOException){}catch(UnauthorizedAccessException){}
