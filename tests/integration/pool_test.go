@@ -538,12 +538,31 @@ func TestPoolTCPBurstContinuity(t *testing.T) {
 						return
 					}
 					c, err := e.OpenTCP(ctx, routing.Flow{PID: uint32(i%4 + 1), ApplicationID: fmt.Sprintf("app-%d", i%4), ProcessPath: fmt.Sprintf("app-%d.exe", i%4), Source: netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), uint16(30000+i)), Destination: x.tcp, PinnedPolicy: &routing.Policy{Route: routing.Route{RelayID: "VPS-01"}, BlockOnFailure: true}})
-					<-setup
 					if err != nil {
+						<-setup
 						errs <- err
 						return
 					}
 					conns[i] = c
+					// OPEN ACK is the relay's connect completion, not proof
+					// that the target has accepted/readied the socket. A fast
+					// zero-RTT Windows echo target otherwise overflows its
+					// SOMAXCONN implementation-defined pending-accept backlog.
+					// Require real initial application I/O before releasing
+					// the test setup window. No retries or discarded failures.
+					c.SetDeadline(time.Now().Add(5 * time.Second))
+					want := []byte("initial-application-ready")
+					if _, err = c.Write(want); err == nil {
+						got := make([]byte, len(want))
+						_, err = io.ReadFull(c, got)
+						if err == nil && string(got) != string(want) {
+							err = fmt.Errorf("wrong first application reply: %q", got)
+						}
+					}
+					<-setup
+					if err != nil {
+						errs <- err
+					}
 				}(i)
 			}
 			wg.Wait()

@@ -4,11 +4,7 @@ TCP interception keeps 128 concurrent setup workers. An additional bounded wait
 allows up to 384 setup operations in total, including active work. The queue
 never blocks the WinDivert packet receiver or TCP accept loop. FIFO semaphore
 admission has a five-second wait budget, separate from the existing upstream
-OPEN timeout. Windows interception and loopback test-target listeners explicitly
-request a bounded 512 listen backlog using SOMAXCONN_HINT; ordinary SOMAXCONN
-lets Winsock choose a smaller "reasonable maximum" and rejected fast 320-connection
-bursts with ConnectEx active refusal before userspace admission. No capture packet
-queue or relay capacity is increased. Waiting SYNs remain intercepted; protected traffic is never
+OPEN timeout. Waiting SYNs remain intercepted; protected traffic is never
 reinjected DIRECT. Hard pending exhaustion and admission expiry fail closed with
 `TCP_ADMISSION_LIMIT` / `TCP_ADMISSION_TIMEOUT`. These are actual bounded resource
 failures, rather than a failure whenever the 128 workers are temporarily busy.
@@ -65,9 +61,14 @@ same sockets across repeated bidirectional exchanges, and inspect complete flow
 evidence for no DIRECT bytes, no BLOCK and correct relay counters. One established
 flow exchanges data while setup is saturated. Only privileged driver reinjection
 is substituted; these tests do not claim public-Internet Windows acceptance.
-A native backlog test also holds 320 established pending handshakes before any
-accept. Integration independently retains 160/256/320 authenticated relay TCP sockets,
-using the same 128 concurrent upstream setup bound (pool waiters remain 256).
+Integration independently retains 160/256/320 authenticated relay TCP sockets,
+using a 128-connection setup window (pool waiters remain 256). Setup includes
+first real echo I/O so the target has actually accepted the connection before
+its test slot is reused. This avoids overflowing the Windows loopback target's
+implementation-defined SOMAXCONN backlog with completed-but-not-yet-accepted
+connections. A repeat listen call cannot adjust that Winsock backlog; no
+ineffective reconfiguration or production listener/packet-queue change is used.
+All sockets remain held for three further rounds; no failure is retried/ignored.
 Windows CI repeats these bursts three times both normally and with the race detector.
 PostgreSQL tests cover 1500/5000 IDs, revoke #5000, HTTP/cache/verifier updates,
 large-config heartbeat refresh, concurrent publications, and real query/commit/

@@ -2,7 +2,6 @@
 package echo
 
 import (
-	"github.com/buzzmean/neexitlag/internal/tcpbacklog"
 	"io"
 	"net"
 	"sync"
@@ -28,12 +27,8 @@ func UDP() (net.Addr, func(), error) {
 	return c.LocalAddr(), func() { c.Close(); <-done }, nil
 }
 func TCP() (net.Addr, func(), error) {
-	l, e := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	l, e := net.Listen("tcp", "127.0.0.1:0")
 	if e != nil {
-		return nil, nil, e
-	}
-	if e = tcpbacklog.Configure(l); e != nil {
-		l.Close()
 		return nil, nil, e
 	}
 	var wg sync.WaitGroup
