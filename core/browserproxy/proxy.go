@@ -426,7 +426,7 @@ func openFailure(err error) string {
 		var code syscall.Errno
 		if errors.As(err, &code) {
 			switch op.Syscall {
-			case "WSASocket", "bound_bind", "bound_getsockname", "bound_connectex", "bound_connect_result", "bound_connect_context", "connect_event":
+			case "bind", "connectex", "getsockname", "WSASocket", "bound_bind", "bound_getsockname", "bound_connectex", "bound_connect_result", "bound_connect_context", "connect_event":
 				return strings.ToUpper(op.Syscall) + "_" + strconv.FormatUint(uint64(code), 10)
 			}
 		}

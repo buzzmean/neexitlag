@@ -63,28 +63,9 @@ func (f *Fixture) RunChrome(ctx context.Context, chrome string, args []string, t
 	}
 	client := &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: 2 * time.Second}
 	defer client.CloseIdleConnections()
-	var pages []struct {
-		Type string `json:"type"`
-		WS   string `json:"webSocketDebuggerUrl"`
-	}
-	response, e := client.Get(fmt.Sprintf("http://127.0.0.1:%d/json/list", port))
+	pageURL, e := waitCDPPage(ctx, client, fmt.Sprintf("http://127.0.0.1:%d/json/list", port))
 	if e != nil {
 		return "", e
-	}
-	e = json.NewDecoder(io.LimitReader(response.Body, 65536)).Decode(&pages)
-	response.Body.Close()
-	if e != nil {
-		return "", e
-	}
-	pageURL := ""
-	for _, p := range pages {
-		if p.Type == "page" {
-			pageURL = p.WS
-			break
-		}
-	}
-	if pageURL == "" {
-		return "", errors.New("Chrome page target absent")
 	}
 	conn, e := websocket.Dial(pageURL, "", "http://localhost")
 	if e != nil {
@@ -177,4 +158,41 @@ func (f *Fixture) RunChrome(ctx context.Context, chrome string, args []string, t
 		}
 	}
 	return title, nil
+}
+
+// DevToolsActivePort is written before the HTTP endpoint/page target is ready.
+// Retry instrumentation startup only; HTTP fixture failures are never retried or
+// converted to PASS, and the original browser process is never replaced.
+func waitCDPPage(parent context.Context, client *http.Client, url string) (string, error) {
+	ctx, cancel := context.WithTimeout(parent, 15*time.Second)
+	defer cancel()
+	for {
+		request, e := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if e != nil {
+			return "", e
+		}
+		response, e := client.Do(request)
+		if e == nil {
+			var pages []struct {
+				Type string `json:"type"`
+				WS   string `json:"webSocketDebuggerUrl"`
+			}
+			if response.StatusCode == 200 {
+				e = json.NewDecoder(io.LimitReader(response.Body, 65536)).Decode(&pages)
+			}
+			response.Body.Close()
+			if e == nil {
+				for _, p := range pages {
+					if p.Type == "page" && p.WS != "" {
+						return p.WS, nil
+					}
+				}
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return "", errors.New("CDP/INSTRUMENTATION_FAILURE: page target readiness deadline")
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 }

@@ -181,7 +181,8 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 			found[r.Domain] = true
 		case "www.youtube.com":
 			if r.Plan.Policy.Action != flowpolicy.DirectPlus || !r.DirectPlusApplied || r.Sent == 0 || r.Received == 0 {
-				t.Fatal("YouTube local route missing", r)
+				proof, _ := backend.DiagnosticsScoped(wp.EvidenceQuery{Destination: f.Destination().String()})
+				t.Fatal("YouTube local route missing", r, proof)
 			}
 			found[r.Domain] = true
 		case "ordinary.example":
