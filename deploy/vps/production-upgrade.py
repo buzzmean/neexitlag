@@ -269,7 +269,7 @@ class Upgrade:
         compatibility_hash = compatibility(evidence, expected)
         if os.uname().machine != 'x86_64':
             raise UpgradeError('Only Linux amd64 supported')
-        for tool in ['systemctl', 'systemd-run', 'runuser', 'psql', 'pg_dump', 'pg_dumpall', 'pg_restore', 'curl', 'openssl', 'tar']:
+        for tool in ['systemctl', 'systemd-run', 'runuser', 'psql', 'pg_dump', 'pg_dumpall', 'pg_restore', 'curl', 'openssl', 'tar', 'ss']:
             if shutil.which(tool) is None:
                 raise UpgradeError('Required preinstalled dependency missing')
         for name in [BIN, '/etc/systemd/system', '/etc/neexitlag', '/var/lib/neexitlag', STATE, BACKUPS]:
@@ -346,6 +346,13 @@ class Upgrade:
                 raise UpgradeError('Only explicit loopback relay metrics supported')
             h.relay_health = 'http://' + listen + '/healthz'
         metrics = h.health()
+        # Do not enter maintenance only to discover that the existing proof
+        # target cannot serve TCP. Never install/reconfigure that service here.
+        h.systemctl('is-active', '--quiet', 'neexitlag-echo')
+        h.run(['curl', '--noproxy', '*', '--fail', '--silent', '--max-time', '3', 'http://127.0.0.1:9092/healthz'])
+        for flags in ['-lnt', '-lnu']:
+            if not h.run(['ss', '-H', flags, 'sport = :40000'])[1].strip():
+                raise UpgradeError('Existing authenticated echo must already listen on TCP and UDP 40000')
         space = max(1024**3, db_size * 3 + sum(h.path(BIN + '/' + n).stat().st_size for n in ['relay', 'control-plane']) * 4 + 256 * 1024**2)
         for directory in [BIN, '/etc/systemd/system', '/var/lib/neexitlag', BACKUPS]:
             p = h.path(directory)

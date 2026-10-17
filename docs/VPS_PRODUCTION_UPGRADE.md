@@ -115,7 +115,7 @@ Preflight verifies required **preinstalled** commands, service users/units/PIDs,
 running-vs-installed binary hashes, credential-file presence/access, TLS certificate
 validity for at least 24h, local PostgreSQL 14–17, matching pg_dump major, expected
 schema, no idle transaction, initial authenticated HTTPS health and loopback relay
-metrics, config size/device counts, and conservative free space on each relevant
+metrics, existing echo health plus TCP/UDP40000 listeners, config size/device counts, and conservative free space on each relevant
 filesystem (minimum 1 GiB, scaled to DB and binary size). Dependencies, ports and
 custom layouts are not automatically repaired. Certificate expiry is a separate
 operational prerequisite; this tool does not rotate credentials.

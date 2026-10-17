@@ -40,6 +40,7 @@ class FakeHost(m.Host):
         self.device_count = 5000
         self.revoked = [f'device-{n:04}' for n in range(1500)]
         self.bad_publication = False
+        self.missing_echo_tcp = False
         self.metric_values = {'neexitlag_relay_health': 1, 'neexitlag_lease_renewals_total': 0, 'neexitlag_tcp_connections_total': 0, 'neexitlag_udp_packets_total': 0}
         self.caps = {r: capability(r) for r in ['relay', 'control-plane']}
         self.database, self.db_port, self.relay_health = 'neexitlag', 5432, 'http://127.0.0.1:9090/healthz'
@@ -77,6 +78,8 @@ class FakeHost(m.Host):
             raise m.UpgradeError('Injected command failure')
         if output:
             output.write(b'isolated fixture archive/dump')
+        if args[0] == 'ss':
+            return 0, b'' if self.missing_echo_tcp and '-lnt' in args else b'fixture local listener'
         if args[0] == 'pg_dump':
             return 0, b'pg_dump (PostgreSQL) 17.6'
         if args[-1] == '-version-json':
@@ -272,6 +275,12 @@ class UpgradeTests(unittest.TestCase):
         with self.assertRaises(m.UpgradeError):
             self.up.commit(result['id'], self.report)
         self.assertEqual(self.up.load(result['id'])[1]['phase'], 'pending-verification')
+
+    def test_missing_echo_tcp_refused_before_any_service_stop(self):
+        self.h.missing_echo_tcp = True
+        with self.assertRaises(m.UpgradeError):
+            self.up.preflight(self.bundle, SHA, self.inventory)
+        self.assertFalse(any(e[0] == 'stop' for e in self.h.events))
 
     def test_preflight_rejects_writable_binary_and_unit(self):
         for path in [m.BIN + '/relay', '/etc/systemd/system/neexitlag-relay.service']:
