@@ -1,0 +1,184 @@
+// Package browserfixture is an isolated acceptance target. It never contacts
+// public services or reads deployed credentials; all keys/nonces are ephemeral.
+package browserfixture
+
+import (
+	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/pem"
+	"errors"
+	"fmt"
+	"golang.org/x/net/dns/dnsmessage"
+	"math/big"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/netip"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sync"
+	"time"
+)
+
+var Domains = []string{"chatgpt.com", "www.youtube.com", "ordinary.example", "blocked.example"}
+
+type Fixture struct {
+	Server      *httptest.Server
+	Roots       *x509.CertPool
+	SPKI, Nonce string
+	Resolver    *net.Resolver
+	DNS         *net.UDPConn
+	mu          sync.Mutex
+	Seen        map[string]int
+	Protocols   map[string]int
+}
+
+func New() (*Fixture, error) {
+	f := &Fixture{Seen: map[string]int{}, Protocols: map[string]int{}}
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	pub := &key.PublicKey
+	now := time.Now()
+	root := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "NeExitLag ephemeral acceptance"}, IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign, NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour)}
+	rootDER, e := x509.CreateCertificate(rand.Reader, root, root, pub, key)
+	if e != nil {
+		return nil, e
+	}
+	ca, _ := x509.ParseCertificate(rootDER)
+	leaf := &x509.Certificate{SerialNumber: big.NewInt(2), DNSNames: Domains, IPAddresses: []net.IP{net.IPv4(127, 0, 0, 1)}, Subject: pkix.Name{CommonName: "controlled acceptance target"}, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour)}
+	der, e := x509.CreateCertificate(rand.Reader, leaf, ca, pub, key)
+	if e != nil {
+		return nil, e
+	}
+	pk, _ := x509.MarshalPKCS8PrivateKey(key)
+	cert, e := tls.X509KeyPair(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: pk}))
+	if e != nil {
+		return nil, e
+	}
+	parsed, _ := x509.ParseCertificate(der)
+	spki := sha256.Sum256(parsed.RawSubjectPublicKeyInfo)
+	f.SPKI = base64.StdEncoding.EncodeToString(spki[:])
+	f.Roots = x509.NewCertPool()
+	f.Roots.AddCert(ca)
+	nonce := make([]byte, 16)
+	rand.Read(nonce)
+	f.Nonce = hex.EncodeToString(nonce)
+	f.Server = httptest.NewUnstartedServer(http.HandlerFunc(f.serve))
+	f.Server.EnableHTTP2 = true
+	f.Server.TLS = &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12, GetConfigForClient: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+		if hello.ServerName == "blocked.example" {
+			peer, _, _ := net.SplitHostPort(hello.Conn.RemoteAddr().String())
+			if peer != "127.0.0.2" {
+				return nil, errors.New("isolated ISP impairment: this origin rejects local routes")
+			}
+		}
+		return nil, nil
+	}}
+	f.Server.StartTLS()
+	f.DNS, e = net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if e != nil {
+		f.Server.Close()
+		return nil, e
+	}
+	go f.dns()
+	f.Resolver = &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "udp", f.DNS.LocalAddr().String())
+	}}
+	return f, nil
+}
+func (f *Fixture) Port() uint16 { return uint16(f.Server.Listener.Addr().(*net.TCPAddr).Port) }
+func (f *Fixture) Destination() netip.AddrPort {
+	return netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), f.Port())
+}
+func (f *Fixture) Close() { f.DNS.Close(); f.Server.Close() }
+func (f *Fixture) serve(w http.ResponseWriter, r *http.Request) {
+	host, _, e := net.SplitHostPort(r.Host)
+	if e != nil {
+		host = r.Host
+	}
+	if host == "chatgpt.com" {
+		peer, _, _ := net.SplitHostPort(r.RemoteAddr)
+		if peer != "127.0.0.2" {
+			http.Error(w, "protected DIRECT source forbidden", http.StatusForbidden)
+			return
+		}
+	}
+	f.mu.Lock()
+	f.Seen[host]++
+	f.Protocols[host] = r.ProtoMajor
+	f.mu.Unlock()
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Cache-Control", "no-store")
+	if r.URL.Path == "/bootstrap" {
+		stage := r.URL.Query().Get("stage")
+		if stage == "" {
+			stage = "1"
+		}
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintf(w, `<!doctype html><title>PENDING</title><body><script>Promise.all(%s.map(h=>fetch('https://'+h+':%d/check',{cache:'no-store'}).then(r=>{if(r.status!==200)throw Error('HTTP '+r.status);return r.text();}).then(v=>{if(v!==%q)throw Error('wrong nonce');}))).then(()=>{document.title='NEEXITLAG_PASS_%s';document.body.textContent='CONTROLLED_HTTPS_OK';}).catch(e=>{document.title='NEEXITLAG_FAIL';document.body.textContent=String(e);});</script>`, `['chatgpt.com','www.youtube.com','ordinary.example','blocked.example']`, f.Port(), f.Nonce, f.Nonce+"_"+stage)
+		return
+	}
+	if r.URL.Path != "/" && r.URL.Path != "/check" {
+		http.NotFound(w, r)
+		return
+	}
+	fmt.Fprint(w, f.Nonce)
+}
+func (f *Fixture) dns() {
+	data := make([]byte, 2048)
+	for {
+		n, peer, e := f.DNS.ReadFromUDP(data)
+		if e != nil {
+			return
+		}
+		var p dnsmessage.Parser
+		header, e := p.Start(data[:n])
+		if e != nil {
+			continue
+		}
+		questions, e := p.AllQuestions()
+		if e != nil {
+			continue
+		}
+		b := dnsmessage.NewBuilder(nil, dnsmessage.Header{ID: header.ID, Response: true, RecursionAvailable: true, RecursionDesired: true})
+		b.StartQuestions()
+		for _, q := range questions {
+			b.Question(q)
+		}
+		b.StartAnswers()
+		for _, q := range questions {
+			if q.Type == dnsmessage.TypeA {
+				b.AResource(dnsmessage.ResourceHeader{Name: q.Name, Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET, TTL: 1}, dnsmessage.AResource{A: [4]byte{127, 0, 0, 1}})
+			}
+		}
+		out, e := b.Finish()
+		if e == nil {
+			f.DNS.WriteToUDP(out, peer)
+		}
+	}
+}
+func ChromePath() string {
+	if v := os.Getenv("NEEXITLAG_TEST_CHROME"); v != "" {
+		return v
+	}
+	for _, name := range []string{"google-chrome", "chromium", "chrome"} {
+		if p, e := exec.LookPath(name); e == nil {
+			return p
+		}
+	}
+	for _, root := range []string{os.Getenv("ProgramFiles"), os.Getenv("ProgramFiles(x86)"), os.Getenv("LOCALAPPDATA")} {
+		p := filepath.Join(root, "Google", "Chrome", "Application", "chrome.exe")
+		if _, e := os.Stat(p); e == nil {
+			return p
+		}
+	}
+	return ""
+}

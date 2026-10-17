@@ -44,37 +44,38 @@ type captureFlow struct {
 	lastSeen    time.Time
 }
 type WinDivertBackend struct {
-	policyEpoch   atomic.Uint64
-	policyMu      sync.RWMutex
-	transition    map[string]bool
-	transitionAll bool
-	hot           hotAttachState
-	hotRequests   chan struct{}
-	classify      Classifier
-	Files         DriverFiles
-	Engine        *routing.Engine
-	RX, TX, Drops atomic.Uint64
-	LocalDrops    telemetry.Counters
-	mu            sync.Mutex
-	life          sync.Mutex
-	status        CaptureStatus
-	dll           *divertDLL
-	native        *divertDLL
-	network, flow uintptr
-	socket        uintptr
-	ipv6          uintptr
-	v6guard       IPv6Guard
-	flows         map[Tuple]*captureFlow
-	associations  *FlowAssociations
-	ctx           context.Context
-	cancel        context.CancelFunc
-	wg            sync.WaitGroup
-	packetWriter  func([]byte, [80]byte) error // optional native test seam; production uses WinDivert
-	openWorkers   chan struct{}                // setup only; never held for UDP flow lifetime
-	admission     udpAdmission
-	cache         *ProcessCache
-	tcp           *tcpRedirect
-	evidence      *EvidenceLedger
+	testBrowserLoopback bool // Set only from export_test.go, never production configuration.
+	policyEpoch         atomic.Uint64
+	policyMu            sync.RWMutex
+	transition          map[string]bool
+	transitionAll       bool
+	hot                 hotAttachState
+	hotRequests         chan struct{}
+	classify            Classifier
+	Files               DriverFiles
+	Engine              *routing.Engine
+	RX, TX, Drops       atomic.Uint64
+	LocalDrops          telemetry.Counters
+	mu                  sync.Mutex
+	life                sync.Mutex
+	status              CaptureStatus
+	dll                 *divertDLL
+	native              *divertDLL
+	network, flow       uintptr
+	socket              uintptr
+	ipv6                uintptr
+	v6guard             IPv6Guard
+	flows               map[Tuple]*captureFlow
+	associations        *FlowAssociations
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	wg                  sync.WaitGroup
+	packetWriter        func([]byte, [80]byte) error // optional native test seam; production uses WinDivert
+	openWorkers         chan struct{}                // setup only; never held for UDP flow lifetime
+	admission           udpAdmission
+	cache               *ProcessCache
+	tcp                 *tcpRedirect
+	evidence            *EvidenceLedger
 }
 
 func NewWinDivert(files DriverFiles, engine *routing.Engine) *WinDivertBackend {

@@ -4,6 +4,7 @@ package clientservice
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -68,6 +69,11 @@ type Snapshot struct {
 	ActiveApps     []string                         `json:"active_apps"`
 }
 type Controller struct {
+	BrowserOwnerSID string // Existing installation owner; restrict the loopback endpoint to this user.
+	// In-process fixture injection only; production uses the system resolver/roots.
+	BrowserResolver             *net.Resolver
+	BrowserProbeRoots           *x509.CertPool
+	browser                     *browserRuntime
 	activationMu                sync.Mutex
 	relayPools                  map[string]*transport.Pool
 	autoJobs                    map[string]autoLease
@@ -108,7 +114,7 @@ type Controller struct {
 
 func New(ctx context.Context) *Controller {
 	ctx, cancel := context.WithCancel(ctx)
-	c := &Controller{relayPools: map[string]*transport.Pool{}, AutoLearned: flowpolicy.NewLearning(), groupBindings: map[uint32]groupBinding{}, autoJobs: map[string]autoLease{}, discovery: windowsplatform.NewDiscovery(), Local: localstrategy.New(), Learned: localstrategy.NewCache(1024), Engine: routing.New(4096), Selector: optimizer.New(optimizer.DefaultParameters()), Measurements: measurement.New(measurement.Defaults()), Profiles: profiles.New(profiles.Defaults()), recentApps: make(map[string]time.Time), localProfiles: make(map[string]profiles.Profile), acceptanceRelays: make(map[string]acceptanceRelaySource), transportDrops: make(map[string]func() map[string]telemetry.Metric), settings: Settings{Automatic: true, Failover: "DIRECT", UpdateChannel: "stable"}, ctx: ctx, cancel: cancel}
+	c := &Controller{browser: newBrowserRuntime(), relayPools: map[string]*transport.Pool{}, AutoLearned: flowpolicy.NewLearning(), groupBindings: map[uint32]groupBinding{}, autoJobs: map[string]autoLease{}, discovery: windowsplatform.NewDiscovery(), Local: localstrategy.New(), Learned: localstrategy.NewCache(1024), Engine: routing.New(4096), Selector: optimizer.New(optimizer.DefaultParameters()), Measurements: measurement.New(measurement.Defaults()), Profiles: profiles.New(profiles.Defaults()), recentApps: make(map[string]time.Time), localProfiles: make(map[string]profiles.Profile), acceptanceRelays: make(map[string]acceptanceRelaySource), transportDrops: make(map[string]func() map[string]telemetry.Metric), settings: Settings{Automatic: true, Failover: "DIRECT", UpdateChannel: "stable"}, ctx: ctx, cancel: cancel}
 	c.Local.Guard = func(m localstrategy.Metadata) bool {
 		if c.autoCandidateQuarantined(m) {
 			return false
@@ -189,6 +195,12 @@ func (c *Controller) Start() {
 }
 func (c *Controller) Close() {
 	c.cancel()
+	c.browser.mu.Lock()
+	bs := c.browser.server
+	c.browser.mu.Unlock()
+	if bs != nil {
+		bs.Close()
+	}
 	if c.Backend != nil {
 		c.Backend.Stop()
 	}
@@ -448,6 +460,8 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		defer c.activationMu.Unlock()
 	}
 	switch method {
+	case "browser.start", "browser.status":
+		return c.handleBrowser(method, raw)
 	case "local.presets", "local.preset.apply", "local.get", "local.set", "local.metrics", "local.network", "local.record", "local.recommend", "local.compare":
 		return c.handleLocal(method, raw)
 	case "acceptance.readiness":
@@ -717,6 +731,14 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		c.mu.Lock()
 		c.enabled = v.Enabled
 		c.mu.Unlock()
+		if v.Enabled != wasEnabled {
+			c.browser.mu.Lock()
+			bs := c.browser.server
+			c.browser.mu.Unlock()
+			if bs != nil {
+				bs.CloseConnections()
+			}
+		}
 		if v.Enabled && !wasEnabled {
 			if b, ok := c.Backend.(interface{ RequestHotAttach(string) }); ok {
 				b.RequestHotAttach("optimize_enabled")
@@ -750,6 +772,14 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		}
 		if updateErr != nil {
 			return nil, updateErr
+		}
+		if oldSettings.Automatic != s.Automatic {
+			c.browser.mu.Lock()
+			bs := c.browser.server
+			c.browser.mu.Unlock()
+			if bs != nil {
+				bs.CloseConnections()
+			}
 		}
 		if err := c.saveSettings(); err != nil {
 			return nil, err

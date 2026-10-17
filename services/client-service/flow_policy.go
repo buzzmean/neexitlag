@@ -163,7 +163,7 @@ func (c *Controller) scopedDecision(p profiles.Profile, id wp.ProcessIdentity, t
 		return c.evaluateFlow(p, id, t, base, domain, network)
 	}
 	out := resolve("")
-	if t.Protocol == "tcp" && (flowpolicy.NeedsDomain(p.Rules, "tcp") || p.Mode == profiles.Auto && !c.hasBaseline(p, network) && c.AutoLearned.HasApplication(network, applicationKey(p), "tcp", time.Now())) {
+	if t.Protocol == "tcp" && (browserAuto(p) || flowpolicy.NeedsDomain(p.Rules, "tcp") || p.Mode == profiles.Auto && !c.hasBaseline(p, network) && c.AutoLearned.HasApplication(network, applicationKey(p), "tcp", time.Now())) {
 		// The existing redirect accepts the app connection before any upstream is
 		// opened. The closure captures a profile snapshot; edits affect new flows.
 		out.Deferred = true
@@ -182,6 +182,9 @@ func (c *Controller) scopedDecision(p profiles.Profile, id wp.ProcessIdentity, t
 	return out
 }
 func (c *Controller) evaluateFlow(p profiles.Profile, id wp.ProcessIdentity, t wp.Tuple, d wp.Decision, domain, network string) wp.Decision {
+	if browserAuto(p) {
+		return applyFlowResult(p, d, c.browserFlow(p, id, t, domain, network), network, c.Local)
+	}
 	result, matched := flowpolicy.Evaluate(p.Rules, flowpolicy.Input{Protocol: t.Protocol, Destination: t.Destination, Domain: domain, Network: network})
 	if !matched && p.Mode == profiles.Auto && presetFor(p) != "openai" && presetFor(p) != "openai-web" && presetFor(p) != "discord" && domain != "" {
 		target := domain

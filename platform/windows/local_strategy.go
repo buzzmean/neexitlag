@@ -17,7 +17,7 @@ func SendLocal(d Decision, state *localstrategy.State, id ProcessIdentity, tuple
 		}
 		return err
 	}
-	r := d.Local.Process(p, state, localstrategy.Metadata{StrategyID: d.LocalStrategyID, Application: id.Path, Protocol: tuple.Protocol, Destination: tuple.Destination})
+	r := d.Local.Process(p, state, localstrategy.Metadata{Domain: d.OriginDomain, TrustedOrigin: d.OriginDomain != "", StrategyID: d.LocalStrategyID, Application: id.Path, Protocol: tuple.Protocol, Destination: tuple.Destination})
 	defer evidence.RecordLocalInspection(id, tuple, r.Inspection)
 	if r.Suppress {
 		d.Local.Commit(r, len(p))

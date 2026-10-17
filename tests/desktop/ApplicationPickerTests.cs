@@ -24,6 +24,7 @@ public sealed class PickerService : IServiceClient
             "processes" when payload is not null && JsonSerializer.SerializeToElement(payload).TryGetProperty("applications", out _) => Running,
             "processes" => Array.Empty<ProcessIdentity>(),
             "capture.diagnostics" => new CaptureEvidence(),
+            "browser.status" => new BrowserTransportSnapshot(),
             _ => throw new InvalidOperationException(method)
         };
         return Task.FromResult((T)result);

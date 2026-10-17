@@ -67,7 +67,7 @@ public sealed class ApplicationRow : Observable
         return string.Equals(e, p.Contains('/') && !e.Contains('/') ? p[(p.LastIndexOf('/') + 1)..] : p, StringComparison.OrdinalIgnoreCase);
     }
 }
-public sealed class DesktopViewModel : Observable
+public sealed partial class DesktopViewModel : Observable
 {
     readonly IServiceClient client; readonly SemaphoreSlim gate = new(1, 1); public Snapshot? Snapshot
     {
@@ -160,6 +160,7 @@ public sealed class DesktopViewModel : Observable
             }
             catch (ServiceException) { }
             Apply(status, processes, capture);
+            try { ApplyBrowser(await client.Call<BrowserTransportSnapshot>("browser.status", cancellationToken: ct)); } catch (ServiceException) { BrowserDomains.Clear(); }
             Error = "";
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { }

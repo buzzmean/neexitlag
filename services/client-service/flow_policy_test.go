@@ -287,3 +287,55 @@ func TestPerProfileRequiredFallbackAlsoReachesTransportPolicy(t *testing.T) {
 		t.Fatal("raw transport bypassed per-profile fallback")
 	}
 }
+
+func TestChromeAutoThreeOriginsNeverUsesGlobalWinner(t *testing.T) {
+	app := `C:\Apps\chrome.exe`
+	p := profiles.Profile{ID: "browser", Name: "Chrome", Executables: []string{app}, Mode: profiles.Auto, Custom: true, AppPreset: "openai-web", RelayID: "VPS-01"}
+	c := policyController(t, p)
+	c.network.Store(&wp.NetworkContext{Fingerprint: "ISP", ObservedAt: time.Now()})
+	local, _, err := localstrategy.PresetProfiles("youtube", app, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range local {
+		if strings.HasSuffix(v.ID, "-disorder") {
+			p.LocalStrategyID = v.ID
+		}
+	}
+	if err = c.Local.Reload(localstrategy.Config{Version: 1, Enabled: true, User: local}); err != nil {
+		t.Fatal(err)
+	}
+	p.AutoNetwork = "ISP"
+	p.AutoRevision = c.baselineRevision(p)
+	if err = c.Profiles.Upsert(p); err != nil {
+		t.Fatal(err)
+	}
+	id := wp.ProcessIdentity{PID: 100, CreationTime: 10, Path: app}
+	tuple := policyTuple("tcp", 443)
+	for domain, want := range map[string]flowpolicy.Action{"chatgpt.com": flowpolicy.RelayRequired, "api.openai.com": flowpolicy.RelayRequired, "www.youtube.com": flowpolicy.DirectPlus, "r1.googlevideo.com": flowpolicy.DirectPlus, "www.example.org": flowpolicy.Direct, "openai.com.evil.test": flowpolicy.Direct} {
+		before := c.Classify(id, tuple)
+		if !before.Deferred || before.ResolveDomain == nil {
+			t.Fatal("upstream selected before domain", domain, before)
+		}
+		d := wp.ResolveDeferredDecision(before, domain, "SNI_FOUND")
+		if d.Policy.Action != want || d.Flow.PinnedPolicy == nil || d.Flow.PinnedPolicy.Route != d.Route {
+			t.Fatal(domain, d)
+		}
+		if want == flowpolicy.RelayRequired && (!d.BlockOnFailure || d.Route.RelayID != "VPS-01") {
+			t.Fatal("protected downgrade", d)
+		}
+		if want == flowpolicy.Direct && (!d.Route.Direct() || d.Local != nil) {
+			t.Fatal("global baseline leaked", d)
+		}
+	}
+	opaque := wp.ResolveDeferredDecision(c.Classify(id, tuple), "cloudflare-ech.com", "ECH_OUTER_SNI_ONLY")
+	if !opaque.Block || !opaque.BlockOnFailure {
+		t.Fatal("opaque inner name guessed DIRECT", opaque)
+	}
+	old := wp.ResolveDeferredDecision(c.Classify(id, tuple), "chatgpt.com", "SNI_FOUND")
+	p.Mode = profiles.Direct
+	c.Profiles.Upsert(p)
+	if !old.BlockOnFailure || old.Route.RelayID != "VPS-01" {
+		t.Fatal("existing decision mutated")
+	}
+}

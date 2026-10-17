@@ -299,3 +299,26 @@ func TestFakeOnlyHasCompleteChecksumsWithoutInputMutation(t *testing.T) {
 		t.Fatal("input modified")
 	}
 }
+
+func TestTrustedCONNECTOriginDoesNotBorrowOuterSNI(t *testing.T) {
+	e := New()
+	p := chainProfile(Action{Kind: "tcp-multisplit", Positions: []uint16{1}})
+	p.Domains = []string{"inner.example"}
+	p.IPs = nil
+	if err := e.Reload(Config{Version: 1, Enabled: true, User: []Profile{p}}); err != nil {
+		t.Fatal(err)
+	}
+	data := packet(6, fakeHello())
+	// Untrusted metadata must never override the actual observed SNI.
+	untrusted := metadata()
+	untrusted.Domain = "inner.example"
+	if r := e.Process(data, &State{}, untrusted); r.Modified {
+		t.Fatal("untrusted origin authorized transform")
+	}
+	trusted := metadata()
+	trusted.Domain = "inner.example"
+	trusted.TrustedOrigin = true
+	if r := e.Process(data, &State{}, trusted); !r.Modified || r.Domain != "inner.example" {
+		t.Fatal("owner-validated CONNECT origin not applied", r)
+	}
+}

@@ -166,7 +166,7 @@ public sealed class CaptureEvidence
     }
     public CaptureFlow[] Flows { get; set; } = [];
 }
-public sealed class FlowPolicyEvidence {public string Action {get;set;}="";public string Reason {get;set;}="";public string Source {get;set;}="";public string Fallback {get;set;}="";}
+public sealed class FlowPolicyEvidence {public string RelayId {get;set;}="";public string Action {get;set;}="";public string Reason {get;set;}="";public string Source {get;set;}="";public string Fallback {get;set;}="";}
 public sealed class UdpHealthEvidence
 {
  public string State {get;set;}=""; public string Reason {get;set;}="";

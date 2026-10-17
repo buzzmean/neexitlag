@@ -3,6 +3,7 @@ package clientservice
 import (
 	"context"
 	"encoding/json"
+	"github.com/buzzmean/neexitlag/core/flowpolicy"
 	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"github.com/buzzmean/neexitlag/core/optimizer"
 	"github.com/buzzmean/neexitlag/core/profiles"
@@ -124,12 +125,16 @@ func TestPresetAutoDoesNotBorrowVPSPingForUnknownTarget(t *testing.T) {
 	}
 	c.Profiles.Upsert(profiles.Profile{ID: "app", Name: "Chrome", Executables: []string{`C:\Apps\chrome.exe`}, Mode: profiles.Auto})
 	d := c.Classify(windowsplatform.ProcessIdentity{PID: 42, CreationTime: 100, Path: `C:\Apps\chrome.exe`}, windowsplatform.Tuple{Protocol: "tcp", Source: netip.MustParseAddrPort("192.0.2.1:1234"), Destination: netip.MustParseAddrPort("203.0.113.9:443")})
+	if !d.Deferred || d.ResolveDomain == nil {
+		t.Fatal("Chrome must wait for origin", d)
+	}
+	d = windowsplatform.ResolveDeferredDecision(d, "ordinary.example", "SNI_FOUND")
 	if !d.Route.Direct() || d.Route.Local() {
 		t.Fatal("unknown website inherited unrelated ping/strategy", d)
 	}
 }
 
-func TestMeasuredTCPStrategyAllowsOnlyScopedAutoQUICFallback(t *testing.T) {
+func TestTCPProofCannotAuthorizeOpaqueBrowserQUIC(t *testing.T) {
 	c := New(context.Background())
 	defer c.Close()
 	c.enabled = true
@@ -152,8 +157,8 @@ func TestMeasuredTCPStrategyAllowsOnlyScopedAutoQUICFallback(t *testing.T) {
 	bad.Available = false
 	c.Learned.Record(key, "DIRECT", bad, false, now)
 	c.Learned.Record(key, id, good, true, now)
-	if got := c.Classify(who, tuple); !got.Route.Local() || got.LocalStrategyID != id {
-		t.Fatal("measured app-scoped fallback missing", got)
+	if got := c.Classify(who, tuple); got.Route.Local() || got.Policy.Action != flowpolicy.RelayRequired || !got.BlockOnFailure {
+		t.Fatal("TCP/IP proof must not authorize unknown QUIC inner origin", got)
 	}
 	tuple.Destination = netip.MustParseAddrPort("203.0.113.9:50000")
 	if c.Classify(who, tuple).Route.Local() {

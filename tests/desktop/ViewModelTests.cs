@@ -17,6 +17,7 @@ public sealed class FakeService : IServiceClient
             "profiles" => State.Profiles,
             "processes" => Array.Empty<ProcessIdentity>(),
             "capture.diagnostics" => new CaptureEvidence(),
+            "browser.status" => new BrowserTransportSnapshot(),
             "profile.set" or "profile.delete" => State.Profiles,
             "settings.set" => payload!,
             "quality.diagnostics" => new DropDiagnostics(),

@@ -34,6 +34,8 @@ type Config struct {
 
 // AcceptanceConfig is only set by explicit in-process acceptance fixtures. No production CLI/env enables it.
 type AcceptanceConfig struct {
+	// Source interface for isolated route-discrimination fixtures; no CLI/env.
+	OutboundSource  netip.Addr
 	LeaseDuration   time.Duration
 	DropRenewalACKs int
 }
@@ -303,6 +305,13 @@ func (x *session) open(s *quic.Stream) {
 	ctx, cancel := context.WithTimeout(x.conn.Context(), 3*time.Second)
 	defer cancel()
 	d := net.Dialer{}
+	if a := x.server.config.Acceptance; a != nil && a.OutboundSource.IsLoopback() {
+		if o.Kind == protocol.TCP {
+			d.LocalAddr = &net.TCPAddr{IP: net.IP(a.OutboundSource.AsSlice())}
+		} else {
+			d.LocalAddr = &net.UDPAddr{IP: net.IP(a.OutboundSource.AsSlice())}
+		}
+	}
 	c, e := d.DialContext(ctx, map[byte]string{protocol.UDP: "udp", protocol.TCP: "tcp"}[o.Kind], o.Destination.String())
 	if e != nil {
 		detail := e.Error()

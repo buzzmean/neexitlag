@@ -122,6 +122,8 @@ jobs:
       - run: |
           $env:NEEXITLAG_TEST_DRIVER_DIR=(Resolve-Path .e2e/windivert).Path
           go test -timeout 90s -v ./platform/windows -run TestNativeCaptureHandlesStartStop
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test -timeout 120s -v ./platform/windows -run '^TestChromeSitesNativeAcceptance$'
         shell: pwsh
       - run: ./tests/windows-tools/acceptance-checks.ps1
         shell: pwsh

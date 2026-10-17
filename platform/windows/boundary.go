@@ -34,6 +34,8 @@ type CaptureStatus struct {
 	Capabilities Capabilities `json:"capabilities"`
 }
 type Decision struct {
+	// OriginDomain is supplied only by an owner-validated Chrome CONNECT.
+	OriginDomain    string
 	Revision        string
 	Policy          flowpolicy.Result
 	Group, Network  string

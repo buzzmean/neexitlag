@@ -58,6 +58,7 @@ type snapshot struct {
 	digest     string
 }
 type Metadata struct {
+	TrustedOrigin                 bool // Exact CONNECT origin, never a DNS/IP association or outer ECH guess.
 	Application, Domain, Protocol string
 	StrategyID                    string
 	Destination                   netip.AddrPort
@@ -370,7 +371,7 @@ func (e *LocalStrategyEngine) Process(p []byte, st *State, m Metadata) (r Result
 		r.Inspection = inspectHello(inspectionPayload)
 	}
 	if !st.matched {
-		if m.Protocol == "tcp" {
+		if m.Protocol == "tcp" && !m.TrustedOrigin {
 			m.Domain = PacketDomain(payload)
 			if st.logicalHello != nil {
 				m.Domain = tlsDomain(st.logicalHello)

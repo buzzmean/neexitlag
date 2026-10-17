@@ -45,6 +45,9 @@ func (b *WinDivertBackend) startTCP(d *divertDLL) (*tcpRedirect, error) {
 	// Inbound physical connections to the internal listener are dropped. Reflected
 	// packets injected below this handle are the only admitted listener traffic.
 	filter := fmt.Sprintf("ip and tcp and !impostor and ((outbound and !loopback) or (inbound and (!loopback or tcp.DstPort == %d)))", port)
+	if b.testBrowserLoopback {
+		filter = "ip and tcp and !impostor"
+	}
 	h, err := d.openHandle(filter, 0, 0)
 	if err != nil {
 		l.Close()
@@ -164,6 +167,26 @@ func (t *tcpRedirect) processPacket(p []byte, a [80]byte, classify Classifier) {
 			t.b.fail(err)
 		}
 		return
+	}
+	// The isolated Chrome acceptance enables loopback packet observation only.
+	// Pass every unrelated loopback packet unchanged; only exact delegated
+	// upstream tuples enter the production transform path.
+	if t.b.testBrowserLoopback && a[10]&4 != 0 {
+		t.delegatedMu.Lock()
+		_, forward := t.delegated[tuple]
+		_, reverse := t.delegated[Tuple{Protocol: "tcp", Source: tuple.Destination, Destination: tuple.Source}]
+		t.delegatedMu.Unlock()
+		if !forward {
+			if reverse && flags&0x3f == 0x12 {
+				t.state.mu.Lock()
+				if entry := t.state.entries[Tuple{Protocol: "tcp", Source: tuple.Destination, Destination: tuple.Source}]; entry != nil {
+					entry.localState.ConfirmHandshake(binary.BigEndian.Uint32(p[28:]), binary.BigEndian.Uint32(p[24:]))
+				}
+				t.state.mu.Unlock()
+			}
+			_ = t.send(p, a)
+			return
+		}
 	}
 	// External traffic to the interception listener is never admitted.
 	// Native SYN/ACK observation shares this handle; it is reinjected
@@ -718,11 +741,14 @@ func (t *tcpRedirect) deferredOpen(e *tcpEntry, c net.Conn, release func()) {
 	t.pipe(e, c, up)
 }
 func (t *tcpRedirect) dialLocalStrategy(ctx context.Context, e *tcpEntry, d Decision) (net.Conn, error) {
+	return t.dialLocalStrategyFrom(ctx, e, d, e.tuple.Source.Addr())
+}
+func (t *tcpRedirect) dialLocalStrategyFrom(ctx context.Context, e *tcpEntry, d Decision, bind netip.Addr) (net.Conn, error) {
 	var bound Tuple
 	dialer := net.Dialer{Control: func(network, address string, raw syscall.RawConn) error {
 		var bindErr error
 		err := raw.Control(func(fd uintptr) {
-			source := e.tuple.Source.Addr().As4()
+			source := bind.As4()
 			a := &windows.SockaddrInet4{Addr: source}
 			if bindErr = windows.Bind(windows.Handle(fd), a); bindErr != nil {
 				return
@@ -737,7 +763,7 @@ func (t *tcpRedirect) dialLocalStrategy(ctx context.Context, e *tcpEntry, d Deci
 				bindErr = fmt.Errorf("unsupported upstream socket")
 				return
 			}
-			bound = Tuple{Protocol: "tcp", Source: netip.AddrPortFrom(e.tuple.Source.Addr(), uint16(v.Port)), Destination: e.tuple.Destination}
+			bound = Tuple{Protocol: "tcp", Source: netip.AddrPortFrom(bind, uint16(v.Port)), Destination: e.tuple.Destination}
 			t.delegatedMu.Lock()
 			defer t.delegatedMu.Unlock()
 			if len(t.delegated) >= t.state.limit || !t.b.evidence.BindUpstream(e.identity, bound, e.tuple) {

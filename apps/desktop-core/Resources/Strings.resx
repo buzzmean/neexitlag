@@ -567,4 +567,15 @@
   <data name="HotAttachReconnecting" xml:space="preserve"><value>Переподключаем выбранные приложения…</value></data>
   <data name="HotAttachIncomplete" xml:space="preserve"><value>Не все соединения обновлены — откройте диагностику</value></data>
   <data name="HotAttachNetworkHint" xml:space="preserve"><value>Обновлены TCP / ожидают обновления. Восстановление приложения проверяется его реальным трафиком.</value></data>
+  <data name="ChromeSites" xml:space="preserve"><value>Chrome: AUTO по сайтам</value></data>
+  <data name="ChromeSitesHint" xml:space="preserve"><value>Chrome с локальным PAC: маршрут закреплён за доменом. Origin-probe не подтверждает загрузку авторизованной страницы.</value></data>
+  <data name="SelectChromeAuto" xml:space="preserve"><value>Выберите Chrome по полному пути и включите AUTO.</value></data>
+  <data name="ChromeSitesRestart" xml:space="preserve"><value>Для активации маршрутов по сайтам Chrome будет перезапущен. Сохраните незаписанную работу. Профиль сохраняется; Chrome попробует восстановить вкладки. Продолжить?</value></data>
+  <data name="ChromeSitesStillRunning" xml:space="preserve"><value>Chrome не завершился. Перезапуск отменён; процессы не будут принудительно остановлены.</value></data>
+  <data name="ChromeSitesLaunched" xml:space="preserve"><value>Chrome запущен с маршрутизацией по сайтам. Профиль сохранён; proxy Windows не изменён.</value></data>
+  <data name="DomainLabel" xml:space="preserve"><value>Домен</value></data>
+  <data name="ReasonLabel" xml:space="preserve"><value>Причина</value></data>
+  <data name="ChromeProxyManaged" xml:space="preserve"><value>В Chrome уже настроен другой или управляемый proxy. NeExitLag не будет его перезаписывать.</value></data>
+  <data name="DisableChromeSites" xml:space="preserve"><value>Отключить PAC Chrome</value></data>
+  <data name="ChromeSitesRemoved" xml:space="preserve"><value>Настройка PAC Chrome удалена. Перезапустите Chrome, чтобы полностью отключить её.</value></data>
 </root>
