@@ -27,7 +27,7 @@ public sealed record RouteRow(string Id, string Name, string Status, string Rtt,
 }
 public sealed record DiagnosticRow(string Name, string Status, string Detail);
 public sealed record MeasurementRow(string Time, string Route, string Rtt, string Jitter, string Loss);
-public sealed class ApplicationRow : Observable
+public sealed partial class ApplicationRow : Observable
 {
     public Profile Profile { get; private set; } = new(); public string Name => Profile.Name; public string Path => executablePath; public string Mode => Text.Mode(Profile.Mode);
     string processStatus = Text.Get("NoData"), route = Text.Get("NoData"), executablePath = Text.Get("NoData"); public string ProcessStatus => processStatus; public string Route => route;

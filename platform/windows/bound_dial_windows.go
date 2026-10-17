@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"os"
 	"syscall"
 	"time"
 
@@ -30,12 +31,8 @@ func dialBoundIPv4(parent context.Context, source netip.Addr, dest netip.AddrPor
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		reservation, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: source.AsSlice()})
+		local, err := reserveIPv4Port(source)
 		if err != nil {
-			return nil, err
-		}
-		local := reservation.Addr().(*net.TCPAddr).AddrPort()
-		if err = reservation.Close(); err != nil {
 			return nil, err
 		}
 		dialer := net.Dialer{LocalAddr: net.TCPAddrFromAddrPort(local), ControlContext: func(ctx context.Context, network, address string, raw syscall.RawConn) error {
@@ -53,4 +50,26 @@ func dialBoundIPv4(parent context.Context, source netip.Addr, dest netip.AddrPor
 		}
 	}
 	return nil, errors.New("bounded upstream source-port collision")
+}
+
+// Reserve a port without ever listening or emitting traffic on the interface.
+// The raw socket has no pending I/O and is always released with closesocket.
+func reserveIPv4Port(source netip.Addr) (netip.AddrPort, error) {
+	fd, err := windows.Socket(windows.AF_INET, windows.SOCK_STREAM, windows.IPPROTO_TCP)
+	if err != nil {
+		return netip.AddrPort{}, os.NewSyscallError("reserve_socket", err)
+	}
+	defer windows.Closesocket(fd)
+	if err = windows.Bind(fd, &windows.SockaddrInet4{Addr: source.As4()}); err != nil {
+		return netip.AddrPort{}, os.NewSyscallError("reserve_bind", err)
+	}
+	address, err := windows.Getsockname(fd)
+	if err != nil {
+		return netip.AddrPort{}, os.NewSyscallError("reserve_getsockname", err)
+	}
+	local, ok := address.(*windows.SockaddrInet4)
+	if !ok {
+		return netip.AddrPort{}, errors.New("reserved IPv4 tuple unavailable")
+	}
+	return netip.AddrPortFrom(source, uint16(local.Port)), nil
 }

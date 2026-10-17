@@ -578,4 +578,5 @@
   <data name="ChromeProxyManaged" xml:space="preserve"><value>В Chrome уже настроен другой или управляемый proxy. NeExitLag не будет его перезаписывать.</value></data>
   <data name="DisableChromeSites" xml:space="preserve"><value>Отключить PAC Chrome</value></data>
   <data name="ChromeSitesRemoved" xml:space="preserve"><value>Настройка PAC Chrome удалена. Перезапустите Chrome, чтобы полностью отключить её.</value></data>
+  <data name="ChromeRoutesByDomain" xml:space="preserve"><value>Маршруты по сайтам</value></data>
 </root>

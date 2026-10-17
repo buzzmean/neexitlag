@@ -17,10 +17,22 @@ public sealed partial class DesktopViewModel {
  public void ApplyBrowser(BrowserTransportSnapshot status){
   // Only actual transport records are shown; no assumed success from TCP ACKs.
   Replace(BrowserDomains,status.Records.OrderByDescending(r=>r.Id).Take(32));
+  foreach(var app in Applications)app.ApplyBrowserRecords(status);
  }
  public Task<ProcessIdentity[]> ChromeProcessesAsync(string exe,CancellationToken ct=default)=>client.Call<ProcessIdentity[]>("processes",new{executables=new[]{exe}},ct);
  public Task<BrowserLaunch> PrepareChromeAsync(Profile profile,string directory,CancellationToken ct=default){
   if(profile.Mode!="AUTO"||!profile.Executables.Any(p=>string.Equals(p.Replace('\\','/').Split('/').Last(),"chrome.exe",StringComparison.OrdinalIgnoreCase)))throw new InvalidOperationException(Text.Get("SelectChromeAuto"));
   return client.Call<BrowserLaunch>("browser.start",new{profile_id=profile.Id,directory},ct);
+ }
+}
+
+public sealed partial class ApplicationRow {
+ internal void ApplyBrowserRecords(BrowserTransportSnapshot status){
+  if(!status.Listening||Profile.Mode!="AUTO"||!Profile.Executables.Any(p=>p.Replace('\\','/').Split('/').Last().Equals("chrome.exe",StringComparison.OrdinalIgnoreCase)))return;
+  var live=status.Records.Where(r=>r.Owner.ProfileId==Profile.Id&&r.Active&&(r.SentBytes>0||r.ReceivedBytes>0)).ToArray();
+  route=live.Length==0?Text.Get("NoData"):string.Join(", ",live.Select(r=>r.Route).Distinct());
+  UserStatus=Text.Get("ChromeRoutesByDomain")+" · "+route;
+  if(status.Truncated||status.Lost>0)UserStatus=Text.Get("PartialRouteEvidence")+" "+UserStatus;
+  Tcp=route;Changed("");
  }
 }
