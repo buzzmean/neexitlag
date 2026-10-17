@@ -154,8 +154,16 @@ func TestPrivateTLSControlPlaneAndAuthenticatedRemoteProbe(t *testing.T) {
 			t.Fatal("real authenticated probe", m)
 		}
 	}
-	if node.Metrics.UDPPackets.Load() < 5 || echoStats.Accepted.Load() < 10 {
-		t.Fatal("no actual relay/echo forwarding counters")
+	// Both producers commit counters AFTER a successful socket write. The
+	// client can observe its final reply before those goroutines resume; wait
+	// for the same round's accounting, without sending extra probes or weakening
+	// the forwarding/loss assertion above.
+	accountingDeadline := time.Now().Add(time.Second)
+	for node.Metrics.UDPPackets.Load() < 5 || echoStats.Accepted.Load() < 10 {
+		if time.Now().After(accountingDeadline) {
+			t.Fatalf("forwarding accounting incomplete: relay=%d echo=%d measurements=%+v", node.Metrics.UDPPackets.Load(), echoStats.Accepted.Load(), measurements)
+		}
+		time.Sleep(time.Millisecond)
 	}
 	// Exercise the actual control-plane proof/nonce consumption and fresh ticket
 	// issuance through pool expansion on the unchanged authenticated relay.

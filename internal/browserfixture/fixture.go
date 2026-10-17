@@ -33,7 +33,7 @@ import (
 	"time"
 )
 
-var Domains = []string{"chatgpt.com", "www.youtube.com", "ordinary.example", "blocked.example", "vk.com", "music.yandex.ru", "langame.ru"}
+var Domains = []string{"chatgpt.com", "www.youtube.com", "ordinary.example", "blocked.example", "vk.com", "music.yandex.ru", "langame.ru", "www.twitch.tv", "web.telegram.org"}
 
 type Fixture struct {
 	ExpectedFailures        map[int][]string

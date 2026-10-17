@@ -29,6 +29,7 @@ function Observe-CDP($Message){
  }elseif($method -eq 'Network.responseReceived'){
   $p=$Message.params
   if($p.type -eq 'Document' -and $p.frameId -eq $row.frame){$row.document=@{id=$p.requestId;origin=(Origin $p.response.url);status=$p.response.status;protocol=$p.response.protocol;finished=$false}}
+  elseif($row.requests.ContainsKey([string]$p.requestId) -and $p.type -in @('Fetch','XHR','Script','Stylesheet') -and $p.response.status -ge 400){if($row.failures.Count -ge 64){$script:eventLoss=$true}else{$row.failures+=@{type=$p.type;error='APPLICATION_HTTP_ERROR';status=$p.response.status;origin=(Origin $p.response.url);request_id=$p.requestId}}}
  }elseif($method -eq 'Network.loadingFinished'){
   if($null -ne $row.document -and $row.document.id -eq $Message.params.requestId){$row.document.finished=$true}
  }elseif($method -eq 'Network.loadingFailed'){

@@ -18,6 +18,8 @@ Check ($script:targets.a.failures.Count -eq 0) 'Other CDP session contaminated o
 Event a 'Network.loadingFailed' @{requestId='new';type='Fetch';errorText='ERR_CONNECTION_CLOSED'}
 Check ($script:targets.a.failures.Count -eq 1) 'Real current-stage API failure hidden'
 function Origin([string]$URL){([Uri]$URL).GetLeftPart([UriPartial]::Authority)}
+Event a 'Network.responseReceived' @{type='XHR';requestId='new';response=@{url='https://api.openai.com/?credential=never-log';status=503;protocol='h2'}}
+Check ($script:targets.a.failures.Count -eq 2 -and $script:targets.a.failures[1].error -eq 'APPLICATION_HTTP_ERROR') 'HTTP API/server failure hidden as page PASS'
 Event a 'Network.responseReceived' @{type='Document';frameId='root-a';requestId='doc';response=@{url='https://vk.com/?private=never-log';status=200;protocol='h2'}}
 Check (!$script:targets.a.document.finished) 'HTTP headers alone were called completed page'
 Check ($script:targets.a.document.origin -eq 'https://vk.com') 'URL query leaked to evidence'

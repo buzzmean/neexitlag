@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -207,8 +208,11 @@ func testTCPNativeBurst(t *testing.T, count int, deferred bool) {
 		}
 		redirect.state.mu.Lock()
 		if e.upstream == nil || e.mode != "relay" {
+			mode := e.mode
 			redirect.state.mu.Unlock()
-			t.Fatal("protected open failed", i)
+			evidence, _ := b.evidence.SnapshotQuery(EvidenceQuery{PID: e.identity.PID, CreationTime: e.identity.CreationTime, Source: e.tuple.Source.String(), Destination: e.tuple.Destination.String()}, nil)
+			raw, _ := json.Marshal(evidence)
+			t.Fatalf("protected open failed %d mode=%s capture=%s pool=%+v upstream=%+v context=%v", i, mode, raw, pool.Snapshot(), server.Metrics.LastUpstreamDialFailure.Load(), b.ctx.Err())
 		}
 		if !deferred {
 			redirect.wg.Add(1)

@@ -217,7 +217,7 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 	recoveryPAC := strings.TrimPrefix(recoveryArgs[1], "--proxy-pac-url=")
 	recoveryJSON, _ := json.Marshal(map[string]any{"ProxyMode": "pac_script", "ProxyPacUrl": recoveryPAC, "ProxyPacMandatory": true})
 	// Actual policy, normal sandbox, a disposable health profile. Commit AUTO
-	// before starting/restoring the real seven-origin Chrome process.
+	// before starting/restoring the real multi-origin Chrome process.
 	if err := browserfixture.RunPolicyHealthProbe(ctx, chrome, healthURL, t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
@@ -360,7 +360,7 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 				t.Fatal("YouTube local route missing", r, string(rawProof))
 			}
 			found[r.Domain] = true
-		case "ordinary.example", "vk.com", "music.yandex.ru", "langame.ru":
+		case "ordinary.example", "vk.com", "music.yandex.ru", "langame.ru", "www.twitch.tv", "web.telegram.org":
 			if r.Plan.Policy.Action != flowpolicy.Direct || r.Sent == 0 || r.Received == 0 {
 				t.Fatal("ordinary origin borrowed another route", r)
 			}

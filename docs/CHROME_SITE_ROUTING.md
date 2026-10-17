@@ -132,7 +132,7 @@ TLS keys enter diagnostics.
 ## Automated acceptance (no long manual voice/browser test)
 
 `TestChromePACRealHTTPSOriginIsolation` runs an actual isolated Chrome/Chromium,
-HTTP/2 TLS target and authenticated relay on loopback. Seven origins share one IP
+HTTP/2 TLS target and authenticated relay on loopback. Nine origins (the seven public hostnames plus ordinary/blocked test domains) share one IP
 and certificate. A target nonce returned to browser JavaScript is mandatory;
 route intent, TCP ACK or JSON alone cannot PASS. An artificially impaired unknown
 origin rejects local source traffic but accepts the relay's distinct source IP.
@@ -246,7 +246,7 @@ legacy installation without a verified PAC state, automatic capture intentionall
 refuses to arm and reports the missing Chrome activation. Existing identity,
 certificates, profiles, local strategy and all VPS files remain intact.
 
-The seven controlled-origin CI tests are transport/routing evidence, not public
+The controlled-origin CI tests are transport/routing evidence, not public
 VK/YouTube/OpenAI availability or logged-in app/video playback acceptance. The
 reported public-site Windows failures are not declared PASS from these fixtures.
 
