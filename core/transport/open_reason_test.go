@@ -17,6 +17,8 @@ func TestPreciseOpenFailures(t *testing.T) {
 	}{
 		{os.ErrDeadlineExceeded, "open_ack_timeout"},
 		{context.Canceled, "caller_cancelled"},
+		{errors.Join(context.DeadlineExceeded, &quic.StreamError{ErrorCode: 1}), "open_ack_timeout"},
+		{errors.Join(context.Canceled, &quic.StreamError{ErrorCode: 1}), "caller_cancelled"},
 		{io.EOF, "open_ack_eof"},
 		{&quic.StreamError{ErrorCode: 1}, "open_stream_reset"},
 		{&quic.ApplicationError{ErrorCode: protocol.LeaseExpiredCode}, "authorization_lease_expired"},

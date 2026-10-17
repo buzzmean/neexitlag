@@ -83,7 +83,7 @@ func Listen(addr string, c Config) (*Server, error) {
 	q.MaxIncomingStreams = int64(c.MaxFlows)
 	if c.TicketVerifier != nil {
 		q.MaxIncomingStreams++
-	} // dedicated authentication/renewal control stream
+	} // authentication handshake headroom; renewal uses bounded QUIC DATAGRAM control
 	if c.TicketVerifier != nil {
 		c.TLS = c.TLS.Clone()
 		c.TLS.NextProtos = []string{protocol.LeaseALPN, protocol.TicketALPN}

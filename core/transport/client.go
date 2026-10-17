@@ -116,6 +116,11 @@ func (c *Client) open(ctx context.Context, kind byte, dst netip.AddrPort) (*quic
 		}
 	}
 	if e != nil {
+		// The caller's cancellation hook resets the stream. Preserve its budget
+		// cause so a local deadline race is not mislabeled as a peer stream reset.
+		if ctx.Err() != nil && !errors.Is(e, ErrRelayRejected) {
+			e = errors.Join(ctx.Err(), e)
+		}
 		s.CancelRead(1)
 		s.CancelWrite(1)
 		reason := openIOReason(e, c.SessionEndReason())
