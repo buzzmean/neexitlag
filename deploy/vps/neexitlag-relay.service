@@ -1,5 +1,5 @@
 [Unit]
-Description=neexitlag authenticated QUIC relay
+Description=VELIQ authenticated QUIC relay
 After=network-online.target neexitlag-control-plane.service
 Wants=network-online.target
 [Service]

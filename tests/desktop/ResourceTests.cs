@@ -23,16 +23,15 @@ public sealed class ResourceTests
             string key = entry.Attribute("name")!.Value;
             string text = Text.Get(key);
             Assert.Equal(entry.Element("value")!.Value, text);
-            if (text != "NeExitLag")
+            if (text != "VELIQ")
                 Assert.Matches("[А-Яа-яЁё]", text);
         }
     }
     [Fact]
     public void VisibleXamlStringsUseExistingResources()
     {
-        var path = Path.Combine(Root(), "apps/desktop/MainWindow.xaml");
-        var xaml = XDocument.Load(path);
-        foreach (var a in xaml.Descendants().Attributes().Where(a => new[] { "Text", "Content", "Header", "Title", "ToolTip" }.Contains(a.Name.LocalName)))
+        var windows = new[] { "MainWindow.xaml", "AddApplicationWindow.xaml" }.Select(name => XDocument.Load(Path.Combine(Root(), "apps/desktop", name)));
+        foreach (var a in windows.SelectMany(xaml => xaml.Descendants().Attributes()).Where(a => new[] { "Text", "Content", "Header", "Title", "ToolTip" }.Contains(a.Name.LocalName)))
         {
             if (a.Value.StartsWith("{ui:Tr "))
             {
@@ -40,7 +39,7 @@ public sealed class ResourceTests
                 Assert.False(string.IsNullOrEmpty(Text.Get(key)));
             }
             else
-                Assert.True(a.Value.StartsWith("{Binding") || a.Value == "NeExitLag", $"Unlocalized visible XAML: {a}");
+                Assert.True(a.Value.StartsWith("{Binding") || a.Value == "VELIQ", $"Unlocalized visible XAML: {a}");
         }
     }
     [Fact]

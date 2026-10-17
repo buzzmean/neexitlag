@@ -24,19 +24,23 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
 type Attempt struct {
-	Started     time.Time `json:"started"`
-	Finished    time.Time `json:"finished"`
-	Destination string    `json:"destination"`
-	Source      string    `json:"response_source,omitempty"`
-	Protocol    string    `json:"protocol,omitempty"`
-	TLS         bool      `json:"tls"`
-	Success     bool      `json:"success"`
-	Error       string    `json:"error,omitempty"`
-	DNS         []string  `json:"dns,omitempty"`
+	ConnectMS      float64   `json:"connect_ms"`
+	ResponseRTTMS  float64   `json:"response_rtt_ms"`
+	TLSHandshakeMS float64   `json:"tls_handshake_ms"`
+	Started        time.Time `json:"started"`
+	Finished       time.Time `json:"finished"`
+	Destination    string    `json:"destination"`
+	Source         string    `json:"response_source,omitempty"`
+	Protocol       string    `json:"protocol,omitempty"`
+	TLS            bool      `json:"tls"`
+	Success        bool      `json:"success"`
+	Error          string    `json:"error,omitempty"`
+	DNS            []string  `json:"dns,omitempty"`
 }
 type Report struct {
 	PID          uint32    `json:"pid"`
@@ -92,11 +96,62 @@ func probe(ctx context.Context, endpoint, token, caFile, mode string) (a Attempt
 		return (&net.Dialer{}).DialContext(ctx, "tcp4", addr)
 	}}
 	defer tr.CloseIdleConnections()
-	trace := &httptrace.ClientTrace{GotConn: func(i httptrace.GotConnInfo) { a.Destination = i.Conn.RemoteAddr().String() }, DNSDone: func(i httptrace.DNSDoneInfo) {
-		for _, v := range i.Addrs {
-			a.DNS = append(a.DNS, v.String())
-		}
-	}}
+
+	// HTTP/2 trace callbacks may run concurrently. Keep their state separate from
+	// the returned report, and snapshot it under a mutex at function completion.
+	var traceMu sync.Mutex
+	var connectAt, tlsAt, readyAt time.Time
+	var connectMS, tlsMS, responseMS float64
+	var traceDestination string
+	var traceDNS []string
+	defer func() {
+		traceMu.Lock()
+		defer traceMu.Unlock()
+		a.ConnectMS = connectMS
+		a.TLSHandshakeMS = tlsMS
+		a.ResponseRTTMS = responseMS
+		a.Destination = traceDestination
+		a.DNS = append([]string(nil), traceDNS...)
+	}()
+	trace := &httptrace.ClientTrace{
+		ConnectStart: func(_, _ string) { traceMu.Lock(); connectAt = time.Now(); traceMu.Unlock() },
+		ConnectDone: func(_, _ string, err error) {
+			traceMu.Lock()
+			defer traceMu.Unlock()
+			if err == nil && !connectAt.IsZero() {
+				connectMS = float64(time.Since(connectAt)) / 1e6
+			}
+		},
+		TLSHandshakeStart: func() { traceMu.Lock(); tlsAt = time.Now(); traceMu.Unlock() },
+		TLSHandshakeDone: func(_ tls.ConnectionState, err error) {
+			traceMu.Lock()
+			defer traceMu.Unlock()
+			if err == nil && !tlsAt.IsZero() {
+				tlsMS = float64(time.Since(tlsAt)) / 1e6
+			}
+		},
+		GotConn: func(i httptrace.GotConnInfo) {
+			traceMu.Lock()
+			readyAt = time.Now()
+			traceDestination = i.Conn.RemoteAddr().String()
+			traceMu.Unlock()
+		},
+		GotFirstResponseByte: func() {
+			traceMu.Lock()
+			defer traceMu.Unlock()
+			if !readyAt.IsZero() {
+				responseMS = float64(time.Since(readyAt)) / 1e6
+			}
+		},
+		DNSDone: func(i httptrace.DNSDoneInfo) {
+			traceMu.Lock()
+			defer traceMu.Unlock()
+			for _, v := range i.Addrs {
+				traceDNS = append(traceDNS, v.String())
+			}
+		},
+	}
+
 	request, e := http.NewRequestWithContext(httptrace.WithClientTrace(ctx, trace), "GET", u.String(), nil)
 	if e != nil {
 		a.Error = e.Error()

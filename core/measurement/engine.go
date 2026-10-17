@@ -137,7 +137,8 @@ func (e *Engine) Probe(ctx context.Context, c Candidate) optimizer.RouteMeasurem
 	flow, err := c.Open(openCtx, c.Target)
 	cancel()
 	if err != nil {
-		if ctx.Err() != nil {
+		if ctx.Err() != nil || errors.Is(err, telemetry.ErrCapacity) || errors.Is(err, telemetry.ErrIsolatedSession) {
+			// Local pool admission is not a remote quality sample.
 			return optimizer.RouteMeasurement{}
 		}
 		m.FailureRate = 1
@@ -177,6 +178,9 @@ func (e *Engine) Probe(ctx context.Context, c Candidate) optimizer.RouteMeasurem
 		}
 		stop()
 		if err != nil {
+			if errors.Is(err, telemetry.ErrIsolatedSession) {
+				return optimizer.RouteMeasurement{}
+			}
 			if ctx.Err() != nil {
 				m.Samples--
 				break

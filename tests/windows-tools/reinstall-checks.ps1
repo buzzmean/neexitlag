@@ -41,7 +41,7 @@ try {
   $global:neexitlagReinstallFixture.mockService|Add-Member ScriptMethod WaitForStatus {param($status,$timeout) $this.Status=$status}
   $global:neexitlagReinstallFixture.mockService|Add-Member ScriptMethod Dispose {$this.Disposed=$true}
   function Get-Service {param([string]$Name) if($Name -ne 'neexitlag'){throw 'Unexpected SCM name'};if($global:neexitlagReinstallFixture.serviceCreated){return $global:neexitlagReinstallFixture.mockService}}
-  function New-Service {param($Name,$BinaryPathName,$DisplayName,$StartupType) if($Name -ne 'neexitlag'){throw 'Unexpected SCM creation'};$global:neexitlagReinstallFixture.creates++;$global:neexitlagReinstallFixture.serviceCreated=$true;$global:neexitlagReinstallFixture.mockService.Status='Running'}
+  function New-Service {param($Name,$BinaryPathName,$DisplayName,$StartupType) if($Name -ne 'neexitlag' -or $DisplayName -ne 'VELIQ Routing Service'){throw 'SCM compatibility/display-name mismatch'};$global:neexitlagReinstallFixture.creates++;$global:neexitlagReinstallFixture.serviceCreated=$true;$global:neexitlagReinstallFixture.mockService.Status='Running'}
   function Start-Service {param($Name) if($Name -ne 'neexitlag'){throw 'Unexpected SCM start'}}
   function Stop-Service {param($Name) if($Name -ne 'neexitlag'){throw 'Unexpected SCM stop'};$global:neexitlagReinstallFixture.mockService.Status='Stopped'}
   function sc.exe {if($args[0] -eq 'delete'){$global:neexitlagReinstallFixture.deletes++;$global:neexitlagReinstallFixture.serviceCreated=$false};$global:LASTEXITCODE=0}
@@ -69,11 +69,33 @@ try {
     $sid=$rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
     if($sid -notin @('S-1-5-18','S-1-5-32-544',$owner)){throw "Unexpected access grant $sid"}
     if($sid -eq $owner) {
-     if($item.FullName -ne $target -and $item.FullName -ne (Join-Path $target 'ipc.token')){throw 'GUI owner gained credential/state access'}
+     if($item.FullName -ne $target -and $item.FullName -ne (Join-Path $target 'ipc.token') -and $item.FullName -ne (Join-Path $target 'neexitlag-service.exe') -and $item.FullName -ne (Join-Path (Join-Path $target 'state') 'browser-recovery-guard.json')){throw 'GUI owner gained credential/state access'}
      if($rule.InheritanceFlags -ne 'None' -or ($rule.FileSystemRights -band [Security.AccessControl.FileSystemRights]::Write)){throw 'GUI access became writable/inheritable'}
     }
    }
   }
+  # Exercise only the updater's pure SCM-target validator and actual executable
+  # ACL operation. No production SCM/IPC update is invoked by these filesystem tests.
+  $parseErrors=$null;$tokens=$null
+  $updateAst=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '../../tools/windows/update-service.ps1'),[ref]$tokens,[ref]$parseErrors)
+  if($parseErrors.Count){throw 'Updater did not parse'}
+  foreach($name in @('Assert-ServiceUpdateScmTarget','Set-BinaryOwnerReadExecute')){
+   $definition=$updateAst.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst]},$true)|Where-Object{$_.Name -eq $name}|Select-Object -First 1
+   if($null -eq $definition){throw "Missing updater validator: $name"}
+   . ([scriptblock]::Create($definition.Extent.Text))
+  }
+  $binary=Join-Path $target 'neexitlag-service.exe'
+  Assert-ServiceUpdateScmTarget ('"'+$binary+'" -config "'+(Join-Path $target 'service.json')+'"') $binary
+  Reject-Install {Assert-ServiceUpdateScmTarget '"C:\Wrong\service.exe"' $binary} '*SCM executable does not match*'
+  Reject-Install {Assert-ServiceUpdateScmTarget $binary $binary} '*SCM executable does not match*'
+  Set-BinaryOwnerReadExecute $binary $owner
+  foreach($rule in (Get-Acl -LiteralPath $binary).Access){
+   $sid=$rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+   if($sid -eq $owner -and (($rule.FileSystemRights -band [Security.AccessControl.FileSystemRights]::Write) -or !($rule.FileSystemRights -band [Security.AccessControl.FileSystemRights]::ExecuteFile))){throw 'Updater owner binary rights must be RX only'}
+   if($sid -notin @($owner,'S-1-5-18','S-1-5-32-544')){throw 'Updater broadened executable access'}
+  }
+  foreach($name in $protected){if((Get-FileHash (Join-Path $target $name)).Hash -ne $hashes[$name]){throw 'Executable ACL update modified preserved credentials/state'}}
+  Write-Output 'PASS updater SCM target refusal and owner executable RX without credential/state changes'
   Write-Output 'PASS actual Windows install/uninstall/reinstall with mocked SCM: binary updated, credentials/token/state preserved, restrictive ACLs'
  }
 }finally{Remove-Item $temp -Recurse -Force;Remove-Variable neexitlagReinstallFixture -Scope Global -ErrorAction SilentlyContinue}

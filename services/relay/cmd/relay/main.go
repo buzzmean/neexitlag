@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"flag"
 	"github.com/buzzmean/neexitlag/core/controlclient"
+	"github.com/buzzmean/neexitlag/core/protocol"
 	"github.com/buzzmean/neexitlag/core/security"
 	"github.com/buzzmean/neexitlag/core/transport"
+	"github.com/buzzmean/neexitlag/internal/releaseinfo"
 	"github.com/buzzmean/neexitlag/services/relay"
 	"log/slog"
 	"net/http"
@@ -34,7 +36,14 @@ func main() {
 	heartbeatFile := flag.String("heartbeat-token-file", "", "relay-specific heartbeat token")
 	allowHTTP := flag.Bool("allow-http-development", false, "allow HTTP on isolated development network")
 	cpCA := flag.String("control-plane-ca", "", "explicit private TLS CA for control plane")
+	version := flag.Bool("version-json", false, "print build and upgrade capabilities without opening credentials or listeners")
 	flag.Parse()
+	if *version {
+		if err := releaseinfo.Write(os.Stdout, "relay", []string{protocol.TicketALPN, protocol.LeaseALPN}, security.MaxConfigDocument, 1800); err != nil {
+			os.Exit(1)
+		}
+		return
+	}
 	fail := func(e error) { slog.Error("relay startup failed", "error", e); os.Exit(1) }
 	t, e := transport.TLS(*cert, *key, *ca, true)
 	if e != nil {

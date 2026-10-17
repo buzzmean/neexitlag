@@ -7,7 +7,7 @@ public sealed class PromptWindow : Window
     private PromptWindow(Window owner, string key, bool confirm)
     {
         Owner = owner;
-        Title = "NeExitLag";
+        Title = "VELIQ";
         Icon = owner.Icon;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ResizeMode = ResizeMode.NoResize;

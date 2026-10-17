@@ -27,11 +27,13 @@ public sealed record RouteRow(string Id, string Name, string Status, string Rtt,
 }
 public sealed record DiagnosticRow(string Name, string Status, string Detail);
 public sealed record MeasurementRow(string Time, string Route, string Rtt, string Jitter, string Loss);
-public sealed class ApplicationRow : Observable
+public sealed partial class ApplicationRow : Observable
 {
     public Profile Profile { get; private set; } = new(); public string Name => Profile.Name; public string Path => executablePath; public string Mode => Text.Mode(Profile.Mode);
     string processStatus = Text.Get("NoData"), route = Text.Get("NoData"), executablePath = Text.Get("NoData"); public string ProcessStatus => processStatus; public string Route => route;
-    public string Udp { get; private set; } = Text.Get("NoData");
+    public string UserStatus {get;private set;}=Text.Get("NoData");
+    public string LocalDetails {get;private set;}=Text.Get("NoData");
+ public string Udp { get; private set; } = Text.Get("NoData");
  public string Tcp { get; private set; } = Text.Get("NoData");
  public string Ipv4 { get; private set; } = Text.Get("NoData");
  public string Ipv6 { get; private set; } = Text.Get("IPv6Unsupported");
@@ -41,12 +43,21 @@ public sealed class ApplicationRow : Observable
         var matched = processes?.Where(p => profile.Executables.Any(exe => Matches(exe, p.Path))).ToArray();
         executablePath = string.Join(", ", profile.Executables.Select(exe => exe.Contains('\\') || exe.Contains('/') ? exe : matched?.FirstOrDefault(p => Matches(exe, p.Path))?.Path ?? $"{exe} ({Text.Get("NoData")})"));
         processStatus = matched is null ? Text.Get("NoData") : Text.Get(matched.Length > 0 ? "Active" : "NotRunning");
-        var routes = capture?.Flows.Where(f => matched?.Any(p => p.PID == f.Pid && p.CreationTime == f.CreationTime) == true && profile.Executables.Any(e => Matches(e, f.Exe)) && DateTimeOffset.UtcNow - f.LastSeen < TimeSpan.FromSeconds(10)).Select(f => f.SelectedRoute == "RELAY" ? Text.Route(f.RelayId) : f.SelectedRoute == "DIRECT" ? Text.Route("DIRECT") : Text.Get("NoData")).Distinct().ToArray();
-        route = routes is { Length: > 0 } ? string.Join(", ", routes) : Text.Get("NoData");
-        var active = capture?.Flows.Where(f => matched?.Any(p => p.PID == f.Pid && p.CreationTime == f.CreationTime) == true && DateTimeOffset.UtcNow - f.LastSeen < TimeSpan.FromSeconds(10)).ToArray();
-        string Summary(Func<CaptureFlow, bool> predicate) { var values=active?.Where(predicate).Select(f => f.SelectedRoute == "BLOCK_UNSUPPORTED_IPV6" ? Text.Get("IPv6Blocked") : f.SelectedRoute == "RELAY" ? Text.Route(f.RelayId) : f.SelectedRoute == "DIRECT" ? Text.Route("DIRECT") : Text.Get("NoData")).Distinct().ToArray(); return values is {Length: >0} ? string.Join(", ",values) : Text.Get("NoData"); }
-        Udp=Summary(f=>f.Protocol=="udp"); Tcp=Summary(f=>f.Protocol=="tcp"); Ipv4=Summary(f=>f.IpVersion=="IPv4");
-        Ipv6=active?.Any(f=>f.IpVersion=="IPv6") == true ? Summary(f=>f.IpVersion=="IPv6") : Text.Get("IPv6Unsupported");
+        bool Attributed(CaptureFlow f) => f.ProcessGroup==profile.Id && f.IdentityCurrent || profile.Executables.Any(exe=>Matches(exe,f.Exe)) && (matched?.Any(p=>p.PID==f.Pid&&p.CreationTime==f.CreationTime)==true || processes is null&&f.IdentityCurrent);
+        bool FreshFlow(CaptureFlow f) => f.Active || (f.LastSeen<=DateTimeOffset.UtcNow.AddSeconds(1)&&DateTimeOffset.UtcNow-f.LastSeen<TimeSpan.FromSeconds(30));
+        var active=capture?.Flows.Where(f=>Attributed(f)&&FreshFlow(f)).ToArray();
+        string Summary(Func<CaptureFlow,bool> predicate){var values=active?.Where(predicate).Select(f=>f.SelectedRoute=="BLOCK_UNSUPPORTED_IPV6"?Text.Get("IPv6Blocked"):f.SelectedRoute is "DIRECT" or "DIRECT_PLUS"?Text.Route(f.SelectedRoute):f.SelectedRoute=="RELAY"?Text.Route(f.RelayId):Text.Get("NoData")).Distinct().ToArray();return values is {Length:>0}?string.Join(", ",values):Text.Get("NoData");}
+        route=Summary(_=>true);
+        var livePaths=active?.Where(f=>f.ProcessGroup==profile.Id&&f.IdentityCurrent&&profile.Executables.Any(exe=>string.Equals(exe.Replace('\\','/').Split('/').Last(),f.Exe.Replace('\\','/').Split('/').Last(),StringComparison.OrdinalIgnoreCase))).Select(f=>f.Exe).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        if(livePaths is {Length:>0})executablePath=string.Join(", ",livePaths);
+        bool relay=active?.Any(f=>f.SelectedRoute=="RELAY"&&f.Counters.RelayedBytes>0)==true;
+        bool direct=active?.Any(f=>f.SelectedRoute=="DIRECT"&&f.Counters.DirectPackets>0&&(f.Policy?.Fallback!="FLOW_RELAY_FALLBACK"||f.UdpHealth?.State=="DIRECT_CONFIRMED"))==true;
+        UserStatus=active is null||active.Length==0?Text.Get("NoData"):active.Any(f=>f.SelectedRoute.StartsWith("BLOCK",StringComparison.Ordinal)||f.RelayRequiredBlocked)?Text.Get("ProtectedFlowBlocked"):relay&&direct?Text.Get("HybridRoute"):relay?Text.Get("ProtectedRoute"):active.Any(f=>f.Counters.DirectPlusPackets>0)?Text.Get("AppliedDirectOptimization"):direct?Text.Get("DirectConnection"):Text.Get("AutoChecking");
+        if(capture?.Truncated==true)UserStatus=Text.Get("PartialRouteEvidence")+" "+UserStatus;
+        if(active?.Length>0)processStatus=Text.Get("Active");
+        LocalDetails=active is null?Text.Get("NoData"):string.Join("; ",active.Select(f=>$"{f.Protocol} · {f.Source} → {f.Destination} · upstream={f.UpstreamSource} · flow={f.FlowId} · {f.ProcessGroup} · {f.Exe} · PID={f.Pid}/{f.CreationTime} · {f.Policy?.Action} · {f.Policy?.Reason} · {f.Policy?.Source} · {f.FallbackReason} · {f.NetworkFingerprint} · blocked={f.RelayRequiredBlocked} · captured={f.Counters.CapturedPackets}/{f.Counters.CapturedBytes} · direct={f.Counters.DirectPackets}/{f.Counters.DirectBytes} · replies={f.Counters.DirectReplyPackets} · udp-health={f.UdpHealth?.State}/{f.UdpHealth?.Reason} · probation={f.UdpHealth?.ProbationReplies}/{f.UdpHealth?.ProbationReplyBytes}/{f.UdpHealth?.ProbationDurationMs}ms · cadence={f.UdpHealth?.ReplyBins}/{f.UdpHealth?.OutboundBins} · degraded={f.UdpHealth?.DegradedDurationMs}ms · direct+={f.Counters.DirectPlusBytes} · {f.Strategy}: {f.Domain} {f.Destination} {Text.Route(f.SelectedRoute=="RELAY"?f.RelayId:f.SelectedRoute)} · {f.Preset} {f.Chain} · {(f.FakeTtl>0?$"TTL={f.FakeTtl}":"")} · {Text.Get("LocalModified")}: {f.Counters.DirectPlusPackets} · {Text.Get("RelayTraffic")}: {Text.Bytes(f.Counters.RelayedBytes)} · QUIC→TCP={f.Counters.QuicFallbackPackets}").Distinct());
+        Udp=Summary(f=>f.Protocol=="udp");Tcp=Summary(f=>f.Protocol=="tcp");Ipv4=Summary(f=>f.IpVersion=="IPv4");
+        Ipv6=active?.Any(f=>f.IpVersion=="IPv6")==true?Summary(f=>f.IpVersion=="IPv6"):Text.Get("IPv6Unsupported");
         Changed("");
     }
     public static bool Matches(string executable, string path)
@@ -56,7 +67,7 @@ public sealed class ApplicationRow : Observable
         return string.Equals(e, p.Contains('/') && !e.Contains('/') ? p[(p.LastIndexOf('/') + 1)..] : p, StringComparison.OrdinalIgnoreCase);
     }
 }
-public sealed class DesktopViewModel : Observable
+public sealed partial class DesktopViewModel : Observable
 {
     readonly IServiceClient client; readonly SemaphoreSlim gate = new(1, 1); public Snapshot? Snapshot
     {
@@ -88,14 +99,16 @@ public sealed class DesktopViewModel : Observable
     {
         get => error; private set => Set(ref error, value);
     }
+    public void SetNotice(string value) => Notice=value;
     public string Notice
     {
         get => notice; private set => Set(ref notice, value);
     }
     public ObservableCollection<ApplicationRow> Applications { get; } = []; public ObservableCollection<RouteRow> Routes { get; } = []; public ObservableCollection<Choice> Relays { get; } = [];
     public ObservableCollection<DiagnosticRow> Diagnostics { get; } = []; public ObservableCollection<MeasurementRow> Measurements { get; } = []; public ObservableCollection<string> Changes { get; } = [];
-    public ObservableCollection<Choice> Modes { get; } = [new("AUTO", Text.Mode("AUTO")), new("DIRECT", Text.Mode("DIRECT")), new("MANUAL", Text.Mode("MANUAL"))];
-    public bool Optimizing => Available && Snapshot?.Optimizing == true; public string OptimizeLabel => Text.Get(Optimizing ? "DisableOptimization" : "EnableOptimization"); public string OptimizationStatus => Text.Get(!Available ? "NoData" : Optimizing ? "OptimizationOn" : "OptimizationOff");
+    public ObservableCollection<Choice> ProfileFallbacks {get;}=[new("",Text.Get("InheritFallback")),new("FAIL_OPEN_DIRECT",Text.Get("DirectConnection")),new("RELAY_REQUIRED",Text.Get("RequiredRelayFallback")),new("BLOCK",Text.Get("Block"))];
+    public ObservableCollection<Choice> Modes { get; } = [new("AUTO", Text.Mode("AUTO")), new("DIRECT", Text.Mode("DIRECT")), new("DIRECT_PLUS",Text.Mode("DIRECT_PLUS")), new("MANUAL", Text.Mode("MANUAL"))];
+    public bool Optimizing => Available && Snapshot?.Optimizing == true; public string OptimizeLabel => Text.Get(Optimizing ? "DisableOptimization" : "EnableOptimization"); public string OptimizationStatus => Text.Get(!Available ? "NoData" : !Optimizing ? "OptimizationOff" : Snapshot?.HotAttach?.State switch {"HOT_ATTACH_RECONNECTING" or "HOT_ATTACH_PREPARING"=>"HotAttachReconnecting","HOT_ATTACH_INCOMPLETE"=>"HotAttachIncomplete",_=>"OptimizationOn"});
     public string Primary => Available ? Text.Route(Snapshot?.Primary) : Text.Get("NoData");
     public string ActiveApps => !Available ? Text.Get("NoData") : Snapshot?.ActiveApps.Length > 0 ? string.Join(", ", Snapshot.ActiveApps.Select(id => Snapshot.Profiles.FirstOrDefault(p => p.Id == id)?.Name ?? id)) : Text.Get("NoActiveApps");
     public string Rx => Available && Snapshot is { } s ? Text.Bytes(s.RxBytes) : Text.Get("NoData"); public string Tx => Available && Snapshot is { } s ? Text.Bytes(s.TxBytes) : Text.Get("NoData");
@@ -147,6 +160,7 @@ public sealed class DesktopViewModel : Observable
             }
             catch (ServiceException) { }
             Apply(status, processes, capture);
+            try { ApplyBrowser(await client.Call<BrowserTransportSnapshot>("browser.status", cancellationToken: ct)); } catch (ServiceException) { BrowserDomains.Clear(); }
             Error = "";
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
@@ -166,8 +180,8 @@ public sealed class DesktopViewModel : Observable
             if (block is not null)
                 Modes.Remove(block);
         }
-        if (capture?.Truncated == true)
-            capture = null;
+        // Truncation prevents proving ABSENCE, not displaying positive evidence
+        // that the authenticated backend actually supplied for a live identity.
         foreach (var old in Applications.Where(a => !status.Profiles.Any(p => p.Id == a.Profile.Id)).ToArray())
             Applications.Remove(old);
         foreach (var profile in status.Profiles)
@@ -250,6 +264,12 @@ public sealed class DesktopViewModel : Observable
         if (await Act(async () => { await client.Call<Snapshot>("optimize", new { enabled }, ct); }, ct))
             await RefreshAsync(ct);
     }
+    public RunningApplicationsViewModel CreateApplicationPicker() => new(client);
+    public async Task<bool?> AddApplicationFromFileAsync(Func<string?> chooseFile, CancellationToken ct = default)
+    {
+        string? path = chooseFile();
+        return path is null ? null : await AddApplicationAsync(path, ct);
+    }
     public async Task<bool> AddApplicationAsync(string path, CancellationToken ct = default)
     {
         if (!System.IO.Path.IsPathFullyQualified(path) || !path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) || !File.Exists(path))
@@ -257,16 +277,36 @@ public sealed class DesktopViewModel : Observable
             Error = Text.Get("InvalidExecutable");
             return false;
         }
-        if (Snapshot?.Profiles.Any(p => p.Executables.Any(e => string.Equals(e, path, StringComparison.OrdinalIgnoreCase))) == true)
+        path = System.IO.Path.GetFullPath(path);
+        var profile = new Profile { Id = "custom-" + Guid.NewGuid().ToString("N"), Name = System.IO.Path.GetFileNameWithoutExtension(path), Executables = [path], Mode = System.IO.Path.GetFileName(path).Equals("chrome.exe",StringComparison.OrdinalIgnoreCase)?"DIRECT":"AUTO", Custom = true };
+        bool duplicate = false;
+        bool ok = await Act(async () =>
         {
-            Error = Text.Get("AlreadyAdded");
-            return false;
-        }
-        var profile = new Profile { Id = "custom-" + Guid.NewGuid().ToString("N"), Name = System.IO.Path.GetFileNameWithoutExtension(path), Executables = [path], Mode = "AUTO", Custom = true };
-        bool ok = await Act(async () => { await client.Call<Profile[]>("profile.set", profile, ct); }, ct);
-        if (ok)
-            await RefreshAsync(ct);
+            // Recheck current service state inside the mutation gate. An old GUI
+            // snapshot or two rapid clicks must not create duplicate profiles.
+            var existing = await client.Call<Profile[]>("profiles", cancellationToken: ct);
+            duplicate = existing.Any(p => p.Executables.Any(e => SameExecutable(e, path)));
+            if (duplicate) return;
+            var saved = await client.Call<Profile[]>("profile.set", profile, ct);
+            if (Snapshot is { } snapshot) snapshot.Profiles = saved;
+            foreach (var p in saved)
+            {
+                var row = Applications.FirstOrDefault(a => a.Profile.Id == p.Id);
+                if (row is null)
+                {
+                    row = new(); row.Update(p, null, null); Applications.Add(row);
+                }
+            }
+        }, ct);
+        if (duplicate) { Error = Text.Get("AlreadyAdded"); return false; }
+        // Profile mutation already returned the authoritative list. Close the
+        // picker immediately; ordinary polling will fill live process evidence.
         return ok;
+    }
+    static bool SameExecutable(string a, string b)
+    {
+        try { return System.IO.Path.IsPathFullyQualified(a) && string.Equals(System.IO.Path.GetFullPath(a), b, StringComparison.OrdinalIgnoreCase); }
+        catch (Exception e) when (e is ArgumentException or NotSupportedException or System.IO.PathTooLongException) { return false; }
     }
     public async Task<bool> SetProfileAsync(Profile original, string mode, string? relay, CancellationToken ct = default)
     {
@@ -275,7 +315,7 @@ public sealed class DesktopViewModel : Observable
             Error = Text.Get("BlockUnsupported");
             return false;
         }
-        if (!new[] { "AUTO", "DIRECT", "MANUAL", "BLOCK" }.Contains(mode))
+        if (!new[] { "AUTO", "DIRECT", "DIRECT_PLUS", "MANUAL", "BLOCK" }.Contains(mode))
         {
             Error = Text.Get("CommandRejected");
             return false;
@@ -306,7 +346,22 @@ public sealed class DesktopViewModel : Observable
         if (await Act(async () => { await client.Call<Profile[]>("profile.delete", new { id = profile.Id }, ct); }, ct))
             await RefreshAsync(ct);
     }
-    public async Task<bool> SaveServiceSettingsAsync(ServiceSettings settings, CancellationToken ct = default)
+    public Task<LocalStrategyPreset[]> GetPresetsAsync(CancellationToken ct=default)=>client.Call<LocalStrategyPreset[]>("local.presets",cancellationToken:ct);
+    public async Task<bool> ApplyPresetAsync(Profile original,string preset,bool quic,CancellationToken ct=default)
+    {
+        string path=original.Executables.FirstOrDefault()??"";
+        if(!System.IO.Path.IsPathFullyQualified(path)){Error=Text.Get("PresetNeedsPath");return false;}
+        bool ok=await Act(async()=>{
+            var install=await client.Call<PresetInstall>("local.preset.apply",new{application=path,preset,quic_fallback=quic},ct);
+            var copy=original.Copy();copy.Mode="DIRECT_PLUS";copy.LocalStrategyId=install.StrategyId;copy.RelayId=null;
+            await client.Call<Profile[]>("profile.set",copy,ct);
+        },ct);
+        if(ok)await RefreshAsync(ct);return ok;
+    }
+    public Task<LocalStrategyConfig> GetLocalStrategiesAsync(CancellationToken ct=default)=>client.Call<LocalStrategyConfig>("local.get",cancellationToken:ct);
+ public Task<LocalStrategyConfig> SaveLocalStrategiesAsync(LocalStrategyConfig config,CancellationToken ct=default)=>client.Call<LocalStrategyConfig>("local.set",config,ct);
+ public Task<LocalStrategyMetrics> GetLocalMetricsAsync(CancellationToken ct=default)=>client.Call<LocalStrategyMetrics>("local.metrics",cancellationToken:ct);
+ public async Task<bool> SaveServiceSettingsAsync(ServiceSettings settings, CancellationToken ct = default)
     {
         if (settings.Failover == "BLOCK" && Snapshot?.Backend.Capabilities.Tcp != true)
         {
@@ -322,6 +377,7 @@ public sealed class DesktopViewModel : Observable
             var checks = await client.Call<Check[]>("diagnostics", cancellationToken: ct);
             var s = await client.Call<Snapshot>("status", cancellationToken: ct);
             var rows = new List<DiagnosticRow> { new(Text.Get("ServiceName"), Text.Get("Working"), Text.Get("ServiceWorking")), new(Text.Get("DriverName"), Text.Get(s.Backend.Ready ? "Working" : string.IsNullOrEmpty(s.Backend.Error) ? "NotAvailable" : "Error"), Text.Get(s.Backend.Ready ? "DriverReady" : string.IsNullOrEmpty(s.Backend.Error) ? "DriverIdle" : "DriverFailure")) };
+            if(s.HotAttach is { } hot) rows.Add(new("HOT ATTACH",Text.Get(hot.State=="HOT_ATTACH_INCOMPLETE"?"Error":hot.State is "HOT_ATTACH_RECONNECTING" or "HOT_ATTACH_PREPARING"?"HotAttachReconnecting":"Working"),$"{Text.Get("HotAttachNetworkHint")} {hot.TcpReset}; {hot.Pending}. {hot.Error}"));
             foreach (var c in checks)
             {
                 string key = c.Name switch
@@ -345,7 +401,15 @@ public sealed class DesktopViewModel : Observable
                 if (c.Name is "TCP interception" or "UDP interception" or "IPv4") detail=Text.Get("InterceptionHint");
                 rows.Add(new(name, c.Status=="unsupported" ? Text.Get("IPv6Unsupported") : Text.Status(c.Status), detail));
             }
-            var direct = checks.FirstOrDefault(c => c.Name == "UDP");
+            try {var n=await client.Call<NetworkObservation>("local.network",cancellationToken:ct);
+ rows.Add(new(Text.Get("LocalNetwork"),Text.Get(string.IsNullOrEmpty(n.Error) && DateTimeOffset.UtcNow-n.ObservedAt<TimeSpan.FromSeconds(45)?"Working":"NoData"),string.Join("; ",n.Adapters)));
+ rows.Add(new(Text.Get("LocalVPN"),Text.Get(n.Vpn.Length>0?"Active":"NoData"),n.Vpn.Length>0?string.Join(", ",n.Vpn):Text.Get("LocalVPNUnknown")));
+ rows.Add(new(Text.Get("LocalConflict"),Text.Get(n.Conflicts.Length>0?"Error":"NoData"),n.Conflicts.Length>0?string.Join(", ",n.Conflicts):Text.Get("LocalConflictUnknown")));
+ rows.Add(new(Text.Get("LocalRoutes"),Text.Get("NoData"),string.Join("; ",n.Routes)));
+ rows.Add(new(Text.Get("LocalDNS"),Text.Get("NoData"),string.Join("; ",n.Dns)+"; "+Text.Get("LocalDNSUnknown")));
+ rows.Add(new(Text.Get("LocalProxy"),Text.Get("NoData"),n.Proxy));
+ }catch(ServiceException){rows.Add(new(Text.Get("LocalNetwork"),Text.Get("NoData"),Text.Get("LocalVPNUnknown")));}
+ var direct = checks.FirstOrDefault(c => c.Name == "UDP");
             rows.Add(new(Text.Get("DirectCheck"), Text.Status(direct?.Status ?? "not configured"), Text.Get(direct?.Status == "healthy" ? "DiagnosticHealthy" : direct?.Status == "not configured" || direct is null ? "DiagnosticUnconfigured" : "DiagnosticUnavailable")));
             try
             {

@@ -14,7 +14,7 @@ normal SSH client; SSH passwords are entered interactively, never pasted into a
 script. The existing SSH port remains unchanged (add `-P PORT`/`-p PORT` if needed).
 
 ```powershell
-scp .\neexitlag-relay-linux-amd64.zip root@2.56.177.4:/root/
+scp .\VELIQ-relay-linux-amd64.zip root@2.56.177.4:/root/
 ssh root@2.56.177.4
 ```
 
@@ -24,7 +24,7 @@ On Ubuntu/Debian, prerequisites and release verification:
 apt-get update
 apt-get install -y ca-certificates curl python3 unzip
 mkdir -p /root/neexitlag-release
-unzip -o /root/neexitlag-relay-linux-amd64.zip -d /root/neexitlag-release
+unzip -o /root/VELIQ-relay-linux-amd64.zip -d /root/neexitlag-release
 cd /root/neexitlag-release
 cat HEAD_COMMIT
 sha256sum -c SHA256SUMS
@@ -144,11 +144,11 @@ private network for remote scraping. Never expose private metrics broadly.
 
 Open GitHub Actions → **Relay release and route test** → successful run on
 `codex/real-relay-deployment`. Download artifact
-`neexitlag-route-test-windows-amd64`, then extract
+`VELIQ-route-test-windows-amd64` (legacy download alias retained), then extract
 **`neexitlag-route-test-windows-amd64.exe`** and `SHA256SUMS` into the existing
 Windows repository/work directory. No Go installation or driver is needed for
 this CLI. Verify the exe hash with `Get-FileHash -Algorithm SHA256` against the
-artifact checksum. The matching Linux artifact is `neexitlag-relay-linux-amd64`.
+artifact checksum. The matching Linux artifact is `VELIQ-relay-linux-amd64` (legacy alias retained).
 
 Use the already enrolled `.e2e/bundle/windows/device` and existing out-of-band
 trust/echo token. **Do not copy server CA signing keys into Windows test state.**

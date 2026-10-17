@@ -138,3 +138,27 @@ func TestFastProbeFailureAndLocalCancellationClassification(t *testing.T) {
 		})
 	}
 }
+
+func TestPoolCapacityIsNotRemoteQualityOrFailure(t *testing.T) {
+	e := New(Defaults())
+	calls := 0
+	e.OnFailure = func(string, string, time.Time) { calls++ }
+	e.SetCandidates([]Candidate{{Metadata: optimizer.RelayCandidate{ID: "R"}, Target: netip.MustParseAddrPort("127.0.0.1:9000"), Open: func(context.Context, netip.AddrPort) (routing.Datagram, error) { return nil, telemetry.ErrCapacity }}})
+	observed := 0
+	e.round(context.Background(), func(optimizer.RouteMeasurement) { observed++ })
+	if calls != 0 || observed != 0 {
+		t.Fatal("local capacity poisoned remote path health", calls, observed)
+	}
+}
+
+func TestIsolatedPoolSessionIOIsNotWholeRelayQuality(t *testing.T) {
+	e := New(Defaults())
+	calls := 0
+	e.OnFailure = func(string, string, time.Time) { calls++ }
+	m := e.Probe(context.Background(), Candidate{Metadata: optimizer.RelayCandidate{ID: "R"}, Target: netip.MustParseAddrPort("127.0.0.1:9000"), Open: func(context.Context, netip.AddrPort) (routing.Datagram, error) {
+		return &failingProbe{err: telemetry.ErrIsolatedSession}, nil
+	}})
+	if calls != 0 || m.RouteID != "" {
+		t.Fatal("isolated session poisoned relay", calls, m)
+	}
+}

@@ -13,3 +13,6 @@ INSERT INTO schema_migrations(version) VALUES(1) ON CONFLICT DO NOTHING;
 ALTER TABLE relay_nodes ADD COLUMN IF NOT EXISTS heartbeat_token_hash bytea;
 
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS last_authenticated_at timestamptz;
+
+-- Complete revocation publication scales with revoked devices, not all registrations.
+CREATE INDEX IF NOT EXISTS devices_revoked_ids ON devices(id) WHERE revoked;

@@ -4,6 +4,8 @@ package windowsplatform
 import (
 	"context"
 	"errors"
+	"github.com/buzzmean/neexitlag/core/flowpolicy"
+	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"github.com/buzzmean/neexitlag/core/profiles"
 	"github.com/buzzmean/neexitlag/core/routing"
 	"net/netip"
@@ -32,10 +34,20 @@ type CaptureStatus struct {
 	Capabilities Capabilities `json:"capabilities"`
 }
 type Decision struct {
-	Flow           routing.Flow
-	Route          routing.Route
-	Block          bool
-	BlockOnFailure bool
+	// OriginDomain is supplied only by an owner-validated Chrome CONNECT.
+	OriginDomain    string
+	Revision        string
+	Policy          flowpolicy.Result
+	Group, Network  string
+	ProbeDirect     bool
+	Deferred        bool
+	ResolveDomain   func(string) Decision
+	LocalStrategyID string
+	Local           *localstrategy.LocalStrategyEngine
+	Flow            routing.Flow
+	Route           routing.Route
+	Block           bool
+	BlockOnFailure  bool
 }
 type Classifier func(ProcessIdentity, Tuple) Decision
 type WindowsCaptureBackend interface {

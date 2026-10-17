@@ -1,0 +1,681 @@
+package clientservice
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"github.com/buzzmean/neexitlag/core/browserproxy"
+	"github.com/buzzmean/neexitlag/core/flowpolicy"
+	"github.com/buzzmean/neexitlag/core/localstrategy"
+	"github.com/buzzmean/neexitlag/core/profiles"
+	"github.com/buzzmean/neexitlag/core/routing"
+	"github.com/buzzmean/neexitlag/core/security"
+	wp "github.com/buzzmean/neexitlag/platform/windows"
+	"net"
+	"net/netip"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+)
+
+type browserRuntime struct {
+	dns             *browserproxy.DNSRecovery
+	address         string
+	expectedPAC     string
+	recoveryAddress string
+	mu              sync.Mutex
+	server          *browserproxy.Server
+	learned         *flowpolicy.BrowserLearning
+	probes          chan struct{}
+	local           map[string]*localstrategy.LocalStrategyEngine
+	plans           map[flowpolicy.LearnKey]chan struct{}
+}
+
+func newBrowserRuntime() *browserRuntime {
+	return &browserRuntime{dns: browserproxy.NewDNSRecovery(), learned: flowpolicy.NewBrowserLearning(), probes: make(chan struct{}, 4), local: map[string]*localstrategy.LocalStrategyEngine{}, plans: map[flowpolicy.LearnKey]chan struct{}{}}
+}
+func (c *Controller) browserOwner(ctx context.Context, source, local netip.AddrPort) (browserproxy.Owner, error) {
+	id, err := wp.LookupTCPPeer(source, local)
+	if err != nil {
+		return browserproxy.Owner{}, browserproxy.ErrOwnerLookup
+	}
+	sid, sidErr := wp.ProcessUserSID(id)
+	if sidErr != nil {
+		return browserproxy.Owner{}, browserproxy.ErrOwnerToken
+	}
+	if c.BrowserOwnerSID == "" || sid != c.BrowserOwnerSID {
+		return browserproxy.Owner{}, browserproxy.ErrOwnerSID
+	}
+	p, ok := c.matchApplication(id)
+	if !ok || !chromeProfile(p) || p.Trial != nil {
+		return browserproxy.Owner{}, browserproxy.ErrOwnerProfile
+	}
+	return browserproxy.Owner{PID: id.PID, Birth: id.CreationTime, Exe: id.Path, Profile: p.ID}, nil
+}
+func (c *Controller) browserProfile(owner browserproxy.Owner) (profilesResult, error) {
+	id := wp.ProcessIdentity{PID: owner.PID, CreationTime: owner.Birth, Path: owner.Exe}
+	if !wp.IsCurrent(id) {
+		return profilesResult{}, errors.New("Chrome owner exited/reused")
+	}
+	p, ok := c.matchApplication(id)
+	if !ok || p.ID != owner.Profile || !chromeProfile(p) || p.Mode != profiles.Auto && p.Mode != profiles.Direct {
+		return profilesResult{}, errors.New("Chrome AUTO profile changed")
+	}
+	network := ""
+	if n := c.network.Load(); n != nil && n.Error == "" && time.Since(n.ObservedAt) <= 45*time.Second {
+		network = n.Fingerprint
+	}
+	c.mu.Lock()
+	enabled := c.enabled && c.settings.Automatic && p.Mode == profiles.Auto
+	c.mu.Unlock()
+	return profilesResult{profile: p, id: id, network: network, enabled: enabled}, nil
+}
+
+// Keep mutable ownership resolution separate from immutable request plans.
+type profilesResult struct {
+	profile profiles.Profile
+	id      wp.ProcessIdentity
+	network string
+	enabled bool
+}
+
+func (c *Controller) browserLocalAllowed(network string) bool {
+	n := c.network.Load()
+	return c.Local.Config().Enabled && n != nil && n.Fingerprint == network && n.Error == "" && time.Since(n.ObservedAt) <= 45*time.Second && len(n.VPN) == 0 && len(n.Conflicts) == 0
+}
+func (c *Controller) browserScopedLocal(p profiles.Profile, host, network string, port uint16) (string, *localstrategy.LocalStrategyEngine) {
+	if !c.hasBaseline(p, network) || !c.browserLocalAllowed(network) {
+		return "", nil
+	}
+	var selected *localstrategy.Profile
+	for _, v := range c.Local.Config().User {
+		if v.ID == p.LocalStrategyID && v.Enabled {
+			copy := v
+			selected = &copy
+			break
+		}
+	}
+	if selected == nil {
+		return "", nil
+	}
+	if youtubeDomain(host) {
+		return selected.ID, c.Local
+	}
+	raw, _ := json.Marshal([]any{host, port, p.AutoRevision})
+	sum := sha256.Sum256(raw)
+	key := "br-" + hex.EncodeToString(sum[:12])
+	c.browser.mu.Lock()
+	defer c.browser.mu.Unlock()
+	if engine := c.browser.local[key]; engine != nil {
+		return key, engine
+	}
+	// Bound ephemeral candidates separately; never edit the user's working preset
+	// or its revision, and never activate a candidate for another domain.
+	if len(c.browser.local) >= 512 {
+		return "", nil
+	}
+	selected.ID = key
+	selected.Domains = []string{host}
+	selected.IPs = nil
+	selected.QuicFallback = false
+	selected.Ports = []uint16{port}
+	engine := localstrategy.New()
+	if engine.Reload(localstrategy.Config{Version: 1, Enabled: true, User: []localstrategy.Profile{*selected}}) != nil {
+		return "", nil
+	}
+	c.browser.local[key] = engine
+	return key, engine
+}
+func (c *Controller) browserLocal(strategy string) *localstrategy.LocalStrategyEngine {
+	for _, v := range c.Local.Config().User {
+		if v.ID == strategy && v.Enabled {
+			return c.Local
+		}
+	}
+	c.browser.mu.Lock()
+	defer c.browser.mu.Unlock()
+	return c.browser.local[strategy]
+}
+func browserIdentity(q browserproxy.Request) wp.ProcessIdentity {
+	return wp.ProcessIdentity{PID: q.Owner.PID, CreationTime: q.Owner.Birth, Path: q.Owner.Exe}
+}
+func (c *Controller) browserOpen(ctx context.Context, q browserproxy.Request, plan browserproxy.Plan) (net.Conn, error) {
+	current, err := c.browserProfile(q.Owner)
+	if err != nil {
+		return nil, err
+	}
+	if current.network != plan.Network || current.enabled != plan.Enabled {
+		return nil, errors.New("browser policy changed before upstream open")
+	}
+	if protectedBrowserDomain(q.Host) && plan.Policy.Action != flowpolicy.RelayRequired {
+		return nil, errors.New("protected origin cannot downgrade")
+	}
+	d := applyFlowResult(current.profile, wp.Decision{}, plan.Policy, current.network, c.browserLocal(plan.Policy.Strategy))
+	d.OriginDomain = q.Host
+	d.Flow = routing.Flow{Protocol: "tcp", Source: q.Source, Destination: plan.Destination, PID: q.Owner.PID, ProcessPath: q.Owner.Exe, ApplicationID: q.Owner.Profile, Network: current.network, PinnedPolicy: d.Flow.PinnedPolicy}
+	if d.Block {
+		return nil, errors.New("browser route blocked")
+	}
+	if d.Route.Local() {
+		if !c.browserLocalAllowed(current.network) {
+			return nil, errors.New("native local strategy unavailable on current network")
+		}
+		backend, ok := c.Backend.(interface {
+			OpenBrowserLocalTCP(context.Context, wp.ProcessIdentity, netip.AddrPort, netip.AddrPort, wp.Decision) (net.Conn, error)
+		})
+		if !ok {
+			return nil, errors.New("native DIRECT+ unavailable")
+		}
+		return backend.OpenBrowserLocalTCP(ctx, browserIdentity(q), q.Source, plan.Destination, d)
+	}
+	return c.Engine.OpenTCP(ctx, d.Flow)
+}
+func (c *Controller) browserTransform(q browserproxy.Request, plan browserproxy.Plan) bool {
+	backend, ok := c.Backend.(interface {
+		BrowserTransformApplied(wp.ProcessIdentity, netip.AddrPort, netip.AddrPort) bool
+	})
+	return ok && backend.BrowserTransformApplied(browserIdentity(q), q.Source, plan.Destination)
+}
+func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (browserproxy.Plan, error) {
+	current, err := c.browserProfile(q.Owner)
+	if err != nil {
+		return browserproxy.Plan{}, err
+	}
+	if cached, ok := c.browserDNSCachedPlan(q, current); ok {
+		return cached, nil
+	}
+	lookup, stop := context.WithTimeout(ctx, time.Second)
+	resolver := c.BrowserResolver
+	if resolver == nil {
+		resolver = net.DefaultResolver
+	}
+	addresses, err := resolver.LookupNetIP(lookup, "ip", q.Host)
+	stop()
+	if err != nil || len(addresses) == 0 {
+		base := browserproxy.Plan{Network: current.network, Enabled: current.enabled, Policy: browserDNSPolicy(current)}
+		if recovered, ok := c.recoverBrowserDNS(ctx, q, current, base); ok {
+			return recovered, nil
+		}
+		return base, browserproxy.ErrOriginDNS
+	}
+	// Prefer IPv4 for the existing native DIRECT+ backend. IPv6 relay/direct can
+	// use the existing authenticated transport, not an unsupported native bypass.
+	sort.SliceStable(addresses, func(i, j int) bool { return addresses[i].Is4() && !addresses[j].Is4() })
+	// Cap candidates and remove duplicates; never use arbitrary fallback IPs or
+	// relay-side DNS with different policy attribution.
+	candidates := []netip.AddrPort{}
+	for _, ip := range addresses {
+		a := netip.AddrPortFrom(ip.Unmap(), q.Port)
+		duplicate := false
+		for _, prev := range candidates {
+			if a == prev {
+				duplicate = true
+			}
+		}
+		if !duplicate {
+			candidates = append(candidates, a)
+		}
+		if len(candidates) == 3 {
+			break
+		}
+	}
+	dest := candidates[0]
+	tuple := wp.Tuple{Protocol: "tcp", Source: q.Source, Destination: dest}
+	result := c.browserFlow(current.profile, current.id, tuple, q.Host, current.network)
+	if !current.enabled && browserGuardedRule(current.profile, q.Host) {
+		result = flowpolicy.Result{Action: flowpolicy.Block, Fallback: flowpolicy.Required, Source: "browser_recovery_guard", Reason: "protected domain guard while Chrome AUTO is disabled"}
+	} else if !current.enabled && !protectedBrowserDomain(q.Host) {
+		result = flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailOpen, Source: "optimization_disabled", Reason: "user disabled optimization"}
+	}
+	plan := browserproxy.Plan{Network: current.network, Enabled: current.enabled, Policy: result, Destination: dest, Probe: "NOT_PROBED"}
+	if !current.enabled || protectedBrowserDomain(q.Host) || youtubeDomain(q.Host) || result.Source == "rule" {
+		return plan, nil
+	}
+	if dest.Addr().IsPrivate() || dest.Addr().IsLoopback() || dest.Addr().IsLinkLocalUnicast() {
+		if c.BrowserResolver == nil {
+			plan.Probe = "PRIVATE_ORIGIN_NO_AUTOPROBE"
+			return plan, nil
+		}
+	}
+	if current.network == "" {
+		plan.Probe = "NETWORK_IDENTITY_UNAVAILABLE"
+		return plan, nil
+	}
+	if _, ipErr := netip.ParseAddr(q.Host); ipErr == nil {
+		plan.Probe = "IP_LITERAL_NO_DOMAIN_LEARNING"
+		return plan, nil
+	}
+	key := c.learnKey(current.profile, current.network, "tcp", q.Host, q.Port)
+	if q.Secure {
+		key.Revision += ":https"
+	} else {
+		key.Revision += ":http"
+	}
+	if cached, ok := c.browser.learned.Lookup(key, time.Now()); ok && (cached.Confirmed || !cached.RetryAfter.IsZero()) {
+		if cached.Destination != "" {
+			pinned, e := netip.ParseAddrPort(cached.Destination)
+			found := false
+			for _, a := range candidates {
+				if e == nil && pinned == a {
+					found = true
+				}
+			}
+			if !found {
+				c.browser.learned.Forget(key)
+			} else {
+				plan.Destination = pinned
+			}
+		}
+	}
+	if cached, ok := c.browser.learned.Lookup(key, time.Now()); ok && (cached.Confirmed || !cached.RetryAfter.IsZero()) {
+		if cached.Confirmed || cached.BrowserTrial || cached.Route.Action != flowpolicy.RelayRequired {
+			plan.Policy = cached.Route
+		}
+		plan.Probe = cached.Outcome
+		plan.HTTPStatus = cached.HTTPStatus
+		return plan, nil
+	}
+	// One bounded probe sequence per origin/network/revision; waiters never create
+	// independent duplicate probes or borrow another domain's result.
+	c.browser.mu.Lock()
+	pending, exists := c.browser.plans[key]
+	if !exists {
+		if len(c.browser.plans) >= 32 {
+			c.browser.mu.Unlock()
+			plan.Probe = "PROBE_CAPACITY_DIRECT_UNVERIFIED"
+			return plan, nil
+		}
+		pending = make(chan struct{})
+		c.browser.plans[key] = pending
+	}
+	c.browser.mu.Unlock()
+	if exists {
+		select {
+		case <-pending:
+			if cached, ok := c.browserDNSCachedPlan(q, current); ok {
+				return cached, nil
+			}
+			if v, ok := c.browser.learned.Lookup(key, time.Now()); ok {
+				if v.Confirmed || v.BrowserTrial || v.Route.Action != flowpolicy.RelayRequired {
+					plan.Policy = v.Route
+					if a, e := netip.ParseAddrPort(v.Destination); e == nil {
+						plan.Destination = a
+					}
+				}
+				plan.Probe = v.Outcome
+				plan.HTTPStatus = v.HTTPStatus
+				return plan, nil
+			}
+			plan.Probe = "PROBE_UNAVAILABLE_DIRECT_UNVERIFIED"
+			return plan, nil
+		case <-ctx.Done():
+			return plan, ctx.Err()
+		}
+	}
+	defer func() { c.browser.mu.Lock(); delete(c.browser.plans, key); close(pending); c.browser.mu.Unlock() }()
+	// Bound admission separately from network/probe timeouts. Browser startup
+	// has speculative background origins: a brief queue prevents those from
+	// starving the foreground origin, without retaining an unbounded request.
+	admission := time.NewTimer(500 * time.Millisecond)
+	defer admission.Stop()
+	select {
+	case c.browser.probes <- struct{}{}:
+		defer func() { <-c.browser.probes }()
+	case <-ctx.Done():
+		return plan, ctx.Err()
+	case <-admission.C:
+		plan.Probe = "PROBE_CAPACITY_DIRECT_UNVERIFIED"
+		return plan, nil
+	}
+	strategy, _ := c.browserScopedLocal(current.profile, q.Host, current.network, q.Port)
+	relay := current.profile.RelayID
+	if relay == "" {
+		relay = "VPS-01"
+	}
+	ordinary := plan.Policy
+	attempt, err := c.browser.learned.Begin(key, strategy, relay, time.Now())
+	if err != nil {
+		plan.Probe = "PROBE_CACHE_CAPACITY_DIRECT_UNVERIFIED"
+		return plan, nil
+	}
+	for tries := 0; tries < 3; tries++ {
+		plan.Policy = attempt.Route
+
+		var status int
+		var rx uint64
+		var networkError string
+		var originTLS bool
+		// One budget per route, at most three DNS candidates. Failed addresses get a
+		// bounded share rather than consuming every subsequent address's budget.
+		routeCtx, routeStop := context.WithTimeout(ctx, 1500*time.Millisecond)
+		for i, candidate := range candidates {
+			plan.Destination = candidate
+			started := time.Now()
+			budget := time.Until(started.Add(1500 * time.Millisecond))
+			if deadline, ok := routeCtx.Deadline(); ok {
+				budget = time.Until(deadline) / time.Duration(len(candidates)-i)
+			}
+			probe, stop := context.WithTimeout(routeCtx, budget)
+			detail := browserproxy.ProbeOriginDetailed(probe, q.Host, q.Port, q.Secure, c.BrowserProbeRoots, func(ctx context.Context) (net.Conn, error) { return c.browserOpen(ctx, q, plan) })
+			stop()
+			status, rx, networkError = detail.Status, detail.Bytes, detail.Failure
+			originTLS = detail.Phase == "ORIGIN_TLS"
+			applied := plan.Policy.Action == flowpolicy.DirectPlus && c.browserTransform(q, plan)
+			outcome := networkError
+			if outcome == "" {
+				outcome = "ORIGIN_RESPONSE"
+			}
+			if plan.Policy.Action == flowpolicy.DirectPlus {
+				if networkError == "" && !applied {
+					networkError = "NO_TRANSFORM"
+					outcome = networkError
+					rx = 0
+					status = 0
+				} else if networkError != "" && applied && networkError != "TLS_CERTIFICATE_ERROR" {
+					outcome = "TRANSFORM_APPLIED_CONNECTION_FAILED"
+				}
+			}
+			plan.Trials = append(plan.Trials, browserproxy.Trial{Route: string(plan.Policy.Action), Destination: candidate.String(), Phase: detail.Phase, Detail: detail.Detail, ALPN: detail.ALPN, TLSVersion: detail.TLSVersion, Outcome: outcome, HTTPStatus: status, TransformApplied: applied, DurationMS: time.Since(started).Milliseconds()})
+			// Never retry a certificate failure on a different address/route. HTTP errors
+			// are application responses, not evidence of routing failure.
+			if networkError == "" || networkError == "TLS_CERTIFICATE_ERROR" || routeCtx.Err() != nil {
+				break
+			}
+		}
+		routeStop()
+		after, ownerErr := c.browserProfile(q.Owner)
+		if ownerErr != nil || after.network != current.network || after.enabled != current.enabled {
+			return plan, errors.New("network/activation changed during origin probe")
+		}
+		// Invalid/non-TLS/certificate replies can be a wrong system-DNS address.
+		// Retry independently resolved candidates through REQUIRED relay, with full
+		// hostname certificate and HTTP validation. Never relabel TCP OPEN as success.
+		if q.Secure && networkError != "" && (attempt.Stage == 2 || networkError == "TLS_CERTIFICATE_ERROR") {
+			recovered, ok := c.recoverBrowserDNS(ctx, q, current, plan)
+			if ok {
+				return recovered, nil
+			}
+			plan.DNSRecovery = recovered.DNSRecovery
+			// An invalid TLS record is categorically not a Chrome/Go fingerprint
+			// difference. Do not offer it as an unverified browser relay candidate.
+			if len(plan.Trials) > 0 && plan.Trials[len(plan.Trials)-1].Detail == "INVALID_TLS_RECORD" {
+				originTLS = false
+			}
+		}
+		attempt, err = c.browser.learned.Observe(key, flowpolicy.BrowserObservation{Token: attempt.Token, HTTPStatus: status, NetworkError: networkError, OriginTLS: originTLS, Destination: plan.Destination.String(), ResponseBytes: rx, Correlated: true}, strategy, relay, time.Now())
+		if err != nil {
+			return plan, err
+		}
+		if attempt.Confirmed || !attempt.RetryAfter.IsZero() {
+			plan.Policy = attempt.Route
+			if !attempt.Confirmed && !attempt.BrowserTrial && attempt.Route.Action == flowpolicy.RelayRequired && !attempt.RetryAfter.IsZero() {
+				plan.Policy = ordinary
+			}
+			plan.Probe = attempt.Outcome
+			plan.HTTPStatus = status
+			return plan, nil
+		}
+	}
+	return plan, errors.New("bounded origin probes exhausted")
+}
+func (c *Controller) handleBrowser(method string, raw json.RawMessage) (any, error) {
+	c.browser.mu.Lock()
+	defer c.browser.mu.Unlock()
+	if method == "browser.status" {
+		if c.browser.server == nil {
+			return browserproxy.Snapshot{ReadyProfiles: []string{}, Failures: map[string]uint64{}, Records: []browserproxy.Record{}}, nil
+		}
+		view := c.browser.server.Snapshot()
+		view.RecoveryAddress = c.browser.recoveryAddress
+		view.PolicyReady = wp.ChromeProxyPolicyActive(c.BrowserOwnerSID, c.browser.expectedPAC)
+		sort.Slice(view.Records, func(i, j int) bool { return view.Records[i].ID > view.Records[j].ID })
+		for {
+			raw, _ := json.Marshal(view)
+			if len(raw) < 58000 {
+				break
+			}
+			view.Truncated = true
+			view.Records = view.Records[:len(view.Records)-1]
+		}
+		return view, nil
+	}
+	var q struct {
+		Profile   string `json:"profile_id"`
+		Directory string `json:"directory"`
+		HealthURL string `json:"health_url"`
+		Recovery  string `json:"recovery_address"`
+	}
+	if err := security.Parse(raw, &q); err != nil {
+		return nil, err
+	}
+	if method == "browser.confirm" {
+		if c.browser.server == nil || !c.browser.server.HealthVerified(q.Profile, q.HealthURL) {
+			return nil, errors.New("Chrome PAC readiness not observed: check Chrome policy, TCP owner/SID and browser.status failures")
+		}
+		if !wp.ChromeProxyPolicyActive(c.BrowserOwnerSID, c.browser.expectedPAC) {
+			return nil, errors.New("Chrome mandatory online PAC not installed for the owner SID")
+		}
+		for _, p := range c.Profiles.List() {
+			if p.ID == q.Profile && p.LocalStrategyID != "" {
+				n := c.network.Load()
+				if n == nil || n.Error != "" || n.Fingerprint == "" || n.ObservedAt.IsZero() || time.Since(n.ObservedAt) > 45*time.Second || len(n.VPN) > 0 || len(n.Conflicts) > 0 {
+					return nil, errors.New("Chrome local strategy requires a fresh VPN/conflict-free network snapshot")
+				}
+				if p.AutoNetwork != "" && !c.hasBaseline(p, n.Fingerprint) {
+					return nil, errors.New("YouTube DIRECT+ baseline is not confirmed on the current network/revision")
+				}
+			}
+		}
+		if !c.browser.server.AuthorizeProfile(q.Profile, q.HealthURL) {
+			return nil, errors.New("Chrome activation proof expired/changed")
+		}
+		if c.customPath != "" {
+			if err := c.saveBrowserAddress(); err != nil {
+				return nil, err
+			}
+		}
+		return map[string]bool{"ready": true}, nil
+	}
+	found := false
+	extra := []string{}
+	strict := false
+	for _, p := range c.Profiles.List() {
+		if p.ID == q.Profile && chromeProfile(p) && p.Trial == nil {
+			found = true
+			for _, rule := range append(append([]flowpolicy.Rule{}, p.Rules...), p.BrowserRecoveryRules...) {
+				if rule.Action != flowpolicy.Direct {
+					if len(rule.Domains) == 0 {
+						strict = true
+					} else {
+						extra = append(extra, rule.Domains...)
+					}
+				}
+			}
+		}
+	}
+	if c.BrowserOwnerSID == "" {
+		return nil, errors.New("installation owner SID required for Chrome transport")
+	}
+	c.mu.Lock()
+	enabled := c.enabled && c.settings.Automatic
+	c.mu.Unlock()
+	if !enabled && method != "browser.prepare" {
+		return nil, errors.New("Chrome site routing requires enabled optimization and automatic routing")
+	}
+	if !found || q.Directory == "" || len(q.Directory) > 2048 {
+		return nil, errors.New("selected Chrome AUTO profile and persistent user directory required")
+	}
+	if c.browser.server == nil {
+		server, err := browserproxy.Listen(c.ctx, browserproxy.Config{Address: c.browser.address, Authorize: c.browserOwner, AuthorizeForwarded: c.browserRecoveryOwner, Plan: c.browserPlan, Open: c.browserOpen, TransformApplied: c.browserTransform})
+		if err != nil {
+			return nil, err
+		}
+		c.browser.server = server
+		c.browser.address = server.Address()
+		if c.customPath != "" {
+			if err := c.saveBrowserAddress(); err != nil {
+				c.browser.server = nil
+				c.browser.mu.Unlock()
+				server.Close()
+				c.browser.mu.Lock()
+				return nil, err
+			}
+		}
+	}
+	healthURL := ""
+	if method == "browser.prepare" {
+		var err error
+		healthURL, err = c.browser.server.Challenge(q.Profile)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args, err := browserproxy.ChromeArgumentsGuarded(c.browser.server.Address(), q.Directory, extra, strict)
+	if err != nil {
+		return nil, err
+	}
+	recovery, err := browserproxy.ChromeRecoveryArguments(c.browser.server.Address(), q.Directory, extra, strict)
+	if err != nil {
+		return nil, err
+	}
+	if q.Recovery != "" {
+		args, err = browserproxy.ChromeArgumentsWithRecovery(c.browser.server.Address(), q.Directory, extra, strict, q.Recovery)
+		if err != nil {
+			return nil, err
+		}
+		recovery = append([]string(nil), args...)
+		c.browser.recoveryAddress = q.Recovery
+	}
+	c.browser.expectedPAC = strings.TrimPrefix(args[1], "--proxy-pac-url=")
+	if c.customPath != "" {
+		if err := c.saveBrowserAddress(); err != nil {
+			return nil, err
+		}
+	}
+	program, _ := os.Executable()
+	return map[string]any{"recovery_program": program, "recovery_settings": browserproxy.RecoverySettings{GuardFile: c.browserGuardFile(), Primary: c.browser.server.Address(), Domains: extra, Strict: strict, Profile: q.Profile}, "health_url": healthURL, "arguments": args, "recovery_arguments": recovery, "address": c.browser.server.Address(), "scope": "Chrome launch only; system proxy unchanged", "http3": "HTTP CONNECT uses TCP; QUIC relay transport unchanged", "verification": "origin probe only; authenticated browser page result is not observed"}, nil
+}
+
+func (c *Controller) saveBrowserAddress() error {
+	path := filepath.Join(filepath.Dir(c.customPath), "browser-transport.json")
+	raw, _ := json.Marshal(map[string]any{"address": c.browser.address, "ready_profiles": c.browser.server.Snapshot().ReadyProfiles, "expected_pac": c.browser.expectedPAC, "recovery_address": c.browser.recoveryAddress})
+	f, err := os.CreateTemp(filepath.Dir(path), ".browser-transport-*")
+	if err != nil {
+		return err
+	}
+	name := f.Name()
+	defer os.Remove(name)
+	f.Chmod(0600)
+	if _, err = f.Write(raw); err != nil {
+		f.Close()
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(name, path)
+}
+
+// Restore the existing non-secret local port before normal service startup
+// starts capture. A service restart must not require changing Chrome's PAC.
+func (c *Controller) RestoreBrowserTransport() error {
+	if err := c.publishBrowserGuard(false); err != nil {
+		return err
+	}
+	if c.customPath == "" {
+		return nil
+	}
+	raw, err := os.ReadFile(filepath.Join(filepath.Dir(c.customPath), "browser-transport.json"))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var saved struct {
+		Address         string   `json:"address"`
+		ReadyProfiles   []string `json:"ready_profiles"`
+		ExpectedPAC     string   `json:"expected_pac"`
+		RecoveryAddress string   `json:"recovery_address"`
+	}
+	if err = security.Parse(raw, &saved); err != nil {
+		return err
+	}
+	host, p, err := net.SplitHostPort(saved.Address)
+	port, pe := strconv.ParseUint(p, 10, 16)
+	if err != nil || pe != nil || host != "127.0.0.1" || port == 0 {
+		return errors.New("invalid saved Chrome loopback port")
+	}
+	c.browser.mu.Lock()
+	defer c.browser.mu.Unlock()
+	c.browser.address = saved.Address
+	c.browser.expectedPAC = saved.ExpectedPAC
+	c.browser.recoveryAddress = saved.RecoveryAddress
+	server, err := browserproxy.Listen(c.ctx, browserproxy.Config{Address: saved.Address, Authorize: c.browserOwner, AuthorizeForwarded: c.browserRecoveryOwner, Plan: c.browserPlan, Open: c.browserOpen, TransformApplied: c.browserTransform})
+	if err != nil {
+		return err
+	}
+	c.browser.server = server
+	server.RestoreConfirmed(saved.ReadyProfiles)
+	return nil
+}
+
+func (c *Controller) requireChromeActivation() error {
+	if c.BrowserOwnerSID == "" {
+		return nil
+	} // portable/demo controllers have no Windows owner.
+	c.browser.mu.Lock()
+	defer c.browser.mu.Unlock()
+	for _, p := range c.Profiles.List() {
+		if browserAuto(p) && (c.browser.recoveryAddress == "" || c.browser.server == nil || !c.browser.server.Confirmed(p.ID) || !wp.ChromeProxyPolicyActive(c.BrowserOwnerSID, c.browser.expectedPAC)) {
+			return errors.New("Chrome AUTO requires verified CONNECT/PAC activation in Applications before Optimize; no capture state changed")
+		}
+	}
+	return nil
+}
+
+func (c *Controller) browserRecoveryOwner(ctx context.Context, source, local, original, listener netip.AddrPort) (browserproxy.Owner, error) {
+	helper, err := wp.LookupTCPPeer(source, local)
+	if err != nil {
+		return browserproxy.Owner{}, browserproxy.ErrOwnerLookup
+	}
+	executable, err := os.Executable()
+	if c.BrowserRecoveryExecutable != "" {
+		executable = c.BrowserRecoveryExecutable
+	}
+	if err != nil || !strings.EqualFold(helper.Path, executable) {
+		return browserproxy.Owner{}, browserproxy.ErrOwnerProfile
+	}
+	sid, err := wp.ProcessUserSID(helper)
+	if err != nil || sid != c.BrowserOwnerSID {
+		return browserproxy.Owner{}, browserproxy.ErrOwnerSID
+	}
+	return c.browserOwner(ctx, original, listener)
+}
+
+func browserGuardedRule(p profiles.Profile, host string) bool {
+	for _, rule := range append(append([]flowpolicy.Rule{}, p.Rules...), p.BrowserRecoveryRules...) {
+		if rule.Action == flowpolicy.Direct {
+			continue
+		}
+		if len(rule.Domains) == 0 {
+			return true
+		}
+		for _, d := range rule.Domains {
+			if host == d || strings.HasSuffix(host, "."+d) {
+				return true
+			}
+		}
+	}
+	return false
+}

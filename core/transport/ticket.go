@@ -12,7 +12,7 @@ import (
 
 func DialWithTicket(ctx context.Context, addr string, t *tls.Config, ticket []byte) (*Client, error) {
 	cfg := t.Clone()
-	cfg.NextProtos = []string{protocol.TicketALPN}
+	cfg.NextProtos = []string{protocol.LeaseALPN, protocol.TicketALPN}
 	conn, e := quic.DialAddr(ctx, addr, cfg, QUICConfig())
 	if e != nil {
 		return nil, e
@@ -26,6 +26,7 @@ func DialWithTicket(ctx context.Context, addr string, t *tls.Config, ticket []by
 		return fail(e)
 	}
 	defer s.Close()
+	defer s.CancelRead(0)
 	deadline := time.Now().Add(3 * time.Second)
 	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
 		deadline = d
@@ -33,17 +34,34 @@ func DialWithTicket(ctx context.Context, addr string, t *tls.Config, ticket []by
 	s.SetDeadline(deadline)
 	stop := context.AfterFunc(ctx, func() { s.CancelRead(1); s.CancelWrite(1) })
 	defer stop()
+	authStarted := time.Now()
 	if e = protocol.WriteTicket(s, ticket); e != nil {
 		return fail(e)
 	}
-	var ack [1]byte
-	if _, e = io.ReadFull(s, ack[:]); e != nil || ack[0] != 0 {
-		if e == nil {
-			e = errors.New("relay rejected ticket")
-		}
-		return fail(e)
-	}
 	c := &Client{conn: conn, flows: make(map[uint32]*UDPFlow), done: make(chan struct{})}
+	if conn.ConnectionState().TLS.NegotiatedProtocol == protocol.LeaseALPN {
+		ack, err := protocol.ReadLeaseAck(s)
+		if err != nil {
+			return fail(err)
+		}
+		if ack.Status != 0 {
+			return fail(errors.New("relay rejected ticket"))
+		}
+		if ack.Sequence != 0 || ack.Duration <= 0 || ack.Duration > 30*time.Minute {
+			return fail(errors.New("invalid lease acknowledgement"))
+		}
+		c.controlReplies = make(chan []byte, 4)
+		c.lease = LeaseSnapshot{Supported: true, State: "authorized", Deadline: ack.Deadline, ValidUntil: authStarted.Add(ack.Duration), Duration: ack.Duration}
+		s.SetDeadline(time.Time{})
+	} else {
+		var ack [1]byte
+		if _, e = io.ReadFull(s, ack[:]); e != nil || ack[0] != 0 {
+			if e == nil {
+				e = errors.New("relay rejected ticket")
+			}
+			return fail(e)
+		}
+	}
 	go c.receive()
 	return c, nil
 }

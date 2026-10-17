@@ -3,6 +3,7 @@ package relay
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"net/netip"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -27,8 +29,30 @@ type Config struct {
 	Allow                 []netip.Prefix
 	PacketsPerSecond      int
 	TicketVerifier        *security.TicketVerifier
+	Acceptance            *AcceptanceConfig
 }
+
+// AcceptanceConfig is only set by explicit in-process acceptance fixtures. No production CLI/env enables it.
+type AcceptanceConfig struct {
+	// Source interface for isolated route-discrimination fixtures; no CLI/env.
+	OutboundSource  netip.Addr
+	LeaseDuration   time.Duration
+	DropRenewalACKs int
+}
+
+// UpstreamDialFailure retains only the latest bounded setup error, never payload.
+// It separates actual target/socket failures from admission/session capacity.
+type UpstreamDialFailure struct {
+	At          time.Time `json:"at"`
+	Protocol    string    `json:"protocol"`
+	Destination string    `json:"destination"`
+	Detail      string    `json:"detail"`
+}
+
 type Metrics struct {
+	LastUpstreamDialFailure                                                          atomic.Pointer[UpstreamDialFailure]
+	OpenRejected                                                                     [8]atomic.Uint64
+	Renewals, RenewalRejected, LeaseExpiries, Revocations                            atomic.Uint64
 	Sessions, Flows                                                                  atomic.Int64
 	UDPPackets, TCPConnections, RXBytes, TXBytes, Drops, RejectedFlows, AuthFailures atomic.Uint64
 	LocalDrops                                                                       telemetry.Counters
@@ -64,11 +88,17 @@ func Listen(addr string, c Config) (*Server, error) {
 	if c.PacketsPerSecond <= 0 {
 		c.PacketsPerSecond = 2000
 	}
+	if c.Acceptance != nil && (c.Acceptance.LeaseDuration <= 0 || c.Acceptance.LeaseDuration > 30*time.Minute) {
+		return nil, errors.New("invalid explicit acceptance lease")
+	}
 	q := transport.QUICConfig()
 	q.MaxIncomingStreams = int64(c.MaxFlows)
 	if c.TicketVerifier != nil {
+		q.MaxIncomingStreams++
+	} // authentication handshake headroom; renewal uses bounded QUIC DATAGRAM control
+	if c.TicketVerifier != nil {
 		c.TLS = c.TLS.Clone()
-		c.TLS.NextProtos = []string{protocol.TicketALPN}
+		c.TLS.NextProtos = []string{protocol.LeaseALPN, protocol.TicketALPN}
 	}
 	l, e := quic.ListenAddr(addr, c.TLS, q)
 	if e != nil {
@@ -180,17 +210,22 @@ func (f *flow) close() {
 }
 
 type session struct {
-	packetSequence atomic.Uint32
-	reassembly     protocol.Reassembly
-	server         *Server
-	conn           *quic.Conn
-	mu             sync.Mutex
-	flows          map[uint32]*flow
-	wg             sync.WaitGroup
-	tokens         float64
-	refill         time.Time
-	deviceID       string
-	leaseExpires   time.Time
+	control         chan []byte
+	packetSequence  atomic.Uint32
+	reassembly      protocol.Reassembly
+	server          *Server
+	conn            *quic.Conn
+	mu              sync.Mutex
+	flows           map[uint32]*flow
+	wg              sync.WaitGroup
+	tokens          float64
+	refill          time.Time
+	deviceID        string
+	leaseExpires    time.Time
+	peerKey         ed25519.PublicKey
+	renewalSequence uint64
+	renewalHash     [32]byte
+	renewalReceipt  protocol.LeaseAck
 }
 
 func (x *session) run() {
@@ -237,17 +272,30 @@ func (x *session) open(s *quic.Stream) {
 		s.CancelWrite(1)
 		return
 	}
-	reject := func() { x.server.Metrics.RejectedFlows.Add(1); s.Write([]byte{1}); s.Close(); s.CancelRead(1) }
+	reject := func(code byte) {
+		if int(code) < len(x.server.Metrics.OpenRejected) {
+			x.server.Metrics.OpenRejected[code].Add(1)
+		}
+		x.server.Metrics.RejectedFlows.Add(1)
+		s.Write([]byte{code})
+		s.Close()
+		s.CancelRead(1)
+	}
 	if !x.server.allowed(o.Destination.Addr()) {
-		reject()
+		reject(2)
 		return
 	}
 	f := &flow{stream: s}
 	f.last.Store(time.Now().UnixNano())
 	x.mu.Lock()
+	if x.server.config.TicketVerifier != nil && (!time.Now().Before(x.leaseExpires) || x.server.config.TicketVerifier.Revoked(x.deviceID)) {
+		x.mu.Unlock()
+		reject(7)
+		return
+	}
 	if len(x.flows) >= x.server.config.MaxFlows || x.flows[o.ID] != nil {
 		x.mu.Unlock()
-		reject()
+		reject(3)
 		return
 	}
 	x.flows[o.ID] = f
@@ -257,9 +305,28 @@ func (x *session) open(s *quic.Stream) {
 	ctx, cancel := context.WithTimeout(x.conn.Context(), 3*time.Second)
 	defer cancel()
 	d := net.Dialer{}
+	if a := x.server.config.Acceptance; a != nil && a.OutboundSource.IsLoopback() {
+		if o.Kind == protocol.TCP {
+			d.LocalAddr = &net.TCPAddr{IP: net.IP(a.OutboundSource.AsSlice())}
+		} else {
+			d.LocalAddr = &net.UDPAddr{IP: net.IP(a.OutboundSource.AsSlice())}
+		}
+	}
 	c, e := d.DialContext(ctx, map[byte]string{protocol.UDP: "udp", protocol.TCP: "tcp"}[o.Kind], o.Destination.String())
 	if e != nil {
-		reject()
+		detail := e.Error()
+		if len(detail) > 512 {
+			detail = detail[:512]
+		}
+		x.server.Metrics.LastUpstreamDialFailure.Store(&UpstreamDialFailure{At: time.Now(), Protocol: map[byte]string{protocol.UDP: "udp", protocol.TCP: "tcp"}[o.Kind], Destination: o.Destination.String(), Detail: detail})
+		code := byte(6)
+		var ne net.Error
+		if errors.As(e, &ne) && ne.Timeout() {
+			code = 4
+		} else if errors.Is(e, syscall.ECONNREFUSED) {
+			code = 5
+		}
+		reject(code)
 		return
 	}
 	x.mu.Lock()
@@ -351,6 +418,15 @@ func (x *session) datagrams() {
 		if e != nil {
 			return
 		}
+		if x.control != nil && len(b) >= 12 && len(b) <= 1035 && b[0] == protocol.LeaseRequestDatagram {
+			// Independent bounded control inbox; application flow saturation cannot
+			// consume its stream credit, reassembly state, or worker capacity.
+			select {
+			case x.control <- append([]byte(nil), b...):
+			default:
+			}
+			continue
+		}
 		x.server.Metrics.LocalDrops.Attempt(telemetry.Decode)
 		x.server.Metrics.LocalDrops.Attempt(telemetry.UnknownFlow)
 		id, p, e := x.reassembly.Decode(b, time.Now())
@@ -405,6 +481,9 @@ func (x *session) expire() {
 	if interval < time.Millisecond {
 		interval = time.Millisecond
 	}
+	if x.server.config.Acceptance != nil && interval > x.server.config.Acceptance.LeaseDuration/20 {
+		interval = x.server.config.Acceptance.LeaseDuration / 20
+	}
 	if interval > time.Second {
 		interval = time.Second
 	}
@@ -415,10 +494,26 @@ func (x *session) expire() {
 		case <-x.conn.Context().Done():
 			return
 		case now := <-t.C:
-			if x.server.config.TicketVerifier != nil && (now.After(x.leaseExpires) || x.server.config.TicketVerifier.Revoked(x.deviceID)) {
-				x.conn.CloseWithError(1, "session lease expired or revoked")
-				return
+			x.mu.Lock()
+			if x.server.config.TicketVerifier != nil {
+				revoked := x.server.config.TicketVerifier.Revoked(x.deviceID)
+				expired := !now.Before(x.leaseExpires)
+				if revoked || expired {
+					code := quic.ApplicationErrorCode(protocol.LeaseExpiredCode)
+					reason := "authorization_lease_expired"
+					if revoked {
+						code = protocol.RevokedCode
+						reason = "device_revoked"
+						x.server.Metrics.Revocations.Add(1)
+					} else {
+						x.server.Metrics.LeaseExpiries.Add(1)
+					}
+					x.conn.CloseWithError(code, reason)
+					x.mu.Unlock()
+					return
+				}
 			}
+			x.mu.Unlock()
 			x.mu.Lock()
 			for _, f := range x.flows {
 				if (f.udp != nil || f.tcp != nil) && now.Sub(time.Unix(0, f.last.Load())) > x.server.config.IdleTimeout {
@@ -441,6 +536,10 @@ func (s *Server) Handler() http.Handler {
 	})
 	m.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+		for code := byte(1); code < 8; code++ {
+			fmt.Fprintf(w, "neexitlag_open_rejected_total{reason=%q} %d\n", protocol.OpenRejection(code), s.Metrics.OpenRejected[code].Load())
+		}
+		fmt.Fprintf(w, "neexitlag_lease_renewals_total %d\nneexitlag_lease_renewal_rejected_total %d\nneexitlag_lease_expiries_total %d\nneexitlag_revocations_total %d\n", s.Metrics.Renewals.Load(), s.Metrics.RenewalRejected.Load(), s.Metrics.LeaseExpiries.Load(), s.Metrics.Revocations.Load())
 		fmt.Fprintf(w, "neexitlag_relay_health 1\nneexitlag_active_sessions %d\nneexitlag_active_flows %d\nneexitlag_udp_packets_total %d\nneexitlag_tcp_connections_total %d\nneexitlag_rx_bytes_total %d\nneexitlag_tx_bytes_total %d\nneexitlag_packet_drops_total %d\nneexitlag_rejected_flows_total %d\nneexitlag_auth_failures_total %d\n", s.Metrics.Sessions.Load(), s.Metrics.Flows.Load(), s.Metrics.UDPPackets.Load(), s.Metrics.TCPConnections.Load(), s.Metrics.RXBytes.Load(), s.Metrics.TXBytes.Load(), s.Metrics.Drops.Load(), s.Metrics.RejectedFlows.Load(), s.Metrics.AuthFailures.Load())
 		for name, metric := range s.Metrics.LocalDrops.Snapshot() {
 			fmt.Fprintf(w, "neexitlag_relay_%s_total %d\n", name, metric.Count)

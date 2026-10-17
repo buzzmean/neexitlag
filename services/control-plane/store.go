@@ -211,6 +211,40 @@ func (s *Store) LatestConfig(ctx context.Context) ([]byte, error) {
 	e := s.DB.QueryRow(ctx, "SELECT document FROM config_versions ORDER BY version DESC LIMIT 1").Scan(&raw)
 	return raw, e
 }
+
+// Publication must never use the bounded admin Devices listing. One SQL
+// statement reads the complete committed revocation snapshot, including errors
+// encountered after rows have streamed. The surrounding publication transaction
+// commits the signed document and audit entry together, serialized by version.
+func readRevokedIDs(ctx context.Context, q querier) ([]string, error) {
+	rows, err := q.Query(ctx, "SELECT id FROM devices WHERE revoked ORDER BY id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := []string{}
+	size := 0
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		raw, err := json.Marshal(id)
+		if err != nil {
+			return nil, err
+		}
+		size += len(raw) + 1
+		if size > security.MaxConfigDocument {
+			return nil, errors.New("complete revocation set exceeds configuration size limit; publication aborted")
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
 func (s *Store) Publish(ctx context.Context, kid string, key []byte, public map[string]string) ([]byte, error) {
 	tx, e := s.DB.Begin(ctx)
 	if e != nil {
@@ -232,15 +266,9 @@ func (s *Store) Publish(ctx context.Context, kid string, key []byte, public map[
 	if e != nil {
 		return nil, e
 	}
-	devices, e := readDevices(ctx, tx)
+	revoked, e := readRevokedIDs(ctx, tx)
 	if e != nil {
 		return nil, e
-	}
-	revoked := []string{}
-	for _, d := range devices {
-		if d.Revoked {
-			revoked = append(revoked, d.ID)
-		}
 	}
 	now := time.Now().UTC()
 	cfg := security.Config{Version: version, GeneratedAt: now, ExpiresAt: now.Add(24 * time.Hour), Relays: relays, ApplicationProfiles: apps, RoutingParameters: optimizer.DefaultParameters(), PublicKeys: public, RevokedDevices: revoked, ClientVersion: "0.3.0-dev"}
@@ -254,7 +282,10 @@ func (s *Store) Publish(ctx context.Context, kid string, key []byte, public map[
 	if _, e = tx.Exec(ctx, "INSERT INTO audit_log(actor,action,entity_id) VALUES('owner','config.publish',$1)", kid); e != nil {
 		return nil, e
 	}
-	return raw, tx.Commit(ctx)
+	if e = tx.Commit(ctx); e != nil {
+		return nil, e
+	}
+	return raw, nil
 }
 
 var _ = pgx.ErrNoRows

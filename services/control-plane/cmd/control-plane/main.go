@@ -7,10 +7,13 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/pem"
 	"flag"
 	"fmt"
 	"github.com/buzzmean/neexitlag/core/optimizer"
+	"github.com/buzzmean/neexitlag/core/security"
+	"github.com/buzzmean/neexitlag/internal/releaseinfo"
 	controlplane "github.com/buzzmean/neexitlag/services/control-plane"
 	"log/slog"
 	"net/http"
@@ -54,7 +57,15 @@ func main() {
 	seedHeartbeatFile := flag.String("seed-heartbeat-token-file", "", "relay-specific heartbeat token seed file")
 	tlsCert := flag.String("tls-cert", "", "TLS server certificate; required for remote listener")
 	tlsKey := flag.String("tls-key", "", "TLS server private key")
+	version := flag.Bool("version-json", false, "print build and upgrade capabilities without reading credentials or connecting to DB")
+	publish := flag.Bool("publish-config-on-start", false, "publish a complete signed configuration after additive migrations; requires upgraded config consumers")
 	flag.Parse()
+	if *version {
+		if err := releaseinfo.Write(os.Stdout, "control-plane", nil, security.MaxConfigDocument, 0); err != nil {
+			os.Exit(1)
+		}
+		return
+	}
 	if (*tlsCert == "") != (*tlsKey == "") {
 		slog.Error("both TLS certificate and key are required")
 		os.Exit(1)
@@ -139,6 +150,12 @@ func main() {
 	}
 	if e = api.Initialize(ctx); e != nil {
 		fail(e)
+	}
+	if *publish {
+		pub := key.Public().(ed25519.PublicKey)
+		if _, e = store.Publish(ctx, *kid, key, map[string]string{*kid: base64.RawURLEncoding.EncodeToString(pub)}); e != nil {
+			fail(fmt.Errorf("complete configuration publication failed"))
+		}
 	}
 	server := &http.Server{Addr: *addr, Handler: api.Handler(), ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 * 1024, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS13}}
 	done := make(chan os.Signal, 1)

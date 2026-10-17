@@ -4,15 +4,20 @@ package clientservice
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/buzzmean/neexitlag/core/browserproxy"
+	"github.com/buzzmean/neexitlag/core/flowpolicy"
+	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"github.com/buzzmean/neexitlag/core/measurement"
 	"github.com/buzzmean/neexitlag/core/optimizer"
 	"github.com/buzzmean/neexitlag/core/profiles"
 	"github.com/buzzmean/neexitlag/core/routing"
 	"github.com/buzzmean/neexitlag/core/security"
 	"github.com/buzzmean/neexitlag/core/telemetry"
+	"github.com/buzzmean/neexitlag/core/transport"
 	windowsplatform "github.com/buzzmean/neexitlag/platform/windows"
 	"net"
 	"net/http"
@@ -21,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -43,26 +49,49 @@ type Settings struct {
 	UpdateChannel string `json:"update_channel"`
 }
 type Snapshot struct {
-	RelayTransport *RelayTransportReadiness      `json:"relay_transport,omitempty"`
-	Version        string                        `json:"version"`
-	Connected      bool                          `json:"connected"`
-	Optimizing     bool                          `json:"optimizing"`
-	Demo           bool                          `json:"demo"`
-	Backend        windowsplatform.CaptureStatus `json:"backend"`
-	Primary        string                        `json:"primary"`
-	Secondary      string                        `json:"secondary"`
-	Tertiary       string                        `json:"tertiary"`
-	Routes         []RouteView                   `json:"routes"`
-	Profiles       []profiles.Profile            `json:"profiles"`
-	RXBytes        uint64                        `json:"rx_bytes"`
-	TXBytes        uint64                        `json:"tx_bytes"`
-	History        optimizer.RouteHistory        `json:"history"`
-	Flows          []routing.Flow                `json:"flows"`
-	Settings       Settings                      `json:"settings"`
-	ControlPlane   string                        `json:"control_plane"`
-	ActiveApps     []string                      `json:"active_apps"`
+	HotAttach      *windowsplatform.HotAttachStatus `json:"hot_attach,omitempty"`
+	RelayTransport *RelayTransportReadiness         `json:"relay_transport,omitempty"`
+	Version        string                           `json:"version"`
+	Connected      bool                             `json:"connected"`
+	Optimizing     bool                             `json:"optimizing"`
+	Demo           bool                             `json:"demo"`
+	Backend        windowsplatform.CaptureStatus    `json:"backend"`
+	Primary        string                           `json:"primary"`
+	Secondary      string                           `json:"secondary"`
+	Tertiary       string                           `json:"tertiary"`
+	Routes         []RouteView                      `json:"routes"`
+	Profiles       []profiles.Profile               `json:"profiles"`
+	RXBytes        uint64                           `json:"rx_bytes"`
+	TXBytes        uint64                           `json:"tx_bytes"`
+	History        optimizer.RouteHistory           `json:"history"`
+	Flows          []routing.Flow                   `json:"flows"`
+	Settings       Settings                         `json:"settings"`
+	ControlPlane   string                           `json:"control_plane"`
+	ActiveApps     []string                         `json:"active_apps"`
 }
 type Controller struct {
+	selfExecutable  string
+	BrowserOwnerSID string // Existing installation owner; restrict the loopback endpoint to this user.
+	// In-process fixture injection only; production uses the system resolver/roots.
+	BrowserRecoveryExecutable   string                 // In-process fixture only; production authenticates its own installed binary.
+	BrowserAlternativeDNS       browserproxy.DNSLookup // In-process fixture only; no IPC/config override.
+	BrowserResolver             *net.Resolver
+	BrowserProbeRoots           *x509.CertPool
+	browser                     *browserRuntime
+	activationMu                sync.Mutex
+	relayPools                  map[string]*transport.Pool
+	autoJobs                    map[string]autoLease
+	groupBindings               map[uint32]groupBinding
+	autoMu                      sync.Mutex
+	AutoLearned                 *flowpolicy.Learning
+	groupMu                     sync.Mutex
+	groupAt                     time.Time
+	groupAll                    []profiles.Identity
+	discovery                   windowsplatform.Discovery
+	Learned                     *localstrategy.Cache
+	network                     atomic.Pointer[windowsplatform.NetworkContext]
+	Local                       *localstrategy.LocalStrategyEngine
+	localMu                     sync.Mutex
 	Engine                      *routing.Engine
 	Selector                    *optimizer.RouteSelector
 	Measurements                *measurement.Engine
@@ -89,7 +118,15 @@ type Controller struct {
 
 func New(ctx context.Context) *Controller {
 	ctx, cancel := context.WithCancel(ctx)
-	c := &Controller{Engine: routing.New(4096), Selector: optimizer.New(optimizer.DefaultParameters()), Measurements: measurement.New(measurement.Defaults()), Profiles: profiles.New(profiles.Defaults()), recentApps: make(map[string]time.Time), localProfiles: make(map[string]profiles.Profile), acceptanceRelays: make(map[string]acceptanceRelaySource), transportDrops: make(map[string]func() map[string]telemetry.Metric), settings: Settings{Automatic: true, Failover: "DIRECT", UpdateChannel: "stable"}, ctx: ctx, cancel: cancel}
+	c := &Controller{browser: newBrowserRuntime(), relayPools: map[string]*transport.Pool{}, AutoLearned: flowpolicy.NewLearning(), groupBindings: map[uint32]groupBinding{}, autoJobs: map[string]autoLease{}, discovery: windowsplatform.NewDiscovery(), Local: localstrategy.New(), Learned: localstrategy.NewCache(1024), Engine: routing.New(4096), Selector: optimizer.New(optimizer.DefaultParameters()), Measurements: measurement.New(measurement.Defaults()), Profiles: profiles.New(profiles.Defaults()), recentApps: make(map[string]time.Time), localProfiles: make(map[string]profiles.Profile), acceptanceRelays: make(map[string]acceptanceRelaySource), transportDrops: make(map[string]func() map[string]telemetry.Metric), settings: Settings{Automatic: true, Failover: "DIRECT", UpdateChannel: "stable"}, ctx: ctx, cancel: cancel}
+	c.selfExecutable, _ = os.Executable()
+	c.Local.Guard = func(m localstrategy.Metadata) bool {
+		if c.autoCandidateQuarantined(m) {
+			return false
+		}
+		k, err := c.localKey(m.Application, m.Destination.String(), m.Protocol)
+		return err != nil || !c.Learned.Quarantined(k, m.StrategyID, time.Now())
+	}
 	c.Measurements.OnFailure = c.Selector.ReportProbeFailure
 	c.Engine.SetAutoSelector(func(f routing.Flow) routing.Policy {
 		c.mu.Lock()
@@ -111,6 +148,11 @@ func New(ctx context.Context) *Controller {
 				p.Backups = append(p.Backups, route(id))
 			}
 		}
+		// Same per-target policy at classification and actual transport open. The
+		// engine invokes this under its own lock: no call back into Engine methods.
+		d := windowsplatform.Decision{Route: p.Route}
+		c.applyLocalAuto(windowsplatform.ProcessIdentity{Path: f.ProcessPath}, windowsplatform.Tuple{Protocol: f.Protocol, Source: f.Source, Destination: f.Destination}, &d)
+		p.Route = d.Route
 		return p
 	})
 	c.syncPolicies()
@@ -122,6 +164,8 @@ func (c *Controller) syncPolicies() {
 		switch p.Mode {
 		case profiles.Auto:
 			policy.Auto = true
+		case profiles.DirectPlus:
+			policy.Route = routing.Route{Kind: routing.DirectPlusRoute}
 		case profiles.Manual:
 			policy.Route = routing.Route{RelayID: p.RelayID}
 		case profiles.Block:
@@ -130,15 +174,38 @@ func (c *Controller) syncPolicies() {
 		c.mu.Lock()
 		policy.BlockOnFailure = c.settings.Failover == "BLOCK"
 		c.mu.Unlock()
+		if p.Fallback != "" {
+			policy.BlockOnFailure = p.Fallback == flowpolicy.Required || p.Fallback == flowpolicy.FailBlock
+		}
+		if p.Mode == profiles.Auto && (presetFor(p) == "openai" || presetFor(p) == "openai-web") {
+			policy.Auto = false
+			policy.Route = routing.Route{RelayID: p.RelayID}
+			if policy.Route.RelayID == "" {
+				policy.Route.RelayID = "VPS-01"
+			}
+			policy.BlockOnFailure = true
+		}
+		if len(p.Rules) > 0 {
+			policy.Auto = false
+			policy.Block = true
+		} // classified flows supply the exact pinned override
 		c.Engine.SetPolicy(p.ID, policy)
 	}
 }
 func (c *Controller) Start() {
 	c.wg.Add(1)
+	go func() { defer c.wg.Done(); c.watchNetwork() }()
+	c.wg.Add(1)
 	go func() { defer c.wg.Done(); c.Measurements.Run(c.ctx, c.Selector.Observe) }()
 }
 func (c *Controller) Close() {
 	c.cancel()
+	c.browser.mu.Lock()
+	bs := c.browser.server
+	c.browser.mu.Unlock()
+	if bs != nil {
+		bs.Close()
+	}
 	if c.Backend != nil {
 		c.Backend.Stop()
 	}
@@ -146,6 +213,12 @@ func (c *Controller) Close() {
 }
 func (c *Controller) SetCustomPath(path string) error {
 	c.customPath = path
+	if err := c.loadAutoLearning(); err != nil {
+		return err
+	}
+	if err := c.loadLocal(); err != nil {
+		return err
+	}
 	settingsRaw, e := os.ReadFile(filepath.Join(filepath.Dir(path), "settings.json"))
 	if e == nil {
 		var stored Settings
@@ -173,6 +246,7 @@ func (c *Controller) SetCustomPath(path string) error {
 		return e
 	}
 	for _, p := range all {
+		prepareAuto(&p)
 		c.mu.Lock()
 		c.localProfiles[p.ID] = p
 		c.mu.Unlock()
@@ -190,6 +264,9 @@ func (c *Controller) saveProfiles() error {
 	all := []profiles.Profile{}
 	c.mu.Lock()
 	for _, p := range c.localProfiles {
+		if p.Trial != nil {
+			continue
+		}
 		all = append(all, p)
 	}
 	c.mu.Unlock()
@@ -219,21 +296,27 @@ func (c *Controller) Classify(identity windowsplatform.ProcessIdentity, t window
 	enabled := c.enabled
 	c.mu.Unlock()
 	decision := windowsplatform.Decision{Route: routing.Route{}}
-	if !enabled {
+	if !enabled || c.selfExecutable != "" && strings.EqualFold(identity.Path, c.selfExecutable) {
 		return decision
 	}
-	profile, ok := c.Profiles.Match(identity)
+	profile, ok := c.matchApplication(identity)
 	if !ok {
 		return decision
 	}
 	f := routing.Flow{Protocol: t.Protocol, Source: t.Source, Destination: t.Destination, PID: identity.PID, ProcessPath: identity.Path, ApplicationID: profile.ID}
 	decision.Flow = f
+	decision.Revision = c.policyRevision(profile)
 	c.mu.Lock()
 	decision.BlockOnFailure = c.settings.Failover == "BLOCK"
 	c.mu.Unlock()
 	switch profile.Mode {
 	case profiles.Block:
 		decision.Block = true
+	case profiles.DirectPlus:
+		decision.Route = routing.Route{Kind: routing.DirectPlusRoute}
+		decision.Local = c.Local
+		decision.LocalStrategyID = profile.LocalStrategyID
+		decision.BlockOnFailure = false
 	case profiles.Manual:
 		decision.Route = routing.Route{RelayID: profile.RelayID}
 	case profiles.Auto:
@@ -247,6 +330,22 @@ func (c *Controller) Classify(identity windowsplatform.ProcessIdentity, t window
 		if primary != optimizer.Direct {
 			decision.Route = routing.Route{RelayID: primary}
 		}
+	}
+	if profile.Mode == profiles.Auto && c.Local.HasApplication(identity.Path) {
+		decision.Route = routing.Route{}
+	}
+	if profile.Mode == profiles.Auto {
+		c.applyLocalAuto(identity, t, &decision)
+	}
+	decision = c.scopedDecision(profile, identity, t, decision)
+	if n := c.network.Load(); n != nil && len(n.Conflicts) > 0 {
+		if decision.BlockOnFailure {
+			decision.Block = true
+			decision.Deferred = false
+			decision.ResolveDomain = nil
+			return decision
+		}
+		return windowsplatform.Decision{Flow: f}
 	}
 	return decision
 }
@@ -336,7 +435,7 @@ func (c *Controller) Snapshot() Snapshot {
 		rx += brx
 		tx += btx
 	}
-	snapshot := Snapshot{Version: "0.3.0-dev", Connected: c.Demo || backend.Ready, Optimizing: enabled && (c.Demo || backend.Ready), Demo: c.Demo, Backend: backend, Primary: selection.Primary, Secondary: selection.Secondary, Tertiary: selection.Tertiary, Routes: views, Profiles: c.Profiles.List(), RXBytes: rx, TXBytes: tx, History: history, Flows: flows, Settings: settings, ControlPlane: c.ControlPlaneURL, ActiveApps: apps}
+	snapshot := Snapshot{HotAttach: c.hotAttachStatus(), Version: "0.3.0-dev", Connected: c.Demo || backend.Ready, Optimizing: enabled && (c.Demo || backend.Ready), Demo: c.Demo, Backend: backend, Primary: selection.Primary, Secondary: selection.Secondary, Tertiary: selection.Tertiary, Routes: views, Profiles: c.Profiles.List(), RXBytes: rx, TXBytes: tx, History: history, Flows: flows, Settings: settings, ControlPlane: c.ControlPlaneURL, ActiveApps: apps}
 	// Keep mandatory profile/quality fields; shorten display history to the IPC frame.
 	for {
 		raw, _ := json.Marshal(snapshot)
@@ -359,8 +458,28 @@ func (c *Controller) Snapshot() Snapshot {
 	}
 	return snapshot
 }
-func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMessage) (any, error) {
+func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMessage) (result any, err error) {
 	switch method {
+	case "optimize", "profile.set", "profile.delete", "settings.set", "local.set", "local.preset.apply", "auto.commit", "browser.prepare", "browser.start", "browser.confirm":
+		c.activationMu.Lock()
+		defer c.activationMu.Unlock()
+		if e := c.publishBrowserGuard(true); e != nil {
+			return nil, e
+		}
+		defer func() {
+			if e := c.publishBrowserGuard(false); e != nil && err == nil {
+				result = nil
+				err = e
+			}
+		}()
+	}
+	switch method {
+	case "browser.origin.check":
+		return c.checkBrowserOrigin(ctx, raw)
+	case "browser.start", "browser.prepare", "browser.confirm", "browser.status":
+		return c.handleBrowser(method, raw)
+	case "local.presets", "local.preset.apply", "local.get", "local.set", "local.metrics", "local.network", "local.record", "local.recommend", "local.compare":
+		return c.handleLocal(method, raw)
 	case "acceptance.readiness":
 		var query struct {
 			RelayID string `json:"relay_id"`
@@ -372,16 +491,91 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 			return nil, errors.New("configured relay ID required")
 		}
 		return c.acceptanceReadiness(ctx, query.RelayID), nil
+	case "relay.pool.diagnostics":
+		var query struct {
+			RelayID string `json:"relay_id"`
+		}
+		if err := security.Parse(raw, &query); err != nil {
+			return nil, err
+		}
+		if query.RelayID == "" || len(query.RelayID) > 128 {
+			return nil, errors.New("configured relay ID required")
+		}
+		c.mu.Lock()
+		pool := c.relayPools[query.RelayID]
+		c.mu.Unlock()
+		if pool == nil {
+			return nil, errors.New("relay pool unavailable")
+		}
+		return pool.Snapshot(), nil
 	case "quality.diagnostics":
 		return c.DropDiagnostics(), nil
-	case "capture.diagnostics":
-		var query struct {
-			PID uint32 `json:"pid"`
+	case "capture.changes.marker":
+		if backend, ok := c.Backend.(interface {
+			CaptureChangeMarker() windowsplatform.ChangeCursor
+		}); ok {
+			return backend.CaptureChangeMarker(), nil
 		}
+		return nil, errors.New("capture change cursor unavailable; update backend")
+	case "capture.changes":
+		var query windowsplatform.ChangeQuery
+		if err := security.Parse(raw, &query); err != nil {
+			return nil, err
+		}
+		if backend, ok := c.Backend.(interface {
+			CaptureChanges(windowsplatform.ChangeQuery) (windowsplatform.ChangePage, error)
+		}); ok {
+			return backend.CaptureChanges(query)
+		}
+		return nil, errors.New("capture changes unavailable; update backend")
+	case "capture.marker":
+		if backend, ok := c.Backend.(interface {
+			CaptureMarker() windowsplatform.EvidenceMarker
+		}); ok {
+			return backend.CaptureMarker(), nil
+		}
+		return nil, errors.New("capture markers unavailable; update service/backend")
+	case "capture.diagnostics":
+		var query windowsplatform.EvidenceQuery
 		if len(raw) > 0 && string(raw) != "null" {
 			if err := security.Parse(raw, &query); err != nil {
 				return nil, err
 			}
+		}
+		if query.CreationTime != 0 && query.PID == 0 {
+			return nil, errors.New("creation_time requires exact PID")
+		}
+		if query.Source != "" {
+			if _, err := netip.ParseAddrPort(query.Source); err != nil {
+				return nil, errors.New("invalid diagnostic source")
+			}
+		}
+		if len(query.Domain) > 253 || strings.ContainsAny(query.Domain, " /\\\t\r\n") {
+			return nil, errors.New("invalid diagnostic domain")
+		}
+		if query.Since != nil || query.CreationTime != 0 || query.Source != "" || query.Domain != "" {
+			if query.Destination != "" {
+				if _, err := netip.ParseAddrPort(query.Destination); err != nil {
+					return nil, errors.New("invalid diagnostic destination")
+				}
+			}
+			if backend, ok := c.Backend.(interface {
+				DiagnosticsScoped(windowsplatform.EvidenceQuery) (windowsplatform.CaptureEvidence, error)
+			}); ok {
+				return backend.DiagnosticsScoped(query)
+			}
+			return nil, errors.New("trial-scoped capture diagnostics unavailable; update service/backend")
+		}
+		if query.Destination != "" {
+			if _, err := netip.ParseAddrPort(query.Destination); err != nil {
+				return nil, errors.New("invalid diagnostic destination")
+			}
+			if backend, ok := c.Backend.(interface {
+				DiagnosticsTarget(uint32, string) windowsplatform.CaptureEvidence
+			}); ok {
+				return backend.DiagnosticsTarget(query.PID, query.Destination), nil
+			}
+			return nil, errors.New("scoped capture diagnostics unavailable")
 		}
 		if backend, ok := c.Backend.(interface {
 			Diagnostics(uint32) windowsplatform.CaptureEvidence
@@ -389,6 +583,8 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 			return backend.Diagnostics(query.PID), nil
 		}
 		return nil, errors.New("capture diagnostics unavailable on this backend")
+	case "hot_attach.status":
+		return c.hotAttachStatus(), nil
 	case "status":
 		return c.Snapshot(), nil
 	case "profiles":
@@ -408,32 +604,137 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 			c.mu.Unlock()
 			return nil, errors.New("only local custom profiles can be removed")
 		}
-		delete(c.localProfiles, query.ID)
 		c.mu.Unlock()
-		c.Profiles.Delete(query.ID)
-		c.Engine.SetPolicy(query.ID, routing.Policy{})
-		if e := c.saveProfiles(); e != nil {
+		if e := c.reconfigure(query.ID, func() error {
+			c.mu.Lock()
+			delete(c.localProfiles, query.ID)
+			c.mu.Unlock()
+			c.Profiles.Delete(query.ID)
+			c.Engine.SetPolicy(query.ID, routing.Policy{})
+			return nil
+		}); e != nil {
 			return nil, e
 		}
+		if err := c.saveProfiles(); err != nil {
+			return nil, err
+		}
 		return c.Profiles.List(), nil
+	case "auto.plan", "auto.commit":
+		c.pruneTrials(time.Now())
+		return c.handleAuto(method, raw)
 	case "profile.set":
+		c.pruneTrials(time.Now())
 		var p profiles.Profile
 		if e := security.Parse(raw, &p); e != nil {
 			return nil, e
 		}
+		// Old clients omit newly added policy fields. Preserve them for the
+		// same executable identity; explicit null/empty values still clear them.
+		var fields map[string]json.RawMessage
+		if e := json.Unmarshal(raw, &fields); e != nil {
+			return nil, e
+		}
+		for _, old := range c.Profiles.List() {
+			if old.ID == p.ID && sameProfileExecutables(old.Executables, p.Executables) {
+				if _, ok := fields["rules"]; !ok {
+					p.Rules = old.Rules
+				}
+				if _, ok := fields["browser_recovery_rules"]; !ok {
+					p.BrowserRecoveryRules = old.BrowserRecoveryRules
+				}
+				if _, ok := fields["identity"]; !ok {
+					p.Identity = old.Identity
+				}
+				if _, ok := fields["fallback"]; !ok {
+					p.Fallback = old.Fallback
+				}
+				if _, ok := fields["app_preset"]; !ok {
+					p.AppPreset = old.AppPreset
+				}
+				if _, ok := fields["auto_network"]; !ok {
+					p.AutoNetwork = old.AutoNetwork
+				}
+				if _, ok := fields["auto_revision"]; !ok {
+					p.AutoRevision = old.AutoRevision
+				}
+				break
+			}
+		}
+		if p.Trial != nil {
+			if !time.Now().Before(p.Trial.Expires) || p.Trial.Expires.After(time.Now().Add(15*time.Minute)) {
+				return nil, errors.New("trial lifetime bound")
+			}
+			root, err := c.discovery.Lookup(p.Trial.PID)
+			if err != nil || root.CreationTime != p.Trial.CreationTime || len(p.Executables) != 1 || !strings.EqualFold(root.Path, p.Executables[0]) {
+				return nil, errors.New("trial root identity unavailable")
+			}
+			p.Identity = profiles.IdentityFor(root.Path, "")
+			p.Identity.Helpers = []string{p.Identity.Executable}
+		}
+		prepareAuto(&p)
+		if browserAuto(p) && c.BrowserOwnerSID != "" {
+			c.browser.mu.Lock()
+			ready := c.browser.recoveryAddress != "" && c.browser.server != nil && c.browser.server.Confirmed(p.ID)
+			c.browser.mu.Unlock()
+			if !ready {
+				return nil, errors.New("Chrome AUTO not activated: prepare CONNECT, install Chrome PAC and verify readiness before publishing AUTO")
+			}
+		}
+		if p.Mode == profiles.Auto && p.LocalStrategyID != "" && p.AutoNetwork == "" {
+			for _, old := range c.Profiles.List() {
+				if old.ID == p.ID && old.Mode == profiles.DirectPlus && old.LocalStrategyID == p.LocalStrategyID {
+					n := c.network.Load()
+					if n == nil || time.Since(n.ObservedAt) > 45*time.Second || len(n.VPN) > 0 || len(n.Conflicts) > 0 {
+						return nil, errors.New("fresh VPN-free network required to adopt configured DIRECT+ into AUTO")
+					}
+					p.AutoNetwork = n.Fingerprint
+					p.AutoRevision = c.baselineRevision(p)
+				}
+			}
+		}
 		if p.Mode == profiles.Block && !c.Demo && (c.Backend == nil || !c.Backend.Status().Capabilities.TCP) {
 			return nil, errors.New("BLOCK profile requires UDP/TCP capture; current backend does not provide it")
 		}
-		if e := c.Profiles.Upsert(p); e != nil {
+		if err := p.Validate(); err != nil {
+			return nil, err
+		}
+		for _, old := range c.Profiles.List() {
+			if old.ID == p.ID {
+				a, _ := json.Marshal(old)
+				b, _ := json.Marshal(p)
+				if bytes.Equal(a, b) {
+					return c.Profiles.List(), nil
+				}
+			}
+		}
+		if e := c.reconfigure(p.ID, func() error {
+			if e := c.Profiles.Upsert(p); e != nil {
+				return e
+			}
+			c.mu.Lock()
+			c.localProfiles[p.ID] = p
+			c.mu.Unlock()
+			c.syncPolicies()
+			return nil
+		}); e != nil {
 			return nil, e
 		}
-		c.mu.Lock()
-		c.localProfiles[p.ID] = p
-		c.mu.Unlock()
-		if e := c.saveProfiles(); e != nil {
-			return nil, e
+		if chromeProfile(p) && !browserAuto(p) {
+			c.browser.mu.Lock()
+			if c.browser.server != nil {
+				c.browser.server.Forget(p.ID)
+				if c.customPath != "" {
+					if err := c.saveBrowserAddress(); err != nil {
+						c.browser.mu.Unlock()
+						return nil, err
+					}
+				}
+			}
+			c.browser.mu.Unlock()
 		}
-		c.syncPolicies()
+		if err := c.saveProfiles(); err != nil {
+			return nil, err
+		}
 		return c.Profiles.List(), nil
 	case "optimize":
 		var v struct {
@@ -442,13 +743,30 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		if e := security.Parse(raw, &v); e != nil {
 			return nil, e
 		}
+		c.mu.Lock()
+		automatic := c.settings.Automatic
+		c.mu.Unlock()
+		if v.Enabled && automatic {
+			if err := c.requireChromeActivation(); err != nil {
+				return nil, err
+			}
+		}
 		if !c.Demo && c.Backend == nil {
 			return nil, errors.New("Windows capture backend is not configured")
 		}
+		c.mu.Lock()
+		wasEnabled := c.enabled
+		if v.Enabled {
+			c.enabled = true
+		}
+		c.mu.Unlock()
 		if c.Backend != nil {
 			if v.Enabled {
 				if !c.Backend.Status().Ready {
 					if e := c.Backend.Start(c.ctx, c.Classify); e != nil {
+						c.mu.Lock()
+						c.enabled = wasEnabled
+						c.mu.Unlock()
 						return nil, e
 					}
 				}
@@ -461,6 +779,19 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		c.mu.Lock()
 		c.enabled = v.Enabled
 		c.mu.Unlock()
+		if v.Enabled != wasEnabled {
+			c.browser.mu.Lock()
+			bs := c.browser.server
+			c.browser.mu.Unlock()
+			if bs != nil {
+				bs.CloseConnections()
+			}
+		}
+		if v.Enabled && !wasEnabled {
+			if b, ok := c.Backend.(interface{ RequestHotAttach(string) }); ok {
+				b.RequestHotAttach("optimize_enabled")
+			}
+		}
 		c.Measurements.Active.Store(v.Enabled)
 		return c.Snapshot(), nil
 	case "settings.set":
@@ -472,12 +803,43 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 			return nil, errors.New("invalid settings")
 		}
 		c.mu.Lock()
-		c.settings = s
+		oldSettings := c.settings
 		c.mu.Unlock()
-		if e := c.saveSettings(); e != nil {
-			return nil, e
+		c.mu.Lock()
+		enabled := c.enabled
+		c.mu.Unlock()
+		if s.Automatic && enabled {
+			if err := c.requireChromeActivation(); err != nil {
+				return nil, err
+			}
 		}
-		c.syncPolicies()
+		apply := func() error {
+			c.mu.Lock()
+			c.settings = s
+			c.mu.Unlock()
+			c.syncPolicies()
+			return nil
+		}
+		var updateErr error
+		if oldSettings.Automatic != s.Automatic || oldSettings.Failover != s.Failover {
+			updateErr = c.reconfigure("", apply)
+		} else {
+			updateErr = apply()
+		}
+		if updateErr != nil {
+			return nil, updateErr
+		}
+		if oldSettings.Automatic != s.Automatic {
+			c.browser.mu.Lock()
+			bs := c.browser.server
+			c.browser.mu.Unlock()
+			if bs != nil {
+				bs.CloseConnections()
+			}
+		}
+		if err := c.saveSettings(); err != nil {
+			return nil, err
+		}
 		return s, nil
 	case "diagnostics":
 		return c.Diagnostics(ctx), nil

@@ -6,6 +6,10 @@ import (
 	"sync/atomic"
 )
 
+// ErrCapacity describes bounded local admission, never remote path quality.
+var ErrCapacity = errors.New("local relay capacity exhausted")
+var ErrIsolatedSession = errors.New("probe session closed while relay has healthy peers")
+
 type Category int
 
 const (
@@ -68,7 +72,10 @@ type LocalError struct {
 
 func (e *LocalError) Error() string { return e.Cause.Error() }
 func (e *LocalError) Unwrap() error { return e.Cause }
-func IsLocal(err error) bool        { var local *LocalError; return errors.As(err, &local) }
+func IsLocal(err error) bool {
+	var local *LocalError
+	return errors.As(err, &local) || errors.Is(err, ErrCapacity) || errors.Is(err, ErrIsolatedSession)
+}
 
 // TryEnqueue counts only a real local overflow; it never creates a network-loss sample.
 func (c *Counters) TryEnqueue(queue chan []byte, payload []byte, category Category) bool {

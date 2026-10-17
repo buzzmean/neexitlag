@@ -1,7 +1,7 @@
-# Нативный клиент NeExitLag
+# Нативный клиент VELIQ
 
 WPF / .NET 8, Windows 10/11 x64. Основной интерфейс — отдельное окно
-`NeExitLag.exe`, полностью на русском языке. Браузер, localhost и Electron
+`VELIQ.exe`, полностью на русском языке. Браузер, localhost и Electron
 не используются. Служба `neexitlag-service.exe` работает отдельно: GUI не
 перехватывает пакеты и не устанавливает драйверы.
 
@@ -13,7 +13,7 @@ WPF / .NET 8, Windows 10/11 x64. Основной интерфейс — отд�
 .\tools\windows\build-desktop.ps1
 ```
 
-Результат: `bin\release\NeExitLag.exe`. Это self-contained win-x64 single-file
+Результат: `bin\release\VELIQ.exe`. Это self-contained win-x64 single-file
 сборка, без требования отдельно устанавливать .NET Runtime. Первый запуск может
 распаковать нативные библиотеки в пользовательский каталог временных файлов.
 Сборку можно выполнять без прав администратора.
@@ -21,7 +21,7 @@ WPF / .NET 8, Windows 10/11 x64. Основной интерфейс — отд�
 Запуск:
 
 ```powershell
-.\bin\release\NeExitLag.exe
+.\bin\release\VELIQ.exe
 ```
 
 Запускайте от обычного пользователя, чей SID разрешён установщиком службы.
@@ -91,13 +91,13 @@ Production-клиент HTTP-кода не содержит; старый Go web
 Windows CI также выполняет `tests/windows-tools/desktop-smoke.ps1`: запускает
 опубликованный EXE, через UI Automation проверяет настоящее WPF-окно и русскую
 навигацию, повторный запуск и корректное поведение без службы. CI публикует
-артефакт `NeExitLag-win-x64`. Этот smoke не проверяет маршрутизацию WinDivert.
+артефакт `VELIQ-win-x64`. Этот smoke не проверяет маршрутизацию WinDivert.
 
 На Linux проверены build/test/publish и PE-формат Windows x64 GUI. Windows CI
 (Windows Server 2025) также успешно запустил настоящее опубликованное окно:
 русская навигация, single-instance, отсутствие службы и корректное завершение
 проверены через UI Automation. Взаимодействие с вашей реальной установленной
-службой, DPI, действия трея и HKCU-автозапуск требуют ручной Windows проверки. Уже доказанный
+службой, DPI и HKCU-автозапуск требуют ручной Windows проверки. Уже доказанный
 оператором ручной DIRECT/RELAY E2E не выдаётся за проверку нового окна.
 
 Отдельный исправленный service health-check использует ту же приватную CA, что
@@ -107,3 +107,34 @@ Windows CI также выполняет `tests/windows-tools/desktop-smoke.ps1`
 нужно обновить бинарник службы стандартной процедурой; GUI работает и с
 предыдущим IPC v1. На старой службе её проверка HTTPS с приватной CA может
 ошибочно показывать недоступность управляющего сервера.
+
+
+## Desktop regression: окно приложений, tray и dark dropdown
+
+На Windows запустите из корня репозитория:
+
+```powershell
+dotnet run --project tests/desktop-native/NeExitLag.Desktop.NativeTests.csproj --configuration Release
+```
+
+Это отдельный STA runtime host: загружает production compiled BAML/resources,
+реально открывает `MainWindow` и `AddApplicationWindow`, проверяет перенос длинных
+названий, путей и PID с автоматической высотой строк. Проверяет четыре комбинации
+StartMinimized/MinimizeToTray, minimize, X, реальные обработчики tray Open/Exit,
+сохранение и повторную загрузку локальных предпочтений. Хост отключает только
+фоновые IPC timers и завершение всего тестового процесса при закрытии окна;
+не управляет service и не изменяет пользовательские настройки/автозапуск.
+
+MinimizeToTray OFF: обычное сворачивание в панель задач, X завершает GUI,
+tray icon отсутствует. ON: minimize/X скрывают окно, Open восстанавливает,
+Exit завершает GUI. StartMinimized использует тот же выбранный режим и применяется
+однократно при старте. Сохранение переключает текущую политику сразу. Закрытие GUI
+не останавливает службу.
+
+Общий собственный ComboBox/ComboBoxItem template задаёт тёмные closed/popup/item,
+hover, selected и readable disabled состояния. Native тест применяет production
+шаблон ко всем шести dropdown, проверяет настоящие visual-tree brushes, перемещение
+мыши на control/item, WPF keyboard routing (arrows/F4/Enter/Escape), focus и Tab
+traversal. `bin/native-ui-tests/*.png` содержит runtime render для визуального
+контроля. В CI это artifact `desktop-native-ui-evidence`; fixture-данные на PNG не
+являются сетевой телеметрией. Старые 51 model/IPC тест и published EXE smoke остаются.

@@ -104,7 +104,7 @@ public sealed class ClientTests
         var client = new ServiceClient(Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".token"));
         var error = await Assert.ThrowsAsync<ServiceException>(() => client.Call<Snapshot>("status"));
         Assert.Equal(ServiceFailure.NotInstalled, error.Failure);
-        Assert.Equal("Служба NeExitLag не установлена", Text.Failure(error));
+        Assert.Equal("Служба VELIQ не установлена", Text.Failure(error));
     }
     [Fact]
     public async Task UnavailablePipeHasBoundedDeadline()
@@ -155,8 +155,8 @@ public sealed class StalledPipeTests
             string name = "silent-" + Guid.NewGuid();
             using var server = new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
             var connection = server.WaitForConnectionAsync();
-            var call = new ServiceClient(token, name, TimeSpan.FromMilliseconds(300)).Call<Snapshot>("status");
-            await connection;
+            var call = new ServiceClient(token, name, TimeSpan.FromSeconds(1)).Call<Snapshot>("status");
+            await connection.WaitAsync(TimeSpan.FromSeconds(5));
             var error = await Assert.ThrowsAsync<ServiceException>(() => call);
             Assert.Equal(ServiceFailure.Unavailable, error.Failure);
         }

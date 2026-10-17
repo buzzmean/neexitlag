@@ -1,6 +1,6 @@
-# neexitlag
+# VELIQ
 
-neexitlag is an application-aware Windows DIRECT/RELAY route optimizer. It measures
+VELIQ is an application-aware Windows DIRECT/RELAY route optimizer. It measures
 DIRECT and authenticated QUIC relay paths, ranks their RTT, jitter, loss, failures,
 load and stability, and changes the route of **new flows** only when improvement
 survives hysteresis. Better Internet latency depends on your destination and relay
@@ -8,12 +8,12 @@ placement; this project makes no throughput or Internet improvement claim.
 
 ## Нативный Windows-клиент
 
-Русский WPF-клиент запускается отдельным `NeExitLag.exe` без прав администратора.
+Русский WPF-клиент запускается отдельным `VELIQ.exe` без прав администратора.
 Браузер не нужен; служба продолжает выполнять перехват и маршрутизацию.
 
 ```powershell
 .\tools\windows\build-desktop.ps1
-.\bin\release\NeExitLag.exe
+.\bin\release\VELIQ.exe
 ```
 
 .NET SDK 8 требуется для сборки; опубликованный EXE включает runtime.
@@ -183,3 +183,5 @@ performance validation are future work. Update channel is a persisted preference
 there is no implemented updater. The MTU diagnostic verifies a 1100-byte UDP echo,
 not discovered Internet path MTU. Config expiry and relay session leases bound
 operation during a control-plane outage; reconnection requires valid tickets.
+
+User-facing brand: **VELIQ**. Compatibility and safe Windows upgrade: [VELIQ branding](docs/VELIQ_BRANDING.md). Repository/module, SCM, IPC and persisted paths intentionally retain their established identifiers.

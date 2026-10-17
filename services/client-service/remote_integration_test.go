@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"github.com/buzzmean/neexitlag/core/controlclient"
 	"github.com/buzzmean/neexitlag/core/optimizer"
+	"github.com/buzzmean/neexitlag/core/routing"
 	"github.com/buzzmean/neexitlag/core/security"
 	"github.com/buzzmean/neexitlag/core/transport"
 	"github.com/buzzmean/neexitlag/internal/e2eprobe"
@@ -153,8 +154,33 @@ func TestPrivateTLSControlPlaneAndAuthenticatedRemoteProbe(t *testing.T) {
 			t.Fatal("real authenticated probe", m)
 		}
 	}
-	if node.Metrics.UDPPackets.Load() < 5 || echoStats.Accepted.Load() < 10 {
-		t.Fatal("no actual relay/echo forwarding counters")
+	// Both producers commit counters AFTER a successful socket write. The
+	// client can observe its final reply before those goroutines resume; wait
+	// for the same round's accounting, without sending extra probes or weakening
+	// the forwarding/loss assertion above.
+	accountingDeadline := time.Now().Add(time.Second)
+	for node.Metrics.UDPPackets.Load() < 5 || echoStats.Accepted.Load() < 10 {
+		if time.Now().After(accountingDeadline) {
+			t.Fatalf("forwarding accounting incomplete: relay=%d echo=%d measurements=%+v", node.Metrics.UDPPackets.Load(), echoStats.Accepted.Load(), measurements)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	// Exercise the actual control-plane proof/nonce consumption and fresh ticket
+	// issuance through pool expansion on the unchanged authenticated relay.
+	remotePool := controller.relayPools["VPS-01"]
+	var held []routing.Datagram
+	for i := 0; i < 75; i++ {
+		d, err := remotePool.OpenDatagram(ctx, netip.MustParseAddrPort(echo.LocalAddr().String()))
+		if err != nil {
+			t.Fatal("fresh CP ticket/pool expansion", i, err)
+		}
+		held = append(held, d)
+	}
+	if s := remotePool.Snapshot(); s.HealthySessions < 2 || s.ActiveFlows != 75 {
+		t.Fatal(s)
+	}
+	for _, d := range held {
+		d.Close()
 	}
 	if controller.Snapshot().Connected {
 		t.Fatal("portable transport falsely advertised Windows capture")
