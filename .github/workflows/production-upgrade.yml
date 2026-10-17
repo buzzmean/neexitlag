@@ -35,5 +35,15 @@ jobs:
       - name: Sanitized failure diagnostics only
         if: failure()
         run: |
+          sudo python3 - <<'PY'
+          import json, pathlib
+          for name in ['preflight.json','apply.json','injected-failure.json']:
+              p=pathlib.Path('/var/tmp/neexitlag-upgrade-private')/name
+              if p.exists():
+                  try:
+                      d=json.loads(p.read_text()); print(name, {k:d[k] for k in ['error','phase','pass','commit'] if k in d})
+                  except ValueError: print(name, 'No complete public JSON')
+          PY
+          sudo stat -c '%a %u %g %n' /opt /opt/neexitlag /opt/neexitlag/bin /etc/systemd/system /var/backups /var/lib
           sudo systemctl show neexitlag-relay neexitlag-control-plane neexitlag-upgrade-recover -p ActiveState -p SubState -p Result -p ExecMainStatus || true
           sudo find /var/backups/neexitlag-upgrades -name state.json -exec python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print({k:d.get(k) for k in ["id","commit","phase","backup_complete"]})' {} \; || true

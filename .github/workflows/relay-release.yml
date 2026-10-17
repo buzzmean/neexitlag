@@ -53,7 +53,7 @@ jobs:
         run: |
           mkdir -p dist/windows
           go build -trimpath -ldflags='-s -w' -o dist/windows/neexitlag-route-test-windows-amd64.exe ./tools/route-test
-          cp tools/windows/update-vps.ps1 dist/windows/
+          cp tools/windows/update-vps.ps1 tools/windows/acceptance-process.ps1 dist/windows/
           cd dist/windows
           sha256sum *.exe > SHA256SUMS
       - uses: actions/upload-artifact@v4

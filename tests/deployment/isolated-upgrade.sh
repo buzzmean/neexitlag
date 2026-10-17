@@ -11,6 +11,8 @@ commit=$(git rev-parse HEAD)
 mkdir -m 0700 /var/tmp/neexitlag-upgrade-private
 private=/var/tmp/neexitlag-upgrade-private
 # Everything below is local to this throw-away runner, including test identities.
+# CI runner ancestors are not a production layout. Harden only this throw-away VM.
+for path in /opt /etc/systemd/system /var/backups /var/lib; do chown root:root "$path"; chmod go-w "$path"; done
 systemctl start postgresql
 for role in relay control echo; do
  useradd --system --user-group --home /var/lib/neexitlag --shell /usr/sbin/nologin "neexitlag-$role"

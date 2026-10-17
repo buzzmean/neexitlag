@@ -15,6 +15,7 @@ param(
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot 'acceptance-process.ps1')
 
 function Quote-NativeArgument([string]$Value) {
     # CommandLineToArgvW quoting, including trailing slashes in quoted paths.
@@ -22,18 +23,17 @@ function Quote-NativeArgument([string]$Value) {
     return '"' + [regex]::Replace([regex]::Replace($Value, '(\\*)"', '$1$1\"'), '(\\+)$', '$1$1') + '"'
 }
 function Invoke-UpgradeNative([string]$Program,[string[]]$Arguments,[string]$Label,[int]$TimeoutSeconds=120) {
-    $stdout=Join-Path $script:LogDirectory "$Label.stdout.log"
-    $stderr=Join-Path $script:LogDirectory "$Label.stderr.log"
+    $base=Join-Path $script:LogDirectory $Label
     $argv=($Arguments | ForEach-Object { Quote-NativeArgument $_ }) -join ' '
-    $p=Start-Process -FilePath $Program -ArgumentList $argv -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    # Reuse the existing tested Windows handle-retaining process wrapper.
+    $p=Start-AcceptanceProcess $Program $argv $base
     try {
-        if (-not $p.WaitForExit($TimeoutSeconds*1000)) { $p.Kill(); $p.WaitForExit(); throw "Timed out: $Label (logs retained)" }
-        $p.WaitForExit() # Flush redirected output and obtain the real Windows exit code.
-        $p.Refresh()
-        if ($null -eq $p.ExitCode -or $p.ExitCode -ne 0) { throw "Command failed: $Label (logs retained; no secret output echoed)" }
-        return [System.IO.File]::ReadAllText($stdout)
+        $code=Wait-AcceptanceProcessExit $p ($TimeoutSeconds*1000) $base
+        if ($code -ne 0) { throw "Command failed: $Label (logs retained; no secret output echoed)" }
+        return [System.IO.File]::ReadAllText($base+'.stdout')
     } finally { $p.Dispose() }
 }
+
 function Read-UpgradeProperty($Object,[string]$Name) {
     $p=$Object.PSObject.Properties[$Name]
     if ($null -eq $p) { throw "Required evidence field missing: $Name" }
