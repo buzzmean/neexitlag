@@ -200,12 +200,36 @@ internal static class Program
         Require(routes[1].StartsWith("PROXY ")&&routes[2].StartsWith("PROXY ")&&!routes[1].Contains("DIRECT")&&!routes[2].Contains("DIRECT"),"OpenAI guard leaked DIRECT");
         Pass("Chrome recovery PAC executes: ordinary DIRECT; protected OpenAI fail-closed; suffix boundary exact");
     }
+    static void ChromePolicyRecoveryLifecycle(){
+        if(Environment.GetEnvironmentVariable("NEEXITLAG_TEST_CHROME_POLICY")!="1")return;
+        using var key=Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\Policies\Google\Chrome");
+        Require(key.GetValue("ProxySettings")is null,"Refusing an existing Chrome policy in native UI fixture");
+        var folder=Path.Combine(Path.GetTempPath(),"neexitlag-policy-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(folder);ChromePolicy.TestStatePath=Path.Combine(folder,"owned.json");
+        try{
+            var closed=ChromePolicy.ClosedGuard(new(){Id="chrome",Executables=[@"C:\Apps\chrome.exe"]});
+            var script="function FindProxyForURL(url,host){return 'PROXY localhost:12345';}";
+            var online="data:application/x-ns-proxy-autoconfig;base64,"+Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(script));
+            ChromePolicy.Install(["--proxy-pac-url="+online],["--proxy-pac-url="+closed]);
+            var first=(string)key.GetValue("ProxySettings")!;
+            Require(ChromePolicy.Monitored&&ChromePolicy.Applied&&!ChromePolicy.Suspended,"Online ownership/readiness wrong");
+            ChromePolicy.Suspend(true);var guard=(string)key.GetValue("ProxySettings")!;
+            Require(guard!=first&&ChromePolicy.Suspended&&ChromePolicy.Applied,"IPC outage did not install recovery");
+            ChromePolicy.Suspend(false);Require(ChromePolicy.Resume(),"Repeated outage forgot previous Optimize state");
+            Require((string)key.GetValue("ProxySettings")! == first&&!ChromePolicy.Suspended,"Online PAC not restored");
+            key.SetValue("ProxySettings",guard);ChromePolicy.Check(); // interrupted known transition is recoverable
+            ChromePolicy.Guard(new(){Id="chrome",Mode="AUTO",Executables=[@"C:\Apps\chrome.exe"]});
+            Require(!ChromePolicy.Monitored,"Explicit rollback can silently auto-resume");
+            key.SetValue("ProxySettings","foreign-value");bool rejected=false;try{ChromePolicy.Suspend(true);ChromePolicy.Guard(new());}catch(InvalidOperationException){rejected=true;}
+            Require(rejected&&(string)key.GetValue("ProxySettings")! == "foreign-value","Foreign policy overwritten");
+            Pass("actual HKCU Chrome policy: online/outage/recovery, idempotence, previous state, explicit disable and foreign refusal");
+        }finally{key.DeleteValue("ProxySettings",false);ChromePolicy.TestStatePath=null;Directory.Delete(folder,true);}
+    }
     [STAThread]
     static int Main()
     {
         Directory.CreateDirectory(Output); settings = Path.Combine(Path.GetTempPath(), "neexitlag-native-" + Guid.NewGuid() + ".json");
         var app = new App(); app.InitializeComponent(); app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-        try { ChromeProxyValue(); ChromeRecoveryGuard(); Picker(); StrategiesNull(); Lifecycle(); Dropdowns(); Pass("native WPF desktop regression suite"); return 0; }
+        try { ChromeProxyValue(); ChromeRecoveryGuard(); ChromePolicyRecoveryLifecycle(); Picker(); StrategiesNull(); Lifecycle(); Dropdowns(); Pass("native WPF desktop regression suite"); return 0; }
         catch (Exception e) { Console.Error.WriteLine(e); File.WriteAllText(Path.Combine(Output, "failure.txt"), e.ToString()); return 1; }
         finally { foreach (System.Windows.Window w in app.Windows.Cast<System.Windows.Window>().ToArray()) { if (w is MainWindow m) m.Exit(); else w.Close(); } app.Shutdown(); File.Delete(settings); }
     }

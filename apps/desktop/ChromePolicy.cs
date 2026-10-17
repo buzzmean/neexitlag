@@ -4,20 +4,26 @@ namespace Neexitlag.Desktop;
 // Current-user Chrome platform policy only. Never WinINET/WinHTTP/system proxy.
 internal static class ChromePolicy {
  const string Key=@"Software\Policies\Google\Chrome";
- static string State=>Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"NeExitLag","chrome-proxy-policy.json");
+ internal static string? TestStatePath;
+ static string State=>TestStatePath??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"NeExitLag","chrome-proxy-policy.json");
  internal static string CreateValue(string[] args){
   var pac=args.Single(p=>p.StartsWith("--proxy-pac-url=",StringComparison.Ordinal)).Substring("--proxy-pac-url=".Length);
   return JsonSerializer.Serialize(new{ProxyMode="pac_script",ProxyPacUrl=pac,ProxyPacMandatory=true});
  }
- internal static void Install(string[] args){
+ internal static void Install(string[] args,string[]? recoveryArgs=null){
   var json=CreateValue(args);
+  Write(new Owned{Value=json,OnlineValue=recoveryArgs is null?null:json,RecoveryValue=recoveryArgs is null?null:CreateValue(recoveryArgs),WasOptimizing=recoveryArgs is not null});
+ }
+ static void Write(Owned value){
+  var json=value.Value;
   Check();
   using var current=Registry.CurrentUser.CreateSubKey(Key);
   var oldState=File.Exists(State)?File.ReadAllText(State):null;
+  value.PreviousValue=current.GetValue("ProxySettings") as string;
   // Persist ownership before changing the registry. There is no preexisting
   // policy to overwrite: foreign settings are always refused, never copied.
   Directory.CreateDirectory(Path.GetDirectoryName(State)!);
-  var pending=State+".tmp";File.WriteAllText(pending,JsonSerializer.Serialize(new Owned{Value=json}));File.Move(pending,State,true);
+  var pending=State+".tmp";File.WriteAllText(pending,JsonSerializer.Serialize(value));File.Move(pending,State,true);
   try{current.SetValue("ProxySettings",json,RegistryValueKind.String);}
   catch{if(oldState is null)File.Delete(State);else File.WriteAllText(State,oldState);throw;}
  }
@@ -27,9 +33,10 @@ internal static class ChromePolicy {
   var present=current?.GetValue("ProxySettings");
   if(present is not null && present is not string)throw new InvalidOperationException(Text.Get("ChromeProxyManaged"));
   var previous=present as string;
-  string? owned=null;
-  if(File.Exists(State))owned=JsonSerializer.Deserialize<Owned>(File.ReadAllText(State))?.Value;
-  if(previous is not null&&previous!=owned||new[]{"ProxyMode","ProxyPacUrl","ProxyServer"}.Any(p=>current?.GetValue(p)is not null))throw new InvalidOperationException(Text.Get("ChromeProxyManaged"));
+  Owned? owned=null;
+  if(File.Exists(State))owned=JsonSerializer.Deserialize<Owned>(File.ReadAllText(State));
+  var recognized=owned is not null&&new[]{owned.Value,owned.OnlineValue,owned.RecoveryValue,owned.PreviousValue}.Any(v=>v is not null&&v==previous);
+  if(previous is not null&&!recognized||new[]{"ProxyMode","ProxyPacUrl","ProxyServer"}.Any(p=>current?.GetValue(p)is not null))throw new InvalidOperationException(Text.Get("ChromeProxyManaged"));
  }
  internal static string ClosedGuard(Profile profile){
   var domains=new List<string>{"chatgpt.com","openai.com","oaistatic.com","oaiusercontent.com","chat.com"};bool strict=false;
@@ -50,7 +57,8 @@ internal static class ChromePolicy {
   var script=System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(data[prefix.Length..]));
   const string marker="// NEEXITLAG_RECOVERY_V1";
   if(script.Contains(marker,StringComparison.Ordinal))return data;
-  script+="\n"+marker+"\nFindProxyForURL=(function(online){return function(url,host){var r=online(url,host);return r.indexOf('; DIRECT')>=0?'DIRECT':r;};})(FindProxyForURL);";
+  if(!script.Contains("var protectedSuffixes=",StringComparison.Ordinal)){if(script.Contains("var guarded=",StringComparison.Ordinal))return data;throw new InvalidOperationException(Text.Get("ChromeActivationFailed"));}
+  script+="\n"+marker+"\nFindProxyForURL=(function(online){return function(url,host){host=host.toLowerCase().replace(/\\.$/,'');if(strictProxy)return online(url,host);for(var i=0;i<protectedSuffixes.length;i++){var d=protectedSuffixes[i].toLowerCase().replace(/\\.$/,'');if(host===d||host.slice(-(d.length+1))==='.'+d)return online(url,host);}return 'DIRECT';};})(FindProxyForURL);";
   return prefix+Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(script));
  }
  internal static void Recover(){
@@ -61,6 +69,27 @@ internal static class ChromePolicy {
   var pac=RecoveryPAC(parsed.RootElement.GetProperty("ProxyPacUrl").GetString()!);
   Install(["--proxy-pac-url="+pac]);
  }
+ internal static bool Applied{get{if(!File.Exists(State))return false;var owned=JsonSerializer.Deserialize<Owned>(File.ReadAllText(State));using var key=Registry.CurrentUser.OpenSubKey(Key);return Equals(key?.GetValue("ProxySettings"),owned?.Value);}}
+ internal static bool Monitored=>File.Exists(State)&&JsonSerializer.Deserialize<Owned>(File.ReadAllText(State))?.OnlineValue is not null;
+ internal static bool Suspended=>File.Exists(State)&&JsonSerializer.Deserialize<Owned>(File.ReadAllText(State))?.Temporary==true;
+ internal static void Suspend(bool wasOptimizing){
+  if(!Monitored)return;
+  var owned=JsonSerializer.Deserialize<Owned>(File.ReadAllText(State))!;
+  if(owned.Temporary||owned.RecoveryValue is null)return;
+  owned.Temporary=true;owned.WasOptimizing=wasOptimizing||owned.WasOptimizing;owned.Value=owned.RecoveryValue;Write(owned);
+ }
+ internal static void RecordOptimization(bool enabled){
+  if(!Monitored||Suspended)return;
+  var owned=JsonSerializer.Deserialize<Owned>(File.ReadAllText(State))!;
+  if(owned.WasOptimizing==enabled)return;
+  Check();owned.WasOptimizing=enabled;
+  var pending=State+".tmp";File.WriteAllText(pending,JsonSerializer.Serialize(owned));File.Move(pending,State,true);
+ }
+ internal static bool Resume(){
+  var owned=JsonSerializer.Deserialize<Owned>(File.ReadAllText(State))!;
+  if(!owned.Temporary||owned.OnlineValue is null)return false;
+  owned.Temporary=false;owned.Value=owned.OnlineValue;Write(owned);return owned.WasOptimizing;
+ }
  internal static void Remove(){
   if(!File.Exists(State))return;
   var owned=JsonSerializer.Deserialize<Owned>(File.ReadAllText(State))?.Value;
@@ -68,5 +97,5 @@ internal static class ChromePolicy {
   if(current?.GetValue("ProxySettings") is object actual&&(!Equals(actual,owned)))throw new InvalidOperationException(Text.Get("ChromeProxyManaged"));
   current?.DeleteValue("ProxySettings",false);File.Delete(State);
  }
- sealed class Owned {public string Value{get;set;}="";}
+ sealed class Owned {public string Value{get;set;}="";public string? PreviousValue{get;set;}public string? OnlineValue{get;set;}public string? RecoveryValue{get;set;}public bool Temporary{get;set;}public bool WasOptimizing{get;set;}}
 }

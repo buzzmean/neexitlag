@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -42,9 +43,6 @@ func TestPACOriginKeysAndOfflineFailClosed(t *testing.T) {
 		h := sha256.Sum256([]byte(name))
 		key := hex.EncodeToString(h[:])
 		want := "PROXY " + key[:32] + "." + key[32:] + ".localhost:1234"
-		if name != "chatgpt.com" && name != "www.youtube.com" {
-			want += "; DIRECT"
-		}
 		if values[i] != want {
 			t.Fatal(name, values[i], want)
 		}
@@ -317,6 +315,13 @@ func TestChromeHealthRequiresAuthorizedOwnerAndExactNonce(t *testing.T) {
 	if get(url) != 200 || !s.HealthVerified("chrome", url) {
 		t.Fatal("actual Chrome readiness missing")
 	}
+	if s.Confirmed("chrome") {
+		t.Fatal("health response alone published AUTO authority")
+	}
+	if !s.AuthorizeProfile("chrome", url) || !s.Confirmed("chrome") {
+		t.Fatal("validated activation not committed")
+	}
+
 	if get(url) != 403 {
 		t.Fatal("replayed activation nonce accepted")
 	}
@@ -333,5 +338,43 @@ func TestChromeHealthRequiresAuthorizedOwnerAndExactNonce(t *testing.T) {
 	s.Forget("chrome")
 	if s.Confirmed("chrome") || get(next) != 403 {
 		t.Fatal("recovery retained stale readiness authority")
+	}
+}
+
+func TestSeparateRecoveryPACNeverLeaksProtectedOrigins(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("Node required on CI")
+	}
+	for _, strict := range []bool{false, true} {
+		args, err := ChromeRecoveryArguments("127.0.0.1:1234", "fixture", []string{"private.example"}, strict)
+		if err != nil {
+			t.Fatal(err)
+		}
+		const prefix = "--proxy-pac-url=data:application/x-ns-proxy-autoconfig;base64,"
+		raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(args[1], prefix))
+		if err != nil {
+			t.Fatal(err)
+		}
+		input, _ := json.Marshal(map[string]any{"pac": string(raw), "names": []string{"chatgpt.com", "api.openai.com", "www.youtube.com", "private.example", "vk.com", "openai.com.evil.test"}})
+		cmd := exec.Command(node, "-e", `let d='';process.stdin.on('data',x=>d+=x);process.stdin.on('end',()=>{let x=JSON.parse(d),c={};require('vm').runInNewContext(x.pac,c);console.log(JSON.stringify(x.names.map(h=>c.FindProxyForURL('https://'+h,h))));});`)
+		cmd.Stdin = strings.NewReader(string(input))
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatal(err, string(out))
+		}
+		var routes []string
+		if err = json.Unmarshal(out, &routes); err != nil {
+			t.Fatal(err, string(out))
+		}
+		for i, route := range routes {
+			if i < 4 || strict {
+				if !strings.HasPrefix(route, "PROXY ") || strings.Contains(route, "DIRECT") {
+					t.Fatal("protected recovery fallback", routes)
+				}
+			} else if route != "DIRECT" {
+				t.Fatal("ordinary recovery broken", routes)
+			}
+		}
 	}
 }

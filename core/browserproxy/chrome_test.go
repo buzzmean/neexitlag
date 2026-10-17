@@ -109,7 +109,7 @@ func TestChromePACRealHTTPSOriginIsolation(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	f.ExpectedFailures = map[int][]string{2: {"chatgpt.com", "blocked.example"}, 3: {"chatgpt.com", "blocked.example", "www.youtube.com"}}
+	f.ExpectedFailures = map[int][]string{2: {"chatgpt.com", "blocked.example"}}
 	rules := []string{}
 	for _, domain := range browserfixture.Domains {
 		rules = append(rules, "MAP "+domain+" 127.0.0.1")
@@ -125,8 +125,9 @@ func TestChromePACRealHTTPSOriginIsolation(t *testing.T) {
 			proxy.CloseConnections()
 			return nil
 		},
-		func() error { proxy.Close(); earlier = append(earlier, proxy.Snapshot().Records...); return nil },
 		func() error {
+			proxy.Close()
+			earlier = append(earlier, proxy.Snapshot().Records...)
 			relayDown.Store(false)
 			var err error
 			proxy, err = Listen(context.Background(), cfg)

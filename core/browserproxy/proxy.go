@@ -79,6 +79,7 @@ type Record struct {
 	Received          uint64    `json:"received_bytes"`
 }
 type Snapshot struct {
+	PolicyReady   bool              `json:"policy_ready"`
 	ReadyProfiles []string          `json:"ready_profiles"`
 	Failures      map[string]uint64 `json:"failures"`
 	Truncated     bool              `json:"truncated"`
@@ -525,7 +526,6 @@ func (s *Server) health(c net.Conn, owner Owner, path string) {
 	valid := ok && challenge.profile == owner.Profile && time.Now().Before(challenge.expires) && (s.confirmed[owner.Profile] || len(s.confirmed) < 128)
 	if valid {
 		delete(s.challenges, token)
-		s.confirmed[owner.Profile] = true
 		s.verified[owner.Profile] = token
 	}
 	s.mu.Unlock()
@@ -568,4 +568,18 @@ func (s *Server) Forget(profile string) {
 			delete(s.challenges, token)
 		}
 	}
+}
+
+func (s *Server) AuthorizeProfile(profile, url string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	token := strings.TrimPrefix(url, "http://neexitlag-health.invalid/ready/")
+	if s.closed || s.ctx.Err() != nil || token == "" || s.verified[profile] != token {
+		return false
+	}
+	if !s.confirmed[profile] && len(s.confirmed) >= 128 {
+		return false
+	}
+	s.confirmed[profile] = true
+	return true
 }

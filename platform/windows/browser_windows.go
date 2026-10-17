@@ -4,8 +4,10 @@ package windowsplatform
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 	"net"
 	"net/netip"
 )
@@ -77,4 +79,42 @@ func ProcessUserSID(id ProcessIdentity) (string, error) {
 		return "", err
 	}
 	return user.User.Sid.String(), nil
+}
+
+// Validate the actual installation owner's policy before arming native Chrome
+// AUTO. A temporary recovery PAC is not an online origin-routing contract.
+func ChromeProxyPolicyActive(sid, expected string) bool {
+	if expected == "" || len(expected) > 128*1024 {
+		return false
+	}
+	if _, err := windows.StringToSid(sid); err != nil {
+		return false
+	}
+	path := `Software\Policies\Google\Chrome`
+	if machine, err := registry.OpenKey(registry.LOCAL_MACHINE, path, registry.QUERY_VALUE); err == nil {
+		defer machine.Close()
+		for _, name := range []string{"ProxySettings", "ProxyMode", "ProxyPacUrl", "ProxyServer"} {
+			if _, _, err := machine.GetValue(name, nil); err == nil || errors.Is(err, windows.ERROR_MORE_DATA) {
+				return false
+			}
+		}
+	}
+	key, err := registry.OpenKey(registry.USERS, sid+`\`+path, registry.QUERY_VALUE)
+	if err != nil {
+		return false
+	}
+	defer key.Close()
+	raw, _, err := key.GetStringValue("ProxySettings")
+	if err != nil || len(raw) > 256*1024 {
+		return false
+	}
+	var policy struct {
+		Mode      string `json:"ProxyMode"`
+		URL       string `json:"ProxyPacUrl"`
+		Mandatory bool   `json:"ProxyPacMandatory"`
+	}
+	if json.Unmarshal([]byte(raw), &policy) != nil {
+		return false
+	}
+	return policy.Mode == "pac_script" && policy.Mandatory && policy.URL == expected
 }

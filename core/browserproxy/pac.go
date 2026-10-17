@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 )
 
 // PAC is inline: it has no fetch failure that could silently revert to DIRECT.
@@ -16,8 +17,8 @@ import (
 func PAC(port uint16) string { return guardedPAC(port, nil, false) }
 
 // Explicit policy domains and YouTube never get a DIRECT proxy failover.
-// Only a dead local proxy permits ordinary origins to use their normal path;
-// a 403/502 from a running proxy is not a reason to bypass route policy.
+// Ordinary DIRECT is opened by the service independently of VPS health.
+// Recovery switches policy explicitly instead of poisoning Chrome proxy cache.
 func guardedPAC(port uint16, extra []string, strict bool) string {
 	guard := []string{"chatgpt.com", "openai.com", "oaistatic.com", "oaiusercontent.com", "chat.com", "youtube.com", "youtu.be", "googlevideo.com", "ytimg.com", "youtube-nocookie.com", "ggpht.com"}
 	guard = append(guard, extra...)
@@ -34,8 +35,7 @@ func guardedPAC(port uint16, extra []string, strict bool) string {
 }
 function FindProxyForURL(url,host) {
  host=host.toLowerCase().replace(/\.$/,'');
- var protectedOrigin=strictProxy;for(var i=0;i<protectedSuffixes.length;i++){var d=protectedSuffixes[i].toLowerCase().replace(/\.$/,'');if(host===d||host.slice(-(d.length+1))==='.'+d)protectedOrigin=true;}
- var h=sha256(host);return 'PROXY '+h.slice(0,32)+'.'+h.slice(32)+'.localhost:%d'+(protectedOrigin?'':'; DIRECT');
+ var h=sha256(host);return 'PROXY '+h.slice(0,32)+'.'+h.slice(32)+'.localhost:%d';
 }`, port)
 }
 func ChromeArguments(address, profile string) ([]string, error) {
@@ -52,4 +52,23 @@ func ChromeArgumentsGuarded(address, profile string, extra []string, strict bool
 	}
 	pac := "data:application/x-ns-proxy-autoconfig;base64," + base64.StdEncoding.EncodeToString([]byte(guardedPAC(uint16(port), extra, strict)))
 	return []string{"--user-data-dir=" + profile, "--proxy-pac-url=" + pac, "--proxy-bypass-list=<-loopback>", "--no-first-run"}, nil
+}
+
+// Recovery is a separate owned policy, never a DIRECT alternative in the online
+// proxy chain. Otherwise Chrome caches the failed proxy for ordinary origins and
+// keeps using DIRECT after restart, sending opaque native TLS into relay policy.
+func ChromeRecoveryArguments(address, profile string, extra []string, strict bool) ([]string, error) {
+	args, err := ChromeArgumentsGuarded(address, profile, extra, strict)
+	if err != nil {
+		return nil, err
+	}
+	const prefix = "--proxy-pac-url=data:application/x-ns-proxy-autoconfig;base64,"
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(args[1], prefix))
+	if err != nil {
+		return nil, err
+	}
+	raw = append(raw, []byte(`
+FindProxyForURL=(function(online){return function(url,host){host=host.toLowerCase().replace(/\.$/,'');if(strictProxy)return online(url,host);for(var i=0;i<protectedSuffixes.length;i++){var d=protectedSuffixes[i].toLowerCase().replace(/\.$/,'');if(host===d||host.slice(-(d.length+1))==='.'+d)return online(url,host);}return 'DIRECT';};})(FindProxyForURL);`)...)
+	args[1] = prefix + base64.StdEncoding.EncodeToString(raw)
+	return args, nil
 }

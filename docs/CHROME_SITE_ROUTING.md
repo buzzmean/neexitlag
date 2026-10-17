@@ -39,10 +39,12 @@ Chrome CONNECT/PAC mode below.
 
 An inline `data:` PAC has no network download failure that silently falls back to
 DIRECT. The owned Chrome policy also sets `ProxyPacMandatory=true`, so a PAC
-evaluation error is fail-closed. OpenAI, YouTube and explicit non-DIRECT rule domains return only a local
-proxy. Ordinary origins have `PROXY ...; DIRECT` for local transport failure; a
-403/502 from a running proxy does not authorize bypass. Non-domain rules retain
-strict proxy mode because PAC cannot safely resolve them to a protected suffix. Each canonical
+evaluation error is fail-closed. Online policy returns only the local proxy for every origin, including DIRECT.
+DIRECT upstreams never need VPS availability. There is no online `; DIRECT`
+alternative: Chrome otherwise caches a failed proxy and keeps bypassing the
+healthy transport after restart. The owned **separate recovery policy** returns
+DIRECT for ordinary origins while retaining strict proxy guards for OpenAI,
+YouTube and explicit non-DIRECT domains. Non-domain rules retain strict mode. Each canonical
 hostname uses a distinct SHA256-derived `*.localhost` proxy name. Chrome resolves
 these names internally to loopback, without system DNS overrides. Distinct proxy
 identities partition Chrome connection pools, including HTTP/2 coalescing. The
@@ -56,8 +58,12 @@ process discovery. It is not an unauthenticated public/local-user relay endpoint
 The non-secret loopback port is persisted in the existing service state directory
 and restored **before** automatic capture startup. Verified profile IDs are
 persisted with this non-secret port in the ACL-protected state directory. It stays stable across service
-restarts. An unavailable service keeps explicit protected origins fail-closed while ordinary
-origins can use DIRECT. Unknown origins selected by reachability learning are
+restarts. While the GUI is running, unavailable IPC switches the owned policy to recovery.
+It restores the online policy (and the prior Optimize state) when the listener
+returns; Chrome remains running. A live capture with a failed listener degrades
+only Chrome to guarded recovery and shows an activation error. Without the GUI,
+a stopped proxy is unavailable until service restart or explicit GUI recovery;
+no automatic browser bypass is advertised. Unknown origins selected by reachability learning are
 best-effort AUTO, not an offline security rule; use an explicit required rule for
 a domain that must remain protected when the service is absent. Optimization disable/re-enable closes
 only helper-owned connections so future connections converge without changing an
@@ -190,7 +196,9 @@ Activation now proceeds in this order:
 4. `browser.confirm` verifies that exact nonce. IPC reachability, a listening port
    or the GUI's own TCP connection cannot certify Chrome readiness.
 5. Publish Chrome AUTO, enable capture, then launch/restore the real user profile. A new AUTO profile and Optimize with
-   an unactivated Chrome AUTO are rejected before capture state changes. The GUI
+   an unactivated Chrome AUTO are rejected before capture state changes. Optimize
+   also verifies the actual owner-SID HKCU mandatory online PAC, not merely a
+   listening port or persisted readiness ID. The GUI
    checks command results and cannot label a rejected command as success.
 6. Failure installs the guarded recovery PAC and restores a safe Chrome profile
    (legacy/broken AUTO becomes DIRECT). Domain rules are preserved in

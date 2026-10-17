@@ -19,18 +19,20 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
 
 type browserRuntime struct {
-	address string
-	mu      sync.Mutex
-	server  *browserproxy.Server
-	learned *flowpolicy.BrowserLearning
-	probes  chan struct{}
-	local   map[string]*localstrategy.LocalStrategyEngine
-	plans   map[flowpolicy.LearnKey]chan struct{}
+	address     string
+	expectedPAC string
+	mu          sync.Mutex
+	server      *browserproxy.Server
+	learned     *flowpolicy.BrowserLearning
+	probes      chan struct{}
+	local       map[string]*localstrategy.LocalStrategyEngine
+	plans       map[flowpolicy.LearnKey]chan struct{}
 }
 
 func newBrowserRuntime() *browserRuntime {
@@ -341,6 +343,7 @@ func (c *Controller) handleBrowser(method string, raw json.RawMessage) (any, err
 			return browserproxy.Snapshot{ReadyProfiles: []string{}, Failures: map[string]uint64{}, Records: []browserproxy.Record{}}, nil
 		}
 		view := c.browser.server.Snapshot()
+		view.PolicyReady = wp.ChromeProxyPolicyActive(c.BrowserOwnerSID, c.browser.expectedPAC)
 		sort.Slice(view.Records, func(i, j int) bool { return view.Records[i].ID > view.Records[j].ID })
 		for {
 			raw, _ := json.Marshal(view)
@@ -363,6 +366,23 @@ func (c *Controller) handleBrowser(method string, raw json.RawMessage) (any, err
 	if method == "browser.confirm" {
 		if c.browser.server == nil || !c.browser.server.HealthVerified(q.Profile, q.HealthURL) {
 			return nil, errors.New("Chrome PAC readiness not observed: check Chrome policy, TCP owner/SID and browser.status failures")
+		}
+		if !wp.ChromeProxyPolicyActive(c.BrowserOwnerSID, c.browser.expectedPAC) {
+			return nil, errors.New("Chrome mandatory online PAC not installed for the owner SID")
+		}
+		for _, p := range c.Profiles.List() {
+			if p.ID == q.Profile && p.LocalStrategyID != "" {
+				n := c.network.Load()
+				if n == nil || n.Error != "" || n.Fingerprint == "" || n.ObservedAt.IsZero() || time.Since(n.ObservedAt) > 45*time.Second || len(n.VPN) > 0 || len(n.Conflicts) > 0 {
+					return nil, errors.New("Chrome local strategy requires a fresh VPN/conflict-free network snapshot")
+				}
+				if p.AutoNetwork != "" && !c.hasBaseline(p, n.Fingerprint) {
+					return nil, errors.New("YouTube DIRECT+ baseline is not confirmed on the current network/revision")
+				}
+			}
+		}
+		if !c.browser.server.AuthorizeProfile(q.Profile, q.HealthURL) {
+			return nil, errors.New("Chrome activation proof expired/changed")
 		}
 		if c.customPath != "" {
 			if err := c.saveBrowserAddress(); err != nil {
@@ -429,12 +449,22 @@ func (c *Controller) handleBrowser(method string, raw json.RawMessage) (any, err
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"health_url": healthURL, "arguments": args, "address": c.browser.server.Address(), "scope": "Chrome launch only; system proxy unchanged", "http3": "HTTP CONNECT uses TCP; QUIC relay transport unchanged", "verification": "origin probe only; authenticated browser page result is not observed"}, nil
+	recovery, err := browserproxy.ChromeRecoveryArguments(c.browser.server.Address(), q.Directory, extra, strict)
+	if err != nil {
+		return nil, err
+	}
+	c.browser.expectedPAC = strings.TrimPrefix(args[1], "--proxy-pac-url=")
+	if c.customPath != "" {
+		if err := c.saveBrowserAddress(); err != nil {
+			return nil, err
+		}
+	}
+	return map[string]any{"health_url": healthURL, "arguments": args, "recovery_arguments": recovery, "address": c.browser.server.Address(), "scope": "Chrome launch only; system proxy unchanged", "http3": "HTTP CONNECT uses TCP; QUIC relay transport unchanged", "verification": "origin probe only; authenticated browser page result is not observed"}, nil
 }
 
 func (c *Controller) saveBrowserAddress() error {
 	path := filepath.Join(filepath.Dir(c.customPath), "browser-transport.json")
-	raw, _ := json.Marshal(map[string]any{"address": c.browser.address, "ready_profiles": c.browser.server.Snapshot().ReadyProfiles})
+	raw, _ := json.Marshal(map[string]any{"address": c.browser.address, "ready_profiles": c.browser.server.Snapshot().ReadyProfiles, "expected_pac": c.browser.expectedPAC})
 	f, err := os.CreateTemp(filepath.Dir(path), ".browser-transport-*")
 	if err != nil {
 		return err
@@ -472,6 +502,7 @@ func (c *Controller) RestoreBrowserTransport() error {
 	var saved struct {
 		Address       string   `json:"address"`
 		ReadyProfiles []string `json:"ready_profiles"`
+		ExpectedPAC   string   `json:"expected_pac"`
 	}
 	if err = security.Parse(raw, &saved); err != nil {
 		return err
@@ -484,6 +515,7 @@ func (c *Controller) RestoreBrowserTransport() error {
 	c.browser.mu.Lock()
 	defer c.browser.mu.Unlock()
 	c.browser.address = saved.Address
+	c.browser.expectedPAC = saved.ExpectedPAC
 	server, err := browserproxy.Listen(c.ctx, browserproxy.Config{Address: saved.Address, Authorize: c.browserOwner, Plan: c.browserPlan, Open: c.browserOpen, TransformApplied: c.browserTransform})
 	if err != nil {
 		return err
@@ -500,7 +532,7 @@ func (c *Controller) requireChromeActivation() error {
 	c.browser.mu.Lock()
 	defer c.browser.mu.Unlock()
 	for _, p := range c.Profiles.List() {
-		if browserAuto(p) && (c.browser.server == nil || !c.browser.server.Confirmed(p.ID)) {
+		if browserAuto(p) && (c.browser.server == nil || !c.browser.server.Confirmed(p.ID) || !wp.ChromeProxyPolicyActive(c.BrowserOwnerSID, c.browser.expectedPAC)) {
 			return errors.New("Chrome AUTO requires verified CONNECT/PAC activation in Applications before Optimize; no capture state changed")
 		}
 	}

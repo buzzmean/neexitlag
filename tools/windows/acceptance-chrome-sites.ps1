@@ -85,8 +85,8 @@ try{
   if($stage -gt 1){
    Restart-Service neexitlag
    $deadline=[DateTime]::UtcNow.AddSeconds(25)
-   do{Start-Sleep -Milliseconds 300;$browser=Service 'browser.status'}while(!$browser.listening -and [DateTime]::UtcNow -lt $deadline)
-   if(!$browser.listening){throw 'Chrome transport did not return after service restart'}
+   do{Start-Sleep -Milliseconds 300;$browser=Service 'browser.status';$live=Service 'status'}while((!$browser.listening -or !(Get-SimValue $browser 'policy_ready' $false) -or !$live.optimizing) -and [DateTime]::UtcNow -lt $deadline)
+   if(!$browser.listening -or !(Get-SimValue $browser 'policy_ready' $false) -or !$live.optimizing){throw 'Chrome online policy/capture did not return after service restart'}
   }
   $state=@{Cursor=(Service 'capture.changes.marker');Flows=@{};Lost=$false}
   $before=Service 'quality.diagnostics';$records=@{}

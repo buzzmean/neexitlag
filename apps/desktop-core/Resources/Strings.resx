@@ -579,7 +579,7 @@
   <data name="DisableChromeSites" xml:space="preserve"><value>Отключить PAC Chrome</value></data>
   <data name="ChromeSitesRemoved" xml:space="preserve"><value>Включён безопасный PAC: обычные сайты DIRECT, OpenAI остаётся защищён. Маршрут действующих соединений не изменён; перезапустите Chrome для полного применения.</value></data>
   <data name="ChromeRoutesByDomain" xml:space="preserve"><value>Маршруты по сайтам</value></data>
-  <data name="ChromeActivationFailed" xml:space="preserve"><value>Chrome AUTO не активирован: CONNECT/PAC не прошёл проверку Chrome owner/SID. Обычные сайты восстановлены; защита OpenAI сохранена. Проверьте browser.status, Chrome policy и журнал службы.</value></data>
+  <data name="ChromeActivationFailed" xml:space="preserve"><value>Chrome AUTO не активирован: проверка транспорта, policy или профиля не завершилась. Обычные сайты восстановлены; защита OpenAI сохранена. Проверьте browser.status и журнал службы.</value></data>
   <data name="ChromeRollbackFailed" xml:space="preserve"><value>Chrome AUTO не активирован. Защитный PAC сохранён, но восстановление профиля не подтверждено. Проверьте доступность службы.</value></data>
   <data name="ChromeGuardFailed" xml:space="preserve"><value>Не удалось установить защитный Chrome PAC. Активация отменена; маршруты не изменены. Проверьте управление Chrome policy.</value></data>
   <data name="ChromeAutomaticDisabled" xml:space="preserve"><value>Для Chrome AUTO включите автоматическую маршрутизацию в настройках. Активация отменена; защитный PAC сохранён.</value></data>

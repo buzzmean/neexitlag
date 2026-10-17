@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Windows;
 namespace Neexitlag.Desktop;
 public partial class MainWindow {
+ bool chromeActivating,chromeMonitoring;
  static bool IsChrome(Profile profile)=>profile.Executables.Any(p=>p.Replace('\\','/').Split('/').Last().Equals("chrome.exe",StringComparison.OrdinalIgnoreCase));
  async void DisableChromeSites(object sender,RoutedEventArgs e)=>await Execute(async()=>{
   var profiles=model.Applications.Where(r=>r.Profile.Mode=="AUTO"&&IsChrome(r.Profile)).Select(r=>r.Profile.Copy()).ToArray();
@@ -38,6 +39,34 @@ public partial class MainWindow {
   }
  }
  async Task ActivateChromeSites(ApplicationRow row){
+  if(chromeActivating)return;chromeActivating=true;
+  try{await ActivateChromeSitesCore(row);}finally{chromeActivating=false;}
+ }
+ async Task MonitorChromeTransportAsync(bool wasOptimizing){
+  if(chromeActivating||chromeMonitoring||!ChromePolicy.Monitored)return;
+  chromeMonitoring=true;
+  try{
+   if(!model.Available){ChromePolicy.Suspend(wasOptimizing);return;}
+   if(!ChromePolicy.Applied){
+    foreach(var p in model.Applications.Where(r=>r.Profile.Mode=="AUTO"&&IsChrome(r.Profile)).Select(r=>r.Profile.Copy()).ToArray()){ChromePolicy.Guard(p);await model.RestoreChromeAsync(p,lifetime.Token);}
+    model.SetNotice(Text.Get("ChromeActivationFailed"));return;
+   }
+   var status=await model.ChromeStatusAsync(lifetime.Token);
+   if(!status.Listening){
+    ChromePolicy.Suspend(model.Optimizing);
+    if(model.Snapshot?.Backend.Ready==true){
+     // A live capture with a failed listener needs a per-Chrome recovery mode;
+     // never disable other applications or grant OpenAI a DIRECT path.
+     foreach(var p in model.Applications.Where(r=>r.Profile.Mode=="AUTO"&&IsChrome(r.Profile)).Select(r=>r.Profile.Copy()).ToArray()){ChromePolicy.Guard(p);await model.RestoreChromeAsync(p,lifetime.Token);}
+     model.SetNotice(Text.Get("ChromeActivationFailed"));
+    }
+   }else if(ChromePolicy.Suspended){
+    var resume=ChromePolicy.Resume();
+    if(resume&&!model.Optimizing)await model.RestoreOptimizationAsync(true,lifetime.Token);
+   }else{ChromePolicy.RecordOptimization(model.Optimizing);}
+  }finally{chromeMonitoring=false;}
+ }
+ async Task ActivateChromeSitesCore(ApplicationRow row){
   var exe=row.Profile.Executables.FirstOrDefault(p=>p.Replace('\\','/').Split('/').Last().Equals("chrome.exe",StringComparison.OrdinalIgnoreCase));
   if(exe is null||!Path.IsPathFullyQualified(exe)||!File.Exists(exe))throw new InvalidOperationException(Text.Get("SelectChromeAuto"));
   ChromePolicy.Check(); // Refuse managed/foreign settings before asking Chrome to quit.
@@ -61,7 +90,7 @@ public partial class MainWindow {
    ChromePolicy.Guard(original);installed=true;
    // Prepare binds the listener without changing routing, profiles or Optimize.
    launch=await model.PrepareChromeAsync(original,directory,lifetime.Token);
-   ChromePolicy.Install(launch.Arguments);installed=true;
+   ChromePolicy.Install(launch.Arguments,launch.RecoveryArguments);installed=true;
    // Never restore real user tabs before AUTO is committed: those CONNECTs
    // would race a still-DIRECT profile and get 502 despite a good readiness tab.
    // An empty, isolated headless profile checks the ACTUAL HKCU policy first.

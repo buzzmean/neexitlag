@@ -105,16 +105,21 @@ public partial class MainWindow : Window
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
         catch (Exception e) { model.SetUnavailable(e); }
     }
-    bool presetsLoaded;
+    bool presetsLoaded,refreshingWindow;
     async Task Refresh()
     {
+        if(refreshingWindow)return;refreshingWindow=true;
+        try{
+        var wasOptimizing=model.Optimizing;
         await Execute(() => model.RefreshAsync(lifetime.Token));
+        await Execute(()=>MonitorChromeTransportAsync(wasOptimizing));
         if(!presetsLoaded&&model.Available){try{AppPreset.ItemsSource=await model.GetPresetsAsync(lifetime.Token);AppPreset.SelectedIndex=0;presetsLoaded=true;}catch(ServiceException){}}
         if (!settingsLoaded && model.Snapshot is { } snapshot)
         {
             LoadSettings(snapshot);
             settingsLoaded = true;
         }
+        }finally{refreshingWindow=false;}
     }
     void LoadSettings(Snapshot snapshot)
     {
@@ -262,7 +267,7 @@ public partial class MainWindow : Window
             return;
         }
         if (PromptWindow.Show(this, "DeleteConfirm", true))
-            await Execute(() => model.DeleteApplicationAsync(row.Profile, lifetime.Token));
+            await Execute(async()=>{if(IsChrome(row.Profile))ChromePolicy.Guard(row.Profile);await model.DeleteApplicationAsync(row.Profile,lifetime.Token);});
     }
     async void RunDiagnostics(object sender, RoutedEventArgs e) => await Execute(() => model.DiagnoseAsync(lifetime.Token));
     async void SaveSettings(object sender, RoutedEventArgs e)

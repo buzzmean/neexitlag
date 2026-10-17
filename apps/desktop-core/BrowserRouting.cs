@@ -1,7 +1,7 @@
 using System.Collections.ObjectModel;
 namespace Neexitlag.Desktop;
 public sealed class ChromeActivationException(string message) : Exception(message) { }
-public sealed class BrowserLaunch { public string HealthUrl {get;set;}=""; public string[] Arguments {get;set;}=[]; public string Address {get;set;}=""; public string Scope {get;set;}=""; }
+public sealed class BrowserLaunch {public string[] RecoveryArguments {get;set;}=[]; public string HealthUrl {get;set;}=""; public string[] Arguments {get;set;}=[]; public string Address {get;set;}=""; public string Scope {get;set;}=""; }
 public sealed class BrowserTransportSnapshot {public string[] ReadyProfiles {get;set;}=[];public Dictionary<string,ulong> Failures {get;set;}=[];public bool Listening {get;set;}public bool Truncated {get;set;}public ulong Lost {get;set;}BrowserConnection[] records=[];public BrowserConnection[] Records {get=>records;set=>records=value??[];}}
 public sealed class BrowserOwner {public uint Pid {get;set;} public ulong CreationTime {get;set;} public string Exe {get;set;}="";public string ProfileId {get;set;}="";}
 public sealed class BrowserPlan {public FlowPolicyEvidence Policy {get;set;}=new();public string Probe {get;set;}="";public int HttpStatus {get;set;}}
@@ -22,7 +22,7 @@ public sealed partial class DesktopViewModel {
  }
  public async Task VerifyChromeAsync(Profile profile,BrowserLaunch launch,CancellationToken ct=default){
   if(!launch.HealthUrl.StartsWith("http://neexitlag-health.invalid/ready/",StringComparison.Ordinal))throw new ChromeActivationException(Text.Get("ChromeActivationFailed"));
-  for(int i=0;i<100;i++){
+  for(int i=0;i<225;i++){
    try{var proof=await client.Call<System.Text.Json.JsonElement>("browser.confirm",new{profile_id=profile.Id,health_url=launch.HealthUrl},ct);if(!proof.TryGetProperty("ready",out var ready)||ready.ValueKind!=System.Text.Json.JsonValueKind.True)throw new ChromeActivationException(Text.Get("ChromeActivationFailed"));return;}
    catch(ServiceException e) when(e.Failure==ServiceFailure.Rejected){await Task.Delay(200,ct);}
   }

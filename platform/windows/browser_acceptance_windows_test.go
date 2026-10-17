@@ -57,7 +57,7 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 75*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
 	defer cancel()
 	c := cs.New(ctx)
 	self, err := wp.NewDiscovery().Lookup(uint32(os.Getpid()))
@@ -78,15 +78,32 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		t.Fatal(err)
 	}
 	c.Start()
-	deadline := time.Now().Add(12 * time.Second)
-	for {
-		if _, err = c.Handle(ctx, "local.network", nil); err == nil {
-			break
+	// IPC success only means a snapshot exists. A failed background inspection
+	// has no fingerprint/time and must never be adopted as a ready network.
+	// Allow one real 30-second producer cycle plus its 8-second query budget.
+	waitNetwork := func() error {
+		until := time.Now().Add(45 * time.Second)
+		var last any
+		for {
+			value, e := c.Handle(ctx, "local.network", nil)
+			last = value
+			if e == nil {
+				if n, ok := value.(*wp.NetworkContext); ok && n.Error == "" && n.Fingerprint != "" && !n.ObservedAt.IsZero() && time.Since(n.ObservedAt) <= 45*time.Second && len(n.VPN) == 0 && len(n.Conflicts) == 0 {
+					return nil
+				}
+			}
+			if time.Now().After(until) {
+				return fmt.Errorf("network readiness: snapshot=%+v error=%v", last, e)
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(100 * time.Millisecond):
+			}
 		}
-		if time.Now().After(deadline) {
-			t.Fatal("network identity not ready", err)
-		}
-		time.Sleep(100 * time.Millisecond)
+	}
+	if err = waitNetwork(); err != nil {
+		t.Fatal(err)
 	}
 	st, ct, err := labcert.Pair()
 	if err != nil {
@@ -196,22 +213,15 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 	}
 	args = append(args, "--host-resolver-rules="+strings.Join(rules, ", "))
 	f.ExpectedFailures = map[int][]string{3: {"chatgpt.com", "www.youtube.com", "blocked.example"}}
-	// The learned test origin is deliberately fail-closed during transport
-	// outage as well. Production explicit rules use the same PAC guard path.
-	// Keep the normal unknown-origin learning case in stages 1/2; its PAC guard
-	// alone is extended here for the service-outage stage.
-	guardedArgs, e := browserproxy.ChromeArgumentsGuarded(result.(map[string]any)["address"].(string), userData, []string{"blocked.example"}, false)
-	if e != nil {
-		t.Fatal(e)
-	}
-	guardedPAC := strings.TrimPrefix(guardedArgs[1], "--proxy-pac-url=")
-	policyJSON, _ = json.Marshal(map[string]any{"ProxyMode": "pac_script", "ProxyPacUrl": guardedPAC, "ProxyPacMandatory": true})
-	if e = policy.SetStringValue("ProxySettings", string(policyJSON)); e != nil {
-		t.Fatal(e)
-	}
+	recoveryArgs := result.(map[string]any)["recovery_arguments"].([]string)
+	recoveryPAC := strings.TrimPrefix(recoveryArgs[1], "--proxy-pac-url=")
+	recoveryJSON, _ := json.Marshal(map[string]any{"ProxyMode": "pac_script", "ProxyPacUrl": recoveryPAC, "ProxyPacMandatory": true})
 	// Actual policy, normal sandbox, a disposable health profile. Commit AUTO
 	// before starting/restoring the real seven-origin Chrome process.
 	if err := browserfixture.RunPolicyHealthProbe(ctx, chrome, healthURL, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if err = waitNetwork(); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := c.Handle(ctx, "browser.confirm", proof); err != nil {
@@ -245,6 +255,9 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		if e := sample(); e != nil {
 			return e
 		}
+		if err := policy.SetStringValue("ProxySettings", string(recoveryJSON)); err != nil {
+			return err
+		}
 		c.Close()
 		return nil
 	}, func() error {
@@ -265,19 +278,24 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		}
 		c.Engine.SetRelay("VPS-01", pool)
 		c.Start()
-		until := time.Now().Add(10 * time.Second)
-		for {
-			if _, err = c.Handle(ctx, "local.network", nil); err == nil {
-				break
-			}
-			if time.Now().After(until) {
-				return fmt.Errorf("restart network readiness: %w", err)
-			}
-			time.Sleep(100 * time.Millisecond)
+		if err = waitNetwork(); err != nil {
+			return err
 		}
 		if err = c.RestoreBrowserTransport(); err != nil {
 			return err
 		}
+		// A recovery PAC must NOT silently arm native Chrome AUTO on startup.
+		if _, e := c.Handle(ctx, "optimize", []byte(`{"enabled":true}`)); e == nil {
+			return errors.New("capture armed while actual Chrome policy was still recovery")
+		}
+		if err = policy.SetStringValue("ProxySettings", string(policyJSON)); err != nil {
+			return err
+		}
+		fresh, e := c.Handle(ctx, "browser.prepare", raw)
+		if e != nil {
+			return e
+		}
+		f.HealthURL = fresh.(map[string]any)["health_url"].(string)
 		_, err = c.Handle(ctx, "optimize", []byte(`{"enabled":true}`))
 		return err
 	})
@@ -313,7 +331,7 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		t.Fatal("incomplete browser proof", snap.Lost, snap.Truncated)
 	}
 	found := map[string]bool{}
-	for _, r := range append(earlier, snap.Records...) {
+	for _, r := range snap.Records {
 		switch r.Domain {
 		case "blocked.example":
 			// Unknown AUTO must be allowed to try DIRECT first. Speculative

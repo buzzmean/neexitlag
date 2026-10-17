@@ -111,32 +111,44 @@ func (f *Fixture) RunChrome(ctx context.Context, chrome string, args []string, t
 			}
 		}
 	}
-	if f.HealthURL != "" {
-		if _, err := call("Page.navigate", map[string]any{"url": f.HealthURL}); err != nil {
-			return "", err
-		}
-		observed := false
-		for i := 0; i < 100; i++ {
-			raw, err := call("Runtime.evaluate", map[string]any{"expression": "document.body&&document.body.innerText", "returnByValue": true})
-			if err != nil {
-				return "", err
+	health := func() error {
+		if f.HealthURL != "" {
+			if _, err := call("Page.navigate", map[string]any{"url": f.HealthURL}); err != nil {
+				return err
 			}
-			var r struct {
-				Result struct {
-					Value string `json:"value"`
-				} `json:"result"`
+			observed := false
+			for i := 0; i < 100; i++ {
+				raw, err := call("Runtime.evaluate", map[string]any{"expression": "document.body&&document.body.innerText", "returnByValue": true})
+				if err != nil {
+					return err
+				}
+				var r struct {
+					Result struct {
+						Value string `json:"value"`
+					} `json:"result"`
+				}
+				json.Unmarshal(raw, &r)
+				if strings.Contains(r.Result.Value, "NeExitLag Chrome transport OK") {
+					observed = true
+					break
+				}
+				if i%10 == 9 {
+					if _, err := call("Page.navigate", map[string]any{"url": f.HealthURL}); err != nil {
+						return err
+					}
+				}
+				time.Sleep(100 * time.Millisecond)
 			}
-			json.Unmarshal(raw, &r)
-			if strings.Contains(r.Result.Value, "NeExitLag Chrome transport OK") {
-				observed = true
-				break
+			if !observed {
+				return errors.New("actual Chrome PAC/owner readiness failed")
 			}
-			time.Sleep(100 * time.Millisecond)
 		}
-		if !observed {
-			return "", errors.New("actual Chrome PAC/owner readiness failed")
-		}
+		return nil
 	}
+	if err := health(); err != nil {
+		return "", err
+	}
+
 	if f.BeforeRequests != nil {
 		if err := f.BeforeRequests(); err != nil {
 			return "", err
@@ -147,6 +159,11 @@ func (f *Fixture) RunChrome(ctx context.Context, chrome string, args []string, t
 		if stage > 1 {
 			if e := transitions[stage-2](); e != nil {
 				return title, e
+			}
+		}
+		if stage > 1 {
+			if err := health(); err != nil {
+				return title, err
 			}
 		}
 		expected := "NEEXITLAG_PASS_" + f.Nonce + "_" + strconv.Itoa(stage)
