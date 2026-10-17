@@ -7,9 +7,11 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"fmt"
+	"github.com/buzzmean/neexitlag/internal/tcpbacklog"
 	"io"
 	"net"
 	"net/netip"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -356,4 +358,56 @@ func TestTCPNativeInitialWriteReleasesAdmission(t *testing.T) {
 	redirect.admission.slots.Release(tcpOpenParallel)
 	// target intentionally never reads: application backpressure stays on this
 	// socket, rather than exhausting admission for unrelated new connections.
+}
+
+// Exercise Winsock's actual pending-connection queue, not a userspace channel.
+// No accept starts until all 320 handshakes have completed. SOMAXCONN's default
+// reasonable maximum could actively refuse this burst before capture admission.
+func TestTCPNativeBacklogBurst(t *testing.T) {
+	l, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	if err = tcpbacklog.Configure(l); err != nil {
+		t.Fatal(err)
+	}
+	conns := make([]net.Conn, 320)
+	defer func() {
+		for _, c := range conns {
+			if c != nil {
+				c.Close()
+			}
+		}
+	}()
+	errs := make(chan error, len(conns))
+	var wg sync.WaitGroup
+	for i := range conns {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			c, err := net.DialTimeout("tcp4", l.Addr().String(), 3*time.Second)
+			if err != nil {
+				errs <- err
+				return
+			}
+			conns[i] = c
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
+	}
+	if t.Failed() {
+		return
+	}
+	for range conns {
+		c, err := l.AcceptTCP()
+		if err != nil {
+			t.Fatal(err)
+		}
+		c.Close()
+	}
+	t.Log("320 exact pending native TCP connections admitted by the bounded 512 backlog")
 }

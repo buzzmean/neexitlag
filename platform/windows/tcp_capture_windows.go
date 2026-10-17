@@ -9,6 +9,7 @@ import (
 	"github.com/buzzmean/neexitlag/core/flowpolicy"
 	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"github.com/buzzmean/neexitlag/core/routing"
+	"github.com/buzzmean/neexitlag/internal/tcpbacklog"
 	"golang.org/x/sys/windows"
 	"io"
 	"net"
@@ -39,6 +40,10 @@ type tcpRedirect struct {
 func (b *WinDivertBackend) startTCP(d *divertDLL) (*tcpRedirect, error) {
 	l, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4zero})
 	if err != nil {
+		return nil, err
+	}
+	if err = tcpbacklog.Configure(l); err != nil {
+		l.Close()
 		return nil, err
 	}
 	port := uint16(l.Addr().(*net.TCPAddr).Port)
