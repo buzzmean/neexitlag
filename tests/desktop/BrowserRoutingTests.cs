@@ -81,6 +81,11 @@ public class BrowserRoutingTests {
   await Assert.ThrowsAsync<ChromeActivationException>(()=>vm.ActivatePreparedChromeAsync(new(){Id="chrome"},new(){HealthUrl="http://neexitlag-health.invalid/ready/nonce"},()=>Task.CompletedTask,()=>{launched=true;return Task.CompletedTask;}));
   Assert.False(launched);Assert.Single(service.Fake.Calls);Assert.Equal("browser.confirm",service.Fake.Calls[0].method);
  }
+
+ [Fact]public void UserChromeLaunchCannotFreezeOnlinePACAndOverrideLiveRecoveryPolicy(){
+  var launch=new BrowserLaunch{Arguments=[@"--user-data-dir=C:\Users\test\Chrome","--proxy-pac-url=data:old-inline-pac","--proxy-bypass-list=<-loopback>","--no-proxy-server","--no-first-run"]};
+  Assert.Equal(new[]{@"--user-data-dir=C:\Users\test\Chrome","--no-first-run"},launch.UserArguments());
+ }
  sealed class BrowserService:IServiceClient{
   public FakeService Fake=new();public bool ConfirmReady=true;
   public Task<T> Call<T>(string method,object? payload=null,CancellationToken cancellationToken=default){

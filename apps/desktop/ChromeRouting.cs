@@ -96,7 +96,7 @@ public partial class MainWindow {
    // An empty, isolated headless profile checks the ACTUAL HKCU policy first.
    await model.ActivatePreparedChromeAsync(original,launch,
     ()=>ProbeChromePolicyAsync(exe,launch.HealthUrl),
-    ()=>{var info=new ProcessStartInfo(exe){UseShellExecute=false};foreach(var value in launch.Arguments)info.ArgumentList.Add(value);info.ArgumentList.Add("--restore-last-session");using var process=Process.Start(info)??throw new ChromeActivationException(Text.Get("ChromeActivationFailed"));return Task.CompletedTask;},lifetime.Token);
+    ()=>{var info=new ProcessStartInfo(exe){UseShellExecute=false};foreach(var value in launch.UserArguments())info.ArgumentList.Add(value);info.ArgumentList.Add("--restore-last-session");using var process=Process.Start(info)??throw new ChromeActivationException(Text.Get("ChromeActivationFailed"));return Task.CompletedTask;},lifetime.Token);
    model.SetNotice(Text.Get("ChromeSitesLaunched"));
   }catch(Exception error){
    // Keep a mandatory protected-domain PAC guard. Removing PAC altogether can
