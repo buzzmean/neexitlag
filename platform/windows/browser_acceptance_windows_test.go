@@ -111,7 +111,7 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 	selected := ""
 	for i := range entries {
 		entries[i].Ports = []uint16{f.Port()}
-		if strings.HasSuffix(entries[i].ID, "-disorder") {
+		if strings.HasSuffix(entries[i].ID, "-disorder") && !strings.HasSuffix(entries[i].ID, "-fake8-disorder") {
 			selected = entries[i].ID
 		}
 	}

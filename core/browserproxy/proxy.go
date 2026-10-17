@@ -14,9 +14,11 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -50,6 +52,7 @@ type Plan struct {
 	HTTPStatus  int               `json:"http_status,omitempty"`
 }
 type Record struct {
+	OpenFailure       string    `json:"open_failure,omitempty"`
 	DirectPlusApplied bool      `json:"direct_plus_applied"`
 	ID                uint64    `json:"id"`
 	Owner             Owner     `json:"owner"`
@@ -316,6 +319,11 @@ func (s *Server) handle(c net.Conn) {
 	}
 	upstream, e := s.cfg.Open(ctx, q, plan)
 	if e != nil {
+		s.mu.Lock()
+		r := s.records[id]
+		r.OpenFailure = openFailure(e)
+		s.records[id] = r
+		s.mu.Unlock()
 		finish("UPSTREAM_OPEN_FAILED", 0, 0)
 		writeError(c, 502)
 		return
@@ -403,4 +411,25 @@ func (w countWriter) Write(p []byte) (int, error) {
 		w.add(n)
 	}
 	return n, e
+}
+
+// Return only stable error classes/OS codes, never remote messages or secrets.
+func openFailure(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "UPSTREAM_OPEN_TIMEOUT"
+	}
+	if errors.Is(err, context.Canceled) {
+		return "UPSTREAM_OPEN_CANCELED"
+	}
+	var op *os.SyscallError
+	if errors.As(err, &op) {
+		var code syscall.Errno
+		if errors.As(err, &code) {
+			switch op.Syscall {
+			case "WSASocket", "bound_bind", "bound_getsockname", "bound_connectex", "bound_connect_result", "bound_connect_context", "connect_event":
+				return strings.ToUpper(op.Syscall) + "_" + strconv.FormatUint(uint64(code), 10)
+			}
+		}
+	}
+	return "UPSTREAM_OPEN_FAILED"
 }

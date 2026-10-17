@@ -9,13 +9,11 @@ import (
 	"github.com/buzzmean/neexitlag/core/flowpolicy"
 	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"github.com/buzzmean/neexitlag/core/routing"
-	"golang.org/x/sys/windows"
 	"io"
 	"net"
 	"net/netip"
 	"os"
 	"sync"
-	"syscall"
 	"time"
 	"unsafe"
 )
@@ -745,42 +743,19 @@ func (t *tcpRedirect) dialLocalStrategy(ctx context.Context, e *tcpEntry, d Deci
 }
 func (t *tcpRedirect) dialLocalStrategyFrom(ctx context.Context, e *tcpEntry, d Decision, bind netip.Addr) (net.Conn, error) {
 	var bound Tuple
-	dialer := net.Dialer{Control: func(network, address string, raw syscall.RawConn) error {
-		var bindErr error
-		err := raw.Control(func(fd uintptr) {
-			source := bind.As4()
-			a := &windows.SockaddrInet4{Addr: source}
-			if bindErr = windows.Bind(windows.Handle(fd), a); bindErr != nil {
-				return
-			}
-			sa, er := windows.Getsockname(windows.Handle(fd))
-			if er != nil {
-				bindErr = er
-				return
-			}
-			v, ok := sa.(*windows.SockaddrInet4)
-			if !ok {
-				bindErr = fmt.Errorf("unsupported upstream socket")
-				return
-			}
-			bound = Tuple{Protocol: "tcp", Source: netip.AddrPortFrom(bind, uint16(v.Port)), Destination: e.tuple.Destination}
-			t.delegatedMu.Lock()
-			defer t.delegatedMu.Unlock()
-			if len(t.delegated) >= t.state.limit || !t.b.evidence.BindUpstream(e.identity, bound, e.tuple) {
-				bindErr = fmt.Errorf("delegated TCP limit")
-				return
-			}
-			d.Flow = routing.Flow{}
-			d.Deferred = false
-			d.ResolveDomain = nil
-			t.delegated[bound] = delegatedTCP{owner: e, decision: d}
-		})
-		if err != nil {
-			return err
+	c, err := dialBoundIPv4(ctx, bind, e.tuple.Destination, func(source netip.AddrPort) error {
+		bound = Tuple{Protocol: "tcp", Source: source, Destination: e.tuple.Destination}
+		t.delegatedMu.Lock()
+		defer t.delegatedMu.Unlock()
+		if len(t.delegated) >= t.state.limit || !t.b.evidence.BindUpstream(e.identity, bound, e.tuple) {
+			return fmt.Errorf("delegated TCP limit")
 		}
-		return bindErr
-	}}
-	c, err := dialer.DialContext(ctx, "tcp4", e.tuple.Destination.String())
+		d.Flow = routing.Flow{}
+		d.Deferred = false
+		d.ResolveDomain = nil
+		t.delegated[bound] = delegatedTCP{owner: e, decision: d}
+		return nil
+	})
 	if err != nil {
 		t.releaseDelegated(bound, e.identity)
 		return nil, err

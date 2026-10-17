@@ -5,11 +5,11 @@ public sealed class BrowserTransportSnapshot {public bool Listening {get;set;}pu
 public sealed class BrowserOwner {public uint Pid {get;set;} public ulong CreationTime {get;set;} public string Exe {get;set;}="";public string ProfileId {get;set;}="";}
 public sealed class BrowserPlan {public FlowPolicyEvidence Policy {get;set;}=new();public string Probe {get;set;}="";public int HttpStatus {get;set;}}
 public sealed class BrowserConnection {
- public ulong Id {get;set;}public BrowserOwner Owner {get;set;}=new();public string Domain {get;set;}="";public BrowserPlan Plan {get;set;}=new();public string Result {get;set;}="";public ulong SentBytes {get;set;}public ulong ReceivedBytes {get;set;}public bool Active {get;set;}
+ public string OpenFailure {get;set;}="";public ulong Id {get;set;}public BrowserOwner Owner {get;set;}=new();public string Domain {get;set;}="";public BrowserPlan Plan {get;set;}=new();public string Result {get;set;}="";public ulong SentBytes {get;set;}public ulong ReceivedBytes {get;set;}public bool Active {get;set;}
  public bool DirectPlusApplied {get;set;}
  public string Route=>(Result=="UPSTREAM_OPEN_FAILED"||Result=="ORIGIN_PLAN_FAILED")?"BLOCK":Plan.Policy.Action=="DIRECT_PLUS"&&!DirectPlusApplied?"DIRECT+ (не подтверждён)" :Plan.Policy.Action=="RELAY_REQUIRED"?"RELAY_REQUIRED · "+Plan.Policy.RelayId:Plan.Policy.Action;
  public string Reason=>Plan.Policy.Reason;
- public string Outcome=>Plan.Probe=="HTTP_SUCCESS"?$"Origin HTTP {Plan.HttpStatus}; страница Chrome не проверена":Plan.Probe;
+ public string Outcome=>OpenFailure!=""?OpenFailure:Plan.Probe=="HTTP_SUCCESS"?$"Origin HTTP {Plan.HttpStatus}; страница Chrome не проверена":Plan.Probe;
  public string Traffic=>$"↑ {Text.Bytes(SentBytes)} / ↓ {Text.Bytes(ReceivedBytes)}";
 }
 public sealed partial class DesktopViewModel {

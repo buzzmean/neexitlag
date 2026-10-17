@@ -1,0 +1,85 @@
+//go:build windows
+
+package windowsplatform
+
+import (
+	"context"
+	"errors"
+	"io"
+	"net"
+	"net/netip"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+func TestNativeBoundDialRegistersBeforeSYNAndRetainsSocket(t *testing.T) {
+	target, e := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer target.Close()
+	var registered atomic.Bool
+	accepted := make(chan error, 1)
+	go func() {
+		c, e := target.AcceptTCP()
+		if e != nil {
+			accepted <- e
+			return
+		}
+		defer c.Close()
+		c.SetDeadline(time.Now().Add(3 * time.Second))
+		if !registered.Load() {
+			accepted <- errors.New("SYN before delegation registration")
+			return
+		}
+		_, e = io.Copy(c, c)
+		accepted <- e
+	}()
+	var bound netip.AddrPort
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	c, e := dialBoundIPv4(ctx, netip.MustParseAddr("127.0.0.1"), target.Addr().(*net.TCPAddr).AddrPort(), func(a netip.AddrPort) error { bound = a; registered.Store(true); return nil })
+	if e != nil {
+		t.Fatal(e)
+	}
+	if c.LocalAddr().String() != bound.String() {
+		t.Fatal("bound tuple changed", c.LocalAddr(), bound)
+	}
+	c.SetDeadline(time.Now().Add(3 * time.Second))
+	for i := 0; i < 3; i++ {
+		if _, e = c.Write([]byte("same TCP stream")); e != nil {
+			t.Fatal(e)
+		}
+		b := make([]byte, len("same TCP stream"))
+		if _, e = io.ReadFull(c, b); e != nil || string(b) != "same TCP stream" {
+			t.Fatal(string(b), e)
+		}
+	}
+	c.Close()
+	if e = <-accepted; e != nil {
+		t.Fatal(e)
+	}
+}
+func TestNativeBoundDialCancellationAndRegistrationFailure(t *testing.T) {
+	target := netip.MustParseAddrPort("127.0.0.1:1")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	called := false
+	if c, e := dialBoundIPv4(ctx, target.Addr(), target, func(netip.AddrPort) error { called = true; return nil }); c != nil || !errors.Is(e, context.Canceled) || called {
+		t.Fatal(c, e, called)
+	}
+	sentinel := errors.New("admission denied")
+	if c, e := dialBoundIPv4(context.Background(), target.Addr(), target, func(netip.AddrPort) error { return sentinel }); c != nil || !errors.Is(e, sentinel) {
+		t.Fatal(c, e)
+	}
+	ctx, cancel = context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if c, e := dialBoundIPv4(ctx, target.Addr(), target, func(netip.AddrPort) error { return nil }); c != nil || e == nil {
+		t.Fatal(c, e)
+	}
+	if time.Since(start) > 2*time.Second {
+		t.Fatal("connect ignored cancellation")
+	}
+}
