@@ -43,13 +43,16 @@ function Set-BinaryOwnerReadExecute([string]$Path,[string]$OwnerSid){
  Set-Acl -LiteralPath $Path -AclObject $acl
 }
 $pending=Join-Path $root ('.service-update-'+[Guid]::NewGuid().ToString('N')+'.exe')
+$stopped=$false;$replaced=$false
 try{
  Copy-Item -LiteralPath $source -Destination $pending
  Set-BinaryOwnerReadExecute $pending $owner.Value
  Stop-Service neexitlag
+ $stopped=$true
  $service.WaitForStatus('Stopped',[TimeSpan]::FromSeconds(30))
  if($serviceProcess -gt 0){try{$process=[Diagnostics.Process]::GetProcessById($serviceProcess);if(!$process.WaitForExit(30000)){throw 'Stopped service process did not exit; executable not replaced'}}catch [ArgumentException]{} }
  [IO.File]::Replace($pending,$target,$null)
+ $replaced=$true
  Set-BinaryOwnerReadExecute $target $owner.Value
  if((Get-FileHash -LiteralPath $target).Hash -ne (Get-FileHash -LiteralPath $source).Hash){throw 'Installed binary hash mismatch'}
  Start-Service neexitlag
@@ -64,9 +67,15 @@ try{
  Write-Host 'Only service executable ACL changed: owner RX, SYSTEM/admins F. Identity, credentials, driver and state ACLs preserved.'
 }catch{
  $failure=$_.Exception.Message
+ if(!$replaced){
+  if($stopped){try{Start-Service neexitlag;$service.WaitForStatus('Running',[TimeSpan]::FromSeconds(30))}catch{throw "Executable was not replaced; previous service could not restart. Backup: $backup"}}
+  throw "Windows update refused before replacement; previous binary/ACL retained: $failure. Backup: $backup"
+ }
  try{
+  $failedService=Get-CimInstance -ClassName Win32_Service -Filter "Name='neexitlag'" -OperationTimeoutSec 5
   Stop-Service neexitlag -ErrorAction SilentlyContinue
   $service.WaitForStatus('Stopped',[TimeSpan]::FromSeconds(30))
+  if($null -ne $failedService -and $failedService.ProcessId -gt 0){try{$failedProcess=[Diagnostics.Process]::GetProcessById([int]$failedService.ProcessId);if(!$failedProcess.WaitForExit(30000)){throw 'Failed service image still running; backup retained'}}catch [ArgumentException]{} }
   Copy-Item -LiteralPath (Join-Path $backup 'neexitlag-service.exe') -Destination $target -Force
   Set-Acl -LiteralPath $target -AclObject $oldAcl
   Start-Service neexitlag
