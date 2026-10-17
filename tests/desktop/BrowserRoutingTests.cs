@@ -51,6 +51,15 @@ public class BrowserRoutingTests {
   Assert.Equal("DIRECT",sent.Mode);Assert.Equal("working-youtube",sent.LocalStrategyId);Assert.Equal("AUTO",p.Mode);
   Assert.DoesNotContain(service.Fake.Calls,c=>c.method=="optimize");
  }
+
+ [Fact]public async Task ChromeGuardedRecoveryPreservesDomainRulesForReactivation(){
+  var service=new BrowserService();var vm=new DesktopViewModel(service);
+  var p=new Profile{Id="chrome",Mode="AUTO",Executables=[@"C:\Apps\chrome.exe"],PolicyData=new(){["rules"]=System.Text.Json.JsonSerializer.SerializeToElement(new[]{new{ id="private",domains=new[]{"private.example"},action="RELAY_REQUIRED",relay_id="VPS-01"}})}};
+  await vm.RestoreChromeAsync(p);
+  var sent=(Profile)service.Fake.Calls.Single(c=>c.method=="profile.set").payload!;
+  Assert.Equal(0,sent.PolicyData!["rules"].GetArrayLength());Assert.Equal("private.example",sent.PolicyData["browser_recovery_rules"][0].GetProperty("domains")[0].GetString());
+  Assert.Equal(1,p.PolicyData["rules"].GetArrayLength());
+ }
  sealed class BrowserService:IServiceClient{
   public FakeService Fake=new();
   public Task<T> Call<T>(string method,object? payload=null,CancellationToken cancellationToken=default){

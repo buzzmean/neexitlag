@@ -17,6 +17,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"golang.org/x/net/dns/dnsmessage"
 	"math/big"
 	"net"
@@ -37,6 +38,7 @@ var Domains = []string{"chatgpt.com", "www.youtube.com", "ordinary.example", "bl
 type Fixture struct {
 	ExpectedFailures        map[int][]string
 	ProtectedDirectAttempts atomic.Uint64
+	ECHClientHellos         atomic.Uint64
 	HealthURL               string
 	BeforeRequests          func() error
 	Server                  *httptest.Server
@@ -95,6 +97,7 @@ func New() (*Fixture, error) {
 		}
 		return nil, nil
 	}}
+	f.Server.Listener = &helloListener{Listener: f.Server.Listener, fixture: f}
 	f.Server.StartTLS()
 	f.DNS, e = net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if e != nil {
@@ -203,4 +206,46 @@ func ChromePath() string {
 		}
 	}
 	return ""
+}
+
+// Count observable ECH/GREASE in actual Chrome TLS handshakes without retaining
+// or logging payload. This is a test target, never a production TLS interceptor.
+type helloListener struct {
+	net.Listener
+	fixture *Fixture
+}
+
+func (l *helloListener) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return &helloConn{Conn: c, fixture: l.fixture}, nil
+}
+
+type helloConn struct {
+	net.Conn
+	fixture *Fixture
+	hello   []byte
+	done    bool
+}
+
+func (c *helloConn) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	if !c.done && n > 0 {
+		if len(c.hello)+n > localstrategy.MaxHelloBytes {
+			c.done = true
+			c.hello = nil
+			return n, err
+		}
+		c.hello = append(c.hello, p[:n]...)
+		if _, reason, complete := localstrategy.InspectHelloStream(c.hello); complete {
+			if reason == "ECH_OUTER_SNI_ONLY" {
+				c.fixture.ECHClientHellos.Add(1)
+			}
+			c.done = true
+			c.hello = nil
+		}
+	}
+	return n, err
 }

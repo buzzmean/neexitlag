@@ -557,3 +557,15 @@ func (s *Server) HealthVerified(profile, url string) bool {
 	token := strings.TrimPrefix(url, "http://neexitlag-health.invalid/ready/")
 	return !s.closed && s.ctx.Err() == nil && token != "" && s.verified[profile] == token
 }
+
+func (s *Server) Forget(profile string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.confirmed, profile)
+	delete(s.verified, profile)
+	for token, challenge := range s.challenges {
+		if challenge.profile == profile {
+			delete(s.challenges, token)
+		}
+	}
+}

@@ -139,7 +139,8 @@ real HTTP(S) responses, authenticated protected traffic, ordinary DIRECT and
 complete evidence. It disables/re-enables optimization, stops the full service
 controller/WinDivert backend, verifies ordinary HTTPS during outage with OpenAI
 fail-closed, restarts the controller on the saved port, and verifies new responses
-in the **same Chrome process**. Windows Chrome runs with its normal sandbox; only
+in the **same Chrome process**. The target also verifies real ECH/GREASE ClientHellos (bounded ephemeral parsing,
+no payload logs). Windows Chrome runs with its normal sandbox; only
 the root Linux container needs `--no-sandbox`. Every YouTube CONNECT must have its own
 positive native transform evidence. Missing browser/driver/proof cannot be
 reported as PASS.
@@ -191,7 +192,10 @@ Activation now proceeds in this order:
    an unactivated Chrome AUTO are rejected before capture state changes. The GUI
    checks command results and cannot label a rejected command as success.
 6. Failure installs the guarded recovery PAC and restores a safe Chrome profile
-   (legacy/broken AUTO becomes DIRECT). Other applications/Optimize are not
+   (legacy/broken AUTO becomes DIRECT). Domain rules are preserved in
+   `browser_recovery_rules` and restored on AUTO reactivation; the guarded recovery
+   profile must not itself defer ordinary ECH back into opaque BLOCK. Confirmed
+   activation proof is revoked when leaving AUTO. Other applications/Optimize are not
    globally disabled. OpenAI stays blocked/required through the guard, never
    DIRECT. An incomplete rollback gets an explicit error, not PASS.
 

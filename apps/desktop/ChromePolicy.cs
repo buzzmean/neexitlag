@@ -33,7 +33,7 @@ internal static class ChromePolicy {
  }
  internal static string ClosedGuard(Profile profile){
   var domains=new List<string>{"chatgpt.com","openai.com","oaistatic.com","oaiusercontent.com","chat.com"};bool strict=false;
-  if(profile.PolicyData is {} data && data.TryGetValue("rules",out var rules) && rules.ValueKind==JsonValueKind.Array){
+  foreach(var key in new[]{"rules","browser_recovery_rules"})if(profile.PolicyData is {} data && data.TryGetValue(key,out var rules) && rules.ValueKind==JsonValueKind.Array){
    foreach(var rule in rules.EnumerateArray()){
     if(rule.TryGetProperty("action",out var action)&&action.GetString()=="DIRECT")continue;
     if(!rule.TryGetProperty("domains",out var names)||names.ValueKind!=JsonValueKind.Array||names.GetArrayLength()==0){strict=true;continue;}

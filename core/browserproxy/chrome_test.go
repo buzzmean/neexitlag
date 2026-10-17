@@ -154,6 +154,9 @@ func TestChromePACRealHTTPSOriginIsolation(t *testing.T) {
 			}
 		}
 	}
+	if f.ECHClientHellos.Load() == 0 {
+		t.Fatal("real Chrome ECH/GREASE coverage missing")
+	}
 	if f.ProtectedDirectAttempts.Load() != 0 {
 		t.Fatal("protected TLS attempted DIRECT", f.ProtectedDirectAttempts.Load())
 	}

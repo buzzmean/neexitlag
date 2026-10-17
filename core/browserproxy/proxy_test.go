@@ -330,4 +330,8 @@ func TestChromeHealthRequiresAuthorizedOwnerAndExactNonce(t *testing.T) {
 	if s.HealthVerified("chrome", url) || s.HealthVerified("chrome", next) {
 		t.Fatal("previous proof certified a new activation")
 	}
+	s.Forget("chrome")
+	if s.Confirmed("chrome") || get(next) != 403 {
+		t.Fatal("recovery retained stale readiness authority")
+	}
 }

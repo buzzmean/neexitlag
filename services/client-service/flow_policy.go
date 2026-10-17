@@ -30,6 +30,12 @@ func prepareAuto(p *profiles.Profile) {
 	if p.Mode != profiles.Auto {
 		return
 	}
+	if browserAuto(*p) && len(p.BrowserRecoveryRules) > 0 {
+		if len(p.Rules) == 0 {
+			p.Rules = append([]flowpolicy.Rule(nil), p.BrowserRecoveryRules...)
+		}
+		p.BrowserRecoveryRules = nil
+	}
 	if p.AppPreset == "" {
 		p.AppPreset = presetFor(*p)
 	}

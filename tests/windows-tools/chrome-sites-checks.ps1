@@ -2,9 +2,9 @@ $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot '..\..\tools\windows\simultaneous-checks.ps1')
 $path=Join-Path $PSScriptRoot '..\..\tools\windows\acceptance-chrome-sites.ps1'
 $tokens=$null;$errors=$null
-$ast=[Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path),[ref]$tokens,[ref]$errors)
+$ast=[System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw ($errors|Out-String)}
-$function=$ast.Find({param($a)$a -is [Management.Automation.Language.FunctionDefinitionAst] -and $a.Name -eq 'Observe-CDP'},$true)
+$function=$ast.Find({param($a)$a -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $a.Name -eq 'Observe-CDP'},$true)
 Invoke-Expression $function.Extent.Text
 $script:eventLoss=$false
 $script:targets=@{a=@{frame='root-a';document=$null;failures=@();requests=@{}};b=@{frame='root-b';document=$null;failures=@();requests=@{}}}

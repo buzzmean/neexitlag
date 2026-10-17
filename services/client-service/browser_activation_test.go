@@ -105,3 +105,26 @@ func TestOptimizeCannotArmLegacyChromeAUTOWithoutPAC(t *testing.T) {
 		t.Fatal("failed readiness changed global capture state")
 	}
 }
+
+func TestChromeRecoveryKeepsRulesWithoutOpaqueDIRECTBlock(t *testing.T) {
+	p := profiles.Profile{ID: "chrome", Name: "Chrome", Executables: []string{`C:\Apps\chrome.exe`}, Mode: profiles.Direct, Fallback: flowpolicy.Required, BrowserRecoveryRules: []flowpolicy.Rule{{ID: "protected", Domains: []string{"private.example"}, Action: flowpolicy.RelayRequired, RelayID: "VPS-01"}}}
+	c := New(context.Background())
+	defer c.Close()
+	c.Profiles.Upsert(p)
+	c.enabled = true
+	id := wp.ProcessIdentity{PID: 10, CreationTime: 1, Path: p.Executables[0]}
+	d := c.Classify(id, policyTuple("tcp", 443))
+	if d.Deferred || d.Block || !d.Route.Direct() {
+		t.Fatal("guarded recovery reintroduced opaque BLOCK", d)
+	}
+	p.Mode = profiles.Auto
+	prepareAuto(&p)
+	if len(p.Rules) != 1 || len(p.BrowserRecoveryRules) != 0 || p.Rules[0].Domains[0] != "private.example" {
+		t.Fatal("AUTO lost preserved security rules", p)
+	}
+	c.Profiles.Upsert(p)
+	d = wp.ResolveDeferredDecision(c.Classify(id, policyTuple("tcp", 443)), "private.example", "SNI_FOUND")
+	if d.Block || d.Route.RelayID != "VPS-01" || !d.BlockOnFailure {
+		t.Fatal("restored explicit rule lost fail-closed semantics", d)
+	}
+}

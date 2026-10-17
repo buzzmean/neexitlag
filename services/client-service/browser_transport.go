@@ -266,10 +266,17 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 		}
 	}
 	defer func() { c.browser.mu.Lock(); delete(c.browser.plans, key); close(pending); c.browser.mu.Unlock() }()
+	// Bound admission separately from network/probe timeouts. Browser startup
+	// has speculative background origins: a brief queue prevents those from
+	// starving the foreground origin, without retaining an unbounded request.
+	admission := time.NewTimer(500 * time.Millisecond)
+	defer admission.Stop()
 	select {
 	case c.browser.probes <- struct{}{}:
 		defer func() { <-c.browser.probes }()
-	default:
+	case <-ctx.Done():
+		return plan, ctx.Err()
+	case <-admission.C:
 		plan.Probe = "PROBE_CAPACITY_DIRECT_UNVERIFIED"
 		return plan, nil
 	}
@@ -370,7 +377,7 @@ func (c *Controller) handleBrowser(method string, raw json.RawMessage) (any, err
 	for _, p := range c.Profiles.List() {
 		if p.ID == q.Profile && chromeProfile(p) && p.Trial == nil {
 			found = true
-			for _, rule := range p.Rules {
+			for _, rule := range append(append([]flowpolicy.Rule{}, p.Rules...), p.BrowserRecoveryRules...) {
 				if rule.Action != flowpolicy.Direct {
 					if len(rule.Domains) == 0 {
 						strict = true

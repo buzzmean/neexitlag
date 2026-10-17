@@ -293,6 +293,9 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+	if f.ECHClientHellos.Load() == 0 {
+		t.Fatal("real sandboxed Chrome ECH/GREASE coverage missing")
+	}
 	if f.ProtectedDirectAttempts.Load() != 0 {
 		t.Fatal("protected TLS attempted DIRECT during activation/outage/restart", f.ProtectedDirectAttempts.Load())
 	}
@@ -302,7 +305,22 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 	found := map[string]bool{}
 	for _, r := range append(earlier, snap.Records...) {
 		switch r.Domain {
-		case "chatgpt.com", "blocked.example":
+		case "blocked.example":
+			// Unknown AUTO must be allowed to try DIRECT first. Speculative
+			// unconfirmed local attempts are NOT an OpenAI leak or HTTP PASS:
+			// the target rejects their TLS before any HTTP, and every stage's
+			// browser nonce already requires a relay-source HTTP response.
+			if r.Plan.Policy.Action != flowpolicy.RelayRequired {
+				if r.Plan.HTTPStatus >= 200 && r.Plan.HTTPStatus < 400 {
+					t.Fatal("blocked origin falsely confirmed local", r)
+				}
+				continue
+			}
+			if r.Plan.Policy.Fallback != flowpolicy.Required || r.Sent == 0 || r.Received == 0 {
+				t.Fatal("learned relay response missing", r)
+			}
+			found[r.Domain] = true
+		case "chatgpt.com":
 			if r.Plan.Policy.Action != flowpolicy.RelayRequired || r.Plan.Policy.Fallback != flowpolicy.Required || r.Sent == 0 || r.Received == 0 {
 				t.Fatal("protected route or response missing", r)
 			}

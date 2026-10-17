@@ -623,6 +623,9 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 				if _, ok := fields["rules"]; !ok {
 					p.Rules = old.Rules
 				}
+				if _, ok := fields["browser_recovery_rules"]; !ok {
+					p.BrowserRecoveryRules = old.BrowserRecoveryRules
+				}
 				if _, ok := fields["identity"]; !ok {
 					p.Identity = old.Identity
 				}
@@ -699,6 +702,19 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 			return nil
 		}); e != nil {
 			return nil, e
+		}
+		if chromeProfile(p) && !browserAuto(p) {
+			c.browser.mu.Lock()
+			if c.browser.server != nil {
+				c.browser.server.Forget(p.ID)
+				if c.customPath != "" {
+					if err := c.saveBrowserAddress(); err != nil {
+						c.browser.mu.Unlock()
+						return nil, err
+					}
+				}
+			}
+			c.browser.mu.Unlock()
 		}
 		if err := c.saveProfiles(); err != nil {
 			return nil, err

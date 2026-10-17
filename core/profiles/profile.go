@@ -27,24 +27,26 @@ type TrialScope struct {
 	Expires      time.Time `json:"expires"`
 }
 type Profile struct {
-	Trial           *TrialScope          `json:"trial_scope,omitempty"`
-	AutoRevision    string               `json:"auto_revision,omitempty"`
-	AutoNetwork     string               `json:"auto_network,omitempty"`
-	Rules           []flowpolicy.Rule    `json:"rules,omitempty"`
-	Fallback        flowpolicy.Fallback  `json:"fallback,omitempty"`
-	AppPreset       string               `json:"app_preset,omitempty"`
-	Identity        *ApplicationIdentity `json:"identity,omitempty"`
-	LocalStrategyID string               `json:"local_strategy_id,omitempty"`
-	ID              string               `json:"id"`
-	Name            string               `json:"name"`
-	Executables     []string             `json:"executables"`
-	Publisher       string               `json:"publisher,omitempty"`
-	SignatureSHA256 string               `json:"signature_sha256,omitempty"`
-	ProtocolHints   []string             `json:"protocol_hints,omitempty"`
-	PortHints       []uint16             `json:"port_hints,omitempty"`
-	Mode            Mode                 `json:"mode"`
-	RelayID         string               `json:"relay_id,omitempty"`
-	Custom          bool                 `json:"custom"`
+	// Recovery preserves domain rules while a fail-closed Chrome PAC guards them.
+	BrowserRecoveryRules []flowpolicy.Rule    `json:"browser_recovery_rules,omitempty"`
+	Trial                *TrialScope          `json:"trial_scope,omitempty"`
+	AutoRevision         string               `json:"auto_revision,omitempty"`
+	AutoNetwork          string               `json:"auto_network,omitempty"`
+	Rules                []flowpolicy.Rule    `json:"rules,omitempty"`
+	Fallback             flowpolicy.Fallback  `json:"fallback,omitempty"`
+	AppPreset            string               `json:"app_preset,omitempty"`
+	Identity             *ApplicationIdentity `json:"identity,omitempty"`
+	LocalStrategyID      string               `json:"local_strategy_id,omitempty"`
+	ID                   string               `json:"id"`
+	Name                 string               `json:"name"`
+	Executables          []string             `json:"executables"`
+	Publisher            string               `json:"publisher,omitempty"`
+	SignatureSHA256      string               `json:"signature_sha256,omitempty"`
+	ProtocolHints        []string             `json:"protocol_hints,omitempty"`
+	PortHints            []uint16             `json:"port_hints,omitempty"`
+	Mode                 Mode                 `json:"mode"`
+	RelayID              string               `json:"relay_id,omitempty"`
+	Custom               bool                 `json:"custom"`
 }
 
 func (p Profile) Validate() error {
@@ -60,10 +62,10 @@ func (p Profile) Validate() error {
 	if len(p.AutoNetwork) > 128 {
 		return errors.New("invalid auto network binding")
 	}
-	if len(p.Rules) > 24 {
+	if len(p.Rules) > 24 || len(p.BrowserRecoveryRules) > 24 {
 		return errors.New("too many flow rules")
 	}
-	for _, r := range p.Rules {
+	for _, r := range append(append([]flowpolicy.Rule{}, p.Rules...), p.BrowserRecoveryRules...) {
 		if err := r.Validate(); err != nil {
 			return err
 		}
@@ -210,10 +212,13 @@ func clone(p Profile) Profile {
 	}
 	p.Executables = append([]string(nil), p.Executables...)
 	p.Rules = append([]flowpolicy.Rule(nil), p.Rules...)
-	for i := range p.Rules {
-		p.Rules[i].Domains = append([]string(nil), p.Rules[i].Domains...)
-		p.Rules[i].CIDRs = append([]string(nil), p.Rules[i].CIDRs...)
-		p.Rules[i].Ports = append([]flowpolicy.PortRange(nil), p.Rules[i].Ports...)
+	p.BrowserRecoveryRules = append([]flowpolicy.Rule(nil), p.BrowserRecoveryRules...)
+	for _, rules := range [][]flowpolicy.Rule{p.Rules, p.BrowserRecoveryRules} {
+		for i := range rules {
+			rules[i].Domains = append([]string(nil), rules[i].Domains...)
+			rules[i].CIDRs = append([]string(nil), rules[i].CIDRs...)
+			rules[i].Ports = append([]flowpolicy.PortRange(nil), rules[i].Ports...)
+		}
 	}
 	if p.Identity != nil {
 		v := *p.Identity

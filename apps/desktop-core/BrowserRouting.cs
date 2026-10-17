@@ -37,7 +37,12 @@ public sealed partial class DesktopViewModel {
   await RefreshAsync(ct);
  }
  public async Task RestoreChromeAsync(Profile original,CancellationToken ct=default){
-  var copy=original.Copy();if(copy.Mode=="AUTO")copy.Mode="DIRECT";
+  var copy=original.Copy();if(copy.Mode=="AUTO"){
+   copy.Mode="DIRECT";
+   if(copy.PolicyData is {} data && data.TryGetValue("rules",out var rules) && rules.ValueKind==System.Text.Json.JsonValueKind.Array && rules.GetArrayLength()>0){
+    data["browser_recovery_rules"]=rules.Clone();data["rules"]=System.Text.Json.JsonSerializer.SerializeToElement(Array.Empty<object>());
+   }
+  }
   await client.Call<Profile[]>("profile.set",copy,ct);await RefreshAsync(ct);
  }
  public Task<BrowserTransportSnapshot> ChromeStatusAsync(CancellationToken ct=default)=>client.Call<BrowserTransportSnapshot>("browser.status",cancellationToken:ct);
