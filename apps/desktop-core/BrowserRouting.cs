@@ -1,7 +1,7 @@
 using System.Collections.ObjectModel;
 namespace Neexitlag.Desktop;
 public sealed class BrowserLaunch { public string[] Arguments {get;set;}=[]; public string Address {get;set;}=""; public string Scope {get;set;}=""; }
-public sealed class BrowserTransportSnapshot {public bool Listening {get;set;}public bool Truncated {get;set;}public ulong Lost {get;set;}public BrowserConnection[] Records {get;set;}=[];}
+public sealed class BrowserTransportSnapshot {public bool Listening {get;set;}public bool Truncated {get;set;}public ulong Lost {get;set;}BrowserConnection[] records=[];public BrowserConnection[] Records {get=>records;set=>records=value??[];}}
 public sealed class BrowserOwner {public uint Pid {get;set;} public ulong CreationTime {get;set;} public string Exe {get;set;}="";public string ProfileId {get;set;}="";}
 public sealed class BrowserPlan {public FlowPolicyEvidence Policy {get;set;}=new();public string Probe {get;set;}="";public int HttpStatus {get;set;}}
 public sealed class BrowserConnection {

@@ -371,3 +371,16 @@ func TestBrowserCandidateIsScopedAndPreservesConfiguredBaseline(t *testing.T) {
 		t.Fatal("bypassed existing local strategy safety gate")
 	}
 }
+
+func TestInactiveBrowserStatusHasEmptyArray(t *testing.T) {
+	c := New(context.Background())
+	defer c.Close()
+	status, e := c.Handle(context.Background(), "browser.status", nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	raw, e := json.Marshal(status)
+	if e != nil || !strings.Contains(string(raw), `"records":[]`) {
+		t.Fatal(string(raw), e)
+	}
+}

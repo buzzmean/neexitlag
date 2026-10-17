@@ -316,7 +316,7 @@ func (c *Controller) handleBrowser(method string, raw json.RawMessage) (any, err
 	defer c.browser.mu.Unlock()
 	if method == "browser.status" {
 		if c.browser.server == nil {
-			return browserproxy.Snapshot{}, nil
+			return browserproxy.Snapshot{Records: []browserproxy.Record{}}, nil
 		}
 		view := c.browser.server.Snapshot()
 		sort.Slice(view.Records, func(i, j int) bool { return view.Records[i].ID > view.Records[j].ID })

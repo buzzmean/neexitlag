@@ -21,4 +21,8 @@ public class BrowserRoutingTests {
   model.ApplyBrowser(new(){Listening=true,Records=[Flow("chatgpt.com","RELAY_REQUIRED"),Flow("www.youtube.com","DIRECT_PLUS",true),Flow("example.org","DIRECT")]});
   var row=model.Applications.Single();Assert.Contains("по сайтам",row.UserStatus);Assert.Contains("RELAY_REQUIRED",row.Route);Assert.Contains("DIRECT_PLUS",row.Route);Assert.Contains("DIRECT",row.Route);
  }
+ [Fact]public void InactiveBrowserTransportAcceptsNullOptionalRecords(){
+  var value=System.Text.Json.JsonSerializer.Deserialize<BrowserTransportSnapshot>("{\"listening\":false,\"records\":null}",WireJson.Options)!;
+  var model=new DesktopViewModel(new FakeService());model.ApplyBrowser(value);Assert.Empty(model.BrowserDomains);
+ }
 }
