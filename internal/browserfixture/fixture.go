@@ -3,6 +3,7 @@
 package browserfixture
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -19,6 +20,7 @@ import (
 	"fmt"
 	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"golang.org/x/net/dns/dnsmessage"
+	"io"
 	"math/big"
 	"net"
 	"net/http"
@@ -36,6 +38,9 @@ import (
 var Domains = []string{"chatgpt.com", "www.youtube.com", "ordinary.example", "blocked.example", "vk.com", "music.yandex.ru", "langame.ru", "www.twitch.tv", "web.telegram.org"}
 
 type Fixture struct {
+	PoisonTelegramDNS       atomic.Bool
+	PoisonedDNSAnswers      atomic.Uint64
+	AlternativeDNSQueries   atomic.Uint64
 	TelegramProbeRejection  atomic.Bool
 	TelegramProbeRejected   atomic.Uint64
 	StageReady              func(int, func(string, any) (json.RawMessage, error)) error
@@ -93,6 +98,12 @@ func New() (*Fixture, error) {
 				f.ProtectedDirectAttempts.Add(1)
 			}
 		}
+		if hello.ServerName == "web.telegram.org" && f.PoisonTelegramDNS.Load() {
+			peer, _, _ := net.SplitHostPort(hello.Conn.RemoteAddr().String())
+			if peer != "127.0.0.2" {
+				return nil, errors.New("controlled recovered origin only reachable through relay")
+			}
+		}
 		if hello.ServerName == "web.telegram.org" && f.TelegramProbeRejection.Load() {
 			peer, _, _ := net.SplitHostPort(hello.Conn.RemoteAddr().String())
 			browserHello := false
@@ -139,6 +150,25 @@ func (f *Fixture) serve(w http.ResponseWriter, r *http.Request) {
 	host, _, e := net.SplitHostPort(r.Host)
 	if e != nil {
 		host = r.Host
+	}
+	if r.URL.Path == "/dns-query" {
+		f.AlternativeDNSQueries.Add(1)
+		var question dnsmessage.Message
+		wire, e := io.ReadAll(io.LimitReader(r.Body, 513))
+		if e != nil || len(wire) > 512 || question.Unpack(wire) != nil || r.Method != "POST" || len(question.Questions) != 1 || question.Questions[0].Name.String() != "web.telegram.org." {
+			http.Error(w, "bad DNS question", 400)
+			return
+		}
+		peer, _, _ := net.SplitHostPort(r.RemoteAddr)
+		if peer != "127.0.0.2" {
+			http.Error(w, "DNS must use authenticated relay", 403)
+			return
+		}
+		reply := dnsmessage.Message{Header: dnsmessage.Header{Response: true}, Questions: question.Questions, Answers: []dnsmessage.Resource{{Header: dnsmessage.ResourceHeader{Name: question.Questions[0].Name, Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET, TTL: 30}, Body: &dnsmessage.AResource{A: [4]byte{127, 0, 0, 1}}}}}
+		response, _ := reply.Pack()
+		w.Header().Set("Content-Type", "application/dns-message")
+		w.Write(response)
+		return
 	}
 	if r.URL.Path == "/policy-probe" {
 		if r.Method != "GET" || r.URL.Query().Get("nonce") != f.Nonce {
@@ -215,7 +245,12 @@ func (f *Fixture) dns() {
 		b.StartAnswers()
 		for _, q := range questions {
 			if q.Type == dnsmessage.TypeA {
-				b.AResource(dnsmessage.ResourceHeader{Name: q.Name, Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET, TTL: 1}, dnsmessage.AResource{A: [4]byte{127, 0, 0, 1}})
+				ip := [4]byte{127, 0, 0, 1}
+				if f.PoisonTelegramDNS.Load() && q.Name.String() == "web.telegram.org." {
+					ip = [4]byte{127, 0, 0, 3}
+					f.PoisonedDNSAnswers.Add(1)
+				}
+				b.AResource(dnsmessage.ResourceHeader{Name: q.Name, Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET, TTL: 1}, dnsmessage.AResource{A: ip})
 			}
 		}
 		out, e := b.Finish()
@@ -282,4 +317,43 @@ func (c *helloConn) Read(p []byte) (int, error) {
 		}
 	}
 	return n, err
+}
+
+// Isolated DoH-shaped fixture over the caller's REAL authenticated relay. Only
+// this fixture permits loopback DNS answers; production DoH rejects private IPs.
+func (f *Fixture) AlternativeDNS(ctx context.Context, host string, open func(context.Context, netip.AddrPort) (net.Conn, error)) ([]netip.Addr, time.Duration, error) {
+	name, err := dnsmessage.NewName(host + ".")
+	if err != nil {
+		return nil, 0, err
+	}
+	msg := dnsmessage.Message{Header: dnsmessage.Header{RecursionDesired: true}, Questions: []dnsmessage.Question{{Name: name, Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET}}}
+	data, err := msg.Pack()
+	if err != nil {
+		return nil, 0, err
+	}
+	tr := &http.Transport{Proxy: nil, ForceAttemptHTTP2: true, DisableKeepAlives: true, TLSClientConfig: &tls.Config{RootCAs: f.Roots, ServerName: host}, DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return open(ctx, f.Destination()) }}
+	defer tr.CloseIdleConnections()
+	req, err := http.NewRequestWithContext(ctx, "POST", "https://"+host+":"+strconv.Itoa(int(f.Port()))+"/dns-query", bytes.NewReader(data))
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("Content-Type", "application/dns-message")
+	response, err := tr.RoundTrip(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer response.Body.Close()
+	wire, err := io.ReadAll(io.LimitReader(response.Body, 8193))
+	if err != nil || response.StatusCode != 200 {
+		return nil, 0, errors.New("fixture DoH failed")
+	}
+	var answer dnsmessage.Message
+	if answer.Unpack(wire) != nil || len(answer.Answers) != 1 {
+		return nil, 0, errors.New("fixture DNS invalid")
+	}
+	a, ok := answer.Answers[0].Body.(*dnsmessage.AResource)
+	if !ok {
+		return nil, 0, errors.New("fixture DNS A missing")
+	}
+	return []netip.Addr{netip.AddrFrom4(a.A)}, time.Duration(answer.Answers[0].Header.TTL) * time.Second, nil
 }

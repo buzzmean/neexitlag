@@ -25,6 +25,7 @@ import (
 )
 
 type browserRuntime struct {
+	dns             *browserproxy.DNSRecovery
 	address         string
 	expectedPAC     string
 	recoveryAddress string
@@ -37,7 +38,7 @@ type browserRuntime struct {
 }
 
 func newBrowserRuntime() *browserRuntime {
-	return &browserRuntime{learned: flowpolicy.NewBrowserLearning(), probes: make(chan struct{}, 4), local: map[string]*localstrategy.LocalStrategyEngine{}, plans: map[flowpolicy.LearnKey]chan struct{}{}}
+	return &browserRuntime{dns: browserproxy.NewDNSRecovery(), learned: flowpolicy.NewBrowserLearning(), probes: make(chan struct{}, 4), local: map[string]*localstrategy.LocalStrategyEngine{}, plans: map[flowpolicy.LearnKey]chan struct{}{}}
 }
 func (c *Controller) browserOwner(ctx context.Context, source, local netip.AddrPort) (browserproxy.Owner, error) {
 	id, err := wp.LookupTCPPeer(source, local)
@@ -186,6 +187,17 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 	if err != nil {
 		return browserproxy.Plan{}, err
 	}
+	// Validated alternative answers are scoped to this app/network/policy and
+	// expire at authoritative DNS TTL. Re-reading poisoned system DNS must not
+	// discard that evidence on every Chrome CONNECT.
+	if current.enabled && current.network != "" && q.Secure {
+		if cached, ok := c.browser.dns.Lookup(c.browserDNSKey(q, current), time.Now()); ok && cached.Verified {
+			result := c.browserFlow(current.profile, current.id, wp.Tuple{Protocol: "tcp", Source: q.Source, Destination: cached.Destination}, q.Host, current.network)
+			if result.Action != flowpolicy.Block && result.Source != "rule" && !youtubeDomain(q.Host) {
+				return browserproxy.Plan{Network: current.network, Enabled: current.enabled, Policy: browserDNSPolicy(current), Destination: cached.Destination, Probe: "DNS_RELAY_HTTP_VERIFIED", HTTPStatus: cached.Probe.Status, DNSRecovery: &cached}, nil
+			}
+		}
+	}
 	lookup, stop := context.WithTimeout(ctx, time.Second)
 	resolver := c.BrowserResolver
 	if resolver == nil {
@@ -194,7 +206,11 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 	addresses, err := resolver.LookupNetIP(lookup, "ip", q.Host)
 	stop()
 	if err != nil || len(addresses) == 0 {
-		return browserproxy.Plan{}, browserproxy.ErrOriginDNS
+		base := browserproxy.Plan{Network: current.network, Enabled: current.enabled, Policy: browserDNSPolicy(current)}
+		if recovered, ok := c.recoverBrowserDNS(ctx, q, current, base); ok {
+			return recovered, nil
+		}
+		return base, browserproxy.ErrOriginDNS
 	}
 	// Prefer IPv4 for the existing native DIRECT+ backend. IPv6 relay/direct can
 	// use the existing authenticated transport, not an unsupported native bypass.
@@ -381,6 +397,22 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 		after, ownerErr := c.browserProfile(q.Owner)
 		if ownerErr != nil || after.network != current.network || after.enabled != current.enabled {
 			return plan, errors.New("network/activation changed during origin probe")
+		}
+		// Invalid/non-TLS/certificate replies can be a wrong system-DNS address.
+		// Retry independently resolved candidates through REQUIRED relay, with full
+		// hostname certificate and HTTP validation. Never relabel TCP OPEN as success.
+		if q.Secure && networkError != "" && (attempt.Stage == 2 || networkError == "TLS_CERTIFICATE_ERROR") {
+			recovered, ok := c.recoverBrowserDNS(ctx, q, current, plan)
+			if ok {
+				c.browser.learned.Forget(key)
+				return recovered, nil
+			}
+			plan.DNSRecovery = recovered.DNSRecovery
+			// An invalid TLS record is categorically not a Chrome/Go fingerprint
+			// difference. Do not offer it as an unverified browser relay candidate.
+			if len(plan.Trials) > 0 && plan.Trials[len(plan.Trials)-1].Detail == "INVALID_TLS_RECORD" {
+				originTLS = false
+			}
 		}
 		attempt, err = c.browser.learned.Observe(key, flowpolicy.BrowserObservation{Token: attempt.Token, HTTPStatus: status, NetworkError: networkError, OriginTLS: originTLS, Destination: plan.Destination.String(), ResponseBytes: rx, Correlated: true}, strategy, relay, time.Now())
 		if err != nil {

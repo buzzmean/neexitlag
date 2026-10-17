@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/buzzmean/neexitlag/core/browserproxy"
 	"github.com/buzzmean/neexitlag/core/flowpolicy"
 	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"github.com/buzzmean/neexitlag/core/measurement"
@@ -72,7 +73,8 @@ type Controller struct {
 	selfExecutable  string
 	BrowserOwnerSID string // Existing installation owner; restrict the loopback endpoint to this user.
 	// In-process fixture injection only; production uses the system resolver/roots.
-	BrowserRecoveryExecutable   string // In-process fixture only; production authenticates its own installed binary.
+	BrowserRecoveryExecutable   string                 // In-process fixture only; production authenticates its own installed binary.
+	BrowserAlternativeDNS       browserproxy.DNSLookup // In-process fixture only; no IPC/config override.
 	BrowserResolver             *net.Resolver
 	BrowserProbeRoots           *x509.CertPool
 	browser                     *browserRuntime
@@ -472,6 +474,8 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		}()
 	}
 	switch method {
+	case "browser.origin.check":
+		return c.checkBrowserOrigin(ctx, raw)
 	case "browser.start", "browser.prepare", "browser.confirm", "browser.status":
 		return c.handleBrowser(method, raw)
 	case "local.presets", "local.preset.apply", "local.get", "local.set", "local.metrics", "local.network", "local.record", "local.recommend", "local.compare":

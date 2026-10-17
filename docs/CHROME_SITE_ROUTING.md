@@ -235,3 +235,7 @@ Go's probe ClientHello but accepts Chrome over authenticated relay. The native
 Windows acceptance runs the same case under actual Chrome policy and capture.
 This establishes the incorrect probe-veto/fail-open decision independently of the
 specific remote Telegram TLS alert, which still requires fresh ISP diagnostics.
+
+Incorrect system-DNS addresses now have a bounded relay-only DoH recovery path,
+with independently verified TLS/HTTP and DNS-TTL/network-scoped pins. See
+[DNS recovery and read-only candidate comparison](CHROME_DNS_RECOVERY.md).

@@ -17,13 +17,13 @@ import (
 // ProbeResult describes an independent, credential-free origin probe. It never
 // proves that a browser page, its scripts or a logged-in application works.
 type ProbeResult struct {
-	Status     int
-	Bytes      uint64
-	Failure    string
-	Phase      string
-	Detail     string
-	ALPN       string
-	TLSVersion uint16
+	Status     int    `json:"http_status"`
+	Bytes      uint64 `json:"received_bytes"`
+	Failure    string `json:"failure,omitempty"`
+	Phase      string `json:"phase"`
+	Detail     string `json:"detail,omitempty"`
+	ALPN       string `json:"alpn,omitempty"`
+	TLSVersion uint16 `json:"tls_version,omitempty"`
 }
 
 // ProbeOrigin retains the original caller contract.
@@ -81,8 +81,8 @@ func probeError(r ProbeResult, err error) ProbeResult {
 // as SNI and certificate name even when open uses a pinned IP over relay QUIC.
 // A bounded GET body is required; neither a TCP ACK nor HEAD headers is success.
 // Redirects are not followed (a different origin must get its own route plan).
-func ProbeOriginDetailed(ctx context.Context, host string, port uint16, secure bool, roots *x509.CertPool, open func(context.Context) (net.Conn, error)) ProbeResult {
-	r := ProbeResult{Phase: "RELAY_OR_TCP_OPEN"}
+func ProbeOriginDetailed(ctx context.Context, host string, port uint16, secure bool, roots *x509.CertPool, open func(context.Context) (net.Conn, error)) (r ProbeResult) {
+	r = ProbeResult{Phase: "RELAY_OR_TCP_OPEN"}
 	conn, err := open(ctx)
 	if err != nil {
 		return probeError(r, err)
@@ -99,6 +99,7 @@ func ProbeOriginDetailed(ctx context.Context, host string, port uint16, secure b
 	stop := context.AfterFunc(ctx, func() { conn.Close() })
 	defer stop()
 	counter := &probeCountingConn{Conn: conn}
+	defer func() { r.Bytes = counter.received.Load() }()
 	var origin net.Conn = counter
 	if secure {
 		r.Phase = "ORIGIN_TLS"

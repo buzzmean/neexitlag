@@ -2,6 +2,11 @@ using Neexitlag.Desktop;
 using Xunit;
 namespace NeExitLag.Tests;
 public class BrowserRoutingTests {
+ [Fact]public void DNSRecoveryProvesOriginOnlyNotBrowserPage(){
+  var record=new BrowserConnection{Plan=new(){Probe="DNS_RELAY_HTTP_VERIFIED",HttpStatus=200,Policy=new(){Action="RELAY_REQUIRED",RelayId="VPS-01"}}};
+  Assert.Contains("страница Chrome не проверена",record.Outcome);Assert.DoesNotContain("PASS",record.Outcome);
+ }
+
  [Fact]public void NoFakePageSuccessOrNativeTransformFromConnect(){
   var model=new DesktopViewModel(new FakeService());
   var record=new BrowserConnection{Id=1,Domain="www.youtube.com",Plan=new(){Policy=new(){Action="DIRECT_PLUS"},Probe="NOT_PROBED"},Result="TCP_ESTABLISHED_HTTP_RESULT_UNKNOWN"};

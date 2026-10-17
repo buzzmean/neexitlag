@@ -62,13 +62,14 @@ type Trial struct {
 	DurationMS       int64  `json:"duration_ms"`
 }
 type Plan struct {
-	Trials      []Trial           `json:"trials,omitempty"`
-	Network     string            `json:"network"`
-	Enabled     bool              `json:"optimizing"`
-	Policy      flowpolicy.Result `json:"policy"`
-	Destination netip.AddrPort    `json:"destination"`
-	Probe       string            `json:"probe"`
-	HTTPStatus  int               `json:"http_status,omitempty"`
+	DNSRecovery *DNSRecoveryResult `json:"dns_recovery,omitempty"`
+	Trials      []Trial            `json:"trials,omitempty"`
+	Network     string             `json:"network"`
+	Enabled     bool               `json:"optimizing"`
+	Policy      flowpolicy.Result  `json:"policy"`
+	Destination netip.AddrPort     `json:"destination"`
+	Probe       string             `json:"probe"`
+	HTTPStatus  int                `json:"http_status,omitempty"`
 }
 type Record struct {
 	EvidenceSource    string    `json:"evidence_source,omitempty"`

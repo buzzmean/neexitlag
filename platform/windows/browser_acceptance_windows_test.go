@@ -63,7 +63,11 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	f.TelegramProbeRejection.Store(true)
+	f.PoisonTelegramDNS.Store(true)
+	alternativeDNS := func(ctx context.Context, host string, open browserproxy.DNSOpen) (browserproxy.DNSAnswer, error) {
+		addresses, ttl, err := f.AlternativeDNS(ctx, host, open)
+		return browserproxy.DNSAnswer{Addresses: addresses, TTL: ttl, Source: "ISOLATED_RELAY_DOH", ObtainedAt: time.Now()}, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
 	defer cancel()
 	c := cs.New(ctx)
@@ -79,6 +83,7 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 	backend := wp.NewBrowserLoopbackFixture(files, c.Engine)
 	c.Backend = browserMTUFixture{backend}
 	c.BrowserResolver = f.Resolver
+	c.BrowserAlternativeDNS = alternativeDNS
 	c.BrowserProbeRoots = f.Roots
 	statePath := filepath.Join(t.TempDir(), "profiles.json")
 	if err = c.SetCustomPath(statePath); err != nil {
@@ -405,6 +410,7 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		backend = wp.NewBrowserLoopbackFixture(files, c.Engine)
 		c.Backend = browserMTUFixture{backend}
 		c.BrowserResolver = f.Resolver
+		c.BrowserAlternativeDNS = alternativeDNS
 		c.BrowserProbeRoots = f.Roots
 		if err = c.SetCustomPath(statePath); err != nil {
 			return err
@@ -452,8 +458,8 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	if f.TelegramProbeRejected.Load() == 0 {
-		t.Fatal("missing Go-probe/Chrome TLS differential coverage")
+	if f.PoisonedDNSAnswers.Load() == 0 || f.AlternativeDNSQueries.Load() == 0 {
+		t.Fatal("missing poisoned system DNS/real relay DNS recovery coverage")
 	}
 	if f.ECHClientHellos.Load() == 0 {
 		t.Fatal("real sandboxed Chrome ECH/GREASE coverage missing")
@@ -467,7 +473,12 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 	found := map[string]bool{}
 	for _, r := range append(earlier, snap.Records...) {
 		switch r.Domain {
-		case "blocked.example", "web.telegram.org":
+		case "web.telegram.org":
+			if r.Plan.Policy.Action != flowpolicy.RelayRequired || r.Plan.Policy.Fallback != flowpolicy.Required || r.Plan.Probe != "DNS_RELAY_HTTP_VERIFIED" || r.Plan.DNSRecovery == nil || !r.Plan.DNSRecovery.Verified || r.Plan.Destination != f.Destination() || r.Sent == 0 || r.Received == 0 {
+				t.Fatal("poisoned DNS recovery not proved", r)
+			}
+			found[r.Domain] = true
+		case "blocked.example":
 			// Unknown AUTO must be allowed to try DIRECT first. Speculative
 			// unconfirmed local attempts are NOT an OpenAI leak or HTTP PASS:
 			// the target rejects their TLS before any HTTP, and every stage's
