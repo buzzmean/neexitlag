@@ -1,6 +1,7 @@
 package clientservice
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/tls"
@@ -114,7 +115,7 @@ func (c *Controller) ConnectRemote(ctx context.Context, m Manifest) error {
 	if e != nil {
 		return errors.New("explicit UDP echo probe target required")
 	}
-	remote := &remoteState{controller: c, cp: cp, tls: cfg, target: target, clients: make(map[string]*transport.Client)}
+	remote := &remoteState{controller: c, cp: cp, tls: cfg, target: target, addresses: make(map[string]string), clients: make(map[string]*transport.Pool)}
 	if m.ProbeTokenFile != "" {
 		remote.echoKey, e = e2eprobe.Token(m.ProbeTokenFile)
 		if e != nil {
@@ -148,28 +149,18 @@ func (c *Controller) ConnectRemote(ctx context.Context, m Manifest) error {
 }
 
 type remoteState struct {
-	echoKey     []byte
-	controller  *Controller
-	cp          *controlclient.Client
-	tls         *tls.Config
-	target      netip.AddrPort
-	clients     map[string]*transport.Client
-	all         []*transport.Client
-	version     uint64
-	lastConnect time.Time
+	addresses  map[string]string
+	echoKey    []byte
+	controller *Controller
+	cp         *controlclient.Client
+	tls        *tls.Config
+	target     netip.AddrPort
+	clients    map[string]*transport.Pool
+	version    uint64
 }
 
 func (s *remoteState) apply(ctx context.Context, cfg security.Config) error {
 	c := s.controller
-	live := s.all[:0]
-	for _, client := range s.all {
-		select {
-		case <-client.Done():
-		default:
-			live = append(live, client)
-		}
-	}
-	s.all = live
 	for _, id := range cfg.RevokedDevices {
 		if id == s.cp.DeviceID {
 			s.close()
@@ -180,56 +171,100 @@ func (s *remoteState) apply(ctx context.Context, cfg security.Config) error {
 		if e := c.Selector.Configure(cfg.RoutingParameters); e != nil {
 			return e
 		}
-		for _, p := range cfg.ApplicationProfiles {
-			c.mu.Lock()
-			_, local := c.localProfiles[p.ID]
-			c.mu.Unlock()
-			if !local {
-				if e := c.Profiles.Upsert(p); e != nil {
-					return e
+		c.activationMu.Lock()
+		applyErr := func() error {
+			for _, p := range cfg.ApplicationProfiles {
+				c.mu.Lock()
+				_, local := c.localProfiles[p.ID]
+				c.mu.Unlock()
+				if !local {
+					same := false
+					for _, old := range c.Profiles.List() {
+						if old.ID == p.ID {
+							a, _ := json.Marshal(old)
+							b, _ := json.Marshal(p)
+							same = bytes.Equal(a, b)
+						}
+					}
+					if !same {
+						if e := c.reconfigure(p.ID, func() error {
+							if err := c.Profiles.Upsert(p); err != nil {
+								return err
+							}
+							c.syncPolicies()
+							return nil
+						}); e != nil {
+							return e
+						}
+					}
 				}
 			}
+			c.syncPolicies()
+			return nil
+		}()
+		c.activationMu.Unlock()
+		if applyErr != nil {
+			return applyErr
 		}
-		c.syncPolicies()
 		s.version = cfg.Version
 	}
-	if len(s.clients) == 0 || time.Since(s.lastConnect) > 25*time.Minute {
-		for _, node := range cfg.Relays {
-			ticket, e := s.cp.Ticket(ctx, node.ID)
-			if e != nil {
-				continue
-			}
-			attempt, cancel := context.WithTimeout(ctx, 3*time.Second)
-			client, e := transport.DialWithTicket(attempt, node.Address, s.tls, ticket)
-			cancel()
-			if e != nil {
-				continue
-			}
-			s.clients[node.ID] = client
-			s.all = append(s.all, client)
-			// Invalidate evidence before publishing a replacement routing provider.
+	// Signed removals retire only that relay; other pools/flows remain independent.
+	configured := map[string]bool{}
+	for _, node := range cfg.Relays {
+		configured[node.ID] = true
+	}
+	for id, pool := range s.clients {
+		if !configured[id] {
+			pool.Close()
+			delete(s.clients, id)
+			delete(s.addresses, id)
+			c.Engine.SetRelay(id, nil)
 			c.mu.Lock()
-			delete(c.acceptanceRelays, node.ID)
+			delete(c.acceptanceRelays, id)
+			delete(c.relayPools, id)
+			delete(c.transportDrops, id)
 			c.mu.Unlock()
-			c.Engine.SetRelay(node.ID, client)
-			c.mu.Lock()
-			c.transportDrops[node.ID] = client.LocalDrops.Snapshot
-			c.mu.Unlock()
-			generation := c.Selector.RegisterTransport(node.ID)
-			c.mu.Lock()
-			c.acceptanceRelays[node.ID] = acceptanceRelaySource{session: client, target: s.target, generation: generation}
-			c.mu.Unlock()
-			id := node.ID
-			client.SetFailureHandler(func(reason string) { c.Selector.ReportTransportFailure(id, generation, reason, time.Now()) })
-			go func(id string, client *transport.Client, generation uint64) {
-				select {
-				case <-client.Done():
-					c.Selector.ReportTransportFailure(id, generation, "session_closed", time.Now())
-				case <-c.ctx.Done():
-				}
-			}(node.ID, client, generation)
 		}
-		s.lastConnect = time.Now()
+	}
+	// Stable provider per relay; session creation/rotation stays inside its pool.
+	for _, node := range cfg.Relays {
+		node := node
+		factory := func(ctx context.Context) (*transport.Client, error) {
+			// Tickets are one-shot. Each factory invocation obtains a fresh signed
+			// proof/ticket, including retries after an uncertain failed handshake.
+			ticket, err := s.cp.Ticket(ctx, node.ID)
+			if err != nil {
+				return nil, &transport.OpenError{Reason: "ticket_request_failed", Cause: err}
+			}
+			client, err := transport.DialWithTicket(ctx, node.Address, s.tls, ticket)
+			if err != nil {
+				return nil, &transport.OpenError{Reason: "session_auth_or_dial_failed", Cause: err}
+			}
+			client.StartRenewal(func(ctx context.Context) ([]byte, error) { return s.cp.Ticket(ctx, node.ID) })
+			return client, nil
+		}
+		if pool := s.clients[node.ID]; pool != nil {
+			pool.UpdateFactory(factory, s.addresses[node.ID] != node.Address)
+			s.addresses[node.ID] = node.Address
+			continue
+		}
+		pool, err := transport.NewPool(c.ctx, transport.DefaultPoolConfig(), factory)
+		if err != nil {
+			return err
+		}
+		s.clients[node.ID] = pool
+		s.addresses[node.ID] = node.Address
+		c.Engine.SetRelay(node.ID, pool)
+		generation := c.Selector.RegisterTransport(node.ID)
+		c.mu.Lock()
+		c.transportDrops[node.ID] = pool.DropSnapshot
+		c.relayPools[node.ID] = pool
+		c.acceptanceRelays[node.ID] = acceptanceRelaySource{session: pool, target: s.target, generation: generation}
+		c.mu.Unlock()
+		pool.SetFailureHandler(func(reason string) { c.Selector.ReportTransportFailure(node.ID, generation, reason, time.Now()) })
+		attempt, cancel := context.WithTimeout(ctx, 3*time.Second)
+		_ = pool.Warm(attempt)
+		cancel()
 	}
 	candidates := []measurement.Candidate{{Metadata: optimizer.RelayCandidate{ID: optimizer.Direct}, Target: s.target, Open: measurement.OpenDirect}}
 	for _, node := range cfg.Relays {
@@ -237,15 +272,7 @@ func (s *remoteState) apply(ctx context.Context, cfg security.Config) error {
 		if client == nil {
 			continue
 		}
-		select {
-		case <-client.Done():
-			delete(s.clients, node.ID)
-			c.Engine.SetRelay(node.ID, nil)
-			s.lastConnect = time.Time{}
-			continue
-		default:
-		}
-		candidates = append(candidates, measurement.Candidate{Metadata: node, Target: s.target, Open: client.OpenDatagram, Load: node.Load})
+		candidates = append(candidates, measurement.Candidate{Metadata: node, Target: s.target, Open: client.OpenProbeDatagram, Load: node.Load})
 	}
 	if len(s.echoKey) > 0 {
 		for i := range candidates {
@@ -256,9 +283,8 @@ func (s *remoteState) apply(ctx context.Context, cfg security.Config) error {
 	return nil
 }
 func (s *remoteState) close() {
-	for _, c := range s.all {
-		c.Close()
+	for _, pool := range s.clients {
+		pool.Close()
 	}
-	s.clients = make(map[string]*transport.Client)
-	s.all = nil
+	s.clients = make(map[string]*transport.Pool)
 }

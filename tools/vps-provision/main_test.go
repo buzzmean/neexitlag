@@ -47,3 +47,18 @@ func TestRejectMissingAndNonPublicVPS(t *testing.T) {
 		}
 	}
 }
+
+// Export a loopback-only private fixture for the disposable systemd CI VM.
+// This is a test entry point, never a production provisioning option.
+func TestIsolatedUpgradeBundleExport(t *testing.T) {
+	root := os.Getenv("NEEXITLAG_ISOLATED_UPGRADE_BUNDLE")
+	if root == "" {
+		t.Skip("disposable CI VM fixture only")
+	}
+	if os.Getenv("GITHUB_ACTIONS") != "true" || !filepath.IsAbs(root) || filepath.Dir(root) != "/var/tmp" {
+		t.Fatal("unsafe fixture destination/environment")
+	}
+	if err := createBundle(root, netip.MustParseAddr("127.0.0.1")); err != nil {
+		t.Fatal(err)
+	}
+}

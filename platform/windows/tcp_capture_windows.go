@@ -6,6 +6,9 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"github.com/buzzmean/neexitlag/core/flowpolicy"
+	"github.com/buzzmean/neexitlag/core/localstrategy"
+	"github.com/buzzmean/neexitlag/core/routing"
 	"io"
 	"net"
 	"net/netip"
@@ -15,14 +18,20 @@ import (
 	"unsafe"
 )
 
+type delegatedTCP struct {
+	owner    *tcpEntry
+	decision Decision
+}
 type tcpRedirect struct {
-	b        *WinDivertBackend
-	handle   uintptr
-	listener *net.TCPListener
-	port     uint16
-	state    *tcpState
-	slots    chan struct{}
-	wg       sync.WaitGroup
+	delegatedMu sync.Mutex
+	delegated   map[Tuple]delegatedTCP
+	b           *WinDivertBackend
+	handle      uintptr
+	listener    *net.TCPListener
+	port        uint16
+	state       *tcpState
+	admission   *tcpAdmission
+	wg          sync.WaitGroup
 }
 
 func (b *WinDivertBackend) startTCP(d *divertDLL) (*tcpRedirect, error) {
@@ -33,7 +42,10 @@ func (b *WinDivertBackend) startTCP(d *divertDLL) (*tcpRedirect, error) {
 	port := uint16(l.Addr().(*net.TCPAddr).Port)
 	// Inbound physical connections to the internal listener are dropped. Reflected
 	// packets injected below this handle are the only admitted listener traffic.
-	filter := fmt.Sprintf("ip and tcp and !impostor and ((outbound and !loopback) or (inbound and tcp.DstPort == %d))", port)
+	filter := fmt.Sprintf("ip and tcp and !impostor and ((outbound and !loopback) or (inbound and (!loopback or tcp.DstPort == %d)))", port)
+	if b.testBrowserLoopback {
+		filter = "ip and tcp and !impostor"
+	}
 	h, err := d.openHandle(filter, 0, 0)
 	if err != nil {
 		l.Close()
@@ -42,7 +54,7 @@ func (b *WinDivertBackend) startTCP(d *divertDLL) (*tcpRedirect, error) {
 	d.setParam.Call(h, 0, 2048)
 	d.setParam.Call(h, 1, 100)
 	d.setParam.Call(h, 2, 4*1024*1024)
-	return &tcpRedirect{b: b, handle: h, listener: l, port: port, state: newTCPState(8192), slots: make(chan struct{}, 128)}, nil
+	return &tcpRedirect{b: b, handle: h, listener: l, port: port, state: newTCPState(8192), delegated: map[Tuple]delegatedTCP{}, admission: newTCPAdmission()}, nil
 }
 func (t *tcpRedirect) start(classify Classifier) {
 	t.wg.Add(3)
@@ -55,6 +67,9 @@ func (t *tcpRedirect) stop() {
 	t.b.proc().shutdown.Call(t.handle, 1)
 	t.state.mu.Lock()
 	for _, e := range t.state.entries {
+		if err := e.localBuffer.Flush(e.decision, &e.localState, e.identity, e.tuple, time.Now(), "NO_TRANSFORM", t.b.evidence); err != nil {
+			t.b.fail(err)
+		}
 		if e.upstream != nil {
 			e.upstream.Close()
 		}
@@ -64,15 +79,30 @@ func (t *tcpRedirect) stop() {
 	}
 	t.state.mu.Unlock()
 	t.wg.Wait()
+	// Shutdown(RECV) may drain queued captures after the first flush. With all
+	// producers stopped, release any late ClientHello before closing SEND.
+	t.state.mu.Lock()
+	for _, e := range t.state.entries {
+		if err := e.localBuffer.Flush(e.decision, &e.localState, e.identity, e.tuple, time.Now(), "NO_TRANSFORM", t.b.evidence); err != nil {
+			t.b.fail(err)
+		}
+	}
+	t.state.mu.Unlock()
 	t.b.proc().close.Call(t.handle)
 }
 func (t *tcpRedirect) send(p []byte, a [80]byte) error {
+	if t.b.packetWriter != nil {
+		return t.b.packetWriter(p, a)
+	}
 	d := t.b.proc()
 	d.checksum.Call(uintptr(unsafe.Pointer(&p[0])), uintptr(len(p)), uintptr(unsafe.Pointer(&a[0])), 0)
 	var n uint32
 	ok, _, err := d.send.Call(t.handle, uintptr(unsafe.Pointer(&p[0])), uintptr(len(p)), uintptr(unsafe.Pointer(&n)), uintptr(unsafe.Pointer(&a[0])))
 	if ok == 0 {
 		return fmt.Errorf("TCP reinjection: %w", err)
+	}
+	if n != uint32(len(p)) {
+		return fmt.Errorf("TCP reinjection short packet: %d/%d", n, len(p))
 	}
 	return nil
 }
@@ -91,9 +121,15 @@ func (t *tcpRedirect) reflect(e *tcpEntry, p []byte, a [80]byte, reply bool) err
 	a[10] &= ^byte(2) // inbound
 	err = t.send(out, a)
 	if err == nil {
-		event := "relay"
-		if reply {
-			event = "reply"
+		event := "captured_proxy"
+		if !e.decision.Deferred {
+			event = "relay"
+			if reply {
+				event = "reply"
+			}
+			if e.decision.Route.Direct() {
+				event = "direct_proxy"
+			}
 		}
 		t.record(e, event, 0)
 	}
@@ -116,119 +152,278 @@ func (t *tcpRedirect) packets(classify Classifier) {
 		if n == 0 || n > uint32(len(buf)) {
 			continue
 		}
-		p := buf[:n]
-		tuple, flags, _, err := ParseTCP(p)
-		if err != nil {
+		t.processPacket(buf[:n], a, classify)
+	}
+}
+func (t *tcpRedirect) processPacket(p []byte, a [80]byte, classify Classifier) {
+	t.b.policyMu.RLock()
+	defer t.b.policyMu.RUnlock()
+
+	tuple, flags, _, err := ParseTCP(p)
+	if err != nil {
+		if err = t.send(p, a); err != nil && t.b.ctx.Err() == nil {
+			t.b.fail(err)
+		}
+		return
+	}
+	// The isolated Chrome acceptance enables loopback packet observation only.
+	// Pass every unrelated loopback packet unchanged; only exact delegated
+	// upstream tuples enter the production transform path.
+	if t.b.testBrowserLoopback && a[10]&4 != 0 {
+		t.delegatedMu.Lock()
+		_, forward := t.delegated[tuple]
+		_, reverse := t.delegated[Tuple{Protocol: "tcp", Source: tuple.Destination, Destination: tuple.Source}]
+		t.delegatedMu.Unlock()
+		if !forward {
+			if reverse && flags&0x3f == 0x12 {
+				t.state.mu.Lock()
+				if entry := t.state.entries[Tuple{Protocol: "tcp", Source: tuple.Destination, Destination: tuple.Source}]; entry != nil {
+					entry.localState.ConfirmHandshake(binary.BigEndian.Uint32(p[28:]), binary.BigEndian.Uint32(p[24:]))
+				}
+				t.state.mu.Unlock()
+			}
+			_ = t.send(p, a)
+			return
+		}
+	}
+	// External traffic to the interception listener is never admitted.
+	// Native SYN/ACK observation shares this handle; it is reinjected
+	// unchanged and only confirms an exact existing DIRECT+ handshake.
+	if a[10]&2 == 0 {
+		if tuple.Destination.Port() != t.port {
+			reverse := Tuple{Protocol: "tcp", Source: tuple.Destination, Destination: tuple.Source}
+			if t.blockNativeInbound(reverse, classify) {
+				t.b.hotBlocked()
+				return
+			}
+			t.state.mu.Lock()
+			if e := t.state.entries[reverse]; e != nil && e.mode == "direct" && e.decision.Route.Local() && p[0] == 0x45 && flags&0x3f == 0x12 && 20+int(p[32]>>4)*4 == len(p) {
+				e.localState.ConfirmHandshake(binary.BigEndian.Uint32(p[28:]), binary.BigEndian.Uint32(p[24:]))
+			}
+			t.state.mu.Unlock()
 			if err = t.send(p, a); err != nil && t.b.ctx.Err() == nil {
 				t.b.fail(err)
 			}
-			continue
 		}
-		// Never expose the local interception listener as an Internet proxy.
-		if a[10]&2 == 0 {
-			continue
-		}
-		t.state.mu.Lock()
-		// Service listener responses have an exact mapping; do not trust a port alone.
-		e := t.state.ports[tuple.Destination.Port()]
-		if tuple.Source.Port() == t.port && e != nil && tuple.Source.Addr() == e.tuple.Source.Addr() && tuple.Destination.Addr() == e.tuple.Destination.Addr() {
-			e.last = time.Now()
-			err = t.reflect(e, p, a, true)
-			t.state.mu.Unlock()
-			if err != nil && t.b.ctx.Err() == nil {
-				t.b.fail(err)
-			}
-			continue
-		}
-		sequence := binary.BigEndian.Uint32(p[int(p[0]&15)*4+4:])
-		e = t.state.existing(tuple, flags, sequence, time.Now())
-		if e != nil {
-			e.last = time.Now()
-			t.record(e, "captured", len(p))
-			mode := e.mode
-			if mode == "relay" {
-				err = t.reflect(e, p, a, false)
-			} else if mode == "direct" {
-				err = t.send(p, a)
-				t.record(e, "direct", len(p))
-			} else if mode == "block" || mode == "closed" {
-				t.b.drop(e.identity, e.tuple)
-			}
-			t.state.mu.Unlock()
-			if err != nil && t.b.ctx.Err() == nil {
-				t.b.fail(err)
-			}
-			continue
-		}
+		return
+	}
+	t.state.mu.Lock()
+	// Service listener responses have an exact mapping; do not trust a port alone.
+	e := t.state.ports[tuple.Destination.Port()]
+	if tuple.Source.Port() == t.port && e != nil && tuple.Source.Addr() == e.tuple.Source.Addr() && tuple.Destination.Addr() == e.tuple.Destination.Addr() {
+		e.last = time.Now()
+		err = t.reflect(e, p, a, true)
 		t.state.mu.Unlock()
-		// Capture only new SYNs. Midstream packets never acquire a new route.
-		id := ProcessIdentity{}
-		t.b.associations.mu.RLock()
-		association, known := t.b.associations.items[tuple]
-		t.b.associations.mu.RUnlock()
-		if known && IsCurrent(association.Identity) {
-			id = association.Identity
-		} else {
-			pid, ownerErr := resolveTCPOwner(tuple)
-			if ownerErr == nil {
-				id, _ = t.b.cache.Lookup(pid)
-			}
+		if err != nil && t.b.ctx.Err() == nil {
+			t.b.fail(err)
 		}
-		decision, self := ClassifyCapture(id, tuple, uint32(os.Getpid()), classify)
-		mode := "direct"
-		if flags&0x12 == 0x02 && !self && id.PID != 0 {
-			if decision.Block {
-				mode = "block"
-			} else if !decision.Route.Direct() {
-				mode = "opening"
-			}
+		return
+	}
+	sequence := binary.BigEndian.Uint32(p[int(p[0]&15)*4+4:])
+	if old := t.state.entries[tuple]; old != nil && flags&0x12 == 2 && sequence != old.initialSequence {
+		if flushErr := old.localBuffer.Flush(old.decision, &old.localState, old.identity, old.tuple, time.Now(), "NO_TRANSFORM", t.b.evidence); flushErr != nil {
+			t.b.fail(flushErr)
 		}
-		t.state.mu.Lock()
-		e = t.state.add(tuple, id, decision, mode, time.Now())
-		if e == nil {
-			t.state.mu.Unlock()
-			if decision.Block || decision.BlockOnFailure {
-				t.b.drop(id, tuple)
-			} else {
-				_ = t.send(p, a)
-			}
-			continue
-		}
-		e.initialSequence = sequence
+	}
+	e = t.state.existing(tuple, flags, sequence, time.Now())
+	if e != nil {
+		e.last = time.Now()
 		t.record(e, "captured", len(p))
-		if self {
-			t.record(e, "self", len(p))
-		}
-		if mode == "opening" {
-			select {
-			case t.slots <- struct{}{}:
-				t.wg.Add(1)
-				go t.open(e, append([]byte(nil), p...), a)
-			default:
-				if decision.BlockOnFailure {
-					e.mode = "block"
-				} else {
-					e.mode = "direct"
-					err = t.send(p, a)
-					t.record(e, "direct", len(p))
-				}
+		if e.domainInspections < 8 && p[0] == 0x45 {
+			e.domainInspections++
+			h := 20 + int(p[32]>>4)*4
+			if h <= len(p) {
+				t.b.evidence.RecordDomain(e.identity, e.tuple, localstrategy.PacketDomain(p[h:]))
 			}
+		}
+		epoch := t.b.policyEpoch.Load()
+		if e.hotEpoch != epoch && e.mode != "hot_attach" && e.mode != "closed" {
+			latest := classify(e.identity, e.tuple)
+			if latest.Revision != e.decision.Revision && needsHotAttach(latest) {
+				t.state.retire(e, time.Now())
+				e.mode = "hot_attach"
+				e.decision = latest
+				t.b.evidence.RecordLifecycle(e.identity, e.tuple, "HOT_ATTACH_RETIRED")
+				t.b.evidence.BeginFlow(e.identity, e.tuple)
+				t.b.evidence.RecordPolicy(e.identity, e.tuple, latest, "")
+				t.b.evidence.RecordHotAttach(e.identity, e.tuple, t.b.hot.snapshot().Epoch, "HOT_ATTACH_PREEXISTING", latest.Revision)
+			}
+			e.hotEpoch = epoch
+		}
+		mode := e.mode
+		if mode == "relay" {
+			err = t.reflect(e, p, a, false)
 		} else if mode == "direct" {
-			err = t.send(p, a)
-			t.record(e, "direct", len(p))
-		} else {
-			t.b.drop(id, tuple)
+			err = e.localBuffer.Push(e.decision, &e.localState, e.identity, e.tuple, p, func(q []byte) error { return t.send(q, a) }, t.b.evidence, time.Now())
+		} else if mode == "hot_attach" {
+			t.b.hotBlocked()
+			t.b.Drops.Add(1)
+			t.b.evidence.RecordDrop(e.identity, e.tuple, "HOT_ATTACH_PENDING", false)
+			t.resetFromPacket(p, a)
+		} else if mode == "block" || mode == "closed" {
+			t.b.Drops.Add(1)
+			t.b.evidence.RecordDrop(e.identity, e.tuple, tcpPacketDropCause(mode), mode == "block")
 		}
 		t.state.mu.Unlock()
 		if err != nil && t.b.ctx.Err() == nil {
 			t.b.fail(err)
 		}
+		return
+	}
+	t.state.mu.Unlock()
+	// Capture only new SYNs. Midstream packets never acquire a new route.
+	id := ProcessIdentity{}
+	t.b.associations.mu.RLock()
+	association, known := t.b.associations.items[tuple]
+	t.b.associations.mu.RUnlock()
+	// A live cached process does not prove that it still owns this tuple:
+	// Windows reuses ephemeral ports while the old process is still running.
+	// Query the exact native TCP owner first, especially for service-created
+	// DIRECT/CONNECT sockets; stale Chrome associations must never recurse.
+	pid, ownerErr := resolveTCPOwner(tuple)
+	if ownerErr == nil {
+		id, _ = t.b.cache.Lookup(pid)
+	} else if known && IsCurrent(association.Identity) {
+		id = association.Identity
+	}
+	decision, self := ClassifyCapture(id, tuple, uint32(os.Getpid()), classify)
+	t.delegatedMu.Lock()
+	delegated, owned := t.delegated[tuple]
+	t.delegatedMu.Unlock()
+	if owned {
+		// Port reservation can race an unrelated bind. Only the service's actual
+		// socket may consume an internal delegation, never another process using
+		// the same tuple during the bounded reservation/bind interval.
+		pid, ownerErr := resolveTCPOwner(tuple)
+		owned = ownerErr == nil && pid == uint32(os.Getpid())
+	}
+	if owned {
+		id = delegated.owner.identity
+		decision = delegated.decision
+		self = false
+	}
+	mode := "direct"
+	if !self && (t.b.hotFrozen(decision) || flags&0x12 != 0x02 && needsHotAttach(decision)) {
+		t.quarantineNative(id, tuple, decision, p, a)
+		return
+	}
+	if flags&0x12 != 0x02 || self {
+		decision.Local = nil
+		decision.Route = routing.Route{}
+		decision.Block = false
+		decision.BlockOnFailure = false
+		decision.Deferred = false
+		decision.ResolveDomain = nil
+		if !self {
+			decision.Policy = flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailOpen, Source: "existing_tcp", Reason: "pre-existing TCP connection is not reclassified"}
+		}
+	}
+	if flags&0x12 == 0x02 && !self && id.PID != 0 {
+		if decision.Block {
+			mode = "block"
+		} else if !decision.Route.Direct() || decision.Deferred {
+			mode = "opening"
+		}
+	}
+	t.state.mu.Lock()
+	t.b.evidence.BeginFlow(id, tuple)
+	t.b.evidence.RecordPolicy(id, tuple, decision, "")
+	e = t.state.add(tuple, id, decision, mode, time.Now())
+	if e == nil {
+		t.state.mu.Unlock()
+		if decision.Block || decision.BlockOnFailure {
+			t.b.drop(id, tuple)
+		} else {
+			_ = t.send(p, a)
+		}
+		return
+	}
+	e.hotEpoch = t.b.policyEpoch.Load()
+	t.b.evidence.RecordHotAttach(id, tuple, t.b.hot.snapshot().Epoch, "HOT_ATTACH_NEW_FLOW", decision.Revision)
+	e.initialSequence = sequence
+	t.record(e, "captured", len(p))
+	if self {
+		t.record(e, "self", len(p))
+	}
+	if mode == "opening" {
+		if decision.Deferred {
+			// No upstream work until accept/ClientHello. Do not consume an
+			// opening permit for the app-side SYN handshake.
+			e.mode = "relay"
+			err = t.reflect(e, p, a, false)
+		} else {
+			e.openDone = make(chan struct{})
+			syn := append([]byte(nil), p...)
+			t.admitOpen(e, func(release func()) { t.open(e, syn, a, release) })
+		}
+	} else if mode == "direct" {
+		err = e.localBuffer.Push(e.decision, &e.localState, e.identity, e.tuple, p, func(q []byte) error { return t.send(q, a) }, t.b.evidence, time.Now())
+	} else {
+		t.b.drop(id, tuple)
+	}
+	t.state.mu.Unlock()
+	if err != nil && t.b.ctx.Err() == nil {
+		t.b.fail(err)
 	}
 }
-func (t *tcpRedirect) open(e *tcpEntry, syn []byte, a [80]byte) {
+
+// Called with state.mu held. Capture and accept never wait for an opening
+// permit. Only setup work queues; established pipe goroutines hold no permits.
+func (t *tcpRedirect) admitOpen(e *tcpEntry, run func(func())) {
+	t.wg.Add(1)
+	ctx, cancel := context.WithCancel(t.b.ctx)
+	e.openCancel = cancel
+	t.b.evidence.RecordTCPAdmission(e.identity, e.tuple, "TCP_ADMISSION_QUEUED", 0)
+	fail := func(cause string, wait time.Duration) {
+		t.b.evidence.RecordTCPAdmission(e.identity, e.tuple, cause, wait)
+		t.b.evidence.RecordFailure(e.identity, e.tuple, cause, true)
+		t.state.retire(e, time.Now())
+		e.finishOpen()
+		t.wg.Done()
+	}
+	if !t.admission.submit(ctx, func(wait time.Duration, err error, release func()) {
+		defer cancel()
+		if err != nil {
+			t.state.mu.Lock()
+			if e.mode != "closed" && e.mode != "hot_attach" && t.b.ctx.Err() == nil {
+				fail("TCP_ADMISSION_TIMEOUT", wait)
+			} else {
+				e.finishOpen()
+				t.wg.Done()
+			}
+			t.state.mu.Unlock()
+			return
+		}
+		t.b.evidence.RecordTCPAdmission(e.identity, e.tuple, "TCP_ADMISSION_READY", wait)
+		run(release)
+	}) {
+		// A genuine hard resource bound (384 pending setups), not temporary
+		// saturation of the 128 workers. Never bypass protected policy.
+		cancel()
+		fail("TCP_ADMISSION_LIMIT", 0)
+	}
+}
+
+func (t *tcpRedirect) open(e *tcpEntry, syn []byte, a [80]byte, release func()) {
 	defer t.wg.Done()
-	defer func() { <-t.slots }()
+	defer e.finishOpen()
+	defer release()
+	t.state.mu.Lock()
+	valid := t.state.entries[e.tuple] == e && e.mode == "opening"
+	t.state.mu.Unlock()
+	if !valid {
+		return
+	}
 	ctx, cancel := context.WithTimeout(t.b.ctx, 5*time.Second)
+	t.state.mu.Lock()
+	e.openCancel = cancel
+	retired := e.mode != "opening"
+	t.state.mu.Unlock()
+	if retired {
+		cancel()
+		return
+	}
+	openStarted := time.Now()
 	up, err := t.b.Engine.OpenTCP(ctx, e.decision.Flow)
 	cancel()
 	route := e.decision.Route
@@ -248,11 +443,13 @@ func (t *tcpRedirect) open(e *tcpEntry, syn []byte, a [80]byte) {
 		}
 		return
 	}
+	t.b.evidence.RecordRelayOpen(e.identity, e.tuple, openStarted, err)
 	if err != nil || route.Direct() {
 		if up != nil {
 			up.Close()
 		}
 		if e.decision.BlockOnFailure {
+			t.b.evidence.RecordPolicy(e.identity, e.tuple, e.decision, "RELAY_OPEN_FAILED")
 			e.mode = "block"
 			t.b.drop(e.identity, e.tuple)
 			return
@@ -281,16 +478,24 @@ func (t *tcpRedirect) accept() {
 		local, remote := c.LocalAddr().(*net.TCPAddr).AddrPort(), c.RemoteAddr().(*net.TCPAddr).AddrPort()
 		t.state.mu.Lock()
 		e := t.state.ports[remote.Port()]
-		if t.b.ctx.Err() != nil || e == nil || e.mode != "relay" || e.local != nil || e.upstream == nil || local.Addr() != e.tuple.Source.Addr() || remote.Addr() != e.tuple.Destination.Addr() {
+		if t.b.ctx.Err() != nil || e == nil || e.mode != "relay" || e.local != nil || (e.upstream == nil && !e.decision.Deferred) || local.Addr() != e.tuple.Source.Addr() || remote.Addr() != e.tuple.Destination.Addr() {
 			t.state.mu.Unlock()
 			c.Close()
 			continue
 		}
 		e.local = c
+		if e.decision.Deferred {
+			e.openDone = make(chan struct{})
+		}
 		up := e.upstream
-		t.wg.Add(1)
-		t.state.mu.Unlock()
-		go t.pipe(e, c, up)
+		if e.decision.Deferred {
+			t.admitOpen(e, func(release func()) { t.deferredOpen(e, c, release) })
+			t.state.mu.Unlock()
+		} else {
+			t.wg.Add(1)
+			t.state.mu.Unlock()
+			go t.pipe(e, c, up)
+		}
 	}
 }
 func (t *tcpRedirect) pipe(e *tcpEntry, local, up net.Conn) {
@@ -326,7 +531,11 @@ func (t *tcpRedirect) copy(e *tcpEntry, dst, src net.Conn, event string) {
 			if written > 0 {
 				t.state.mu.Lock()
 				e.last = time.Now()
-				t.b.evidence.AddBytes(e.identity, e.tuple, event, e.decision.Route.RelayID, uint64(written))
+				actualEvent := event
+				if e.decision.Route.Direct() {
+					actualEvent = "direct_proxy"
+				}
+				t.b.evidence.AddBytes(e.identity, e.tuple, actualEvent, e.decision.Route.RelayID, uint64(written))
 				t.state.mu.Unlock()
 				if event == "relay" {
 					t.b.TX.Add(uint64(written))
@@ -335,12 +544,27 @@ func (t *tcpRedirect) copy(e *tcpEntry, dst, src net.Conn, event string) {
 				}
 			}
 			if werr != nil {
+				t.finishCopy(e, event, nil, werr)
 				return
 			}
 		}
 		if err != nil {
+			t.finishCopy(e, event, err, nil)
 			return
 		}
+	}
+}
+func (t *tcpRedirect) finishCopy(e *tcpEntry, event string, readErr, writeErr error) {
+	t.state.mu.Lock()
+	defer t.state.mu.Unlock()
+	stopping := t.b.ctx.Err() != nil || (e.mode == "closed" || e.mode == "hot_attach") || e.normalTeardown
+	cause := tcpCopyFailure(event, readErr, writeErr, stopping)
+	if cause != "" {
+		t.b.evidence.RecordFailure(e.identity, e.tuple, cause, e.decision.BlockOnFailure)
+	}
+	if tcpNormalEnd(event, readErr, writeErr) {
+		e.normalTeardown = true
+		t.b.evidence.RecordLifecycle(e.identity, e.tuple, "TCP_CLOSED")
 	}
 }
 func writeTCP(w io.Writer, p []byte) (int, error) {
@@ -360,7 +584,7 @@ func writeTCP(w io.Writer, p []byte) (int, error) {
 }
 func (t *tcpRedirect) cleanup() {
 	defer t.wg.Done()
-	tick := time.NewTicker(10 * time.Second)
+	tick := time.NewTicker(50 * time.Millisecond)
 	defer tick.Stop()
 	for {
 		select {
@@ -368,8 +592,215 @@ func (t *tcpRedirect) cleanup() {
 			return
 		case now := <-tick.C:
 			t.state.mu.Lock()
+			for _, e := range t.state.entries {
+				if e.localBuffer.Expired(now) {
+					if err := e.localBuffer.Flush(e.decision, &e.localState, e.identity, e.tuple, now, "REASSEMBLY_TIMEOUT", t.b.evidence); err != nil {
+						t.b.fail(err)
+					}
+				}
+			}
 			t.state.expire(now)
+			t.b.evidence.pruneAliases(func(tuple Tuple) bool { return t.state.entries[tuple] != nil })
 			t.state.mu.Unlock()
 		}
 	}
+}
+
+// The app-side handshake has completed locally; upstream is opened exactly once
+// after outer SNI. A failure closes this connection, never retries its TLS bytes
+// on a different egress. Only a future connection can choose a different route.
+func (t *tcpRedirect) deferredOpen(e *tcpEntry, c net.Conn, release func()) {
+	defer e.finishOpen()
+	defer release()
+	t.state.mu.Lock()
+	valid := t.state.entries[e.tuple] == e && e.mode == "relay"
+	t.state.mu.Unlock()
+	if !valid {
+		c.Close()
+		t.wg.Done()
+		return
+	}
+	data, domain, reason := ReadDeferredHello(c)
+	if reason == "CLIENT_CLOSED_BEFORE_DATA" {
+		t.state.mu.Lock()
+		t.state.retire(e, time.Now())
+		t.state.mu.Unlock()
+		t.wg.Done()
+		return
+	}
+	d := ResolveDeferredDecision(e.decision, domain, reason)
+	t.state.mu.Lock()
+	if t.b.ctx.Err() != nil || (e.mode == "closed" || e.mode == "hot_attach") {
+		t.state.mu.Unlock()
+		c.Close()
+		t.wg.Done()
+		return
+	}
+	e.decision = d
+	t.b.evidence.RecordPolicy(e.identity, e.tuple, d, reason)
+	t.b.evidence.RecordDomain(e.identity, e.tuple, domain)
+	t.state.mu.Unlock()
+	if d.Block {
+		t.state.mu.Lock()
+		t.b.drop(e.identity, e.tuple)
+		t.state.retire(e, time.Now())
+		t.state.mu.Unlock()
+		t.wg.Done()
+		return
+	}
+	requested := d.Route
+	ctx, cancel := context.WithTimeout(t.b.ctx, 5*time.Second)
+	t.state.mu.Lock()
+	e.openCancel = cancel
+	retired := e.mode == "hot_attach" || e.mode == "closed"
+	t.state.mu.Unlock()
+	if retired {
+		cancel()
+		c.Close()
+		t.wg.Done()
+		return
+	}
+	var up net.Conn
+	var err error
+	openStarted := time.Now()
+	if d.Route.Local() {
+		up, err = t.dialLocalStrategy(ctx, e, d)
+	} else {
+		up, err = t.b.Engine.OpenTCP(ctx, d.Flow)
+	}
+	cancel()
+	if err != nil && !d.BlockOnFailure && t.b.ctx.Err() == nil && (!requested.Direct() || requested.Local()) {
+		// No application bytes have left this proxy yet. An explicitly permitted
+		// native fallback gets its own bounded open budget, not an expired relay ctx.
+		fallback, stop := context.WithTimeout(t.b.ctx, 3*time.Second)
+		up, err = (&net.Dialer{}).DialContext(fallback, "tcp4", e.tuple.Destination.String())
+		stop()
+		if err == nil {
+			d.Route = routing.Route{}
+			reason = "UPSTREAM_OPEN_FAIL_OPEN_DIRECT"
+		}
+	}
+	if err == nil && !d.Route.Local() {
+		for _, f := range t.b.Engine.Snapshot() {
+			if f.Protocol == "tcp" && f.PID == e.identity.PID && f.Source == e.tuple.Source && f.Destination == e.tuple.Destination {
+				d.Route = f.Route
+				break
+			}
+		}
+	}
+	t.state.mu.Lock()
+	if t.state.entries[e.tuple] != e || e.mode == "hot_attach" || e.mode == "closed" {
+		t.state.mu.Unlock()
+		abortHotTCP(up)
+		c.Close()
+		t.wg.Done()
+		return
+	}
+	e.decision = d
+	if !requested.Direct() {
+		t.b.evidence.RecordRelayOpen(e.identity, e.tuple, openStarted, err)
+	}
+	if reason == "UPSTREAM_OPEN_FAIL_OPEN_DIRECT" {
+		t.b.evidence.RecordPolicy(e.identity, e.tuple, d, reason)
+	}
+	if err != nil || t.b.ctx.Err() != nil || (e.mode == "closed" || e.mode == "hot_attach") {
+		if up != nil {
+			up.Close()
+		}
+		t.b.evidence.RecordPolicy(e.identity, e.tuple, d, "UPSTREAM_OPEN_FAILED")
+		t.b.drop(e.identity, e.tuple)
+		t.state.retire(e, time.Now())
+		t.state.mu.Unlock()
+		t.wg.Done()
+		return
+	}
+	e.upstream = up
+	if !requested.Direct() && d.Route.Direct() {
+		t.b.evidence.RecordPolicy(e.identity, e.tuple, d, "RELAY_FELL_BACK_DIRECT")
+	}
+	t.b.evidence.RecordUpstreamOpened(e.identity, e.tuple, d.Route)
+	t.state.mu.Unlock()
+	// Established writes can block on peer backpressure indefinitely; they
+	// must never retain an opening permit and starve unrelated new flows.
+	release()
+	e.finishOpen()
+	if len(data) > 0 {
+		n, werr := writeTCP(up, data)
+		if n > 0 {
+			event := "direct_proxy"
+			if !d.Route.Direct() {
+				event = "relay"
+			}
+			t.b.evidence.AddBytes(e.identity, e.tuple, event, d.Route.RelayID, uint64(n))
+		}
+		if werr != nil {
+			t.finishCopy(e, "relay", nil, werr)
+			c.Close()
+			up.Close()
+			t.state.mu.Lock()
+			t.state.retire(e, time.Now())
+			t.state.mu.Unlock()
+			t.wg.Done()
+			return
+		}
+	}
+	data = nil
+	t.pipe(e, c, up)
+}
+func (t *tcpRedirect) dialLocalStrategy(ctx context.Context, e *tcpEntry, d Decision) (net.Conn, error) {
+	return t.dialLocalStrategyFrom(ctx, e, d, e.tuple.Source.Addr())
+}
+func (t *tcpRedirect) dialLocalStrategyFrom(ctx context.Context, e *tcpEntry, d Decision, bind netip.Addr) (net.Conn, error) {
+	var bound Tuple
+	c, err := dialBoundIPv4(ctx, bind, e.tuple.Destination, func(source netip.AddrPort) error {
+		if bound.Source.IsValid() {
+			t.releaseDelegated(bound, e.identity)
+		}
+		bound = Tuple{Protocol: "tcp", Source: source, Destination: e.tuple.Destination}
+		t.delegatedMu.Lock()
+		defer t.delegatedMu.Unlock()
+		if len(t.delegated) >= t.state.limit || !t.b.evidence.BindUpstream(e.identity, bound, e.tuple) {
+			return fmt.Errorf("delegated TCP limit")
+		}
+		d.Flow = routing.Flow{}
+		d.Deferred = false
+		d.ResolveDomain = nil
+		t.delegated[bound] = delegatedTCP{owner: e, decision: d}
+		return nil
+	})
+	if err != nil {
+		t.releaseDelegated(bound, e.identity)
+		return nil, err
+	}
+	return &delegatedConn{Conn: c, release: func() { t.releaseDelegated(bound, e.identity) }}, nil
+}
+
+// Closing a delegated upstream can happen while state.mu is held. Its release
+// must not re-enter that mutex or leave aliases pointing at a new policy epoch.
+func (t *tcpRedirect) releaseDelegated(bound Tuple, id ProcessIdentity) {
+	t.delegatedMu.Lock()
+	delete(t.delegated, bound)
+	t.delegatedMu.Unlock()
+	t.b.evidence.UnbindUpstream(id, bound)
+}
+
+func (c *delegatedConn) Abort() error {
+	if tcp, ok := c.Conn.(*net.TCPConn); ok {
+		_ = tcp.SetLinger(0)
+	}
+	return c.Close()
+}
+
+type delegatedConn struct {
+	net.Conn
+	once    sync.Once
+	release func()
+}
+
+func (c *delegatedConn) Close() error { err := c.Conn.Close(); c.once.Do(c.release); return err }
+func (c *delegatedConn) CloseWrite() error {
+	if v, ok := c.Conn.(interface{ CloseWrite() error }); ok {
+		return v.CloseWrite()
+	}
+	return nil
 }

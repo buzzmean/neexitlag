@@ -47,7 +47,7 @@
       <Setter Property="AutoGenerateColumns" Value="False"/>
       <Setter Property="CanUserAddRows" Value="False"/>
       <Setter Property="IsReadOnly" Value="True"/>
-      <Setter Property="RowHeight" Value="42"/>
+      <Setter Property="MinRowHeight" Value="42"/>
       <Setter Property="ColumnHeaderHeight" Value="42"/>
     </Style>
     <Style TargetType="DataGridColumnHeader">
@@ -59,10 +59,71 @@
       <Setter Property="Foreground" Value="#EDF2F6"/>
       <Setter Property="Margin" Value="8"/>
     </Style>
+    <!-- Own every ComboBox surface: no OS light-theme popup/disabled chrome. -->
+    <Style x:Key="ComboFocus" TargetType="Control">
+      <Setter Property="Template"><Setter.Value><ControlTemplate><Rectangle Margin="2" Stroke="#B7F46E" StrokeThickness="1" StrokeDashArray="2,2"/></ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style TargetType="ComboBoxItem">
+      <Setter Property="Background" Value="#191E25"/>
+      <Setter Property="Foreground" Value="#EDF2F6"/>
+      <Setter Property="Padding" Value="12,9"/>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+      <Setter Property="FocusVisualStyle" Value="{StaticResource ComboFocus}"/>
+      <Setter Property="Template"><Setter.Value>
+        <ControlTemplate TargetType="ComboBoxItem">
+          <Border x:Name="ItemBorder" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}" CornerRadius="4" Margin="2,1">
+            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center"/>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsHighlighted" Value="True"><Setter Property="Background" Value="#28313C"/></Trigger>
+            <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#28313C"/></Trigger>
+            <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="#33452C"/><Setter Property="Foreground" Value="#B7F46E"/></Trigger>
+            <Trigger Property="IsEnabled" Value="False"><Setter Property="Background" Value="#20262F"/><Setter Property="Foreground" Value="#9BA9BA"/></Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value></Setter>
+    </Style>
     <Style TargetType="ComboBox">
       <Setter Property="MinWidth" Value="150"/>
+      <Setter Property="MinHeight" Value="38"/>
       <Setter Property="Margin" Value="8"/>
-      <Setter Property="Foreground" Value="#172311"/>
+      <Setter Property="Padding" Value="12,8"/>
+      <Setter Property="Background" Value="#191E25"/>
+      <Setter Property="Foreground" Value="#EDF2F6"/>
+      <Setter Property="BorderBrush" Value="#334050"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="MaxDropDownHeight" Value="320"/>
+      <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
+      <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
+      <Setter Property="ScrollViewer.CanContentScroll" Value="True"/>
+      <Setter Property="FocusVisualStyle" Value="{StaticResource ComboFocus}"/>
+      <Setter Property="Template"><Setter.Value>
+        <ControlTemplate TargetType="ComboBox">
+          <Grid>
+            <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6"/>
+            <ToggleButton x:Name="DropDownToggle" Focusable="False" ClickMode="Press" IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+              <ToggleButton.Template><ControlTemplate TargetType="ToggleButton"><Border Background="Transparent"/></ControlTemplate></ToggleButton.Template>
+            </ToggleButton>
+            <ContentPresenter x:Name="Selection" Margin="12,8,36,8" IsHitTestVisible="False" VerticalAlignment="Center" Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}" ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}" TextElement.Foreground="{TemplateBinding Foreground}"/>
+            <TextBox x:Name="PART_EditableTextBox" Margin="12,6,36,6" Visibility="Hidden" Background="{TemplateBinding Background}" Foreground="{TemplateBinding Foreground}" BorderThickness="0" IsReadOnly="{TemplateBinding IsReadOnly}"/>
+            <Path x:Name="Arrow" IsHitTestVisible="False" Data="M 0 0 L 5 5 L 10 0" Stroke="{TemplateBinding Foreground}" StrokeThickness="1.8" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,14,0"/>
+            <Popup x:Name="PART_Popup" Placement="Bottom" IsOpen="{TemplateBinding IsDropDownOpen}" AllowsTransparency="True" Focusable="False" PopupAnimation="None">
+              <Border x:Name="PopupBorder" Background="#191E25" BorderBrush="#334050" BorderThickness="1" CornerRadius="6" Padding="3" MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}" MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                <ScrollViewer CanContentScroll="True" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                  <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained"/>
+                </ScrollViewer>
+              </Border>
+            </Popup>
+          </Grid>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="Background" Value="#28313C"/></Trigger>
+            <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="#B7F46E"/></Trigger>
+            <Trigger Property="IsDropDownOpen" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="#B7F46E"/></Trigger>
+            <Trigger Property="IsEditable" Value="True"><Setter TargetName="Selection" Property="Visibility" Value="Hidden"/><Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible"/></Trigger>
+            <Trigger Property="IsEnabled" Value="False"><Setter Property="Foreground" Value="#9BA9BA"/><Setter TargetName="Chrome" Property="Background" Value="#20262F"/><Setter TargetName="Chrome" Property="BorderBrush" Value="#2A323E"/></Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value></Setter>
     </Style>
   </Application.Resources>
 </Application>

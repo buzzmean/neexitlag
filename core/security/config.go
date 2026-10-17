@@ -75,7 +75,7 @@ func (c *ConfigCache) Apply(raw []byte, now time.Time) error {
 		return e
 	}
 	var env Envelope
-	if e = Parse(raw, &env); e != nil {
+	if e = parseLimit(raw, &env, MaxConfigDocument); e != nil {
 		return e
 	}
 	h := sha256.Sum256(env.Payload)

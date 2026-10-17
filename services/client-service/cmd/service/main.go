@@ -25,6 +25,7 @@ func runReady(ctx context.Context, path string, ready func()) error {
 	}
 	controller := clientservice.New(ctx)
 	defer controller.Close()
+	controller.BrowserOwnerSID = manifest.OwnerSID
 	controller.Backend = windowsplatform.NewWinDivert(manifest.Driver, controller.Engine)
 	if e = controller.SetCustomPath(manifest.StateDirectory + string(os.PathSeparator) + "profiles.json"); e != nil {
 		return e
@@ -35,6 +36,9 @@ func runReady(ctx context.Context, path string, ready func()) error {
 		}
 	}
 	controller.Start()
+	if e = controller.RestoreBrowserTransport(); e != nil {
+		slog.Warn("Chrome transport not restored; proxy remains fail-closed", "error", e)
+	}
 	if controller.Snapshot().Settings.Automatic {
 		if _, e := controller.Handle(ctx, "optimize", []byte(`{"enabled":true}`)); e != nil {
 			slog.Warn("automatic capture unavailable; networking remains DIRECT", "error", e)

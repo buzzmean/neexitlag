@@ -28,6 +28,15 @@ func ParseUDP(packet []byte) (Tuple, []byte, error) {
 	t := Tuple{"udp", netip.AddrPortFrom(netip.AddrFrom4(src), binary.BigEndian.Uint16(udp[:2])), netip.AddrPortFrom(netip.AddrFrom4(dst), binary.BigEndian.Uint16(udp[2:4]))}
 	return t, udp[8:], nil
 }
+
+// Keep only validated headers for reply reconstruction, not a retained payload.
+func udpReplyTemplate(packet []byte) []byte {
+	h := int(packet[0]&15) * 4
+	out := append([]byte(nil), packet[:h+8]...)
+	binary.BigEndian.PutUint16(out[2:4], uint16(len(out)))
+	binary.BigEndian.PutUint16(out[h+4:h+6], 8)
+	return out
+}
 func ReplyUDP(template, payload []byte) ([]byte, error) {
 	tuple, _, err := ParseUDP(template)
 	if err != nil || len(payload) > protocol.MaxPayload {

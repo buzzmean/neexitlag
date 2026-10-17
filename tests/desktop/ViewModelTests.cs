@@ -14,11 +14,17 @@ public sealed class FakeService : IServiceClient
         object result = method switch
         {
             "status" or "optimize" => State,
+            "profiles" => State.Profiles,
             "processes" => Array.Empty<ProcessIdentity>(),
             "capture.diagnostics" => new CaptureEvidence(),
+            "browser.status" => new BrowserTransportSnapshot(),
             "profile.set" or "profile.delete" => State.Profiles,
             "settings.set" => payload!,
             "quality.diagnostics" => new DropDiagnostics(),
+ "local.network" => new NetworkObservation{Error="not measured"},
+ "local.get"=>new LocalStrategyConfig(),
+ "local.set"=>payload!,
+ "local.metrics"=>new LocalStrategyMetrics(),
             "diagnostics" => new[] { new Check { Name = "UDP", Status = "healthy" }, new Check { Name = "TCP", Status = "not configured" }, new Check { Name = "Relay", Status = "unavailable" } },
             _ => throw new Exception(method)
         };
@@ -342,4 +348,15 @@ public sealed class QualityPresentationTests
         Assert.Equal(12000000, route.Quality!.EwmaRtt);
         Assert.Equal(3, route.Quality.MaxLossBurst);
     }
+}
+
+public sealed class LocalStrategyUiTests {
+ [Fact] public void DirectPlusShowsOnlyRealAttributedEvidence(){
+ var row=new ApplicationRow();var p=new Profile{Id="chosen",Name="Выбрано",Executables=["C:\\chosen.exe"],Mode="DIRECT_PLUS",LocalStrategyId="s"};
+ var process=new ProcessIdentity{PID=9,CreationTime=11,Path="C:\\chosen.exe"};var flow=new CaptureFlow{Pid=9,CreationTime=11,Exe=process.Path,Protocol="tcp",IpVersion="IPv4",SelectedRoute="DIRECT_PLUS",Strategy="s",Destination="203.0.113.9:443",Counters=new(){DirectPlusBytes=100},LastSeen=DateTimeOffset.UtcNow};
+ row.Update(p,[process],new(){Flows=[flow]});Assert.Equal("Напрямую+",row.Route);Assert.Contains("203.0.113.9:443",row.LocalDetails);Assert.Contains("s:",row.LocalDetails);
+ flow.CreationTime=12;row.Update(p,[process],new(){Flows=[flow]});Assert.Equal(Text.Get("NoData"),row.Route);Assert.DoesNotContain("203.0.113.9",row.LocalDetails);
+ Assert.Equal("s",p.Copy().LocalStrategyId);Assert.Equal("Напрямую+",Text.Mode("DIRECT_PLUS"));
+ }
+ [Fact]public async Task ConfigurationUsesAuthenticatedServiceNotGuiPacketEngine(){var s=new FakeService();var vm=new DesktopViewModel(s);var config=new LocalStrategyConfig{Enabled=true,User=[new(){Id="s",Application="chosen.exe",Ips=["203.0.113.9"]}]};await vm.SaveLocalStrategiesAsync(config);Assert.Contains(s.Calls,c=>c.method=="local.set");Assert.Equal("s",System.Text.Json.JsonSerializer.Deserialize<LocalStrategyConfig>(System.Text.Json.JsonSerializer.Serialize(config,WireJson.Options),WireJson.Options)!.User[0].Id);}
 }

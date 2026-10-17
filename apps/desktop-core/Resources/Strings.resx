@@ -486,4 +486,100 @@
 <data name="InterceptionHint" xml:space="preserve"><value>Состояние backend; успешное внешнее соединение подтверждается отдельным acceptance.</value></data>
 <data name="UdpTraffic" xml:space="preserve"><value>Трафик UDP</value></data>
 <data name="TcpTraffic" xml:space="preserve"><value>Трафик TCP</value></data>
+  <data name="DirectPlus" xml:space="preserve"><value>Напрямую+</value></data>
+  <data name="LocalStrategies" xml:space="preserve"><value>Локальные стратегии</value></data>
+  <data name="LocalDetails" xml:space="preserve"><value>Стратегия / target / протокол / байты</value></data>
+  <data name="LocalWarning" xml:space="preserve"><value>Экспериментально. Только явные приложения и targets. Работа на вашей сети ещё требует теста. DIRECT следует текущей маршрутизации Windows и может идти через VPN. Экономия VPS без RELAY baseline не измерена.</value></data>
+  <data name="LocalEnabled" xml:space="preserve"><value>Включить Напрямую+</value></data>
+  <data name="AutoStrategy" xml:space="preserve"><value>Auto Strategy: использовать проверенный вариант в режиме «Авто»</value></data>
+  <data name="LocalLoad" xml:space="preserve"><value>Загрузить</value></data>
+  <data name="LocalSave" xml:space="preserve"><value>Сохранить</value></data>
+  <data name="LocalAdd" xml:space="preserve"><value>Добавить / заменить правило</value></data>
+  <data name="LocalRemove" xml:space="preserve"><value>Удалить правило</value></data>
+  <data name="LocalTest" xml:space="preserve"><value>Запустить контролируемый тест</value></data>
+  <data name="LocalApp" xml:space="preserve"><value>Полный путь к exe (для tester: tcp-selected.exe)</value></data>
+  <data name="LocalDomains" xml:space="preserve"><value>Домены: exact или *.example.org, через запятую</value></data>
+  <data name="LocalIPs" xml:space="preserve"><value>IP / CIDR, через запятую</value></data>
+  <data name="LocalExcludeDomains" xml:space="preserve"><value>Исключить домены</value></data>
+  <data name="LocalExcludeIPs" xml:space="preserve"><value>Исключить IP / CIDR</value></data>
+  <data name="LocalPorts" xml:space="preserve"><value>Порты, через запятую</value></data>
+  <data name="LocalURL" xml:space="preserve"><value>Контролируемый target: HTTP/HTTPS URL или IPv4:port для UDP</value></data>
+  <data name="LocalToken" xml:space="preserve"><value>Файл endpoint token (не IPC token)</value></data>
+  <data name="LocalCA" xml:space="preserve"><value>Файл CA endpoint, если нужен (TLS проверяется)</value></data>
+  <data name="LocalCounters" xml:space="preserve"><value>Осмотрено {0}, изменено {1}, дополнительных пакетов {2}, flows {3}, DIRECT+ {4}. Экономия VPS: не измерена.</value></data>
+  <data name="LocalSelect" xml:space="preserve"><value>Выберите приложение/правило; настройте явный target.</value></data>
+  <data name="LocalTestScript" xml:space="preserve"><value>Выберите tools/windows/strategy-tester.ps1 из текущего checkout</value></data>
+  <data name="LocalSaved" xml:space="preserve"><value>Стратегии сохранены. Старые TCP connections не меняют маршрут.</value></data>
+  <data name="LocalAutoHint" xml:space="preserve"><value>«Авто» использует только свежий tester cache этого exe/target. Результат tcp-selected.exe не переносится на Chrome/игру.</value></data>
+<data name="Enabled" xml:space="preserve"><value>Включено</value></data>
+<data name="LocalTcp1" xml:space="preserve"><value>TCP: разделить после 1 байта</value></data>
+<data name="LocalTcp5" xml:space="preserve"><value>TCP: разделить после 5 байтов</value></data>
+<data name="LocalUdp24" xml:space="preserve"><value>UDP: фрагментация IPv4 (эксперимент)</value></data>
+<data name="LocalNetwork" xml:space="preserve"><value>Сетевые адаптеры (наблюдение службы)</value></data>
+<data name="LocalVPN" xml:space="preserve"><value>Сторонний VPN / Happ</value></data>
+<data name="LocalConflict" xml:space="preserve"><value>Конфликт WinDivert / античит</value></data>
+<data name="LocalRoutes" xml:space="preserve"><value>Маршруты Windows / исключение к VPS</value></data>
+<data name="LocalDNS" xml:space="preserve"><value>Системный DNS / Secure DNS</value></data>
+<data name="LocalProxy" xml:space="preserve"><value>Системный WinHTTP proxy (контекст службы)</value></data>
+<data name="LocalVPNUnknown" xml:space="preserve"><value>Публичный выход не измерен. DIRECT может использовать VPN; физический ISP не предполагается.</value></data>
+<data name="LocalConflictUnknown" xml:space="preserve"><value>Известный конфликт не найден. Проверка модулей может быть неполной; это не гарантия совместимости.</value></data>
+<data name="LocalDNSUnknown" xml:space="preserve"><value>Наличие DoH-конфигурации не доказывает доступность. Browser DoH и его публичный выход не измерены.</value></data>
+<data name="LocalLoadFirst" xml:space="preserve"><value>Сначала загрузите текущие стратегии, чтобы сохранить существующие правила.</value></data>
+<data name="LocalTcpCustom" xml:space="preserve"><value>TCP: настраиваемая сегментация</value></data>
+<data name="LocalSplitPosition" xml:space="preserve"><value>Позиция для настраиваемой TCP-стратегии (1–512)</value></data>
+  <data name="RunningApplicationsHint" xml:space="preserve"><value>Выберите запущенное приложение. Несколько процессов одного приложения показаны одной строкой. Приложение будет добавлено по полному пути к exe.</value></data>
+  <data name="RefreshProcesses" xml:space="preserve"><value>Обновить</value></data>
+  <data name="SearchApplications" xml:space="preserve"><value>Поиск по названию, exe, пути или PID</value></data>
+  <data name="ProcessIdentifiers" xml:space="preserve"><value>PID процессов</value></data>
+  <data name="ChooseFileManually" xml:space="preserve"><value>Выбрать файл вручную</value></data>
+  <data name="Add" xml:space="preserve"><value>Добавить</value></data>
+  <data name="RunningProcessCount" xml:space="preserve"><value>Процессов: {0}</value></data>
+  <data name="RunningLoading" xml:space="preserve"><value>Загрузка запущенных приложений…</value></data>
+  <data name="RunningEmpty" xml:space="preserve"><value>Приложения не найдены. Обновите список, измените поиск или выберите файл вручную.</value></data>
+  <data name="RunningTruncated" xml:space="preserve"><value>Список ограничен. Некоторые приложения или процессы не показаны; можно выбрать файл вручную.</value></data>
+  <data name="QuicFallback" xml:space="preserve"><value>HTTP/3/QUIC → TCP fallback (для приложения)</value></data>
+  <data name="ApplyPreset" xml:space="preserve"><value>Применить пресет DIRECT+</value></data>
+  <data name="DiscordPreset" xml:space="preserve"><value>Discord — пресет v2</value></data>
+  <data name="YouTubePreset" xml:space="preserve"><value>YouTube — пресет v2</value></data>
+  <data name="PresetHint" xml:space="preserve"><value>Выберите приложение в разделе «Приложения», затем примените Discord или YouTube. Цепочки и явный TTL видны в таблице Advanced. QUIC fallback действует только на новые IPv4 UDP/443 этого приложения, до 3 секунд / 8 пакетов. Voice UDP не блокируется.</value></data>
+  <data name="PresetNeedsPath" xml:space="preserve"><value>Сначала добавьте приложение по полному пути к exe.</value></data>
+  <data name="ChainAdvancedReadOnly" xml:space="preserve"><value>Цепочки пресета показаны в Advanced. Для настройки используйте local.set; этот редактор одиночных механизмов не перезаписывает цепочки.</value></data>
+  <data name="LocalModified" xml:space="preserve"><value>Изменённые пакеты</value></data>
+  <data name="RelayTraffic" xml:space="preserve"><value>Трафик relay</value></data>
+  <data name="LocalTestV2" xml:space="preserve"><value>Тестер v2 — реальное приложение / HTTPS</value></data>
+  <data name="ApplyVariant" xml:space="preserve"><value>Применить выделенный вариант к приложению (MANUAL DIRECT+)</value></data>
+  <data name="PresetVersionLabel" xml:space="preserve"><value>Пресет / версия / вариант</value></data>
+  <data name="AutoOptimize" xml:space="preserve"><value>AUTO · Оптимизировать</value></data>
+  <data name="AdvancedDiagnostics" xml:space="preserve"><value>Расширенные настройки / диагностика</value></data>
+  <data name="AutoToolsMissing" xml:space="preserve"><value>Установите tools/windows из того же service/scripts artifact.</value></data>
+  <data name="AutoStartFailed" xml:space="preserve"><value>Не удалось запустить проверку маршрута.</value></data>
+  <data name="AutoProbeFailed" xml:space="preserve"><value>Проверка маршрута не завершена. Диагностика сохранена:</value></data>
+  <data name="AutoChecking" xml:space="preserve"><value>Проверка маршрута…</value></data>
+  <data name="AutoConfigured" xml:space="preserve"><value>AUTO настроен. NeExitLag автоматически обновит сетевые соединения выбранного приложения.</value></data>
+  <data name="ProtectedFlowBlocked" xml:space="preserve"><value>Защищённый маршрут недоступен</value></data>
+  <data name="ProtectedRoute" xml:space="preserve"><value>Защищённый маршрут</value></data>
+  <data name="HybridRoute" xml:space="preserve"><value>Прямой и защищённый маршрут</value></data>
+  <data name="AppliedDirectOptimization" xml:space="preserve"><value>Прямой маршрут с оптимизацией</value></data>
+  <data name="DirectConnection" xml:space="preserve"><value>Прямое соединение</value></data>
+  <data name="PartialRouteEvidence" xml:space="preserve"><value>Неполные данные:</value></data>
+  <data name="InheritFallback" xml:space="preserve"><value>Резерв: общая политика</value></data>
+  <data name="RequiredRelayFallback" xml:space="preserve"><value>Relay обязателен, без прямого fallback</value></data>
+  <data name="HotAttachReconnecting" xml:space="preserve"><value>Переподключаем выбранные приложения…</value></data>
+  <data name="HotAttachIncomplete" xml:space="preserve"><value>Не все соединения обновлены — откройте диагностику</value></data>
+  <data name="HotAttachNetworkHint" xml:space="preserve"><value>Обновлены TCP / ожидают обновления. Восстановление приложения проверяется его реальным трафиком.</value></data>
+  <data name="ChromeSites" xml:space="preserve"><value>Chrome: AUTO по сайтам</value></data>
+  <data name="ChromeSitesHint" xml:space="preserve"><value>Chrome с локальным PAC: маршрут закреплён за доменом. Origin-probe не подтверждает загрузку авторизованной страницы.</value></data>
+  <data name="SelectChromeAuto" xml:space="preserve"><value>Выберите Chrome по полному пути и включите AUTO.</value></data>
+  <data name="ChromeSitesRestart" xml:space="preserve"><value>Для активации маршрутов по сайтам Chrome будет перезапущен. Сохраните незаписанную работу. Профиль сохраняется; Chrome попробует восстановить вкладки. Продолжить?</value></data>
+  <data name="ChromeSitesStillRunning" xml:space="preserve"><value>Chrome не завершился. Перезапуск отменён; процессы не будут принудительно остановлены.</value></data>
+  <data name="ChromeSitesLaunched" xml:space="preserve"><value>Chrome запущен с маршрутизацией по сайтам. Профиль сохранён; proxy Windows не изменён.</value></data>
+  <data name="DomainLabel" xml:space="preserve"><value>Домен</value></data>
+  <data name="ReasonLabel" xml:space="preserve"><value>Причина</value></data>
+  <data name="ChromeProxyManaged" xml:space="preserve"><value>В Chrome уже настроен другой или управляемый proxy. NeExitLag не будет его перезаписывать.</value></data>
+  <data name="DisableChromeSites" xml:space="preserve"><value>Отключить PAC Chrome</value></data>
+  <data name="ChromeSitesRemoved" xml:space="preserve"><value>Включён безопасный PAC: обычные сайты DIRECT, OpenAI остаётся защищён. Маршрут действующих соединений не изменён; перезапустите Chrome для полного применения.</value></data>
+  <data name="ChromeRoutesByDomain" xml:space="preserve"><value>Маршруты по сайтам</value></data>
+  <data name="ChromeActivationFailed" xml:space="preserve"><value>Chrome AUTO не активирован: CONNECT/PAC не прошёл проверку Chrome owner/SID. Обычные сайты восстановлены; защита OpenAI сохранена. Проверьте browser.status, Chrome policy и журнал службы.</value></data>
+  <data name="ChromeRollbackFailed" xml:space="preserve"><value>Chrome AUTO не активирован. Защитный PAC сохранён, но восстановление профиля не подтверждено. Проверьте доступность службы.</value></data>
+  <data name="ChromeGuardFailed" xml:space="preserve"><value>Не удалось установить защитный Chrome PAC. Активация отменена; маршруты не изменены. Проверьте управление Chrome policy.</value></data>
 </root>

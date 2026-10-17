@@ -35,6 +35,8 @@ type Key struct {
 	PID                 uint32
 }
 type Engine struct {
+	healthMu     sync.Mutex
+	health       map[udpHealthKey]udpHealth
 	mu           sync.Mutex
 	policies     map[string]Policy
 	relays       map[string]Relay
@@ -47,7 +49,7 @@ func New(limit int) *Engine {
 	if limit <= 0 {
 		limit = 4096
 	}
-	return &Engine{policies: make(map[string]Policy), relays: make(map[string]Relay), flows: make(map[Key]Flow), limit: limit}
+	return &Engine{health: map[udpHealthKey]udpHealth{}, policies: make(map[string]Policy), relays: make(map[string]Relay), flows: make(map[Key]Flow), limit: limit}
 }
 func (e *Engine) SetAutoSelector(pick func(Flow) Policy) {
 	e.mu.Lock()
@@ -87,7 +89,10 @@ func (e *Engine) reserve(f Flow) (Key, Policy, Relay, error) {
 	if f.PID == 0 || f.ProcessPath == "" || f.ApplicationID == "" {
 		p = Policy{}
 	}
-	if p.Auto && e.selectPolicy != nil {
+	if f.PinnedPolicy != nil && f.PID != 0 && f.ProcessPath != "" && f.ApplicationID != "" {
+		p = *f.PinnedPolicy
+		p.Backups = append([]Route(nil), p.Backups...)
+	} else if p.Auto && e.selectPolicy != nil {
 		selected := e.selectPolicy(f)
 		selected.BlockOnFailure = p.BlockOnFailure
 		p = selected
@@ -181,6 +186,23 @@ func (e *Engine) OpenUDP(ctx context.Context, f Flow) (Datagram, error) {
 	if err != nil {
 		e.remove(k)
 		return nil, err
+	}
+	if p.BlockOnFailure && !p.Route.Direct() {
+		// Reopen only this protected UDP mapping, retaining its pinned relay decision.
+		// No policy reevaluation, DIRECT fallback, endpoint-cache learning or payload replay.
+		e.mu.Lock()
+		route := e.flows[k].Route
+		provider := e.relays[route.RelayID]
+		e.mu.Unlock()
+		d = &recoveringUDP{current: d, open: func(ctx context.Context) (Datagram, error) {
+			e.mu.Lock()
+			provider = e.relays[route.RelayID]
+			e.mu.Unlock()
+			if provider == nil {
+				return nil, errors.New("required relay unavailable")
+			}
+			return provider.OpenDatagram(ctx, f.Destination)
+		}}
 	}
 	return &trackedUDP{Datagram: d, e: e, k: k}, nil
 }
@@ -333,4 +355,16 @@ func (f *trackedTCP) CloseWrite() error {
 		return h.CloseWrite()
 	}
 	return errors.New("half-close unsupported")
+}
+
+// Abort is used only for an explicit per-application policy activation. It drops
+// native pending sends rather than flushing an obsolete DIRECT egress on close.
+func (f *trackedTCP) Abort() error {
+	if a, ok := f.Conn.(interface{ SetLinger(int) error }); ok {
+		_ = a.SetLinger(0)
+	}
+	if a, ok := f.Conn.(interface{ Abort() error }); ok {
+		_ = a.Abort()
+	}
+	return f.Close()
 }

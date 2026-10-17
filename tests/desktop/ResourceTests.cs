@@ -30,9 +30,8 @@ public sealed class ResourceTests
     [Fact]
     public void VisibleXamlStringsUseExistingResources()
     {
-        var path = Path.Combine(Root(), "apps/desktop/MainWindow.xaml");
-        var xaml = XDocument.Load(path);
-        foreach (var a in xaml.Descendants().Attributes().Where(a => new[] { "Text", "Content", "Header", "Title", "ToolTip" }.Contains(a.Name.LocalName)))
+        var windows = new[] { "MainWindow.xaml", "AddApplicationWindow.xaml" }.Select(name => XDocument.Load(Path.Combine(Root(), "apps/desktop", name)));
+        foreach (var a in windows.SelectMany(xaml => xaml.Descendants().Attributes()).Where(a => new[] { "Text", "Content", "Header", "Title", "ToolTip" }.Contains(a.Name.LocalName)))
         {
             if (a.Value.StartsWith("{ui:Tr "))
             {

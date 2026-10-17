@@ -29,6 +29,13 @@ jobs:
       - run: go build ./...
       - run: go test -race -timeout 120s ./...
       - run: go vet ./...
+      - run: go test ./core/localstrategy -run '^$' -fuzz FuzzHelloRecordReassembly -fuzztime=10000x -fuzzminimizetime=1000x -timeout=90s -parallel=2
+      - run: go test ./core/localstrategy -run '^$' -fuzz FuzzTCPHelloSegments -fuzztime=1000x -fuzzminimizetime=1000x -timeout=90s -parallel=2
+      - run: go test ./core/localstrategy -run '^$' -bench . -benchmem -count=3 | tee direct-plus-benchmarks.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: direct-plus-core-benchmarks
+          path: direct-plus-benchmarks.txt
       - run: go run ./tools/lab
       - run: go build ./...
         env: {GOOS: windows, GOARCH: amd64, CGO_ENABLED: '0'}
@@ -36,14 +43,39 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - run: ./tests/windows-tools/vps-upgrade-tests.ps1
+        shell: powershell
+      - run: ./tests/windows-tools/vps-upgrade-tests.ps1
+        shell: pwsh
       - uses: actions/setup-go@v5
         with: {go-version: '1.25.x'}
       - uses: actions/setup-dotnet@v4
         with: {dotnet-version: '8.0.x'}
+      - run: dotnet run --project tests/desktop-native/NeExitLag.Desktop.NativeTests.csproj --configuration Release
+        timeout-minutes: 3
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desktop-native-ui-evidence
+          path: bin/native-ui-tests/
       - run: go build ./...
-      - run: go test ./core/... ./platform/windows ./services/client-service
+      # Each load fixture already creates 160/256/320 simultaneous connections.
+      # Separate test binaries must not compete for the same Windows socket/
+      # ephemeral-port resources and turn independent fixtures into one load.
+      - run: go test -p 1 ./core/... ./platform/windows ./services/client-service ./tests/integration
+      - name: Native Windows capture lifecycle race regressions
+        run: go test -race -v -timeout 90s ./platform/windows -run 'TestUDPForwardNative|TestTCPNativeAdmissionBurst|TestTCPNativeQueuedSetupCancellation|TestTCPNativeInitialWriteReleasesAdmission|TestTCPAdmission|TestTCPNativePipe|TestUDPAdmission|TestUDPIdleBoundary|TestTCPDropAndFailureEvidence|TestTCPCopyFailureClassification|TestWorkerRejection|TestHotAttach|TestNativeHotAttach'
+        timeout-minutes: 4
+      - name: Repeated native Windows authenticated TCP bursts
+        run: |
+          go test -v -count 3 -timeout 120s ./tests/integration -run '^TestPoolTCPBurstContinuity$'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test -race -v -count 3 -timeout 120s ./tests/integration -run '^TestPoolTCPBurstContinuity$'
+        timeout-minutes: 4
       - run: dotnet build --nologo
       - run: dotnet test --nologo
+      - run: ./tests/windows-tools/build-desktop-ps51.ps1
+        shell: powershell
       - run: ./tools/windows/build-desktop.ps1
         shell: pwsh
       - run: ./tests/windows-tools/desktop-smoke.ps1
@@ -51,11 +83,43 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: NeExitLag-win-x64
-          path: bin/release/NeExitLag.exe
+          path: bin/release/
       - run: ./tools/windows/parse-scripts.ps1
         shell: pwsh
       - run: ./tools/windows/build-e2e.ps1
         shell: pwsh
+      - name: Accelerated authenticated lease acceptance (60 second isolated lease)
+        run: ./tools/windows/acceptance-lease-renewal.ps1 -LeaseSeconds 60
+        shell: powershell
+        timeout-minutes: 9
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lease-renewal-windows-evidence
+          path: bin/lease-acceptance/
+      - run: ./tests/windows-tools/direct-plus-checks.ps1
+        shell: pwsh
+      - run: ./tests/windows-tools/direct-plus-checks.ps1
+        shell: powershell
+      - run: ./tests/windows-tools/strategy-v2-checks.ps1
+        shell: pwsh
+      - run: ./tests/windows-tools/strategy-v2-checks.ps1
+        shell: powershell
+      - run: ./tests/windows-tools/strategy-v2-browser-correlation.ps1
+        shell: pwsh
+        timeout-minutes: 2
+      - run: ./tests/windows-tools/strategy-v2-browser-correlation.ps1
+        shell: powershell
+        timeout-minutes: 2
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-correlation-failure
+          path: bin/browser-correlation/
+      - run: ./tests/windows-tools/chrome-sites-checks.ps1
+        shell: pwsh
+      - run: ./tests/windows-tools/chrome-sites-checks.ps1
+        shell: powershell
       - run: ./tests/windows-tools/tcp-web-checks.ps1
         shell: pwsh
       - run: ./tests/windows-tools/tcp-web-checks.ps1
@@ -64,7 +128,11 @@ jobs:
         shell: pwsh
       - run: |
           $env:NEEXITLAG_TEST_DRIVER_DIR=(Resolve-Path .e2e/windivert).Path
+          go test -race -timeout 30s -v ./platform/windows -run '^TestNativeBoundDial|^TestNativeChromeStaleAssociation'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go test -timeout 90s -v ./platform/windows -run TestNativeCaptureHandlesStartStop
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test -timeout 120s -v ./platform/windows -run '^TestChromeSitesNativeAcceptance$'
         shell: pwsh
       - run: ./tests/windows-tools/acceptance-checks.ps1
         shell: pwsh
@@ -73,6 +141,14 @@ jobs:
       - run: ./tests/windows-tools/acceptance-checks.ps1
         shell: powershell
       - run: ./tests/windows-tools/reinstall-checks.ps1
+        shell: powershell
+      - run: ./tests/windows-tools/simultaneous-checks.ps1
+        shell: pwsh
+      - run: ./tests/windows-tools/simultaneous-checks.ps1
+        shell: powershell
+      - run: ./tests/windows-tools/hot-attach-checks.ps1
+        shell: pwsh
+      - run: ./tests/windows-tools/hot-attach-checks.ps1
         shell: powershell
       - run: ./tests/windows-tools/ipc-smoke.ps1
         shell: pwsh

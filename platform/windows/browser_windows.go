@@ -1,0 +1,80 @@
+//go:build windows
+
+package windowsplatform
+
+import (
+	"context"
+	"errors"
+	"golang.org/x/sys/windows"
+	"net"
+	"net/netip"
+)
+
+func LookupTCPPeer(source, destination netip.AddrPort) (ProcessIdentity, error) {
+	pid, err := resolveTCPOwner(Tuple{Protocol: "tcp", Source: source, Destination: destination})
+	if err != nil {
+		return ProcessIdentity{}, err
+	}
+	return NewDiscovery().Lookup(pid)
+}
+
+// OpenBrowserLocalTCP delegates ONLY this exact service-created upstream tuple
+// to the existing WinDivert DIRECT+ implementation under its Chrome identity.
+func (b *WinDivertBackend) OpenBrowserLocalTCP(ctx context.Context, id ProcessIdentity, source, dest netip.AddrPort, d Decision) (net.Conn, error) {
+	if !dest.Addr().Is4() || d.Local == nil || !d.Route.Local() {
+		return nil, errors.New("native browser local IPv4 strategy unavailable")
+	}
+	b.mu.Lock()
+	tcp := b.tcp
+	ready := b.status.Ready
+	b.mu.Unlock()
+	if tcp == nil || !ready {
+		return nil, ErrUnavailable
+	}
+	// UDP connect selects an interface address without sending a datagram.
+	selector, err := net.DialUDP("udp4", nil, net.UDPAddrFromAddrPort(dest))
+	if err != nil {
+		return nil, err
+	}
+	bind := selector.LocalAddr().(*net.UDPAddr).AddrPort().Addr()
+	selector.Close()
+	tuple := Tuple{Protocol: "tcp", Source: source, Destination: dest}
+	b.evidence.BeginFlow(id, tuple)
+	b.evidence.RecordDomain(id, tuple, d.OriginDomain)
+	b.evidence.RecordInitialPolicy(id, tuple, d)
+	e := &tcpEntry{identity: id, tuple: tuple, decision: d}
+	return tcp.dialLocalStrategyFrom(ctx, e, d, bind)
+}
+func (b *WinDivertBackend) BrowserTransformApplied(id ProcessIdentity, source, dest netip.AddrPort) bool {
+	ev, err := b.evidence.SnapshotQuery(EvidenceQuery{PID: id.PID, CreationTime: id.CreationTime, Source: source.String(), Destination: dest.String()}, nil)
+	if err != nil || ev.Truncated || ev.EvidenceLost {
+		return false
+	}
+	for _, f := range ev.Flows {
+		if f.Counters.DirectPlus > 0 && f.Counters.DirectPlusBytes > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func ProcessUserSID(id ProcessIdentity) (string, error) {
+	if !IsCurrent(id) {
+		return "", errors.New("process identity changed")
+	}
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, id.PID)
+	if err != nil {
+		return "", err
+	}
+	defer windows.CloseHandle(h)
+	var token windows.Token
+	if err = windows.OpenProcessToken(h, windows.TOKEN_QUERY, &token); err != nil {
+		return "", err
+	}
+	defer token.Close()
+	user, err := token.GetTokenUser()
+	if err != nil {
+		return "", err
+	}
+	return user.User.Sid.String(), nil
+}

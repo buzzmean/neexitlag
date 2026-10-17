@@ -1,21 +1,31 @@
 package windowsplatform
 
 import (
+	"context"
+	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"net"
 	"sync"
 	"time"
 )
 
 type tcpEntry struct {
-	tuple           Tuple
-	initialSequence uint32
-	identity        ProcessIdentity
-	decision        Decision
-	mode            string // opening, relay, direct, block, closed
-	virtual         uint16
-	last            time.Time
-	upstream        net.Conn
-	local           net.Conn
+	openCancel        context.CancelFunc
+	openDone          chan struct{}
+	openOnce          sync.Once
+	hotEpoch          uint64
+	normalTeardown    bool
+	localState        localstrategy.State
+	localBuffer       LocalTCPBuffer
+	domainInspections uint8
+	tuple             Tuple
+	initialSequence   uint32
+	identity          ProcessIdentity
+	decision          Decision
+	mode              string // opening, relay, direct, block, closed
+	virtual           uint16
+	last              time.Time
+	upstream          net.Conn
+	local             net.Conn
 }
 
 // All methods/entry access require mu. Closed mappings are quarantined so late
@@ -121,5 +131,11 @@ func (s *tcpState) expire(now time.Time) {
 		if s.entries[e.tuple] != e && e.mode == "closed" && now.Sub(e.last) > 4*time.Minute {
 			delete(s.ports, p)
 		}
+	}
+}
+
+func (e *tcpEntry) finishOpen() {
+	if e.openDone != nil {
+		e.openOnce.Do(func() { close(e.openDone) })
 	}
 }

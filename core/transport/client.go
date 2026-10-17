@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"github.com/buzzmean/neexitlag/core/protocol"
 	"github.com/buzzmean/neexitlag/core/telemetry"
 	"github.com/quic-go/quic-go"
@@ -17,9 +18,19 @@ import (
 )
 
 var ErrClosed = errors.New("flow or session closed")
+var ErrRelayRejected = errors.New("relay rejected flow")
+
+type sessionEnd struct{ reason string }
 
 type Client struct {
+	endReason      atomic.Pointer[sessionEnd]
+	controlReplies chan []byte
+	controlSend    chan struct{}
+	leaseChanged   chan struct{}
 	conn           *quic.Conn
+	leaseMu        sync.Mutex
+	renewalOnce    sync.Once
+	lease          LeaseSnapshot
 	next           atomic.Uint32
 	packetSequence atomic.Uint32
 	reassembly     protocol.Reassembly
@@ -63,6 +74,9 @@ func (c *Client) SetFailureHandler(handler func(string)) {
 	c.mu.Unlock()
 }
 func (c *Client) reportFailure(reason string) {
+	if end := c.SessionEndReason(); end == "authorization_lease_expired" || end == "device_revoked" {
+		return
+	}
 	c.mu.Lock()
 	handler := c.onFailure
 	c.mu.Unlock()
@@ -76,9 +90,10 @@ func (c *Client) open(ctx context.Context, kind byte, dst netip.AddrPort) (*quic
 		c.Close()
 		return nil, 0, errors.New("flow IDs exhausted")
 	}
-	s, e := c.conn.OpenStreamSync(ctx)
+	s, e := c.conn.OpenStream()
 	if e != nil {
-		return nil, 0, e
+		e = streamCapacity(e)
+		return nil, 0, &OpenError{Reason: openIOReason(e, c.SessionEndReason()), Cause: e}
 	}
 	deadline := time.Now().Add(5 * time.Second)
 	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
@@ -87,17 +102,32 @@ func (c *Client) open(ctx context.Context, kind byte, dst netip.AddrPort) (*quic
 	s.SetDeadline(deadline)
 	stop := context.AfterFunc(ctx, func() { s.CancelRead(1); s.CancelWrite(1) })
 	defer stop()
+	phase := "request_write"
 	if e = (protocol.Open{Kind: kind, ID: id, Destination: dst}).Write(s); e == nil {
+		phase = "ack_read"
 		var ack [1]byte
 		_, e = io.ReadFull(s, ack[:])
 		if e == nil && ack[0] != 0 {
-			e = errors.New("relay rejected flow")
+			cause := error(ErrRelayRejected)
+			if ack[0] == 3 {
+				cause = errors.Join(ErrCapacity, ErrRelayRejected)
+			}
+			e = &OpenError{Reason: protocol.OpenRejection(ack[0]), Cause: cause}
 		}
 	}
 	if e != nil {
+		// The caller's cancellation hook resets the stream. Preserve its budget
+		// cause so a local deadline race is not mislabeled as a peer stream reset.
+		if ctx.Err() != nil && !errors.Is(e, ErrRelayRejected) {
+			e = errors.Join(ctx.Err(), e)
+		}
 		s.CancelRead(1)
 		s.CancelWrite(1)
-		return nil, 0, e
+		reason := openIOReason(e, c.SessionEndReason())
+		if phase == "request_write" && reason == "open_ack_timeout" {
+			reason = "open_request_write_timeout"
+		}
+		return nil, 0, &OpenError{Reason: reason, Cause: fmt.Errorf("OPEN %s: %w", phase, e)}
 	}
 	s.SetDeadline(time.Time{})
 	return s, id, nil
@@ -105,8 +135,10 @@ func (c *Client) open(ctx context.Context, kind byte, dst netip.AddrPort) (*quic
 func (c *Client) OpenUDP(ctx context.Context, dst netip.AddrPort) (*UDPFlow, error) {
 	s, id, e := c.open(ctx, protocol.UDP, dst)
 	if e != nil {
-		if !errors.Is(ctx.Err(), context.Canceled) && !telemetry.IsLocal(e) {
-			c.reportFailure("transport_open_failed")
+		if c.conn.Context().Err() != nil && !errors.Is(ctx.Err(), context.Canceled) && !telemetry.IsLocal(e) {
+			if reason := c.SessionEndReason(); reason != "authorization_lease_expired" && reason != "device_revoked" {
+				c.reportFailure(FailureReason(e))
+			}
 		}
 		return nil, e
 	}
@@ -134,6 +166,11 @@ func (c *Client) OpenTCP(ctx context.Context, dst netip.AddrPort) (net.Conn, err
 }
 func (c *Client) receive() {
 	defer func() {
+		if reason := c.SessionEndReason(); reason != "" {
+			c.leaseMu.Lock()
+			c.lease.State = reason
+			c.leaseMu.Unlock()
+		}
 		close(c.done)
 		c.mu.Lock()
 		all := make([]*UDPFlow, 0, len(c.flows))
@@ -148,7 +185,21 @@ func (c *Client) receive() {
 	for {
 		b, e := c.conn.ReceiveDatagram(context.Background())
 		if e != nil {
+			if reason := AuthorizationEndReason(e); reason != "" {
+				c.rememberEndReason(reason)
+			} else {
+				c.rememberEndReason("session_transport_closed")
+			}
 			return
+		}
+		if c.controlReplies != nil && len(b) > 0 && b[0] == protocol.LeaseAckDatagram {
+			if _, err := protocol.ParseLeaseAckFrame(b); err == nil {
+				select {
+				case c.controlReplies <- b:
+				default:
+				}
+			}
+			continue
 		}
 		c.LocalDrops.Attempt(telemetry.Decode)
 		c.LocalDrops.Attempt(telemetry.UnknownFlow)
@@ -243,3 +294,8 @@ func (s *streamConn) LocalAddr() net.Addr  { return s.c.LocalAddr() }
 func (s *streamConn) RemoteAddr() net.Addr { return s.c.RemoteAddr() }
 func (s *streamConn) Close() error         { s.CancelRead(0); return s.Stream.Close() }
 func (s *streamConn) CloseWrite() error    { return s.Stream.Close() }
+
+// FlowID/StreamID identify the established mapping; renewal never changes them.
+func (f *UDPFlow) FlowID() uint32     { return f.id }
+func (f *UDPFlow) StreamID() int64    { return int64(f.stream.StreamID()) }
+func (c *streamConn) StreamID() int64 { return int64(c.Stream.StreamID()) }

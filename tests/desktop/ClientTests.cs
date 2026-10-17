@@ -155,8 +155,8 @@ public sealed class StalledPipeTests
             string name = "silent-" + Guid.NewGuid();
             using var server = new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
             var connection = server.WaitForConnectionAsync();
-            var call = new ServiceClient(token, name, TimeSpan.FromMilliseconds(300)).Call<Snapshot>("status");
-            await connection;
+            var call = new ServiceClient(token, name, TimeSpan.FromSeconds(1)).Call<Snapshot>("status");
+            await connection.WaitAsync(TimeSpan.FromSeconds(5));
             var error = await Assert.ThrowsAsync<ServiceException>(() => call);
             Assert.Equal(ServiceFailure.Unavailable, error.Failure);
         }

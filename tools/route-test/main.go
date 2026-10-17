@@ -19,6 +19,8 @@ type options struct {
 	count                                                                                                   int
 	interval, timeout                                                                                       time.Duration
 	smoke                                                                                                   bool
+	upgrade                                                                                                 bool
+	expectedEgress                                                                                          string
 }
 
 func main() { os.Exit(command(os.Args[1:])) }
@@ -40,6 +42,8 @@ func command(args []string) int {
 	fs.IntVar(&o.count, "count", 100, "measured UDP probes per route, 30..200")
 	fs.DurationVar(&o.interval, "interval", 200*time.Millisecond, "probe spacing, 20ms..1s")
 	fs.DurationVar(&o.timeout, "timeout", time.Second, "per-probe and connection timeout, 100ms..10s")
+	fs.BoolVar(&o.upgrade, "upgrade-check", false, "verify real /3 + legacy /2, two immediate same-session renewals, mTLS/replay and unchanged TCP/UDP sockets; no enrollment")
+	fs.StringVar(&o.expectedEgress, "expected-egress", "", "required authenticated echo source for --upgrade-check")
 	fs.BoolVar(&o.smoke, "smoke", false, "also prove TCP, invalid credentials and real ticket expiry (normally 2 minutes; bounded to 5 minutes)")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
@@ -75,6 +79,9 @@ func command(args []string) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	if o.upgrade {
+		return upgradeCommand(ctx, o)
+	}
 	result, err := run(ctx, o)
 	printReport(result)
 	if o.report != "" {

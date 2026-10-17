@@ -7,11 +7,35 @@ import (
 	"time"
 )
 
-type Route struct{ RelayID string }
+type RouteKind string
+
+const (
+	DirectRoute     RouteKind = "DIRECT"
+	DirectPlusRoute RouteKind = "DIRECT_PLUS"
+	RelayRoute      RouteKind = "RELAY"
+)
+
+type Route struct {
+	RelayID string
+	Kind    RouteKind `json:"kind,omitempty"`
+}
+
+func (r Route) Local() bool { return r.RelayID == "" && r.Kind == DirectPlusRoute }
+func (r Route) Type() RouteKind {
+	if r.RelayID != "" {
+		return RelayRoute
+	}
+	if r.Local() {
+		return DirectPlusRoute
+	}
+	return DirectRoute
+}
 
 func (r Route) Direct() bool { return r.RelayID == "" }
 
 type Flow struct {
+	Network                    string  `json:"network_fingerprint,omitempty"`
+	PinnedPolicy               *Policy `json:"-"`
 	Protocol                   string
 	Source, Destination        netip.AddrPort
 	PID                        uint32
