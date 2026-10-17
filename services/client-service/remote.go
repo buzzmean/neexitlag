@@ -240,6 +240,7 @@ func (s *remoteState) apply(ctx context.Context, cfg security.Config) error {
 			if err != nil {
 				return nil, &transport.OpenError{Reason: "session_auth_or_dial_failed", Cause: err}
 			}
+			client.StartRenewal(func(ctx context.Context) ([]byte, error) { return s.cp.Ticket(ctx, node.ID) })
 			return client, nil
 		}
 		if pool := s.clients[node.ID]; pool != nil {

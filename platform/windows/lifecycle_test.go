@@ -3,6 +3,8 @@ package windowsplatform
 import (
 	"encoding/binary"
 	"errors"
+	"github.com/buzzmean/neexitlag/core/protocol"
+	"github.com/quic-go/quic-go"
 	"io"
 	"net/netip"
 	"testing"
@@ -164,5 +166,17 @@ func TestUDPReplyTemplateBound(t *testing.T) {
 	tuple, payload, err := ParseUDP(reply)
 	if err != nil || string(payload) != "response" || tuple.Source.Port() != 53 || tuple.Destination.Port() != 1234 {
 		t.Fatal(tuple, err)
+	}
+}
+
+func TestTCPAuthorizationEndIsNotGenericTransportFailure(t *testing.T) {
+	for _, tc := range []struct {
+		code quic.ApplicationErrorCode
+		want string
+	}{{protocol.LeaseExpiredCode, "TCP_AUTHORIZATION_LEASE_EXPIRED"}, {protocol.RevokedCode, "TCP_DEVICE_REVOKED"}} {
+		err := &quic.ApplicationError{ErrorCode: tc.code}
+		if got := tcpCopyFailure("reply", err, nil, false); got != tc.want {
+			t.Fatal(got)
+		}
 	}
 }

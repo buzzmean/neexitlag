@@ -329,7 +329,7 @@ func TestPoolSaturatedQUICCreditSelectsAnotherSession(t *testing.T) {
 		t.Fatal(s, poisoned.Load())
 	}
 }
-func TestPoolLeaseRotationDoesNotMoveExistingTCP(t *testing.T) {
+func TestPoolRenewableSessionIsNotDrainedByAdmissionAge(t *testing.T) {
 	cfg := transport.DefaultPoolConfig()
 	cfg.MaxSessions = 3
 	cfg.RotateAfter = 500 * time.Millisecond
@@ -351,7 +351,7 @@ func TestPoolLeaseRotationDoesNotMoveExistingTCP(t *testing.T) {
 	assertTCPEcho(t, next)
 	assertTCPEcho(t, c)
 	s := x.pool.Snapshot()
-	if s.ActiveSessions != 2 || !s.Sessions[0].Draining || s.Sessions[1].CreationReason != "lease_rotation" {
+	if s.ActiveSessions != 1 || s.Sessions[0].Draining || s.Sessions[0].ActiveFlows != 2 {
 		t.Fatal(s)
 	}
 }

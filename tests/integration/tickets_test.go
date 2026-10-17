@@ -38,6 +38,9 @@ func TestTicketSessionAndLiveRevoke(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer client.Close()
+	if lease := client.Lease(); !lease.Supported || lease.Duration != 30*time.Minute {
+		t.Fatal("production lease default changed", lease)
+	}
 	target, stop, err := echo.UDP()
 	if err != nil {
 		t.Fatal(err)

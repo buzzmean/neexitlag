@@ -20,8 +20,10 @@ func (d *pinnedDatagram) Send([]byte) error {
 	d.sent++
 	return nil
 }
-func (d *pinnedDatagram) Receive(context.Context) ([]byte, error) { return nil, errors.New("closed") }
-func (d *pinnedDatagram) Close() error                            { return nil }
+func (d *pinnedDatagram) Receive(context.Context) ([]byte, error) {
+	return nil, context.DeadlineExceeded
+}
+func (d *pinnedDatagram) Close() error { return nil }
 
 type pinnedProvider struct {
 	calls int

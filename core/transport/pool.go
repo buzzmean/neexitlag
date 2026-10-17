@@ -23,7 +23,12 @@ type OpenError struct {
 	Cause  error
 }
 
-func (e *OpenError) Error() string         { return "relay open: " + e.Reason }
+func (e *OpenError) Error() string {
+	if e.Cause == nil {
+		return "relay open: " + e.Reason
+	}
+	return "relay open: " + e.Reason + ": " + e.Cause.Error()
+}
 func (e *OpenError) Unwrap() error         { return e.Cause }
 func (e *OpenError) FailureReason() string { return e.Reason }
 func FailureReason(err error) string {
@@ -46,7 +51,7 @@ func FailureReason(err error) string {
 	if errors.Is(err, ErrRelayRejected) {
 		return "relay_rejected"
 	}
-	return "transport_open_failed"
+	return openIOReason(err, "")
 }
 
 type SessionFactory func(context.Context) (*Client, error)
@@ -61,13 +66,15 @@ func DefaultPoolConfig() PoolConfig {
 }
 
 type PoolSession struct {
-	ID             uint64    `json:"id"`
-	Healthy        bool      `json:"healthy"`
-	Draining       bool      `json:"draining"`
-	ActiveFlows    int       `json:"active_flows"`
-	Capacity       int       `json:"capacity"`
-	CreatedAt      time.Time `json:"created_at"`
-	CreationReason string    `json:"creation_reason"`
+	ID             uint64        `json:"id"`
+	Healthy        bool          `json:"healthy"`
+	Draining       bool          `json:"draining"`
+	ActiveFlows    int           `json:"active_flows"`
+	Capacity       int           `json:"capacity"`
+	CreatedAt      time.Time     `json:"created_at"`
+	CreationReason string        `json:"creation_reason"`
+	Lease          LeaseSnapshot `json:"lease"`
+	EndReason      string        `json:"end_reason,omitempty"`
 }
 type PoolOpenEvent struct {
 	At            time.Time `json:"at"`
@@ -76,8 +83,16 @@ type PoolOpenEvent struct {
 	Destination   string    `json:"destination"`
 	DurationMS    float64   `json:"duration_ms"`
 	FailureReason string    `json:"failure_reason,omitempty"`
+	Detail        string    `json:"detail,omitempty"`
+}
+type PoolSessionEnd struct {
+	At     time.Time     `json:"at"`
+	ID     uint64        `json:"session_id"`
+	Reason string        `json:"reason"`
+	Lease  LeaseSnapshot `json:"lease"`
 }
 type PoolSnapshot struct {
+	RecentSessionEnds          []PoolSessionEnd  `json:"recent_session_ends"`
 	ApplicationMaximumCapacity int               `json:"application_maximum_capacity"`
 	ProbeReservePerSession     int               `json:"probe_reserve_per_session"`
 	AvailableCapacity          int               `json:"available_capacity"`
@@ -188,11 +203,19 @@ func (p *Pool) reapLocked(now time.Time) {
 			mergeDrops(p.retiredDrops, s.client.LocalDrops.Snapshot())
 			s.client.Close()
 			if !live {
-				p.stats.SessionFailures++
+				if len(p.stats.RecentSessionEnds) == 16 {
+					p.stats.RecentSessionEnds = append([]PoolSessionEnd(nil), p.stats.RecentSessionEnds[1:]...)
+				}
+				p.stats.RecentSessionEnds = append(p.stats.RecentSessionEnds, PoolSessionEnd{now.UTC(), s.id, s.client.SessionEndReason(), s.client.Lease()})
+				if reason := s.client.SessionEndReason(); reason == "authorization_lease_expired" || reason == "device_revoked" {
+					p.stats.FailureReasons[reason]++
+				} else {
+					p.stats.SessionFailures++
+				}
 			}
 			continue
 		}
-		if now.Sub(s.born) >= p.cfg.RotateAfter {
+		if !s.client.Renewable() && now.Sub(s.born) >= p.cfg.RotateAfter {
 			s.draining = true
 		}
 		keep = append(keep, s)
@@ -273,7 +296,7 @@ func (p *Pool) create(reason string, factory SessionFactory) {
 		fn := p.onFailure
 		none := s.failed && len(p.sessions) == 0 && !p.closed
 		p.mu.Unlock()
-		if none && fn != nil {
+		if end := c.SessionEndReason(); none && fn != nil && end != "authorization_lease_expired" && end != "device_revoked" {
 			fn("relay_pool_sessions_closed")
 		}
 	}()
@@ -416,7 +439,14 @@ func (p *Pool) record(start time.Time, sid uint64, kind string, dst netip.AddrPo
 		p.stats.OpenFailures++
 		p.stats.FailureReasons[reason]++
 	}
-	event := PoolOpenEvent{time.Now().UTC(), sid, kind, dst.String(), ms, reason}
+	detail := ""
+	if err != nil {
+		detail = err.Error()
+		if len(detail) > 256 {
+			detail = detail[:256]
+		}
+	}
+	event := PoolOpenEvent{time.Now().UTC(), sid, kind, dst.String(), ms, reason, detail}
 	if len(p.stats.RecentOpens) == 32 {
 		copy(p.stats.RecentOpens, p.stats.RecentOpens[1:])
 		p.stats.RecentOpens = p.stats.RecentOpens[:31]
@@ -469,7 +499,11 @@ func (p *Pool) open(ctx context.Context, dst netip.AddrPort, tcp, probe bool) (n
 			if p.Healthy() {
 				err = errors.Join(telemetry.ErrIsolatedSession, err)
 			}
-			final = &OpenError{"session_closed", err}
+			reason := s.client.SessionEndReason()
+			if reason == "" {
+				reason = "session_closed"
+			}
+			final = &OpenError{reason, err}
 			return nil, nil, final
 		}
 		// No retry after a live-session OPEN rejection or a successful upstream.
@@ -491,6 +525,7 @@ func (p *Pool) Snapshot() PoolSnapshot {
 	defer p.mu.Unlock()
 	out := p.stats
 	out.Sessions = []PoolSession{}
+	out.RecentSessionEnds = append([]PoolSessionEnd(nil), p.stats.RecentSessionEnds...)
 	out.RecentOpens = append([]PoolOpenEvent(nil), p.stats.RecentOpens...)
 	out.FailureReasons = map[string]uint64{}
 	for k, v := range p.stats.FailureReasons {
@@ -518,7 +553,7 @@ func (p *Pool) Snapshot() PoolSnapshot {
 				}
 			}
 		}
-		out.Sessions = append(out.Sessions, PoolSession{s.id, healthy, s.draining, s.active, p.cfg.SessionFlows, s.born.UTC(), s.reason})
+		out.Sessions = append(out.Sessions, PoolSession{s.id, healthy, s.draining, s.active, p.cfg.SessionFlows, s.born.UTC(), s.reason, s.client.Lease(), s.client.SessionEndReason()})
 	}
 	return out
 }

@@ -187,6 +187,23 @@ func (e *Engine) OpenUDP(ctx context.Context, f Flow) (Datagram, error) {
 		e.remove(k)
 		return nil, err
 	}
+	if p.BlockOnFailure && !p.Route.Direct() {
+		// Reopen only this protected UDP mapping, retaining its pinned relay decision.
+		// No policy reevaluation, DIRECT fallback, endpoint-cache learning or payload replay.
+		e.mu.Lock()
+		route := e.flows[k].Route
+		provider := e.relays[route.RelayID]
+		e.mu.Unlock()
+		d = &recoveringUDP{current: d, open: func(ctx context.Context) (Datagram, error) {
+			e.mu.Lock()
+			provider = e.relays[route.RelayID]
+			e.mu.Unlock()
+			if provider == nil {
+				return nil, errors.New("required relay unavailable")
+			}
+			return provider.OpenDatagram(ctx, f.Destination)
+		}}
+	}
 	return &trackedUDP{Datagram: d, e: e, k: k}, nil
 }
 func (e *Engine) OpenTCP(ctx context.Context, f Flow) (net.Conn, error) {

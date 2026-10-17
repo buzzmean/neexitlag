@@ -80,7 +80,13 @@ func (e *Engine) OpenAdaptiveUDP(ctx context.Context, f Flow, relay string, dead
 		e.udpObserved(f, true)
 	}
 	if err != nil {
-		return nil, err
+		// A failed required-relay transition remains relay-only and retries future
+		// traffic without resetting the direct-health/cache decision.
+		if !a.transitioned {
+			return nil, err
+		}
+		retryFlow := f
+		d = &recoveringUDP{open: func(ctx context.Context) (Datagram, error) { return e.OpenUDP(ctx, retryFlow) }}
 	}
 	a.current = d
 	return a, nil
@@ -106,8 +112,8 @@ func (d *AdaptiveUDP) toRelayLocked(ctx context.Context, reason string) error {
 	defer cancel()
 	next, err := d.e.OpenUDP(openCtx, f)
 	if err != nil {
-		d.closed = true
-		return err
+		d.current = &recoveringUDP{open: func(ctx context.Context) (Datagram, error) { return d.e.OpenUDP(ctx, f) }}
+		return errors.Join(ErrUDPRecovering, err)
 	}
 	d.current = next
 	return nil

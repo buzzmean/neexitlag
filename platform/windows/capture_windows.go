@@ -25,6 +25,7 @@ type queuedDatagram struct {
 	enqueued time.Time
 }
 type captureFlow struct {
+	recovering  atomic.Bool
 	policyEpoch uint64
 	cancelOpen  context.CancelFunc
 	retired     bool
@@ -635,6 +636,11 @@ func (b *WinDivertBackend) forward(tuple Tuple, f *captureFlow, d *divertDLL) {
 					return
 				default:
 				}
+				if errors.Is(e, routing.ErrUDPRecovering) {
+					f.recovering.Store(true)
+					b.evidence.RecordLifecycle(f.identity, tuple, "UDP_RELAY_RECOVERING")
+					continue
+				}
 				if errors.Is(e, context.DeadlineExceeded) {
 					continue
 				}
@@ -661,6 +667,9 @@ func (b *WinDivertBackend) forward(tuple Tuple, f *captureFlow, d *divertDLL) {
 				b.LocalDrops.Drop(telemetry.ReplyReinjection)
 				b.fail(err)
 				return
+			}
+			if f.recovering.Swap(false) {
+				b.evidence.RecordLifecycle(f.identity, tuple, "UDP_RELAY_RECOVERED")
 			}
 			var adaptiveRoute routing.Route
 			if a, ok := datagram.(*routing.AdaptiveUDP); ok {
@@ -740,6 +749,13 @@ func (b *WinDivertBackend) forward(tuple Tuple, f *captureFlow, d *divertDLL) {
 			b.evidence.RecordUDPQueue(f.identity, tuple, 0, false, false, time.Since(queued.enqueued))
 			sendErr := datagram.Send(payload)
 			publishHealth()
+			if errors.Is(sendErr, routing.ErrUDPRecovering) {
+				f.recovering.Store(true)
+				b.evidence.RecordLifecycle(f.identity, tuple, "UDP_RELAY_RECOVERING")
+				b.evidence.RecordDrop(f.identity, tuple, "UDP_RELAY_RECOVERING", false)
+				b.Drops.Add(1)
+				continue
+			}
 			if sendErr != nil {
 				b.fallback(tuple, f, d, payload)
 				datagram.Close()

@@ -57,12 +57,13 @@ A stable routing provider now owns a pool for each configured relay ID/address:
   whole-VPS quality observations. Genuine unanswered probes on a live session
   keep the existing scoring/loss behavior; numerical scoring and policies are
   unchanged. Saturation itself does not force a route-unhealthy signal.
-* After 25 minutes, a session drains new admissions rather than replacing the
-  entire provider. Existing flows retain their session, including the existing
-  server's 30-minute authenticated lease expiry. Idle surplus sessions close after
-  two minutes; one idle healthy session is retained. Rotation/endpoint changes do
-  not create more than eight live sessions, even while draining. Signed relay
-  removal/revocation still closes that relay's sessions explicitly.
+* Legacy `/2` sessions drain new admissions after 25 minutes and retain the
+  server's 30-minute hard authorization expiry. Renewal-capable `/3` sessions
+  renew authorization independently of admission and do not drain solely due to
+  age. Existing handles stay attached; no application data migrates or replays.
+  Idle surplus sessions still close after two minutes. See
+  [authenticated lease renewal](RELAY_LEASE_RENEWAL.md) for control capacity,
+  replay-safe receipts, hard expiry, and accelerated Windows acceptance.
 
 **No VPS/control-plane deployment is required for this change.** The repository's
 current relay defaults are MaxSessions=128 globally and MaxFlows=64 per session;

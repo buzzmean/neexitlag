@@ -146,19 +146,38 @@ func TestUDPForwardNativeIdleReopenAndActiveFailure(t *testing.T) {
 		s := b.evidence.Snapshot(next.identity.PID)
 		return len(s.Flows) == 1 && s.Flows[0].Counters.ReplyBytes > 0
 	})
-	// A live flow's session loss is not an idle expiry and must remain fail-closed.
+	// A real transport loss drops affected datagrams but future outbound
+	// packets reopen the same protected logical flow, without DIRECT or BLOCK.
 	r.mu.Lock()
 	live := r.flows[len(r.flows)-1]
+	before := len(r.flows)
 	r.mu.Unlock()
+	previous := b.evidence.Snapshot(next.identity.PID).Flows[0].Counters.ReplyBytes
 	live.Close()
 	captureWait(t, func() bool {
-		s := b.evidence.Snapshot(next.identity.PID)
-		return len(s.Flows) == 1 && s.Flows[0].FailureCause == "TRANSPORT_FAILED"
+		b.mu.Lock()
+		select {
+		case next.queue <- queuedDatagram{payload: []byte{2}, enqueued: time.Now()}:
+		default:
+		}
+		b.mu.Unlock()
+		r.mu.Lock()
+		reopened := len(r.flows) > before
+		r.mu.Unlock()
+		snap := b.evidence.Snapshot(next.identity.PID)
+		return reopened && len(snap.Flows) == 1 && snap.Flows[0].Counters.ReplyBytes > previous
 	})
-	failed := b.evidence.Snapshot(next.identity.PID).Flows[0]
-	if failed.Route != "BLOCK" || !failed.RequiredBlocked || failed.Counters.DirectBytes != 0 {
-		t.Fatal(failed)
+	recovered := b.evidence.Snapshot(next.identity.PID).Flows[0]
+	if recovered.Route != "RELAY" || recovered.RequiredBlocked || recovered.Counters.DirectBytes != 0 {
+		t.Fatal(recovered)
 	}
+	b.mu.Lock()
+	same := b.flows[tuple] == next
+	b.mu.Unlock()
+	if !same {
+		t.Fatal("logical flow replaced")
+	}
+
 }
 func TestUDPForwardNativeDNSChurnWithPersistentMedia(t *testing.T) {
 	b, _ := captureFixture(t)

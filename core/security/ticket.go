@@ -54,13 +54,18 @@ func (v *TicketVerifier) Revoked(id string) bool {
 	return v.revoked[id]
 }
 func (v *TicketVerifier) Accept(raw []byte, peer ed25519.PublicKey, now time.Time) (Ticket, error) {
+	return v.AcceptForDevice(raw, peer, "", now)
+}
+
+// AcceptForDevice validates the session binding before consuming the one-shot ticket.
+func (v *TicketVerifier) AcceptForDevice(raw []byte, peer ed25519.PublicKey, device string, now time.Time) (Ticket, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	var t Ticket
 	if e := Verify("ticket", v.Keys, raw, &t); e != nil {
 		return t, e
 	}
-	if t.ID == "" || len(t.ID) > 128 || t.DeviceID == "" || t.RelayID != v.Audience || t.DeviceKey != Fingerprint(peer) || !t.ExpiresAt.After(now) || t.IssuedAt.After(now.Add(30*time.Second)) || t.ExpiresAt.Sub(t.IssuedAt) > 5*time.Minute || !t.ExpiresAt.After(t.IssuedAt) || v.revoked[t.DeviceID] {
+	if (device != "" && t.DeviceID != device) || t.ID == "" || len(t.ID) > 128 || t.DeviceID == "" || t.RelayID != v.Audience || t.DeviceKey != Fingerprint(peer) || !t.ExpiresAt.After(now) || t.IssuedAt.After(now.Add(30*time.Second)) || t.ExpiresAt.Sub(t.IssuedAt) > 5*time.Minute || !t.ExpiresAt.After(t.IssuedAt) || v.revoked[t.DeviceID] {
 		return t, errors.New("invalid, revoked or expired relay ticket")
 	}
 	for id, exp := range v.used {

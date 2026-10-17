@@ -2,6 +2,7 @@ package windowsplatform
 
 import (
 	"errors"
+	"github.com/buzzmean/neexitlag/core/transport"
 	"io"
 	"net"
 )
@@ -18,6 +19,14 @@ func tcpPacketDropCause(mode string) string {
 func tcpCopyFailure(event string, readErr, writeErr error, stopping bool) string {
 	if stopping {
 		return ""
+	}
+	for _, err := range []error{readErr, writeErr} {
+		switch transport.AuthorizationEndReason(err) {
+		case "authorization_lease_expired":
+			return "TCP_AUTHORIZATION_LEASE_EXPIRED"
+		case "device_revoked":
+			return "TCP_DEVICE_REVOKED"
+		}
 	}
 	if event == "relay" && writeErr != nil {
 		return "TCP_RELAY_WRITE_FAILED"

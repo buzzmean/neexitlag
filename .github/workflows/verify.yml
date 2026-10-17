@@ -55,7 +55,7 @@ jobs:
           name: desktop-native-ui-evidence
           path: bin/native-ui-tests/
       - run: go build ./...
-      - run: go test ./core/... ./platform/windows ./services/client-service
+      - run: go test ./core/... ./platform/windows ./services/client-service ./tests/integration
       - name: Native Windows capture lifecycle race regressions
         run: go test -race -timeout 90s ./platform/windows -run 'TestUDPForwardNative|TestTCPNativePipe|TestUDPAdmission|TestUDPIdleBoundary|TestTCPDropAndFailureEvidence|TestTCPCopyFailureClassification|TestWorkerRejection|TestHotAttach|TestNativeHotAttach'
         timeout-minutes: 4
@@ -75,6 +75,15 @@ jobs:
         shell: pwsh
       - run: ./tools/windows/build-e2e.ps1
         shell: pwsh
+      - name: Accelerated authenticated lease acceptance (60 second isolated lease)
+        run: ./tools/windows/acceptance-lease-renewal.ps1 -LeaseSeconds 60
+        shell: powershell
+        timeout-minutes: 9
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lease-renewal-windows-evidence
+          path: bin/lease-acceptance/
       - run: ./tests/windows-tools/direct-plus-checks.ps1
         shell: pwsh
       - run: ./tests/windows-tools/direct-plus-checks.ps1
