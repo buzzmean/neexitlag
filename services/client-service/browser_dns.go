@@ -95,6 +95,7 @@ func (c *Controller) checkBrowserOrigin(ctx context.Context, raw json.RawMessage
 	seen := map[netip.Addr]bool{}
 	for _, value := range q.Candidates {
 		ip, err := netip.ParseAddr(value)
+		ip = ip.Unmap()
 		if err != nil || !browserproxy.PublicDNSAddress(ip) || seen[ip] {
 			return nil, errors.New("unique public IPv4 candidates required")
 		}

@@ -39,7 +39,7 @@ func dnsWire(t *testing.T, host string, ttl uint32, ip [4]byte) []byte {
 }
 func TestAlternativeDNSRejectsPoisonedAndMalformedAnswers(t *testing.T) {
 	name, _, _ := dnsQuestion("example.com")
-	for _, ip := range [][4]byte{{127, 0, 0, 1}, {10, 0, 0, 1}, {169, 254, 169, 254}, {100, 64, 0, 1}, {0, 1, 2, 3}, {224, 1, 1, 1}, {192, 0, 2, 1}} {
+	for _, ip := range [][4]byte{{127, 0, 0, 1}, {10, 0, 0, 1}, {169, 254, 169, 254}, {100, 64, 0, 1}, {0, 1, 2, 3}, {224, 1, 1, 1}, {192, 0, 2, 1}, {240, 1, 2, 3}, {192, 88, 99, 1}} {
 		if _, e := decodeDNS(dnsWire(t, "example.com", 30, ip), name); e == nil {
 			t.Fatal("nonpublic accepted", ip)
 		}
@@ -57,7 +57,7 @@ func TestAlternativeDNSRejectsPoisonedAndMalformedAnswers(t *testing.T) {
 	if _, e = decodeDNS(good, name); e == nil {
 		t.Fatal("wrong transaction accepted")
 	}
-	for _, host := range []string{"localhost", "a.local", "a.lan", "a.internal", "a.onion", "1.1.1.1", "a..com", "-bad.com", "example.com\r\nHost:bad"} {
+	for _, host := range []string{"localhost", "a.local", "a.lan", "a.internal", "a.onion", "home.arpa", "a.home.arpa", "a.test", "1.1.1.1", "a..com", "-bad.com", "example.com\r\nHost:bad"} {
 		if ValidPublicDNSName(host) {
 			t.Fatal(host)
 		}

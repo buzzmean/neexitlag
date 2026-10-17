@@ -48,7 +48,7 @@ func PublicDNSAddress(a netip.Addr) bool {
 	if !a.Is4() || !a.IsGlobalUnicast() || a.IsPrivate() || a.IsLoopback() || a.IsLinkLocalUnicast() {
 		return false
 	}
-	for _, prefix := range []string{"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24"} {
+	for _, prefix := range []string{"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "192.88.99.0/24", "240.0.0.0/4"} {
 		if netip.MustParsePrefix(prefix).Contains(a) {
 			return false
 		}
@@ -60,8 +60,8 @@ func dnsQuestion(host string) (dnsmessage.Name, []byte, error) {
 	if len(host) > 253 || len(host) < 3 || host != strings.ToLower(host) || !strings.Contains(host, ".") {
 		return dnsmessage.Name{}, nil, errors.New("DNS_NAME_INVALID")
 	}
-	for _, suffix := range []string{".localhost", ".local", ".lan", ".home", ".internal", ".invalid", ".corp", ".localdomain", ".onion"} {
-		if strings.HasSuffix(host, suffix) {
+	for _, suffix := range []string{".localhost", ".local", ".lan", ".home", ".internal", ".invalid", ".corp", ".localdomain", ".onion", ".home.arpa", ".test", ".example"} {
+		if host == strings.TrimPrefix(suffix, ".") || strings.HasSuffix(host, suffix) {
 			return dnsmessage.Name{}, nil, errors.New("DNS_NAME_PRIVATE")
 		}
 	}

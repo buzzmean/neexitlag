@@ -13,7 +13,7 @@ func TestOriginComparisonStrictlyRelayOnlyAndReadOnly(t *testing.T) {
 	defer c.Close()
 	c.Profiles.Upsert(profiles.Profile{ID: "keep", Name: "existing", Executables: []string{`C:\Apps\chrome.exe`}, Mode: profiles.Auto})
 	before, _ := json.Marshal(c.Profiles.List())
-	for _, raw := range []string{`{"host":"a.local","candidates":["8.8.8.8"]}`, `{"host":"example.com","candidates":["127.0.0.1"]}`, `{"host":"example.com","candidates":["169.254.169.254"]}`, `{"host":"example.com","candidates":["8.8.8.8","8.8.8.8"]}`, `{"host":"example.com","candidates":[]}`, `{"host":"example.com","candidates":["8.8.8.8"],"insecure":true}`} {
+	for _, raw := range []string{`{"host":"a.local","candidates":["8.8.8.8"]}`, `{"host":"example.com","candidates":["127.0.0.1"]}`, `{"host":"example.com","candidates":["169.254.169.254"]}`, `{"host":"example.com","candidates":["8.8.8.8","8.8.8.8"]}`, `{"host":"example.com","candidates":["8.8.8.8","::ffff:8.8.8.8"]}`, `{"host":"example.com","candidates":[]}`, `{"host":"example.com","candidates":["8.8.8.8"],"insecure":true}`} {
 		if _, err := c.Handle(context.Background(), "browser.origin.check", []byte(raw)); err == nil {
 			t.Fatal("invalid diagnostic accepted", raw)
 		}
