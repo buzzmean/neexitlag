@@ -36,6 +36,8 @@ import (
 var Domains = []string{"chatgpt.com", "www.youtube.com", "ordinary.example", "blocked.example", "vk.com", "music.yandex.ru", "langame.ru", "www.twitch.tv", "web.telegram.org"}
 
 type Fixture struct {
+	StageReady              func(int, func(string, any) (json.RawMessage, error)) error
+	DirectProbe             func(netip.AddrPort) bool
 	ExpectedFailures        map[int][]string
 	ProtectedDirectAttempts atomic.Uint64
 	ECHClientHellos         atomic.Uint64
@@ -119,6 +121,20 @@ func (f *Fixture) serve(w http.ResponseWriter, r *http.Request) {
 	host, _, e := net.SplitHostPort(r.Host)
 	if e != nil {
 		host = r.Host
+	}
+	if r.URL.Path == "/policy-probe" {
+		if r.Method != "GET" || r.URL.Query().Get("nonce") != f.Nonce {
+			http.Error(w, "bad nonce", 403)
+			return
+		}
+		source, _ := netip.ParseAddrPort(r.RemoteAddr)
+		route := "PROXY"
+		if f.DirectProbe != nil && f.DirectProbe(source) {
+			route = "DIRECT"
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		fmt.Fprint(w, f.Nonce+":"+route)
+		return
 	}
 	if host == "chatgpt.com" {
 		peer, _, _ := net.SplitHostPort(r.RemoteAddr)

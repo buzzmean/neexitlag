@@ -161,6 +161,11 @@ func (f *Fixture) RunChrome(ctx context.Context, chrome string, args []string, t
 				return title, e
 			}
 		}
+		if f.StageReady != nil {
+			if err := f.StageReady(stage, call); err != nil {
+				return title, err
+			}
+		}
 		if stage > 1 {
 			if err := health(); err != nil {
 				return title, err
@@ -200,7 +205,8 @@ func (f *Fixture) RunChrome(ctx context.Context, chrome string, args []string, t
 			}
 		}
 		if title != expected {
-			return title, errors.New("Chrome controlled HTTPS result missing")
+			raw, _ := call("Runtime.evaluate", map[string]any{"expression": "({url:location.href,body:document.body?document.body.innerText.slice(0,1200):null})", "returnByValue": true})
+			return title, fmt.Errorf("Chrome controlled stage %d HTTPS result missing: title=%q page=%s", stage, title, raw)
 		}
 
 	}

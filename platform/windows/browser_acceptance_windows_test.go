@@ -110,7 +110,7 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		t.Fatal(err)
 	}
 	pub, key, _ := ed25519.GenerateKey(rand.Reader)
-	server, err := relay.Listen("127.0.0.1:0", relay.Config{TLS: st, TicketVerifier: security.NewTicketVerifier(map[string]ed25519.PublicKey{"test": pub}, "VPS-01"), Allow: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}, Acceptance: &relay.AcceptanceConfig{LeaseDuration: 90 * time.Second, OutboundSource: netip.MustParseAddr("127.0.0.2")}})
+	server, err := relay.Listen("127.0.0.1:0", relay.Config{TLS: st, TicketVerifier: security.NewTicketVerifier(map[string]ed25519.PublicKey{"test": pub}, "VPS-01"), Allow: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}, Acceptance: &relay.AcceptanceConfig{LeaseDuration: 2 * time.Minute, OutboundSource: netip.MustParseAddr("127.0.0.2")}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,6 +228,49 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		t.Fatal(err)
 	}
 	put()
+	f.DirectProbe = func(source netip.AddrPort) bool {
+		id, e := wp.LookupTCPPeer(source, f.Destination())
+		if e != nil || !strings.EqualFold(id.Path, chrome) {
+			return false
+		}
+		sid, e := wp.ProcessUserSID(id)
+		return e == nil && sid == c.BrowserOwnerSID
+	}
+	f.StageReady = func(stage int, call func(string, any) (json.RawMessage, error)) error {
+		if stage != 3 {
+			return nil
+		}
+		// Registry writes are not evidence of Chrome applying a policy. Wait
+		// for a nonce GET whose real TCP owner at the target is Chrome itself,
+		// not the service. These readiness probes are not application replies.
+		url := fmt.Sprintf("https://ordinary.example:%d/policy-probe?nonce=%s", f.Port(), f.Nonce)
+		quoted, _ := json.Marshal(url)
+		expression := "fetch(" + string(quoted) + ",{cache:'no-store'}).then(r=>r.text()).catch(()=> 'POLICY_PENDING')"
+		until := time.Now().Add(12 * time.Second)
+		for {
+			raw, e := call("Runtime.evaluate", map[string]any{"expression": expression, "awaitPromise": true, "returnByValue": true})
+			if e != nil {
+				return e
+			}
+			var result struct {
+				Result struct {
+					Value string `json:"value"`
+				} `json:"result"`
+			}
+			json.Unmarshal(raw, &result)
+			if result.Result.Value == f.Nonce+":DIRECT" {
+				return nil
+			}
+			if time.Now().After(until) {
+				return fmt.Errorf("actual Chrome recovery policy not applied: %s", raw)
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(100 * time.Millisecond):
+			}
+		}
+	}
 	earlier := []browserproxy.Record{}
 	sample := func() error {
 		view, e := c.Handle(ctx, "browser.status", nil)
@@ -301,7 +344,9 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 	})
 	if err != nil {
 		view, _ := c.Handle(ctx, "browser.status", nil)
-		t.Fatal("controlled Chrome HTTP(S) failed", err, out, view)
+		captured, _ := backend.DiagnosticsScoped(wp.EvidenceQuery{Destination: f.Destination().String(), Domain: "www.youtube.com"})
+		trace, _ := json.Marshal(captured)
+		t.Fatal("controlled Chrome HTTP(S) failed", err, out, view, "YouTube capture", string(trace))
 	}
 	// Wait for actual Chrome sockets to close so forwarded byte counters are final.
 	var snap browserproxy.Snapshot
