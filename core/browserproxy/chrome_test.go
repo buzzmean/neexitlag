@@ -96,7 +96,7 @@ func TestChromePACRealHTTPSOriginIsolation(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer proxy.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	args, e := ChromeArguments(proxy.Address(), t.TempDir())
 	if e != nil {

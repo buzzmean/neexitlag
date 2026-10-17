@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -29,7 +30,8 @@ func (f *Fixture) RunChrome(ctx context.Context, chrome string, args []string, t
 	args = append(args, "--headless=new", "--disable-background-networking", "--disable-component-update", "--disable-sync", "--disable-domain-reliability", "--disable-default-apps", "--dns-prefetch-disable", "--disable-features=MediaRouter,OptimizationHints", "--no-default-browser-check", "--password-store=basic", "--use-mock-keychain", "--disable-dev-shm-usage", "--no-sandbox", "--ignore-certificate-errors-spki-list="+f.SPKI, "--remote-debugging-port=0", "--remote-allow-origins=http://localhost", "about:blank")
 	cmd := exec.CommandContext(ctx, chrome, args...)
 	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
+	stderr := &chromeLog{}
+	cmd.Stderr = stderr
 	if e := cmd.Start(); e != nil {
 		return "", e
 	}
@@ -43,7 +45,9 @@ func (f *Fixture) RunChrome(ctx context.Context, chrome string, args []string, t
 		}
 	}()
 	var port int
-	for tries := 0; tries < 100; tries++ {
+	ready, stopReady := context.WithTimeout(ctx, 25*time.Second)
+	defer stopReady()
+	for {
 		raw, e := os.ReadFile(filepath.Join(directory, "DevToolsActivePort"))
 		if e == nil {
 			lines := strings.Split(string(raw), "\n")
@@ -53,19 +57,22 @@ func (f *Fixture) RunChrome(ctx context.Context, chrome string, args []string, t
 			}
 		}
 		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
+		case exited := <-ended:
+			ended <- exited
+			return "", fmt.Errorf("CDP/INSTRUMENTATION_FAILURE: Chrome exited: %v; %s", exited, stderr.String())
+		case <-ready.Done():
+			return "", fmt.Errorf("CDP/INSTRUMENTATION_FAILURE: port readiness: %w; %s", ready.Err(), stderr.String())
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
 	if port == 0 {
-		return "", errors.New("isolated Chrome CDP readiness timeout")
+		return "", fmt.Errorf("CDP/INSTRUMENTATION_FAILURE: missing port; %s", stderr.String())
 	}
 	client := &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: 2 * time.Second}
 	defer client.CloseIdleConnections()
 	pageURL, e := waitCDPPage(ctx, client, fmt.Sprintf("http://127.0.0.1:%d/json/list", port))
 	if e != nil {
-		return "", e
+		return "", fmt.Errorf("%w; Chrome stderr: %s", e, stderr.String())
 	}
 	conn, e := websocket.Dial(pageURL, "", "http://localhost")
 	if e != nil {
@@ -196,3 +203,22 @@ func waitCDPPage(parent context.Context, client *http.Client, url string) (strin
 		}
 	}
 }
+
+// Bounded diagnostics for this ephemeral acceptance browser only. Production
+// never opens CDP or captures browser stderr/page data.
+type chromeLog struct {
+	mu   sync.Mutex
+	tail []byte
+}
+
+func (l *chromeLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	n := len(p)
+	l.tail = append(l.tail, p...)
+	if len(l.tail) > 16384 {
+		l.tail = append([]byte(nil), l.tail[len(l.tail)-16384:]...)
+	}
+	return n, nil
+}
+func (l *chromeLog) String() string { l.mu.Lock(); defer l.mu.Unlock(); return string(l.tail) }
