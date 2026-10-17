@@ -1,7 +1,6 @@
 package browserproxy
 
 import (
-	"bufio"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -10,54 +9,134 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"syscall"
 	"time"
 )
 
-// ProbeOrigin checks TLS certificate validation and an actual origin HTTP
-// response, without cookies, credentials, URL path/query or browser page content.
-// Success is ONLY origin reachability, never a claim about logged-in application.
+// ProbeResult describes an independent, credential-free origin probe. It never
+// proves that a browser page, its scripts or a logged-in application works.
+type ProbeResult struct {
+	Status     int
+	Bytes      uint64
+	Failure    string
+	Phase      string
+	Detail     string
+	ALPN       string
+	TLSVersion uint16
+}
+
+// ProbeOrigin retains the original caller contract.
 func ProbeOrigin(ctx context.Context, host string, port uint16, secure bool, roots *x509.CertPool, open func(context.Context) (net.Conn, error)) (int, uint64, string) {
+	r := ProbeOriginDetailed(ctx, host, port, secure, roots, open)
+	return r.Status, r.Bytes, r.Failure
+}
+
+func probeError(r ProbeResult, err error) ProbeResult {
+	r.Failure = "CONNECTION_FAILED"
+	r.Detail = "IO_FAILED"
+	var certificate *tls.CertificateVerificationError
+	var record tls.RecordHeaderError
+	var ne net.Error
+	switch {
+	case errors.As(err, &certificate):
+		r.Failure, r.Detail = "TLS_CERTIFICATE_ERROR", "CERTIFICATE_VERIFICATION"
+	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &ne) && ne.Timeout():
+		r.Failure, r.Detail = "NETWORK_TIMEOUT", "DEADLINE"
+	case errors.Is(err, context.Canceled):
+		r.Detail = "CANCELED"
+	case errors.Is(err, syscall.ECONNRESET):
+		r.Detail = "PEER_RESET"
+	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
+		r.Detail = "PEER_CLOSED"
+	case errors.As(err, &record):
+		r.Detail = "INVALID_TLS_RECORD"
+	default:
+		// Finite diagnostics only: never export arbitrary peer-controlled error text.
+		var op *net.OpError
+		if errors.As(err, &op) && op.Op == "remote error" {
+			r.Detail = "REMOTE_TLS_ALERT"
+		}
+	}
+	if r.Phase == "ORIGIN_TLS" && r.Failure == "CONNECTION_FAILED" {
+		r.Failure = "TLS_FAILED"
+	}
+	return r
+}
+
+// ProbeOriginDetailed negotiates HTTP/2 or HTTP/1.1 with the ORIGINAL DNS host
+// as SNI and certificate name even when open uses a pinned IP over relay QUIC.
+// A bounded GET body is required; neither a TCP ACK nor HEAD headers is success.
+// Redirects are not followed (a different origin must get its own route plan).
+func ProbeOriginDetailed(ctx context.Context, host string, port uint16, secure bool, roots *x509.CertPool, open func(context.Context) (net.Conn, error)) ProbeResult {
+	r := ProbeResult{Phase: "RELAY_OR_TCP_OPEN"}
 	conn, err := open(ctx)
 	if err != nil {
-		return 0, 0, "CONNECTION_FAILED"
+		return probeError(r, err)
 	}
 	defer conn.Close()
 	deadline := time.Now().Add(1500 * time.Millisecond)
 	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
 		deadline = d
 	}
-	conn.SetDeadline(deadline)
+	if err = conn.SetDeadline(deadline); err != nil {
+		return probeError(r, err)
+	}
+	// Cancellation must also interrupt a body read, not just the handshake.
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	defer stop()
+	var origin net.Conn = conn
 	if secure {
-		tc := tls.Client(conn, &tls.Config{ServerName: host, RootCAs: roots, MinVersion: tls.VersionTLS12, NextProtos: []string{"http/1.1"}})
+		r.Phase = "ORIGIN_TLS"
+		tc := tls.Client(conn, &tls.Config{ServerName: host, RootCAs: roots, MinVersion: tls.VersionTLS12, NextProtos: []string{"h2", "http/1.1"}})
 		if err = tc.HandshakeContext(ctx); err != nil {
-			var certificate *tls.CertificateVerificationError
-			if errors.As(err, &certificate) {
-				return 0, 0, "TLS_CERTIFICATE_ERROR"
-			}
-			if errors.Is(err, context.DeadlineExceeded) {
-				return 0, 0, "NETWORK_TIMEOUT"
-			}
-			return 0, 0, "TLS_FAILED"
+			return probeError(r, err)
 		}
-		conn = tc
+		state := tc.ConnectionState()
+		r.ALPN, r.TLSVersion = state.NegotiatedProtocol, state.Version
+		origin = tc
 	}
 	authority := host
-	if port != 443 && secure || port != 80 && !secure {
+	if (port != 443 && secure) || (port != 80 && !secure) {
 		authority = net.JoinHostPort(host, strconv.Itoa(int(port)))
 	}
-	request := &http.Request{Method: "HEAD", URL: nil, Host: authority, Header: http.Header{"User-Agent": []string{"NeExitLag-Origin-Probe/1"}, "Connection": []string{"close"}}}
-	// Construct the fixed request; no user supplied path, headers or body.
-	if _, err = io.WriteString(conn, "HEAD / HTTP/1.1\r\nHost: "+authority+"\r\nUser-Agent: NeExitLag-Origin-Probe/1\r\nConnection: close\r\n\r\n"); err != nil {
-		return 0, 0, "CONNECTION_FAILED"
+	scheme := "http"
+	if secure {
+		scheme = "https"
 	}
-	limited := &io.LimitedReader{R: conn, N: 32768}
-	response, err := http.ReadResponse(bufio.NewReaderSize(limited, 8192), request)
+	req, err := http.NewRequestWithContext(ctx, "GET", scheme+"://"+authority+"/", nil)
 	if err != nil {
-		if e, ok := err.(net.Error); ok && e.Timeout() {
-			return 0, 0, "NETWORK_TIMEOUT"
-		}
-		return 0, 0, "CONNECTION_FAILED"
+		return probeError(r, err)
 	}
-	defer response.Body.Close()
-	return response.StatusCode, uint64(32768 - limited.N), ""
+	req.Header.Set("User-Agent", "NeExitLag-Origin-Probe/2")
+	req.Header.Set("Accept-Encoding", "identity")
+	req.Header.Set("Cache-Control", "no-cache")
+	tr := &http.Transport{Proxy: nil, ForceAttemptHTTP2: true, DisableKeepAlives: true, MaxResponseHeaderBytes: 32768,
+		DialContext:    func(context.Context, string, string) (net.Conn, error) { return origin, nil },
+		DialTLSContext: func(context.Context, string, string) (net.Conn, error) { return origin, nil },
+	}
+	defer tr.CloseIdleConnections()
+	r.Phase = "ORIGIN_HTTP"
+	resp, err := tr.RoundTrip(req)
+	if err != nil {
+		return probeError(r, err)
+	}
+	defer resp.Body.Close()
+	r.Status = resp.StatusCode
+	r.Phase = "ORIGIN_BODY"
+	// Complete small responses; bound sampling of large documents. This is origin
+	// availability only, not complete-page acceptance. Truncated declared bodies fail.
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 32769))
+	r.Bytes = uint64(len(b))
+	if err != nil {
+		return probeError(r, err)
+	}
+	if len(b) == 0 && resp.StatusCode != http.StatusNoContent {
+		r.Failure, r.Detail = "CONNECTION_FAILED", "EMPTY_BODY"
+		return r
+	}
+	r.Phase = "ORIGIN_RESPONSE"
+	if resp.StatusCode == http.StatusNoContent {
+		r.Bytes = 1
+	} // explicit complete no-content HTTP response
+	return r
 }

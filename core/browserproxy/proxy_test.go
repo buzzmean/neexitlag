@@ -58,7 +58,7 @@ func TestPACOriginKeysAndOfflineFailClosed(t *testing.T) {
 }
 func TestProbeRequiresRealHTTPAndValidTLS(t *testing.T) {
 	target := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "HEAD" || r.URL.Path != "/" || r.URL.RawQuery != "" || r.Header.Get("Cookie") != "" {
+		if r.Method != "GET" || r.URL.Path != "/" || r.URL.RawQuery != "" || r.Header.Get("Cookie") != "" {
 			t.Error("probe leaked browser request data")
 		}
 		w.WriteHeader(200)

@@ -17,16 +17,17 @@ type BrowserLearning struct {
 	entries map[LearnKey]BrowserAttempt
 }
 type BrowserAttempt struct {
-	Key        LearnKey  `json:"key"`
-	Token      string    `json:"token"`
-	Route      Result    `json:"route"`
-	Stage      int       `json:"stage"`
-	Confirmed  bool      `json:"confirmed"`
-	Outcome    string    `json:"outcome"`
-	HTTPStatus int       `json:"http_status,omitempty"`
-	Started    time.Time `json:"started"`
-	Expires    time.Time `json:"expires"`
-	RetryAfter time.Time `json:"retry_after"`
+	Key         LearnKey  `json:"key"`
+	Token       string    `json:"token"`
+	Route       Result    `json:"route"`
+	Stage       int       `json:"stage"`
+	Confirmed   bool      `json:"confirmed"`
+	Outcome     string    `json:"outcome"`
+	HTTPStatus  int       `json:"http_status,omitempty"`
+	Destination string    `json:"destination,omitempty"`
+	Started     time.Time `json:"started"`
+	Expires     time.Time `json:"expires"`
+	RetryAfter  time.Time `json:"retry_after"`
 }
 type BrowserObservation struct {
 	Token        string
@@ -34,6 +35,7 @@ type BrowserObservation struct {
 	NetworkError string
 	// Correlated is established only by the service after exact origin/flow checks.
 	Correlated    bool
+	Destination   string
 	ResponseBytes uint64
 }
 
@@ -123,12 +125,13 @@ func (b *BrowserLearning) Observe(k LearnKey, observation BrowserObservation, st
 		return v, errors.New("browser origin cooldown")
 	}
 	if observation.HTTPStatus >= 200 && observation.HTTPStatus < 400 && observation.NetworkError == "" && observation.ResponseBytes > 0 {
+		v.Destination = observation.Destination
 		v.Confirmed = true
 		v.HTTPStatus = observation.HTTPStatus
 		v.Outcome = "HTTP_SUCCESS"
 		v.Expires = now.Add(15 * time.Minute)
 		v.Route.Source = "browser_http_verified"
-		v.Route.Reason = "real HTTP(S) result on this origin/network and captured route"
+		v.Route.Reason = "bounded origin HTTP(S) response on this domain/network; browser page unverified"
 	} else if (observation.HTTPStatus >= 400 && observation.HTTPStatus <= 599 && observation.NetworkError == "") || observation.NetworkError == "TLS_CERTIFICATE_ERROR" {
 		// Authentication/WAF/server errors are not proof that a different egress is
 		// needed. Do not turn 403 into a successful trial or repeatedly replay login.
@@ -179,3 +182,7 @@ func (b *BrowserLearning) Snapshot(now time.Time) []BrowserAttempt {
 	}
 	return out
 }
+
+// Invalidate a learned origin if its pinned address disappeared from DNS. An IP
+// chosen on one lookup must never be silently replaced under a confirmed route.
+func (b *BrowserLearning) Forget(k LearnKey) { b.mu.Lock(); delete(b.entries, k); b.mu.Unlock() }

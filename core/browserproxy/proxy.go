@@ -50,6 +50,11 @@ type Request struct {
 	Secure bool
 }
 type Trial struct {
+	Destination      string `json:"destination,omitempty"`
+	Phase            string `json:"phase,omitempty"`
+	Detail           string `json:"detail,omitempty"`
+	ALPN             string `json:"alpn,omitempty"`
+	TLSVersion       uint16 `json:"tls_version,omitempty"`
 	Route            string `json:"route"`
 	Outcome          string `json:"outcome"`
 	HTTPStatus       int    `json:"http_status"`

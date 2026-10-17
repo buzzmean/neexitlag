@@ -199,7 +199,25 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 	// Prefer IPv4 for the existing native DIRECT+ backend. IPv6 relay/direct can
 	// use the existing authenticated transport, not an unsupported native bypass.
 	sort.SliceStable(addresses, func(i, j int) bool { return addresses[i].Is4() && !addresses[j].Is4() })
-	dest := netip.AddrPortFrom(addresses[0].Unmap(), q.Port)
+	// Cap candidates and remove duplicates; never use arbitrary fallback IPs or
+	// relay-side DNS with different policy attribution.
+	candidates := []netip.AddrPort{}
+	for _, ip := range addresses {
+		a := netip.AddrPortFrom(ip.Unmap(), q.Port)
+		duplicate := false
+		for _, prev := range candidates {
+			if a == prev {
+				duplicate = true
+			}
+		}
+		if !duplicate {
+			candidates = append(candidates, a)
+		}
+		if len(candidates) == 3 {
+			break
+		}
+	}
+	dest := candidates[0]
 	tuple := wp.Tuple{Protocol: "tcp", Source: q.Source, Destination: dest}
 	result := c.browserFlow(current.profile, current.id, tuple, q.Host, current.network)
 	if !current.enabled && browserGuardedRule(current.profile, q.Host) {
@@ -232,6 +250,22 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 		key.Revision += ":http"
 	}
 	if cached, ok := c.browser.learned.Lookup(key, time.Now()); ok && (cached.Confirmed || !cached.RetryAfter.IsZero()) {
+		if cached.Destination != "" {
+			pinned, e := netip.ParseAddrPort(cached.Destination)
+			found := false
+			for _, a := range candidates {
+				if e == nil && pinned == a {
+					found = true
+				}
+			}
+			if !found {
+				c.browser.learned.Forget(key)
+			} else {
+				plan.Destination = pinned
+			}
+		}
+	}
+	if cached, ok := c.browser.learned.Lookup(key, time.Now()); ok && (cached.Confirmed || !cached.RetryAfter.IsZero()) {
 		if cached.Confirmed || cached.Route.Action != flowpolicy.RelayRequired {
 			plan.Policy = cached.Route
 		}
@@ -259,6 +293,9 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 			if v, ok := c.browser.learned.Lookup(key, time.Now()); ok {
 				if v.Confirmed || v.Route.Action != flowpolicy.RelayRequired {
 					plan.Policy = v.Route
+					if a, e := netip.ParseAddrPort(v.Destination); e == nil {
+						plan.Destination = a
+					}
 				}
 				plan.Probe = v.Outcome
 				plan.HTTPStatus = v.HTTPStatus
@@ -298,31 +335,52 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 	}
 	for tries := 0; tries < 3; tries++ {
 		plan.Policy = attempt.Route
-		started := time.Now()
-		probe, stop := context.WithTimeout(ctx, 1500*time.Millisecond)
-		status, rx, networkError := browserproxy.ProbeOrigin(probe, q.Host, q.Port, q.Secure, c.BrowserProbeRoots, func(ctx context.Context) (net.Conn, error) { return c.browserOpen(ctx, q, plan) })
-		stop()
-		applied := plan.Policy.Action == flowpolicy.DirectPlus && c.browserTransform(q, plan)
-		outcome := networkError
-		if outcome == "" {
-			outcome = "HTTP_RESPONSE"
-		}
-		if plan.Policy.Action == flowpolicy.DirectPlus {
-			if networkError == "" && !applied {
-				networkError = "NO_TRANSFORM"
-				outcome = networkError
-				rx = 0
-				status = 0
-			} else if networkError != "" && applied && networkError != "TLS_CERTIFICATE_ERROR" {
-				outcome = "TRANSFORM_APPLIED_CONNECTION_FAILED"
+
+		var status int
+		var rx uint64
+		var networkError string
+		// One budget per route, at most three DNS candidates. Failed addresses get a
+		// bounded share rather than consuming every subsequent address's budget.
+		routeCtx, routeStop := context.WithTimeout(ctx, 1500*time.Millisecond)
+		for i, candidate := range candidates {
+			plan.Destination = candidate
+			started := time.Now()
+			budget := time.Until(started.Add(1500 * time.Millisecond))
+			if deadline, ok := routeCtx.Deadline(); ok {
+				budget = time.Until(deadline) / time.Duration(len(candidates)-i)
+			}
+			probe, stop := context.WithTimeout(routeCtx, budget)
+			detail := browserproxy.ProbeOriginDetailed(probe, q.Host, q.Port, q.Secure, c.BrowserProbeRoots, func(ctx context.Context) (net.Conn, error) { return c.browserOpen(ctx, q, plan) })
+			stop()
+			status, rx, networkError = detail.Status, detail.Bytes, detail.Failure
+			applied := plan.Policy.Action == flowpolicy.DirectPlus && c.browserTransform(q, plan)
+			outcome := networkError
+			if outcome == "" {
+				outcome = "ORIGIN_RESPONSE"
+			}
+			if plan.Policy.Action == flowpolicy.DirectPlus {
+				if networkError == "" && !applied {
+					networkError = "NO_TRANSFORM"
+					outcome = networkError
+					rx = 0
+					status = 0
+				} else if networkError != "" && applied && networkError != "TLS_CERTIFICATE_ERROR" {
+					outcome = "TRANSFORM_APPLIED_CONNECTION_FAILED"
+				}
+			}
+			plan.Trials = append(plan.Trials, browserproxy.Trial{Route: string(plan.Policy.Action), Destination: candidate.String(), Phase: detail.Phase, Detail: detail.Detail, ALPN: detail.ALPN, TLSVersion: detail.TLSVersion, Outcome: outcome, HTTPStatus: status, TransformApplied: applied, DurationMS: time.Since(started).Milliseconds()})
+			// Never retry a certificate failure on a different address/route. HTTP errors
+			// are application responses, not evidence of routing failure.
+			if networkError == "" || networkError == "TLS_CERTIFICATE_ERROR" || routeCtx.Err() != nil {
+				break
 			}
 		}
-		plan.Trials = append(plan.Trials, browserproxy.Trial{Route: string(plan.Policy.Action), Outcome: outcome, HTTPStatus: status, TransformApplied: applied, DurationMS: time.Since(started).Milliseconds()})
+		routeStop()
 		after, ownerErr := c.browserProfile(q.Owner)
 		if ownerErr != nil || after.network != current.network || after.enabled != current.enabled {
 			return plan, errors.New("network/activation changed during origin probe")
 		}
-		attempt, err = c.browser.learned.Observe(key, flowpolicy.BrowserObservation{Token: attempt.Token, HTTPStatus: status, NetworkError: networkError, ResponseBytes: rx, Correlated: true}, strategy, relay, time.Now())
+		attempt, err = c.browser.learned.Observe(key, flowpolicy.BrowserObservation{Token: attempt.Token, HTTPStatus: status, NetworkError: networkError, Destination: plan.Destination.String(), ResponseBytes: rx, Correlated: true}, strategy, relay, time.Now())
 		if err != nil {
 			return plan, err
 		}

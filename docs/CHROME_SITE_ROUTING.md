@@ -98,7 +98,7 @@ unavailable, proxy traffic is unavailable; protected traffic never bypasses it.
   network-confirmed **DIRECT+** baseline. Exact delegated upstream tuples use
   Chrome's identity in the existing native engine. The GUI requires real modified
   packet/byte evidence, not strategy intent. Other origins do not inherit it.
-* Unknown origins: real `HEAD /` with normal TLS validation, then a domain-scoped
+* Unknown origins: bounded `GET /` with normal TLS validation, then a domain-scoped
   verified local candidate and authenticated relay on network failures. At most
   three 1.5-second attempts, four workers, 32 pending origins, 500 ms admission,
   512 cached entries. Cache keys include application, exact domain, port/scheme,
@@ -107,7 +107,7 @@ unavailable, proxy traffic is unavailable; protected traffic never bypasses it.
   Failed synthetic trials alone cannot force ordinary browsing onto a dead VPS.
 
 Unknown learned AUTO is best-effort, not an offline security rule. Use an
-explicit required domain rule for protection during outage. A HEAD success does
+explicit required domain rule for protection during outage. A bounded origin response does
 not prove login, media playback, every API path or public ISP availability.
 
 CONNECT exposes the origin hostname without decrypting TLS, including with ECH
@@ -190,3 +190,35 @@ markers and zero capture/saturation drops are checked. Reports are in
 are saved. WAF/403, an empty/error page or missing evidence is FAIL. This public
 helper has not been run against the user's ISP in CI and is not a claim of
 logged-in functionality, voice latency, full video playback or Internet gain.
+
+
+### Origin-probe regression (Telegram report)
+
+The Windows report establishes that authenticated relay OPEN completed and the
+subsequent origin TLS handshake failed. `TLS_FAILED` alone cannot establish the
+remote alert, certificate, IP, or ALPN cause; it is not evidence of failed QUIC
+mTLS. No production VPS or public Telegram endpoint was accessed for this change.
+
+The old probe advertised only HTTP/1.1, issued HEAD, selected only the first DNS
+address, and discarded the TLS failure phase. The probe now negotiates h2/http1.1
+with the original hostname as SNI/certificate identity, performs an independent
+credential-free GET, and reads a bounded body (32 KiB). It never follows redirects,
+uses browser cookies, decrypts a browser tunnel, or treats this as full-page PASS.
+Certificate validation and TLS 1.2 minimum remain mandatory. No cipher/curve or
+browser ECH downgrade is enabled.
+
+At most three distinct DNS addresses share each existing 1500 ms route budget.
+The successful address is pinned in the domain/network/revision cache; a DNS
+change invalidates that confirmation. Protected OpenAI and explicit rules bypass
+unknown-origin learning and keep required-relay fail-closed policy.
+
+Each trial exports destination, phase (`RELAY_OR_TCP_OPEN`, `ORIGIN_TLS`,
+`ORIGIN_HTTP`, `ORIGIN_BODY`), finite error detail (deadline/peer close/reset,
+certificate verification, invalid TLS record, remote alert), negotiated ALPN and
+TLS version. Arbitrary remote error text, request data and credentials are absent.
+A failed relay trial is not cached as success. An h2-only origin behind a real
+one-shot-ticket/mTLS QUIC relay is covered by integration regression, with DIRECT
+unavailable and a completed origin document through RELAY_REQUIRED. Real ISP
+Telegram acceptance remains necessary: the public seven-site helper checks
+Chrome document completion and script/XHR errors and permits a verified AUTO
+relay choice specifically for Telegram instead of incorrectly requiring DIRECT.

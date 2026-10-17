@@ -99,3 +99,25 @@ func TestBrowserCertificateFailureNeverChangesEgress(t *testing.T) {
 		t.Fatal(a, err)
 	}
 }
+
+func TestBrowserLearnedAddressIsScopedAndInvalidated(t *testing.T) {
+	b := NewBrowserLearning()
+	now := time.Now()
+	k := LearnKey{Network: "isp", Application: "chrome", Protocol: "tcp", Target: "web.telegram.org", Port: 443}
+	a, _ := b.Begin(k, "", "VPS-01", now)
+	a, _ = b.Observe(k, BrowserObservation{Token: a.Token, Correlated: true, NetworkError: "NETWORK_TIMEOUT"}, "", "VPS-01", now)
+	a, err := b.Observe(k, BrowserObservation{Token: a.Token, Correlated: true, HTTPStatus: 200, ResponseBytes: 100, Destination: "203.0.113.2:443"}, "", "VPS-01", now)
+	if err != nil || !a.Confirmed || a.Destination != "203.0.113.2:443" || a.Route.Action != RelayRequired {
+		t.Fatal(a, err)
+	}
+	other := k
+	other.Target = "ordinary.example"
+	if _, ok := b.Lookup(other, now); ok {
+		t.Fatal("cross-origin cache")
+	}
+	b.Forget(k)
+	a, _ = b.Begin(k, "", "VPS-01", now)
+	if a.Confirmed || a.Destination != "" || a.Route.Action != Direct {
+		t.Fatal("stale DNS route reused", a)
+	}
+}
