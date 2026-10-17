@@ -339,3 +339,35 @@ func TestChromeAutoThreeOriginsNeverUsesGlobalWinner(t *testing.T) {
 		t.Fatal("existing decision mutated")
 	}
 }
+
+func TestBrowserCandidateIsScopedAndPreservesConfiguredBaseline(t *testing.T) {
+	app := `C:\Apps\chrome.exe`
+	p := profiles.Profile{ID: "chrome", Name: "Chrome", Mode: profiles.Auto, Executables: []string{app}, LocalStrategyID: "local"}
+	c := policyController(t, p)
+	c.network.Store(&wp.NetworkContext{Fingerprint: "isp", ObservedAt: time.Now()})
+	cfg := localstrategy.Config{Version: 1, Enabled: true, User: []localstrategy.Profile{{ID: "local", Name: "baseline", Version: 1, Application: app, Enabled: true, Protocol: "tcp", Ports: []uint16{443}, Domains: []string{"youtube.com"}, IPs: []string{"203.0.113.1"}, Strategy: "tcp-split-1", Cutoff: 1}}}
+	if e := c.Local.Reload(cfg); e != nil {
+		t.Fatal(e)
+	}
+	p.AutoNetwork = "isp"
+	p.AutoRevision = c.baselineRevision(p)
+	id, engine := c.browserScopedLocal(p, "unknown.example", "isp", 8443)
+	if id == "" || engine == nil {
+		t.Fatal("missing real candidate")
+	}
+	candidate := engine.Config().User[0]
+	if len(candidate.Domains) != 1 || candidate.Domains[0] != "unknown.example" || len(candidate.IPs) != 0 || len(candidate.Ports) != 1 || candidate.Ports[0] != 8443 {
+		t.Fatal(candidate)
+	}
+	other, _ := c.browserScopedLocal(p, "unknown.example", "isp", 443)
+	if other == id {
+		t.Fatal("candidate crossed origin port")
+	}
+	if c.Local.Config().User[0].Domains[0] != "youtube.com" || c.Local.Config().User[0].Ports[0] != 443 {
+		t.Fatal("modified user's baseline")
+	}
+	c.network.Store(&wp.NetworkContext{Fingerprint: "isp", ObservedAt: time.Now(), Conflicts: []string{"external capture"}})
+	if id, _ := c.browserScopedLocal(p, "unknown.example", "isp", 8443); id != "" {
+		t.Fatal("bypassed existing local strategy safety gate")
+	}
+}

@@ -78,6 +78,9 @@ for this mode. Other applications and their sockets are untouched.
   repeated login/egress retries. Certificate trust failures are left to Chrome;
   no certificate exception or MITM is added in production.
 
+Trial evidence includes route, HTTP status/failure class, elapsed time and actual
+transform proof. Planning/timeouts remain visible as failures, not missing rows.
+
 Trials are scoped by application, exact domain, port/scheme, network and policy
 revision. They use at most three real attempts, 1.5 seconds each, four probe
 workers, a 32-origin pending bound and a 512-entry expiring cache. Successful
@@ -126,7 +129,10 @@ Public OpenAI/YouTube and the production VPS are never contacted by the fixture.
 controller, TCP owner/SID checks, signed WinDivert and the existing disorder
 strategy. It requires positive native modified packet/byte counters for YouTube,
 real HTTP(S) responses, authenticated protected traffic, ordinary DIRECT and
-complete evidence. Missing browser/driver/proof cannot be reported as PASS.
+complete evidence. It also disables/re-enables optimization and verifies new
+responses in the same Chrome process. Every YouTube CONNECT must have its own
+positive native transform evidence. Missing browser/driver/proof cannot be
+reported as PASS.
 Loopback packet observation is enabled only through a test-binary constructor,
 not a production flag. The Chrome acceptance uses a temporary browser directory
 and a pinned ephemeral test certificate; production never enables CDP or ignores

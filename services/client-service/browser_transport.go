@@ -78,8 +78,12 @@ type profilesResult struct {
 	enabled bool
 }
 
-func (c *Controller) browserScopedLocal(p profiles.Profile, host, network string) (string, *localstrategy.LocalStrategyEngine) {
-	if !c.hasBaseline(p, network) {
+func (c *Controller) browserLocalAllowed(network string) bool {
+	n := c.network.Load()
+	return c.Local.Config().Enabled && n != nil && n.Fingerprint == network && n.Error == "" && time.Since(n.ObservedAt) <= 45*time.Second && len(n.VPN) == 0 && len(n.Conflicts) == 0
+}
+func (c *Controller) browserScopedLocal(p profiles.Profile, host, network string, port uint16) (string, *localstrategy.LocalStrategyEngine) {
+	if !c.hasBaseline(p, network) || !c.browserLocalAllowed(network) {
 		return "", nil
 	}
 	var selected *localstrategy.Profile
@@ -96,7 +100,7 @@ func (c *Controller) browserScopedLocal(p profiles.Profile, host, network string
 	if youtubeDomain(host) {
 		return selected.ID, c.Local
 	}
-	raw, _ := json.Marshal([]any{host, p.AutoRevision})
+	raw, _ := json.Marshal([]any{host, port, p.AutoRevision})
 	sum := sha256.Sum256(raw)
 	key := "br-" + hex.EncodeToString(sum[:12])
 	c.browser.mu.Lock()
@@ -111,8 +115,9 @@ func (c *Controller) browserScopedLocal(p profiles.Profile, host, network string
 	}
 	selected.ID = key
 	selected.Domains = []string{host}
+	selected.IPs = nil
 	selected.QuicFallback = false
-	selected.Ports = []uint16{80, 443}
+	selected.Ports = []uint16{port}
 	engine := localstrategy.New()
 	if engine.Reload(localstrategy.Config{Version: 1, Enabled: true, User: []localstrategy.Profile{*selected}}) != nil {
 		return "", nil
@@ -151,6 +156,9 @@ func (c *Controller) browserOpen(ctx context.Context, q browserproxy.Request, pl
 		return nil, errors.New("browser route blocked")
 	}
 	if d.Route.Local() {
+		if !c.browserLocalAllowed(current.network) {
+			return nil, errors.New("native local strategy unavailable on current network")
+		}
 		backend, ok := c.Backend.(interface {
 			OpenBrowserLocalTCP(context.Context, wp.ProcessIdentity, netip.AddrPort, netip.AddrPort, wp.Decision) (net.Conn, error)
 		})
@@ -255,7 +263,7 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 	case <-ctx.Done():
 		return plan, ctx.Err()
 	}
-	strategy, _ := c.browserScopedLocal(current.profile, q.Host, current.network)
+	strategy, _ := c.browserScopedLocal(current.profile, q.Host, current.network, q.Port)
 	relay := current.profile.RelayID
 	if relay == "" {
 		relay = "VPS-01"

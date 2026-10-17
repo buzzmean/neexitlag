@@ -180,7 +180,7 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 			}
 			found[r.Domain] = true
 		case "www.youtube.com":
-			if r.Plan.Policy.Action != flowpolicy.DirectPlus || r.Sent == 0 || r.Received == 0 {
+			if r.Plan.Policy.Action != flowpolicy.DirectPlus || !r.DirectPlusApplied || r.Sent == 0 || r.Received == 0 {
 				t.Fatal("YouTube local route missing", r)
 			}
 			found[r.Domain] = true
@@ -194,7 +194,10 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 	if len(found) != 4 {
 		t.Fatal("missing CONNECT origins; possible HTTP/2 pooling", found)
 	}
-	evidence := backend.Diagnostics(0)
+	evidence, err := backend.DiagnosticsScoped(wp.EvidenceQuery{Destination: f.Destination().String()})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if evidence.EvidenceLost || evidence.Truncated {
 		t.Fatal("incomplete native transform proof")
 	}

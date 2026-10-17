@@ -65,7 +65,7 @@ func (c *Controller) browserFlow(p profiles.Profile, id wp.ProcessIdentity, t wp
 	if r, ok := flowpolicy.Evaluate(p.Rules, flowpolicy.Input{Protocol: t.Protocol, Domain: domain, Network: network, Destination: t.Destination}); ok {
 		return r
 	}
-	if youtubeDomain(domain) && c.hasBaseline(p, network) && p.LocalStrategyID != "" {
+	if youtubeDomain(domain) && c.browserLocalAllowed(network) && c.hasBaseline(p, network) && p.LocalStrategyID != "" {
 		for _, local := range c.Local.Config().User {
 			if local.Enabled && local.ID == p.LocalStrategyID && strings.EqualFold(strings.ReplaceAll(local.Application, `\`, "/"), strings.ReplaceAll(id.Path, `\`, "/")) {
 				return flowpolicy.Result{Action: flowpolicy.DirectPlus, Strategy: local.ID, Fallback: flowpolicy.FailOpen, Source: "configured_baseline", Reason: "YouTube origin only: verified local configuration on this network"}
