@@ -47,6 +47,11 @@ jobs:
         shell: powershell
       - run: ./tests/windows-tools/vps-upgrade-tests.ps1
         shell: pwsh
+      # Fast real PS5.1/7 filesystem/shortcut/upgrade checks before long builds.
+      - run: ./tests/windows-tools/desktop-upgrade-checks.ps1
+        shell: powershell
+      - run: ./tests/windows-tools/desktop-upgrade-checks.ps1
+        shell: pwsh
       - uses: actions/setup-go@v5
         with: {go-version: '1.25.x'}
       - uses: actions/setup-dotnet@v4
@@ -75,10 +80,6 @@ jobs:
         timeout-minutes: 4
       - run: dotnet build --nologo
       - run: dotnet test --nologo
-      - run: ./tests/windows-tools/desktop-upgrade-checks.ps1
-        shell: powershell
-      - run: ./tests/windows-tools/desktop-upgrade-checks.ps1
-        shell: pwsh
       - run: ./tests/windows-tools/build-desktop-ps51.ps1
         shell: powershell
       - run: ./tools/windows/build-desktop.ps1
