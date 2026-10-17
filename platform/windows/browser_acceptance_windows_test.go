@@ -376,7 +376,7 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		t.Fatal("incomplete browser proof", snap.Lost, snap.Truncated)
 	}
 	found := map[string]bool{}
-	for _, r := range snap.Records {
+	for _, r := range append(earlier, snap.Records...) {
 		switch r.Domain {
 		case "blocked.example":
 			// Unknown AUTO must be allowed to try DIRECT first. Speculative
