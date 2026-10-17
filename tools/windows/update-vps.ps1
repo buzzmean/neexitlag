@@ -55,8 +55,7 @@ function Copy-UpgradeFile([string]$Source,[string]$Destination,[string]$Label) {
     Invoke-UpgradeNative 'scp.exe' ($script:SCPArguments + @($Source,"root@${HostAddress}:$Destination")) $Label | Out-Null
 }
 
-# Dot sourcing is for regression tests only and performs no download or remote work.
-if ($MyInvocation.InvocationName -eq '.') { return }
+function Invoke-VpsUpgrade {
 if ($env:OS -ne 'Windows_NT') { throw 'Use this orchestrator on Windows; isolated Python tests run on Linux' }
 $ip=$null
 if (-not [System.Net.IPAddress]::TryParse($HostAddress,[ref]$ip) -or $ip.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetwork -or $SSHPort -lt 1 -or $SSHPort -gt 65535) { throw 'Explicit IPv4 and valid SSH port required' }
@@ -146,3 +145,8 @@ try {
     }
     throw
 }
+
+}
+# Dot sourcing exposes the real orchestrator for isolated regression tests.
+if ($MyInvocation.InvocationName -eq '.') { return }
+Invoke-VpsUpgrade

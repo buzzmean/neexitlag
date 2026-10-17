@@ -43,6 +43,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - run: ./tests/windows-tools/vps-upgrade-tests.ps1
+        shell: powershell
+      - run: ./tests/windows-tools/vps-upgrade-tests.ps1
+        shell: pwsh
       - uses: actions/setup-go@v5
         with: {go-version: '1.25.x'}
       - uses: actions/setup-dotnet@v4
@@ -77,10 +81,6 @@ jobs:
         with:
           name: NeExitLag-win-x64
           path: bin/release/
-      - run: ./tests/windows-tools/vps-upgrade-tests.ps1
-        shell: powershell
-      - run: ./tests/windows-tools/vps-upgrade-tests.ps1
-        shell: pwsh
       - run: ./tools/windows/parse-scripts.ps1
         shell: pwsh
       - run: ./tools/windows/build-e2e.ps1

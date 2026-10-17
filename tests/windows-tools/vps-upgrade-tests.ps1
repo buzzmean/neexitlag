@@ -13,7 +13,8 @@ $rejected=$false
 try { Read-UpgradeProperty ([pscustomobject]@{}) 'error' } catch { $rejected=$true }
 if (-not $rejected) { throw 'Missing required evidence not rejected under StrictMode' }
 if ((Quote-NativeArgument 'C:\path with space\') -cne '"C:\path with space\\"') { throw 'Trailing slash quoting failed' }
-$script:LogDirectory=Join-Path ([System.IO.Path]::GetTempPath()) ('neexitlag-upgrade-test-'+[Guid]::NewGuid().ToString('N'))
+$nativeLogDirectory=Join-Path ([System.IO.Path]::GetTempPath()) ('neexitlag-upgrade-test-'+[Guid]::NewGuid().ToString('N'))
+$script:LogDirectory=$nativeLogDirectory
 New-Item -ItemType Directory -Path $script:LogDirectory | Out-Null
 try {
     # Real Windows redirected Start-Process, no fake process adapter.
@@ -26,7 +27,29 @@ try {
     $tokens=$null;$errors=$null
     [void][Management.Automation.Language.Parser]::ParseInput($text,[ref]$tokens,[ref]$errors)
     if ($errors.Count) { throw 'Upgrade orchestrator does not parse' }
-    # The Prepare branch must end before every SSH/SCP invocation.
-    if ($text.IndexOf("if (`$Mode -eq 'Prepare')") -gt $text.IndexOf("Invoke-UpgradeSSH 'test")) { throw 'Prepare can reach SSH' }
+    # Execute the REAL Prepare orchestration with local public artifact fixtures.
+    # Every SSH/SCP entry point throws; no host or credentials are provided.
+    $fixture=Join-Path $script:LogDirectory 'prepare-fixture'
+    $WorkDirectory=$fixture
+    $Mode='Prepare'; $KnownHostsFile='DOES-NOT-EXIST'; $HostAddress='127.0.0.1'
+    $linux=Join-Path $fixture 'linux-1'; $win=Join-Path $fixture 'windows-1'
+    New-Item -ItemType Directory -Force -Path (Join-Path $linux 'bin'),(Join-Path $linux 'deploy/vps'),$win | Out-Null
+    $hashes=@{}
+    foreach ($name in @('bin/relay','bin/control-plane','deploy/vps/production-upgrade.py')) {
+        $file=Join-Path $linux $name
+        [IO.File]::WriteAllText($file,'public test fixture')
+        $hashes[$name]=(Get-FileHash -Algorithm SHA256 $file).Hash.ToLowerInvariant()
+    }
+    [IO.File]::WriteAllText((Join-Path $linux 'UPGRADE_MANIFEST.json'),(@{format=1;commit=('a'*40);files=$hashes}|ConvertTo-Json))
+    $exe=Join-Path $win 'neexitlag-route-test-windows-amd64.exe'
+    [IO.File]::WriteAllText($exe,'public executable fixture, never executed')
+    [IO.File]::WriteAllText((Join-Path $win 'SHA256SUMS'),((Get-FileHash -Algorithm SHA256 $exe).Hash.ToLowerInvariant()+'  neexitlag-route-test-windows-amd64.exe'))
+    function Invoke-UpgradeNative([string]$Program,[string[]]$Arguments,[string]$Label,[int]$TimeoutSeconds=120) {
+        if ($Program -cne 'gh.exe' -or $Label -cne 'workflow') { throw 'Unexpected program in isolated Prepare' }
+        return (@{head_sha=('a'*40);conclusion='success';name='Relay release and route test';repository=@{full_name='buzzmean/neexitlag'}}|ConvertTo-Json)
+    }
+    function Invoke-UpgradeSSH { throw 'Prepare reached SSH' }
+    function Copy-UpgradeFile { throw 'Prepare reached SCP' }
+    Invoke-VpsUpgrade
     Write-Output 'PASS: StrictMode, same-flow evidence, quoting, real redirected exit=0/nonzero, default Prepare boundary.'
-} finally { Remove-Item -LiteralPath $script:LogDirectory -Recurse -Force }
+} finally { Remove-Item -LiteralPath $nativeLogDirectory -Recurse -Force }
