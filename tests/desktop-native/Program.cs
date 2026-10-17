@@ -179,12 +179,21 @@ internal static class Program
         grid.ItemsSource=new[]{p};grid.SelectedItem=p;Pump();
         Require(((System.Windows.Controls.TextBox)main.FindName("LocalDomains")).Text=="","Null arrays were not safe in real WPF selection handler");main.Close();Pump();Pass("real WPF null strategy arrays and collapsed Advanced controls");
     }
+    static void ChromeProxyValue()
+    {
+        using var value=System.Text.Json.JsonDocument.Parse(ChromePolicy.CreateValue(["--proxy-pac-url=data:application/x-ns-proxy-autoconfig;base64,dGVzdA=="]));
+        var root=value.RootElement;
+        Require(root.GetProperty("ProxyMode").GetString()=="pac_script","Chrome-only PAC mode missing");
+        Require(root.GetProperty("ProxyPacMandatory").GetBoolean(),"PAC evaluation failure must not authorize DIRECT");
+        Require(root.GetProperty("ProxyBypassList").GetString()=="<-loopback>","Implicit loopback bypass must be disabled");
+        Pass("Chrome PAC mandatory policy encoding; no registry or Windows proxy modified by test");
+    }
     [STAThread]
     static int Main()
     {
         Directory.CreateDirectory(Output); settings = Path.Combine(Path.GetTempPath(), "neexitlag-native-" + Guid.NewGuid() + ".json");
         var app = new App(); app.InitializeComponent(); app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-        try { Picker(); StrategiesNull(); Lifecycle(); Dropdowns(); Pass("native WPF desktop regression suite"); return 0; }
+        try { ChromeProxyValue(); Picker(); StrategiesNull(); Lifecycle(); Dropdowns(); Pass("native WPF desktop regression suite"); return 0; }
         catch (Exception e) { Console.Error.WriteLine(e); File.WriteAllText(Path.Combine(Output, "failure.txt"), e.ToString()); return 1; }
         finally { foreach (System.Windows.Window w in app.Windows.Cast<System.Windows.Window>().ToArray()) { if (w is MainWindow m) m.Exit(); else w.Close(); } app.Shutdown(); File.Delete(settings); }
     }

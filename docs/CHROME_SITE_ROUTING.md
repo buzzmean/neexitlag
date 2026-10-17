@@ -38,7 +38,9 @@ Chrome CONNECT/PAC mode below.
    custom/portable user-data directories need an explicit launch configuration.
 
 An inline `data:` PAC has no network download failure that silently falls back to
-DIRECT. It returns only a local proxy, without a DIRECT fallback. Each canonical
+DIRECT. The owned Chrome policy also sets `ProxyPacMandatory=true`, so a PAC
+evaluation error is fail-closed. It returns only a local proxy, without a DIRECT
+fallback. Each canonical
 hostname uses a distinct SHA256-derived `*.localhost` proxy name. Chrome resolves
 these names internally to loopback, without system DNS overrides. Distinct proxy
 identities partition Chrome connection pools, including HTTP/2 coalescing. The
