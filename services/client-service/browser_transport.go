@@ -266,7 +266,7 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 		}
 	}
 	if cached, ok := c.browser.learned.Lookup(key, time.Now()); ok && (cached.Confirmed || !cached.RetryAfter.IsZero()) {
-		if cached.Confirmed || cached.Route.Action != flowpolicy.RelayRequired {
+		if cached.Confirmed || cached.BrowserTrial || cached.Route.Action != flowpolicy.RelayRequired {
 			plan.Policy = cached.Route
 		}
 		plan.Probe = cached.Outcome
@@ -291,7 +291,7 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 		select {
 		case <-pending:
 			if v, ok := c.browser.learned.Lookup(key, time.Now()); ok {
-				if v.Confirmed || v.Route.Action != flowpolicy.RelayRequired {
+				if v.Confirmed || v.BrowserTrial || v.Route.Action != flowpolicy.RelayRequired {
 					plan.Policy = v.Route
 					if a, e := netip.ParseAddrPort(v.Destination); e == nil {
 						plan.Destination = a
@@ -339,6 +339,7 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 		var status int
 		var rx uint64
 		var networkError string
+		var originTLS bool
 		// One budget per route, at most three DNS candidates. Failed addresses get a
 		// bounded share rather than consuming every subsequent address's budget.
 		routeCtx, routeStop := context.WithTimeout(ctx, 1500*time.Millisecond)
@@ -353,6 +354,7 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 			detail := browserproxy.ProbeOriginDetailed(probe, q.Host, q.Port, q.Secure, c.BrowserProbeRoots, func(ctx context.Context) (net.Conn, error) { return c.browserOpen(ctx, q, plan) })
 			stop()
 			status, rx, networkError = detail.Status, detail.Bytes, detail.Failure
+			originTLS = detail.Phase == "ORIGIN_TLS"
 			applied := plan.Policy.Action == flowpolicy.DirectPlus && c.browserTransform(q, plan)
 			outcome := networkError
 			if outcome == "" {
@@ -380,13 +382,13 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 		if ownerErr != nil || after.network != current.network || after.enabled != current.enabled {
 			return plan, errors.New("network/activation changed during origin probe")
 		}
-		attempt, err = c.browser.learned.Observe(key, flowpolicy.BrowserObservation{Token: attempt.Token, HTTPStatus: status, NetworkError: networkError, Destination: plan.Destination.String(), ResponseBytes: rx, Correlated: true}, strategy, relay, time.Now())
+		attempt, err = c.browser.learned.Observe(key, flowpolicy.BrowserObservation{Token: attempt.Token, HTTPStatus: status, NetworkError: networkError, OriginTLS: originTLS, Destination: plan.Destination.String(), ResponseBytes: rx, Correlated: true}, strategy, relay, time.Now())
 		if err != nil {
 			return plan, err
 		}
 		if attempt.Confirmed || !attempt.RetryAfter.IsZero() {
 			plan.Policy = attempt.Route
-			if !attempt.Confirmed && attempt.Route.Action == flowpolicy.RelayRequired && !attempt.RetryAfter.IsZero() {
+			if !attempt.Confirmed && !attempt.BrowserTrial && attempt.Route.Action == flowpolicy.RelayRequired && !attempt.RetryAfter.IsZero() {
 				plan.Policy = ordinary
 			}
 			plan.Probe = attempt.Outcome

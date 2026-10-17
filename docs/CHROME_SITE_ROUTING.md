@@ -222,3 +222,16 @@ unavailable and a completed origin document through RELAY_REQUIRED. Real ISP
 Telegram acceptance remains necessary: the public seven-site helper checks
 Chrome document completion and script/XHR errors and permits a verified AUTO
 relay choice specifically for Telegram instead of incorrectly requiring DIRECT.
+
+
+Crucially, when local routes failed and relay OPEN succeeded but the independent
+origin TLS probe failed, Chrome now gets a **new unverified required-relay trial**
+instead of returning to known-failed DIRECT. This is `ORIGIN_TLS_BROWSER_TRIAL_UNVERIFIED`,
+not HTTP_SUCCESS, not a healthy cache entry (5 second bounded trial cooldown), and
+never a reason to replay an established stream or bypass certificate validation.
+Failed relay OPEN and certificate-verification failures do not take this path.
+The real Chrome regression uses a controlled origin that rejects local egress and
+Go's probe ClientHello but accepts Chrome over authenticated relay. The native
+Windows acceptance runs the same case under actual Chrome policy and capture.
+This establishes the incorrect probe-veto/fail-open decision independently of the
+specific remote Telegram TLS alert, which still requires fresh ISP diagnostics.

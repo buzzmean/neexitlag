@@ -121,3 +121,29 @@ func TestBrowserLearnedAddressIsScopedAndInvalidated(t *testing.T) {
 		t.Fatal("stale DNS route reused", a)
 	}
 }
+
+func TestBrowserTLSProbeFailureOffersUnverifiedRelayNotKnownFailedDirect(t *testing.T) {
+	now := time.Now()
+	b := NewBrowserLearning()
+	k := LearnKey{Network: "isp", Application: "chrome", Protocol: "tcp", Target: "web.telegram.org", Port: 443}
+	a, _ := b.Begin(k, "", "VPS-01", now)
+	a, _ = b.Observe(k, BrowserObservation{Token: a.Token, Correlated: true, NetworkError: "NETWORK_TIMEOUT"}, "", "VPS-01", now)
+	a, err := b.Observe(k, BrowserObservation{Token: a.Token, Correlated: true, NetworkError: "TLS_FAILED", OriginTLS: true, Destination: "203.0.113.1:443"}, "", "VPS-01", now)
+	if err != nil || a.Confirmed || !a.BrowserTrial || a.Route.Action != RelayRequired || a.Route.Fallback != Required || a.Outcome != "ORIGIN_TLS_BROWSER_TRIAL_UNVERIFIED" {
+		t.Fatal(a, err)
+	}
+	if a.RetryAfter.Sub(now) > 5*time.Second {
+		t.Fatal("long false healthy cache", a)
+	}
+	if _, ok := b.Lookup(k, now.Add(6*time.Second)); ok {
+		t.Fatal("unverified browser trial persisted")
+	}
+	// Failed relay OPEN is categorically different: it must not pretend Chrome
+	// can use a transport that never opened.
+	a, _ = b.Begin(k, "", "VPS-01", now)
+	a, _ = b.Observe(k, BrowserObservation{Token: a.Token, Correlated: true, NetworkError: "NETWORK_TIMEOUT"}, "", "VPS-01", now)
+	a, _ = b.Observe(k, BrowserObservation{Token: a.Token, Correlated: true, NetworkError: "CONNECTION_FAILED"}, "", "VPS-01", now)
+	if a.BrowserTrial || a.Confirmed {
+		t.Fatal(a)
+	}
+}

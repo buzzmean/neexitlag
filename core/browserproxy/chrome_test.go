@@ -29,6 +29,7 @@ func TestChromePACRealHTTPSOriginIsolation(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer f.Close()
+	f.TelegramProbeRejection.Store(true)
 	st, ct, e := labcert.Pair()
 	if e != nil {
 		t.Fatal(e)
@@ -72,25 +73,26 @@ func TestChromePACRealHTTPSOriginIsolation(t *testing.T) {
 			plan.Policy = flowpolicy.Result{Action: flowpolicy.RelayRequired, RelayID: "VPS-01", Fallback: flowpolicy.Required}
 			return plan, nil
 		}
-		if q.Host == "blocked.example" {
+		if q.Host == "blocked.example" || q.Host == "web.telegram.org" {
 			k := flowpolicy.LearnKey{Network: "isolated", Application: chrome, Protocol: "tcp", Target: q.Host, Port: q.Port}
 			a, e := learning.Begin(k, "", "VPS-01", time.Now())
 			if e != nil {
 				return plan, e
 			}
-			if a.Confirmed {
+			if a.Confirmed || a.BrowserTrial {
 				plan.Policy = a.Route
 				plan.Probe = a.Outcome
 				return plan, nil
 			}
 			for i := 0; i < 2; i++ {
 				plan.Policy = a.Route
-				status, rx, why := ProbeOrigin(ctx, q.Host, q.Port, true, f.Roots, func(ctx context.Context) (net.Conn, error) { return open(ctx, q, plan) })
-				a, e = learning.Observe(k, flowpolicy.BrowserObservation{Token: a.Token, HTTPStatus: status, NetworkError: why, ResponseBytes: rx, Correlated: true}, "", "VPS-01", time.Now())
+				detail := ProbeOriginDetailed(ctx, q.Host, q.Port, true, f.Roots, func(ctx context.Context) (net.Conn, error) { return open(ctx, q, plan) })
+				status, rx, why := detail.Status, detail.Bytes, detail.Failure
+				a, e = learning.Observe(k, flowpolicy.BrowserObservation{Token: a.Token, HTTPStatus: status, NetworkError: why, OriginTLS: detail.Phase == "ORIGIN_TLS", ResponseBytes: rx, Correlated: true}, "", "VPS-01", time.Now())
 				if e != nil {
 					return plan, e
 				}
-				if a.Confirmed {
+				if a.Confirmed || a.BrowserTrial {
 					plan.Policy = a.Route
 					plan.Probe = a.Outcome
 					return plan, nil
@@ -105,11 +107,11 @@ func TestChromePACRealHTTPSOriginIsolation(t *testing.T) {
 	defer func() { proxy.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	args, e := ChromeArgumentsGuarded(proxy.Address(), t.TempDir(), []string{"blocked.example"}, false)
+	args, e := ChromeArgumentsGuarded(proxy.Address(), t.TempDir(), []string{"blocked.example", "web.telegram.org"}, false)
 	if e != nil {
 		t.Fatal(e)
 	}
-	f.ExpectedFailures = map[int][]string{2: {"chatgpt.com", "blocked.example"}}
+	f.ExpectedFailures = map[int][]string{2: {"chatgpt.com", "blocked.example", "web.telegram.org"}}
 	rules := []string{}
 	for _, domain := range browserfixture.Domains {
 		rules = append(rules, "MAP "+domain+" 127.0.0.1")
@@ -149,11 +151,14 @@ func TestChromePACRealHTTPSOriginIsolation(t *testing.T) {
 					continue
 				}
 				seen[host] = true
-				if (host == "chatgpt.com" || host == "blocked.example") && (r.Plan.Policy.Action != flowpolicy.RelayRequired || r.Plan.Policy.Fallback != flowpolicy.Required || r.Sent == 0 || r.Received == 0) {
+				if (host == "chatgpt.com" || host == "blocked.example" || host == "web.telegram.org") && (r.Plan.Policy.Action != flowpolicy.RelayRequired || r.Plan.Policy.Fallback != flowpolicy.Required || r.Sent == 0 || r.Received == 0) {
 					t.Fatal("protected transport not proved", r)
 				}
 			}
 		}
+	}
+	if f.TelegramProbeRejected.Load() == 0 {
+		t.Fatal("no differential Go TLS failure exercised")
 	}
 	if f.ECHClientHellos.Load() == 0 {
 		t.Fatal("real Chrome ECH/GREASE coverage missing")

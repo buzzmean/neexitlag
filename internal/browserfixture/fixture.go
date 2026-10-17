@@ -36,6 +36,8 @@ import (
 var Domains = []string{"chatgpt.com", "www.youtube.com", "ordinary.example", "blocked.example", "vk.com", "music.yandex.ru", "langame.ru", "www.twitch.tv", "web.telegram.org"}
 
 type Fixture struct {
+	TelegramProbeRejection  atomic.Bool
+	TelegramProbeRejected   atomic.Uint64
 	StageReady              func(int, func(string, any) (json.RawMessage, error)) error
 	DirectProbe             func(netip.AddrPort) bool
 	ExpectedFailures        map[int][]string
@@ -89,6 +91,22 @@ func New() (*Fixture, error) {
 			peer, _, _ := net.SplitHostPort(hello.Conn.RemoteAddr().String())
 			if peer != "127.0.0.2" {
 				f.ProtectedDirectAttempts.Add(1)
+			}
+		}
+		if hello.ServerName == "web.telegram.org" && f.TelegramProbeRejection.Load() {
+			peer, _, _ := net.SplitHostPort(hello.Conn.RemoteAddr().String())
+			browserHello := false
+			for _, curve := range hello.SupportedCurves {
+				n := uint16(curve)
+				if n&0x0f0f == 0x0a0a && byte(n>>8) == byte(n) {
+					browserHello = true
+				}
+			}
+			if peer != "127.0.0.2" || !browserHello {
+				if peer == "127.0.0.2" {
+					f.TelegramProbeRejected.Add(1)
+				}
+				return nil, errors.New("controlled origin rejects local path or non-browser ClientHello")
 			}
 		}
 		if hello.ServerName == "blocked.example" {

@@ -140,7 +140,7 @@ try{
    if($null -ne $row.document -and $row.document.protocol -eq 'h2'){$h2=$true}
    if($domain -eq 'chatgpt.com'){$ok=$ok -and @($routes|Where-Object{$_.plan.policy.action -eq 'RELAY_REQUIRED' -and $_.plan.policy.relay_id -eq 'VPS-01'}).Count -gt 0}
    if($domain -eq 'www.youtube.com'){$ok=$ok -and @($routes|Where-Object{$_.plan.policy.action -eq 'DIRECT_PLUS' -and $_.direct_plus_applied}).Count -gt 0}
-   if($domain -eq 'web.telegram.org'){$ok=$ok -and @($routes|Where-Object{$_.plan.policy.action -eq 'DIRECT' -or ($_.plan.policy.action -eq 'RELAY_REQUIRED' -and $_.plan.policy.relay_id -eq 'VPS-01' -and $_.plan.probe -eq 'HTTP_SUCCESS') -or ($_.plan.policy.action -eq 'DIRECT_PLUS' -and $_.direct_plus_applied)}).Count -gt 0}
+   if($domain -eq 'web.telegram.org'){$ok=$ok -and @($routes|Where-Object{$_.plan.policy.action -eq 'DIRECT' -or ($_.plan.policy.action -eq 'RELAY_REQUIRED' -and $_.plan.policy.relay_id -eq 'VPS-01' -and $_.plan.probe -in @('HTTP_SUCCESS','ORIGIN_TLS_BROWSER_TRIAL_UNVERIFIED')) -or ($_.plan.policy.action -eq 'DIRECT_PLUS' -and $_.direct_plus_applied)}).Count -gt 0}
    if($domain -notin @('www.youtube.com','chatgpt.com','web.telegram.org')){$ok=$ok -and @($routes|Where-Object{$_.plan.policy.action -eq 'DIRECT'}).Count -gt 0}
    $observations+=@{site=$row.site;pass=$ok;document=$row.document;dom_metadata=$dom.result.value;failures=$row.failures;routes=@($routes|Select-Object domain,owner,source,plan,result,sent_bytes,received_bytes,direct_plus_applied,evidence_source)}
   }

@@ -17,22 +17,24 @@ type BrowserLearning struct {
 	entries map[LearnKey]BrowserAttempt
 }
 type BrowserAttempt struct {
-	Key         LearnKey  `json:"key"`
-	Token       string    `json:"token"`
-	Route       Result    `json:"route"`
-	Stage       int       `json:"stage"`
-	Confirmed   bool      `json:"confirmed"`
-	Outcome     string    `json:"outcome"`
-	HTTPStatus  int       `json:"http_status,omitempty"`
-	Destination string    `json:"destination,omitempty"`
-	Started     time.Time `json:"started"`
-	Expires     time.Time `json:"expires"`
-	RetryAfter  time.Time `json:"retry_after"`
+	BrowserTrial bool      `json:"browser_trial_unverified,omitempty"`
+	Key          LearnKey  `json:"key"`
+	Token        string    `json:"token"`
+	Route        Result    `json:"route"`
+	Stage        int       `json:"stage"`
+	Confirmed    bool      `json:"confirmed"`
+	Outcome      string    `json:"outcome"`
+	HTTPStatus   int       `json:"http_status,omitempty"`
+	Destination  string    `json:"destination,omitempty"`
+	Started      time.Time `json:"started"`
+	Expires      time.Time `json:"expires"`
+	RetryAfter   time.Time `json:"retry_after"`
 }
 type BrowserObservation struct {
 	Token        string
 	HTTPStatus   int
 	NetworkError string
+	OriginTLS    bool
 	// Correlated is established only by the service after exact origin/flow checks.
 	Correlated    bool
 	Destination   string
@@ -153,6 +155,17 @@ func (b *BrowserLearning) Observe(k LearnKey, observation BrowserObservation, st
 		v.Outcome = observation.NetworkError
 		if v.Stage >= 2 {
 			v.RetryAfter = now.Add(time.Minute)
+			// The authenticated OPEN succeeded, but our independent Go ClientHello
+			// failed. It cannot veto Chrome's different TLS fingerprint. Offer a NEW
+			// browser relay tunnel, explicitly unverified, never a healthy cache result.
+			if observation.OriginTLS && observation.NetworkError == "TLS_FAILED" {
+				v.BrowserTrial = true
+				v.Destination = observation.Destination
+				v.Outcome = "ORIGIN_TLS_BROWSER_TRIAL_UNVERIFIED"
+				v.Route.Source = "browser_tls_trial_unverified"
+				v.Route.Reason = "local routes failed; relay OPEN succeeded; browser TLS result unverified"
+				v.RetryAfter = now.Add(5 * time.Second)
+			}
 			v.Expires = v.RetryAfter
 		} else {
 			v.Stage++

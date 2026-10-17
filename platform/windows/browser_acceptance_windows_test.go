@@ -63,6 +63,7 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
+	f.TelegramProbeRejection.Store(true)
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
 	defer cancel()
 	c := cs.New(ctx)
@@ -286,7 +287,7 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		rules = append(rules, "MAP "+host+" 127.0.0.1")
 	}
 	args = append(args, "--host-resolver-rules="+strings.Join(rules, ", "))
-	f.ExpectedFailures = map[int][]string{3: {"chatgpt.com", "www.youtube.com", "blocked.example"}}
+	f.ExpectedFailures = map[int][]string{3: {"chatgpt.com", "www.youtube.com", "blocked.example", "web.telegram.org"}}
 	// Actual policy, normal sandbox, a disposable health profile. Commit AUTO
 	// before starting/restoring the real multi-origin Chrome process.
 	if err := browserfixture.RunPolicyHealthProbe(ctx, chrome, healthURL, t.TempDir()); err != nil {
@@ -451,6 +452,9 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+	if f.TelegramProbeRejected.Load() == 0 {
+		t.Fatal("missing Go-probe/Chrome TLS differential coverage")
+	}
 	if f.ECHClientHellos.Load() == 0 {
 		t.Fatal("real sandboxed Chrome ECH/GREASE coverage missing")
 	}
@@ -463,7 +467,7 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 	found := map[string]bool{}
 	for _, r := range append(earlier, snap.Records...) {
 		switch r.Domain {
-		case "blocked.example":
+		case "blocked.example", "web.telegram.org":
 			// Unknown AUTO must be allowed to try DIRECT first. Speculative
 			// unconfirmed local attempts are NOT an OpenAI leak or HTTP PASS:
 			// the target rejects their TLS before any HTTP, and every stage's
@@ -490,7 +494,7 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 				t.Fatal("YouTube local route missing", r, string(rawProof))
 			}
 			found[r.Domain] = true
-		case "ordinary.example", "vk.com", "music.yandex.ru", "langame.ru", "www.twitch.tv", "web.telegram.org":
+		case "ordinary.example", "vk.com", "music.yandex.ru", "langame.ru", "www.twitch.tv":
 			if r.Plan.Policy.Action != flowpolicy.Direct || r.Sent == 0 || r.Received == 0 {
 				t.Fatal("ordinary origin borrowed another route", r)
 			}

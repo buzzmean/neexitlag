@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -29,6 +30,19 @@ type ProbeResult struct {
 func ProbeOrigin(ctx context.Context, host string, port uint16, secure bool, roots *x509.CertPool, open func(context.Context) (net.Conn, error)) (int, uint64, string) {
 	r := ProbeOriginDetailed(ctx, host, port, secure, roots, open)
 	return r.Status, r.Bytes, r.Failure
+}
+
+type probeCountingConn struct {
+	net.Conn
+	received atomic.Uint64
+}
+
+func (c *probeCountingConn) Read(b []byte) (int, error) {
+	n, e := c.Conn.Read(b)
+	if n > 0 {
+		c.received.Add(uint64(n))
+	}
+	return n, e
 }
 
 func probeError(r ProbeResult, err error) ProbeResult {
@@ -84,10 +98,11 @@ func ProbeOriginDetailed(ctx context.Context, host string, port uint16, secure b
 	// Cancellation must also interrupt a body read, not just the handshake.
 	stop := context.AfterFunc(ctx, func() { conn.Close() })
 	defer stop()
-	var origin net.Conn = conn
+	counter := &probeCountingConn{Conn: conn}
+	var origin net.Conn = counter
 	if secure {
 		r.Phase = "ORIGIN_TLS"
-		tc := tls.Client(conn, &tls.Config{ServerName: host, RootCAs: roots, MinVersion: tls.VersionTLS12, NextProtos: []string{"h2", "http/1.1"}})
+		tc := tls.Client(counter, &tls.Config{ServerName: host, RootCAs: roots, MinVersion: tls.VersionTLS12, NextProtos: []string{"h2", "http/1.1"}})
 		if err = tc.HandshakeContext(ctx); err != nil {
 			return probeError(r, err)
 		}
@@ -126,7 +141,7 @@ func ProbeOriginDetailed(ctx context.Context, host string, port uint16, secure b
 	// Complete small responses; bound sampling of large documents. This is origin
 	// availability only, not complete-page acceptance. Truncated declared bodies fail.
 	b, err := io.ReadAll(io.LimitReader(resp.Body, 32769))
-	r.Bytes = uint64(len(b))
+	r.Bytes = counter.received.Load()
 	if err != nil {
 		return probeError(r, err)
 	}
@@ -135,8 +150,6 @@ func ProbeOriginDetailed(ctx context.Context, host string, port uint16, secure b
 		return r
 	}
 	r.Phase = "ORIGIN_RESPONSE"
-	if resp.StatusCode == http.StatusNoContent {
-		r.Bytes = 1
-	} // explicit complete no-content HTTP response
+
 	return r
 }
