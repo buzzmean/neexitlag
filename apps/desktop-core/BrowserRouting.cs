@@ -1,6 +1,6 @@
 using System.Collections.ObjectModel;
 namespace Neexitlag.Desktop;
-public sealed class ChromeActivationException(string message) : Exception(message);
+public sealed class ChromeActivationException(string message) : Exception(message) { }
 public sealed class BrowserLaunch { public string HealthUrl {get;set;}=""; public string[] Arguments {get;set;}=[]; public string Address {get;set;}=""; public string Scope {get;set;}=""; }
 public sealed class BrowserTransportSnapshot {public string[] ReadyProfiles {get;set;}=[];public Dictionary<string,ulong> Failures {get;set;}=[];public bool Listening {get;set;}public bool Truncated {get;set;}public ulong Lost {get;set;}BrowserConnection[] records=[];public BrowserConnection[] Records {get=>records;set=>records=value??[];}}
 public sealed class BrowserOwner {public uint Pid {get;set;} public ulong CreationTime {get;set;} public string Exe {get;set;}="";public string ProfileId {get;set;}="";}

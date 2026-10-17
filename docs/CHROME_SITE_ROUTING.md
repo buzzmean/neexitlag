@@ -16,7 +16,7 @@ Edge and Discord keep their existing application policies.
 SNI alone cannot guarantee origin routing: ECH hides the inner name, and HTTP/2
 can send another origin over a connection whose first SNI was different. Request
 metadata alone cannot change that connection's egress safely. Native opaque TCP
-is therefore fail-closed; opaque Chrome UDP uses authenticated required relay,
+uses authenticated required relay (missing SNI is not an open failure); opaque Chrome UDP uses authenticated required relay,
 never a TCP proof or DNS/IP guess. For complete origin attribution, activate the
 Chrome CONNECT/PAC mode below.
 
@@ -32,15 +32,17 @@ Chrome CONNECT/PAC mode below.
    restoring the previous session. It never kills processes or copies/deletes the
    Chrome profile. Windows proxy remains untouched. Foreign/organization proxy
    policy is refused rather than overwritten.
-5. Use **Отключить PAC Chrome** and restart Chrome before uninstalling the service.
-   Only the policy value owned by NeExitLag is removed. Foreign changes are not
-   deleted. The default standard Google Chrome profile is supported by the GUI;
+5. **Отключить PAC Chrome** now switches Chrome AUTO back to DIRECT and retains
+   an owned mandatory protected-domain guard; OpenAI never gets DIRECT fallback.
+   It does not blindly remove security policy. Foreign policies are refused. The default standard Google Chrome profile is supported by the GUI;
    custom/portable user-data directories need an explicit launch configuration.
 
 An inline `data:` PAC has no network download failure that silently falls back to
 DIRECT. The owned Chrome policy also sets `ProxyPacMandatory=true`, so a PAC
-evaluation error is fail-closed. It returns only a local proxy, without a DIRECT
-fallback. Each canonical
+evaluation error is fail-closed. OpenAI, YouTube and explicit non-DIRECT rule domains return only a local
+proxy. Ordinary origins have `PROXY ...; DIRECT` for local transport failure; a
+403/502 from a running proxy does not authorize bypass. Non-domain rules retain
+strict proxy mode because PAC cannot safely resolve them to a protected suffix. Each canonical
 hostname uses a distinct SHA256-derived `*.localhost` proxy name. Chrome resolves
 these names internally to loopback, without system DNS overrides. Distinct proxy
 identities partition Chrome connection pools, including HTTP/2 coalescing. The
@@ -52,9 +54,12 @@ the installation's owner SID, using the existing bounded TCP owner table and
 process discovery. It is not an unauthenticated public/local-user relay endpoint.
 
 The non-secret loopback port is persisted in the existing service state directory
-and restored after normal optimization startup. It stays stable across service
-restarts. A stopped/unavailable service makes the PAC connection fail; protected
-traffic never acquires a DIRECT fallback. Optimization disable/re-enable closes
+and restored **before** automatic capture startup. Verified profile IDs are
+persisted with this non-secret port in the ACL-protected state directory. It stays stable across service
+restarts. An unavailable service keeps explicit protected origins fail-closed while ordinary
+origins can use DIRECT. Unknown origins selected by reachability learning are
+best-effort AUTO, not an offline security rule; use an explicit required rule for
+a domain that must remain protected when the service is absent. Optimization disable/re-enable closes
 only helper-owned connections so future connections converge without changing an
 established socket's egress. Initial PAC activation may restart Chrome, as allowed
 for this mode. Other applications and their sockets are untouched.
@@ -121,7 +126,7 @@ TLS keys enter diagnostics.
 ## Automated acceptance (no long manual voice/browser test)
 
 `TestChromePACRealHTTPSOriginIsolation` runs an actual isolated Chrome/Chromium,
-HTTP/2 TLS target and authenticated relay on loopback. Four origins share one IP
+HTTP/2 TLS target and authenticated relay on loopback. Seven origins share one IP
 and certificate. A target nonce returned to browser JavaScript is mandatory;
 route intent, TCP ACK or JSON alone cannot PASS. An artificially impaired unknown
 origin rejects local source traffic but accepts the relay's distinct source IP.
@@ -131,8 +136,11 @@ Public OpenAI/YouTube and the production VPS are never contacted by the fixture.
 controller, TCP owner/SID checks, signed WinDivert and the existing disorder
 strategy. It requires positive native modified packet/byte counters for YouTube,
 real HTTP(S) responses, authenticated protected traffic, ordinary DIRECT and
-complete evidence. It also disables/re-enables optimization and verifies new
-responses in the same Chrome process. Every YouTube CONNECT must have its own
+complete evidence. It disables/re-enables optimization, stops the full service
+controller/WinDivert backend, verifies ordinary HTTPS during outage with OpenAI
+fail-closed, restarts the controller on the saved port, and verifies new responses
+in the **same Chrome process**. Windows Chrome runs with its normal sandbox; only
+the root Linux container needs `--no-sandbox`. Every YouTube CONNECT must have its own
 positive native transform evidence. Missing browser/driver/proof cannot be
 reported as PASS.
 The loopback fixture uses 1000-byte socket writes to model Internet MTU; its
@@ -154,3 +162,97 @@ The native acceptance is enabled automatically after the existing driver downloa
 in Verify CI. Domain-policy, cache/cooldown/stale-evidence, PAC isolation,
 certificate validation, stream preservation and shutdown regressions run in the
 normal Go suite. CI loopback PASS is not public Internet performance evidence.
+
+
+## Regression ff9585a: confirmed cause and activation transaction
+
+The real Windows report showed `browser.status.listening=false`, no VK CONNECT
+record, and native `BLOCK / POLICY_BLOCK / ECH_OUTER_SNI_ONLY`. AUTO had been
+published before CONNECT/PAC activation. `ResolveDeferredDecision` then treated
+missing usable SNI as a failed protected open and blocked even an explicit
+opaque-name authenticated relay route. Modern Chrome can send ECH GREASE too;
+we do not guess whether its inner name is readable or disable ECH globally.
+A second code defect routed Chrome DNS/53 through the opaque relay policy,
+including queries to the LAN resolver. DNS bootstrap now preserves its existing
+DIRECT path and does not grant any TCP/443 or QUIC bypass.
+
+Activation now proceeds in this order:
+
+1. Save/quit Chrome normally and install a mandatory fail-closed OpenAI recovery
+   guard; no profile or global Optimize change yet.
+2. `browser.prepare` binds the bounded loopback listener and returns a 128-bit,
+   45-second, one-use readiness URL. Bind failure leaves routing unchanged.
+3. Install the owned current-user online PAC and launch the persistent Chrome
+   profile. Chrome itself requests the readiness URL through PAC; TCP owner,
+   creation identity, executable profile and owner SID are checked before proof.
+4. `browser.confirm` verifies that exact nonce. IPC reachability, a listening port
+   or the GUI's own TCP connection cannot certify Chrome readiness.
+5. Publish Chrome AUTO and enable capture. A new AUTO profile and Optimize with
+   an unactivated Chrome AUTO are rejected before capture state changes. The GUI
+   checks command results and cannot label a rejected command as success.
+6. Failure installs the guarded recovery PAC and restores a safe Chrome profile
+   (legacy/broken AUTO becomes DIRECT). Other applications/Optimize are not
+   globally disabled. OpenAI stays blocked/required through the guard, never
+   DIRECT. An incomplete rollback gets an explicit error, not PASS.
+
+Native TCP resolves the current exact tuple owner before trusting cached FLOW
+associations. A still-live old process is not proof of port ownership: ephemeral
+port reuse must not turn service DIRECT/CONNECT sockets into recursive Chrome
+interception. Only exact owned DIRECT+ delegations override the service exclusion.
+
+`browser.status.failures` now distinguishes TCP owner lookup, token access, SID
+mismatch, profile mismatch, malformed/timeout proxy headers, DNS planning,
+upstream failure classes and capacity. No credentials, arbitrary OS error strings,
+HTTP headers or payload are logged. Failed ordinary synthetic HEAD probes are
+not proof that the browser must use an unavailable relay; only confirmed origin
+results authorize automatic escalation. Explicit required rules are untouched.
+
+## Windows update after ff9585a
+
+Close Chrome and the old GUI normally first. In an elevated PowerShell at the
+repository root (no uninstall, enrollment or VPS action):
+
+```powershell
+git switch codex/direct-plus-flowseal
+git pull --ff-only origin codex/direct-plus-flowseal
+if ($LASTEXITCODE) { throw 'git pull failed' }
+git rev-parse HEAD
+.\tools\windows\build-e2e.ps1
+.\tools\windows\build-desktop.ps1
+Stop-Service neexitlag
+(Get-Service neexitlag).WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
+Copy-Item .\bin\windows-e2e\neexitlag-service.exe "$env:ProgramData\neexitlag\neexitlag-service.exe" -Force
+Start-Service neexitlag
+(Get-Service neexitlag).WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
+```
+
+Run **the newly built** `bin/release/NeExitLag.exe` as the installation's normal
+Windows user. Select Chrome → **Chrome: AUTO по сайтам** and allow its graceful
+restart/readiness tab. Merely enabling Optimize is not Chrome activation. On a
+legacy installation without a verified PAC state, automatic capture intentionally
+refuses to arm and reports the missing Chrome activation. Existing identity,
+certificates, profiles, local strategy and all VPS files remain intact.
+
+The seven controlled-origin CI tests are transport/routing evidence, not public
+VK/YouTube/OpenAI availability or logged-in app/video playback acceptance. The
+reported public-site Windows failures are not declared PASS from these fixtures.
+
+After GUI activation, a short public-site check (one isolated Chrome process,
+normal sandbox/TLS, **actual HKCU policy**, no proxy command-line override) is:
+
+```powershell
+.\tools\windows\acceptance-chrome-sites.ps1
+# Optional, elevated: two 30-second rounds with a local SCM service restart,
+# preserving the exact diagnostic Chrome process; never contacts SSH/VPS admin.
+.\tools\windows\acceptance-chrome-sites.ps1 -RestartService
+```
+
+It opens VK, ChatGPT, Twitch, Yandex Music, langame, Telegram Web and YouTube
+simultaneously, checks completed real main-document HTTP responses plus API/script
+network failures, observes HTTP/2, requires attributed route/transform evidence,
+and drains bounded capture change cursors. WAF/403, empty/error pages, instrumentation
+loss, missing evidence or queue drops are FAIL. It logs no page text, cookies,
+headers or TLS keys (only DOM length/readiness and public origin metadata).
+This helper has not been run against the user's public Internet connection in CI;
+controlled-origin acceptance is separate. A PASS is not logged-in functionality,
+Discord voice or full video playback proof.

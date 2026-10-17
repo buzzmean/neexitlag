@@ -116,6 +116,10 @@ jobs:
         with:
           name: browser-correlation-failure
           path: bin/browser-correlation/
+      - run: ./tests/windows-tools/chrome-sites-checks.ps1
+        shell: pwsh
+      - run: ./tests/windows-tools/chrome-sites-checks.ps1
+        shell: powershell
       - run: ./tests/windows-tools/tcp-web-checks.ps1
         shell: pwsh
       - run: ./tests/windows-tools/tcp-web-checks.ps1
@@ -124,7 +128,7 @@ jobs:
         shell: pwsh
       - run: |
           $env:NEEXITLAG_TEST_DRIVER_DIR=(Resolve-Path .e2e/windivert).Path
-          go test -race -timeout 30s -v ./platform/windows -run '^TestNativeBoundDial'
+          go test -race -timeout 30s -v ./platform/windows -run '^TestNativeBoundDial|^TestNativeChromeStaleAssociation'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go test -timeout 90s -v ./platform/windows -run TestNativeCaptureHandlesStartStop
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
