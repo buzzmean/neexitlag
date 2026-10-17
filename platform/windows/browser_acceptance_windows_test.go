@@ -20,6 +20,7 @@ import (
 	cs "github.com/buzzmean/neexitlag/services/client-service"
 	"github.com/buzzmean/neexitlag/services/relay"
 	"github.com/buzzmean/neexitlag/tools/labcert"
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 	"io"
 	"net"
@@ -236,6 +237,17 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		sid, e := wp.ProcessUserSID(id)
 		return e == nil && sid == c.BrowserOwnerSID
 	}
+	gpEvent, e := windows.CreateEvent(nil, 1, 0, nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer windows.CloseHandle(gpEvent)
+	userenv := windows.NewLazySystemDLL("userenv.dll")
+	registered, _, registerErr := userenv.NewProc("RegisterGPNotification").Call(uintptr(gpEvent), 0)
+	if registered == 0 {
+		t.Fatal("register user policy evidence", registerErr)
+	}
+	defer userenv.NewProc("UnregisterGPNotification").Call(uintptr(gpEvent))
 	f.StageReady = func(stage int, call func(string, any) (json.RawMessage, error)) error {
 		if stage != 3 {
 			return nil
@@ -262,7 +274,11 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 				return nil
 			}
 			if time.Now().After(until) {
-				return fmt.Errorf("actual Chrome recovery policy not applied: %s", raw)
+				signal, signalErr := windows.WaitForSingleObject(gpEvent, 0)
+				call("Page.navigate", map[string]any{"url": "chrome://policy"})
+				time.Sleep(500 * time.Millisecond)
+				policyView, _ := call("Runtime.evaluate", map[string]any{"expression": `(function text(n){let s='';for(const c of n.children||[]){s+=(c.shadowRoot?text(c.shadowRoot):c.innerText||'')+'\n';}return s.slice(0,12000)})(document)`, "returnByValue": true})
+				return fmt.Errorf("actual Chrome recovery policy not applied: %s; GP signal=%d error=%v; actual policy UI=%s", raw, signal, signalErr, policyView)
 			}
 			select {
 			case <-ctx.Done():

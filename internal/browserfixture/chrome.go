@@ -89,6 +89,7 @@ func (f *Fixture) RunChrome(ctx context.Context, chrome string, args []string, t
 		conn.SetDeadline(deadline)
 	}
 	sequence := 0
+	var networkFailures []string
 	call := func(method string, params any) (json.RawMessage, error) {
 		sequence++
 		if e := websocket.JSON.Send(conn, map[string]any{"id": sequence, "method": method, "params": params}); e != nil {
@@ -97,11 +98,25 @@ func (f *Fixture) RunChrome(ctx context.Context, chrome string, args []string, t
 		for {
 			var message struct {
 				ID     int             `json:"id"`
+				Method string          `json:"method"`
+				Params json.RawMessage `json:"params"`
 				Result json.RawMessage `json:"result"`
 				Error  json.RawMessage `json:"error"`
 			}
 			if e := websocket.JSON.Receive(conn, &message); e != nil {
 				return nil, e
+			}
+			if message.Method == "Network.loadingFailed" {
+				var failure struct {
+					ErrorText     string `json:"errorText"`
+					BlockedReason string `json:"blockedReason"`
+				}
+				if json.Unmarshal(message.Params, &failure) == nil {
+					networkFailures = append(networkFailures, failure.ErrorText+":"+failure.BlockedReason)
+					if len(networkFailures) > 16 {
+						networkFailures = networkFailures[len(networkFailures)-16:]
+					}
+				}
 			}
 			if message.ID == sequence {
 				if len(message.Error) > 0 {
@@ -110,6 +125,9 @@ func (f *Fixture) RunChrome(ctx context.Context, chrome string, args []string, t
 				return message.Result, nil
 			}
 		}
+	}
+	if _, err := call("Network.enable", map[string]any{}); err != nil {
+		return "", err
 	}
 	health := func() error {
 		if f.HealthURL != "" {
@@ -163,7 +181,7 @@ func (f *Fixture) RunChrome(ctx context.Context, chrome string, args []string, t
 		}
 		if f.StageReady != nil {
 			if err := f.StageReady(stage, call); err != nil {
-				return title, err
+				return title, fmt.Errorf("%w; Chrome network errors=%v", err, networkFailures)
 			}
 		}
 		if stage > 1 {
