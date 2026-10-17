@@ -30,7 +30,7 @@ $changed=@();$pending=Join-Path $root ('.veliq-'+[Guid]::NewGuid().ToString('N')
 try{
  foreach($path in @($target,$legacy)){
   Copy-Item -LiteralPath $source -Destination $pending
-  if(Test-Path -LiteralPath $path){[IO.File]::Replace($pending,$path,$null)}else{[IO.File]::Move($pending,$path)}
+  if(Test-Path -LiteralPath $path){[IO.File]::Replace($pending,$path,[NullString]::Value)}else{[IO.File]::Move($pending,$path)}
   $changed+=,$path
   if((Get-FileHash -LiteralPath $path).Hash -ne (Get-FileHash -LiteralPath $source).Hash){throw 'VELIQ installed GUI hash mismatch'}
  }

@@ -52,7 +52,7 @@ try{
  $stopped=$true
  $service.WaitForStatus('Stopped',[TimeSpan]::FromSeconds(30))
  if($serviceProcess -gt 0){try{$process=[Diagnostics.Process]::GetProcessById($serviceProcess);if(!$process.WaitForExit(30000)){throw 'Stopped service process did not exit; executable not replaced'}}catch [ArgumentException]{} }
- [IO.File]::Replace($pending,$target,$null)
+ [IO.File]::Replace($pending,$target,[NullString]::Value)
  $replaced=$true
  Set-BinaryOwnerReadExecute $target $owner.Value
  if((Get-FileHash -LiteralPath $target).Hash -ne (Get-FileHash -LiteralPath $source).Hash){throw 'Installed binary hash mismatch'}

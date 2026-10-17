@@ -30,6 +30,18 @@ try{
  & $script -SourceDirectory $source -InstallDirectory $installed -ShortcutDirectory $links
  if([IO.File]::ReadAllText($target) -ne 'VELIQ GUI fixture v2'){throw 'Idempotent update failed'}
  foreach($relative in $protected){if((Get-FileHash (Join-Path $root $relative)).Hash -ne $hashes[$relative]){throw "Upgrade changed $relative"}}
+ # Execute the service updater's exact atomic replacement expression too;
+ # no SCM/IPC/credentials are used by this focused filesystem regression.
+ $tokens=$null;$parseErrors=$null
+ $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '../../tools/windows/update-service.ps1'),[ref]$tokens,[ref]$parseErrors)
+ if($parseErrors.Count){throw 'Service updater parsing failed'}
+ $replace=$ast.Find({param($a)$a -is [Management.Automation.Language.InvokeMemberExpressionAst] -and $a.Extent.Text.StartsWith('[IO.File]::Replace(')},$true)
+ if($null -eq $replace){throw 'Atomic service replacement missing'}
+ $pending=Join-Path $root 'service-pending';$targetBefore=$target;$target=Join-Path $root 'service-installed'
+ [IO.File]::WriteAllText($pending,'new service fixture');[IO.File]::WriteAllText($target,'old service fixture')
+ Invoke-Expression $replace.Extent.Text
+ if([IO.File]::ReadAllText($target) -ne 'new service fixture' -or (Test-Path $pending)){throw 'Service atomic replacement failed'}
+ $target=$targetBefore
  $backups=@(Get-ChildItem (Join-Path $installed 'backups') -Directory)
  if($backups.Count -ne 2 -or !(Test-Path (Join-Path $backups[0].FullName 'NeExitLag.exe'))){throw 'Persistent legacy backup missing'}
  # A pre-existing unidentified executable must not be replaced.
