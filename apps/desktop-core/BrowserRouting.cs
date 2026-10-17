@@ -7,7 +7,7 @@ public sealed class BrowserPlan {public FlowPolicyEvidence Policy {get;set;}=new
 public sealed class BrowserConnection {
  public ulong Id {get;set;}public BrowserOwner Owner {get;set;}=new();public string Domain {get;set;}="";public BrowserPlan Plan {get;set;}=new();public string Result {get;set;}="";public ulong SentBytes {get;set;}public ulong ReceivedBytes {get;set;}public bool Active {get;set;}
  public bool DirectPlusApplied {get;set;}
- public string Route=>Result=="UPSTREAM_OPEN_FAILED"?"BLOCK":Plan.Policy.Action=="DIRECT_PLUS"&&!DirectPlusApplied?"DIRECT+ (не подтверждён)" :Plan.Policy.Action=="RELAY_REQUIRED"?"RELAY_REQUIRED · "+Plan.Policy.RelayId:Plan.Policy.Action;
+ public string Route=>(Result=="UPSTREAM_OPEN_FAILED"||Result=="ORIGIN_PLAN_FAILED")?"BLOCK":Plan.Policy.Action=="DIRECT_PLUS"&&!DirectPlusApplied?"DIRECT+ (не подтверждён)" :Plan.Policy.Action=="RELAY_REQUIRED"?"RELAY_REQUIRED · "+Plan.Policy.RelayId:Plan.Policy.Action;
  public string Reason=>Plan.Policy.Reason;
  public string Outcome=>Plan.Probe=="HTTP_SUCCESS"?$"Origin HTTP {Plan.HttpStatus}; страница Chrome не проверена":Plan.Probe;
  public string Traffic=>$"↑ {Text.Bytes(SentBytes)} / ↓ {Text.Bytes(ReceivedBytes)}";

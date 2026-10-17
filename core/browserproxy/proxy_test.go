@@ -183,3 +183,28 @@ func TestUnauthorizedOwnerCannotOpenOrigin(t *testing.T) {
 		t.Fatal(r, e, opened.Load())
 	}
 }
+
+func TestFailedOriginPlanRetainsBoundedEvidence(t *testing.T) {
+	s, e := Listen(context.Background(), Config{Authorize: func(context.Context, netip.AddrPort, netip.AddrPort) (Owner, error) { return Owner{PID: 1}, nil }, Plan: func(context.Context, Request) (Plan, error) { return Plan{}, context.DeadlineExceeded }, Open: func(context.Context, Request, Plan) (net.Conn, error) {
+		t.Error("opened after planning failure")
+		return nil, fmt.Errorf("unexpected")
+	}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer s.Close()
+	c, e := net.Dial("tcp", s.Address())
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer c.Close()
+	fmt.Fprint(c, "CONNECT unknown.example:443 HTTP/1.1\r\nHost: unknown.example:443\r\n\r\n")
+	r, e := http.ReadResponse(bufio.NewReader(c), nil)
+	if e != nil || r.StatusCode != 502 {
+		t.Fatal(r, e)
+	}
+	snap := s.Snapshot()
+	if len(snap.Records) != 1 || snap.Records[0].Plan.Probe != "NETWORK_TIMEOUT" || snap.Records[0].Result != "ORIGIN_PLAN_FAILED" || snap.Records[0].Active {
+		t.Fatal(snap)
+	}
+}

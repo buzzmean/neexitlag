@@ -268,10 +268,14 @@ func (s *Server) handle(c net.Conn) {
 		return
 	}
 	q := Request{Owner: owner, Source: source, Host: host, Port: port, Secure: secure}
-	plan, e := s.cfg.Plan(ctx, q)
-	if e != nil || plan.Policy.Action == flowpolicy.Block {
-		writeError(c, 502)
-		return
+	plan, planErr := s.cfg.Plan(ctx, q)
+	if planErr != nil {
+		// Keep bounded failure evidence, without recording arbitrary error strings,
+		// URLs or credentials supplied by a transport implementation.
+		plan.Probe = "ORIGIN_PLAN_FAILED"
+		if errors.Is(planErr, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			plan.Probe = "NETWORK_TIMEOUT"
+		}
 	}
 	s.mu.Lock()
 	s.next++
@@ -304,6 +308,11 @@ func (s *Server) handle(c net.Conn) {
 		r.Received = rx
 		s.records[id] = r
 		s.mu.Unlock()
+	}
+	if planErr != nil || plan.Policy.Action == flowpolicy.Block {
+		finish("ORIGIN_PLAN_FAILED", 0, 0)
+		writeError(c, 502)
+		return
 	}
 	upstream, e := s.cfg.Open(ctx, q, plan)
 	if e != nil {
