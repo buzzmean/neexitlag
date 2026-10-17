@@ -97,3 +97,16 @@ func TestDeferredOpaqueFallbackCannotLeakProtectedFlow(t *testing.T) {
 		t.Fatal("missing resolver leaked")
 	}
 }
+
+func TestDeferredOpaqueAuthenticatedRouteIsNotAnOpenFailure(t *testing.T) {
+	initial := Decision{Deferred: true, ResolveDomain: func(domain string) Decision {
+		if domain != "" {
+			t.Fatal("ECH inner name guessed", domain)
+		}
+		return Decision{Route: routing.Route{RelayID: "VPS-01"}, BlockOnFailure: true, Policy: flowpolicy.Result{Action: flowpolicy.RelayRequired, Fallback: flowpolicy.Required}}
+	}}
+	d := ResolveDeferredDecision(initial, "cloudflare-ech.com", "ECH_OUTER_SNI_ONLY")
+	if d.Block || d.Route.Direct() || d.Route.RelayID != "VPS-01" || !d.BlockOnFailure || d.Deferred {
+		t.Fatal(d)
+	}
+}

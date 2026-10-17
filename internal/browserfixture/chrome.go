@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,7 +28,12 @@ func (f *Fixture) RunChrome(ctx context.Context, chrome string, args []string, t
 	if directory == "" {
 		return "", errors.New("isolated browser data directory required")
 	}
-	args = append(args, "--headless=new", "--disable-background-networking", "--disable-component-update", "--disable-sync", "--disable-domain-reliability", "--disable-default-apps", "--dns-prefetch-disable", "--disable-features=MediaRouter,OptimizationHints", "--no-default-browser-check", "--password-store=basic", "--use-mock-keychain", "--disable-dev-shm-usage", "--no-sandbox", "--ignore-certificate-errors-spki-list="+f.SPKI, "--remote-debugging-port=0", "--remote-allow-origins=http://localhost", "about:blank")
+	args = append(args, "--headless=new", "--disable-background-networking", "--disable-component-update", "--disable-sync", "--disable-domain-reliability", "--disable-default-apps", "--dns-prefetch-disable", "--disable-features=MediaRouter,OptimizationHints", "--no-default-browser-check", "--password-store=basic", "--use-mock-keychain", "--disable-dev-shm-usage", "--ignore-certificate-errors-spki-list="+f.SPKI, "--remote-debugging-port=0", "--remote-allow-origins=http://localhost", "about:blank")
+	// Linux containers run as root. Native Windows must exercise the actual
+	// Chrome sandbox/token owner path, not a weakened --no-sandbox fixture.
+	if runtime.GOOS != "windows" {
+		args = append(args, "--no-sandbox")
+	}
 	cmd := exec.CommandContext(ctx, chrome, args...)
 	cmd.Stdout = io.Discard
 	stderr := &chromeLog{}
@@ -105,6 +111,37 @@ func (f *Fixture) RunChrome(ctx context.Context, chrome string, args []string, t
 			}
 		}
 	}
+	if f.HealthURL != "" {
+		if _, err := call("Page.navigate", map[string]any{"url": f.HealthURL}); err != nil {
+			return "", err
+		}
+		observed := false
+		for i := 0; i < 100; i++ {
+			raw, err := call("Runtime.evaluate", map[string]any{"expression": "document.body&&document.body.innerText", "returnByValue": true})
+			if err != nil {
+				return "", err
+			}
+			var r struct {
+				Result struct {
+					Value string `json:"value"`
+				} `json:"result"`
+			}
+			json.Unmarshal(raw, &r)
+			if strings.Contains(r.Result.Value, "NeExitLag Chrome transport OK") {
+				observed = true
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		if !observed {
+			return "", errors.New("actual Chrome PAC/owner readiness failed")
+		}
+	}
+	if f.BeforeRequests != nil {
+		if err := f.BeforeRequests(); err != nil {
+			return "", err
+		}
+	}
 	title := ""
 	for stage := 1; stage <= len(transitions)+1; stage++ {
 		if stage > 1 {
@@ -136,7 +173,8 @@ func (f *Fixture) RunChrome(ctx context.Context, chrome string, args []string, t
 				break
 			}
 			if title == "NEEXITLAG_FAIL" {
-				return title, errors.New("controlled Chrome fetch failed")
+				raw, _ := call("Runtime.evaluate", map[string]any{"expression": "document.body.innerText", "returnByValue": true})
+				return title, fmt.Errorf("controlled Chrome stage %d fetch failed: %s", stage, raw)
 			}
 			select {
 			case <-ctx.Done():

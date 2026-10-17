@@ -15,9 +15,9 @@ import (
 // Browser AUTO is an origin policy, never a process-wide optimizer winner. Trial
 // profiles and explicit MANUAL/DIRECT/DIRECT+ retain their existing contracts.
 func browserAuto(p profiles.Profile) bool {
-	if p.Mode != profiles.Auto || p.Trial != nil {
-		return false
-	}
+	return p.Mode == profiles.Auto && p.Trial == nil && chromeProfile(p)
+}
+func chromeProfile(p profiles.Profile) bool {
 	for _, exe := range p.Executables {
 		if path.Base(strings.ToLower(strings.ReplaceAll(exe, `\`, "/"))) == "chrome.exe" {
 			return true
@@ -52,6 +52,12 @@ func (c *Controller) browserFlow(p profiles.Profile, id wp.ProcessIdentity, t wp
 	}
 	required := func(reason string) flowpolicy.Result {
 		return flowpolicy.Result{Action: flowpolicy.RelayRequired, RelayID: relay, Fallback: flowpolicy.Required, Source: "browser_domain", Reason: reason}
+	}
+	// Browser resolver bootstrap is not an origin data flow. Sending Chrome's
+	// DNS to a private LAN resolver through the VPS breaks even ordinary sites.
+	// Keep existing system/browser DNS semantics; this grants no TCP/443 bypass.
+	if t.Destination.Port() == 53 && (t.Protocol == "udp" || t.Protocol == "tcp") {
+		return flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailOpen, Source: "browser_dns", Reason: "resolver bootstrap: preserve browser/system DNS path"}
 	}
 	// Opaque is never classified from a DNS/IP guess or a request on another
 	// connection. Safe transport pending richer origin evidence is authenticated

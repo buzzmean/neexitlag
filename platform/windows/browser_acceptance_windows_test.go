@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/buzzmean/neexitlag/core/browserproxy"
 	"github.com/buzzmean/neexitlag/core/flowpolicy"
 	"github.com/buzzmean/neexitlag/core/localstrategy"
@@ -67,11 +68,15 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
+	defer func() { c.Close() }()
 	backend := wp.NewBrowserLoopbackFixture(files, c.Engine)
 	c.Backend = browserMTUFixture{backend}
 	c.BrowserResolver = f.Resolver
 	c.BrowserProbeRoots = f.Roots
+	statePath := filepath.Join(t.TempDir(), "profiles.json")
+	if err = c.SetCustomPath(statePath); err != nil {
+		t.Fatal(err)
+	}
 	c.Start()
 	deadline := time.Now().Add(12 * time.Second)
 	for {
@@ -131,17 +136,26 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 	}
 	put()
 	p.Mode = profiles.Auto
-	put()
 	if _, err = c.Handle(ctx, "optimize", []byte(`{"enabled":true}`)); err != nil {
 		t.Fatal(err)
 	}
 	userData := t.TempDir()
 	raw, _ = json.Marshal(map[string]string{"profile_id": p.ID, "directory": userData})
-	result, err := c.Handle(ctx, "browser.start", raw)
+	result, err := c.Handle(ctx, "browser.prepare", raw)
 	if err != nil {
 		t.Fatal(err)
 	}
 	args := result.(map[string]any)["arguments"].([]string)
+	f.HealthURL = result.(map[string]any)["health_url"].(string)
+	f.BeforeRequests = func() error {
+		proof, _ := json.Marshal(map[string]string{"profile_id": p.ID, "health_url": f.HealthURL})
+		if _, e := c.Handle(ctx, "browser.confirm", proof); e != nil {
+			return e
+		}
+		put()
+		return nil
+	}
+
 	// Exercise the actual current-user Chrome platform policy, not just launch
 	// flags. This key is confined to the disposable Windows CI user; no WinINET,
 	// WinHTTP or machine proxy value is read/written. Refuse any foreign policy.
@@ -175,13 +189,87 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 	defer policy.DeleteValue("ProxySettings")
 	args = clean
 
+	rules := []string{}
+	for _, host := range browserfixture.Domains {
+		rules = append(rules, "MAP "+host+" 127.0.0.1")
+	}
+	args = append(args, "--host-resolver-rules="+strings.Join(rules, ", "))
+	f.ExpectedFailures = map[int][]string{3: {"chatgpt.com", "www.youtube.com", "blocked.example"}}
+	// The learned test origin is deliberately fail-closed during transport
+	// outage as well. Production explicit rules use the same PAC guard path.
+	// Keep the normal unknown-origin learning case in stages 1/2; its PAC guard
+	// alone is extended here for the service-outage stage.
+	guardedArgs, e := browserproxy.ChromeArgumentsGuarded(result.(map[string]any)["address"].(string), userData, []string{"blocked.example"}, false)
+	if e != nil {
+		t.Fatal(e)
+	}
+	guardedPAC := strings.TrimPrefix(guardedArgs[1], "--proxy-pac-url=")
+	policyJSON, _ = json.Marshal(map[string]any{"ProxyMode": "pac_script", "ProxyPacUrl": guardedPAC, "ProxyPacMandatory": true})
+	if e = policy.SetStringValue("ProxySettings", string(policyJSON)); e != nil {
+		t.Fatal(e)
+	}
+	earlier := []browserproxy.Record{}
+	sample := func() error {
+		view, e := c.Handle(ctx, "browser.status", nil)
+		if e != nil {
+			return e
+		}
+		snapshot := view.(browserproxy.Snapshot)
+		if snapshot.Truncated || snapshot.Lost != 0 {
+			return errors.New("incomplete browser evidence before restart")
+		}
+		earlier = append(earlier, snapshot.Records...)
+		return nil
+	}
 	out, err := f.RunChrome(ctx, chrome, args, func() error {
+		if e := sample(); e != nil {
+			return e
+		}
 		for _, enabled := range []string{`{"enabled":false}`, `{"enabled":true}`} {
 			if _, e := c.Handle(ctx, "optimize", []byte(enabled)); e != nil {
 				return e
 			}
 		}
 		return nil
+	}, func() error {
+		if e := sample(); e != nil {
+			return e
+		}
+		c.Close()
+		return nil
+	}, func() error {
+		c = cs.New(ctx)
+		c.BrowserOwnerSID, err = wp.ProcessUserSID(self)
+		if err != nil {
+			return err
+		}
+		backend = wp.NewBrowserLoopbackFixture(files, c.Engine)
+		c.Backend = browserMTUFixture{backend}
+		c.BrowserResolver = f.Resolver
+		c.BrowserProbeRoots = f.Roots
+		if err = c.SetCustomPath(statePath); err != nil {
+			return err
+		}
+		if err = c.Local.Reload(localstrategy.Config{Version: 1, Enabled: true, User: entries}); err != nil {
+			return err
+		}
+		c.Engine.SetRelay("VPS-01", pool)
+		c.Start()
+		until := time.Now().Add(10 * time.Second)
+		for {
+			if _, err = c.Handle(ctx, "local.network", nil); err == nil {
+				break
+			}
+			if time.Now().After(until) {
+				return fmt.Errorf("restart network readiness: %w", err)
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		if err = c.RestoreBrowserTransport(); err != nil {
+			return err
+		}
+		_, err = c.Handle(ctx, "optimize", []byte(`{"enabled":true}`))
+		return err
 	})
 	if err != nil {
 		view, _ := c.Handle(ctx, "browser.status", nil)
@@ -205,11 +293,14 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+	if f.ProtectedDirectAttempts.Load() != 0 {
+		t.Fatal("protected TLS attempted DIRECT during activation/outage/restart", f.ProtectedDirectAttempts.Load())
+	}
 	if snap.Lost != 0 || snap.Truncated {
 		t.Fatal("incomplete browser proof", snap.Lost, snap.Truncated)
 	}
 	found := map[string]bool{}
-	for _, r := range snap.Records {
+	for _, r := range append(earlier, snap.Records...) {
 		switch r.Domain {
 		case "chatgpt.com", "blocked.example":
 			if r.Plan.Policy.Action != flowpolicy.RelayRequired || r.Plan.Policy.Fallback != flowpolicy.Required || r.Sent == 0 || r.Received == 0 {
@@ -223,14 +314,14 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 				t.Fatal("YouTube local route missing", r, string(rawProof))
 			}
 			found[r.Domain] = true
-		case "ordinary.example":
+		case "ordinary.example", "vk.com", "music.yandex.ru", "langame.ru":
 			if r.Plan.Policy.Action != flowpolicy.Direct || r.Sent == 0 || r.Received == 0 {
 				t.Fatal("ordinary origin borrowed another route", r)
 			}
 			found[r.Domain] = true
 		}
 	}
-	if len(found) != 4 {
+	if len(found) != len(browserfixture.Domains) {
 		t.Fatal("missing CONNECT origins; possible HTTP/2 pooling", found)
 	}
 	evidence, err := backend.DiagnosticsScoped(wp.EvidenceQuery{Destination: f.Destination().String()})

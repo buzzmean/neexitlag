@@ -278,7 +278,7 @@ public sealed partial class DesktopViewModel : Observable
             return false;
         }
         path = System.IO.Path.GetFullPath(path);
-        var profile = new Profile { Id = "custom-" + Guid.NewGuid().ToString("N"), Name = System.IO.Path.GetFileNameWithoutExtension(path), Executables = [path], Mode = "AUTO", Custom = true };
+        var profile = new Profile { Id = "custom-" + Guid.NewGuid().ToString("N"), Name = System.IO.Path.GetFileNameWithoutExtension(path), Executables = [path], Mode = System.IO.Path.GetFileName(path).Equals("chrome.exe",StringComparison.OrdinalIgnoreCase)?"DIRECT":"AUTO", Custom = true };
         bool duplicate = false;
         bool ok = await Act(async () =>
         {

@@ -329,7 +329,7 @@ func TestChromeAutoThreeOriginsNeverUsesGlobalWinner(t *testing.T) {
 		}
 	}
 	opaque := wp.ResolveDeferredDecision(c.Classify(id, tuple), "cloudflare-ech.com", "ECH_OUTER_SNI_ONLY")
-	if !opaque.Block || !opaque.BlockOnFailure {
+	if opaque.Block || !opaque.BlockOnFailure || opaque.Route.RelayID != "VPS-01" || opaque.Policy.Action != flowpolicy.RelayRequired {
 		t.Fatal("opaque inner name guessed DIRECT", opaque)
 	}
 	old := wp.ResolveDeferredDecision(c.Classify(id, tuple), "chatgpt.com", "SNI_FOUND")

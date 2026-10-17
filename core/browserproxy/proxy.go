@@ -6,6 +6,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"github.com/buzzmean/neexitlag/core/flowpolicy"
@@ -20,6 +22,16 @@ import (
 	"sync"
 	"syscall"
 	"time"
+)
+
+// Stable, bounded error classes. Never export arbitrary OS/HTTP error text,
+// headers, URLs or credentials in diagnostics.
+var (
+	ErrOwnerLookup  = errors.New("TCP_OWNER_LOOKUP_FAILED")
+	ErrOwnerToken   = errors.New("OWNER_TOKEN_QUERY_FAILED")
+	ErrOwnerSID     = errors.New("OWNER_SID_MISMATCH")
+	ErrOwnerProfile = errors.New("OWNER_PROFILE_MISMATCH")
+	ErrOriginDNS    = errors.New("ORIGIN_DNS_FAILED")
 )
 
 type Owner struct {
@@ -67,11 +79,13 @@ type Record struct {
 	Received          uint64    `json:"received_bytes"`
 }
 type Snapshot struct {
-	Truncated bool     `json:"truncated"`
-	Listening bool     `json:"listening"`
-	Address   string   `json:"address"`
-	Lost      uint64   `json:"lost"`
-	Records   []Record `json:"records"`
+	ReadyProfiles []string          `json:"ready_profiles"`
+	Failures      map[string]uint64 `json:"failures"`
+	Truncated     bool              `json:"truncated"`
+	Listening     bool              `json:"listening"`
+	Address       string            `json:"address"`
+	Lost          uint64            `json:"lost"`
+	Records       []Record          `json:"records"`
 }
 type Config struct {
 	Address          string // Empty allocates a port; otherwise fixed loopback only.
@@ -89,9 +103,13 @@ type Server struct {
 	slots      chan struct{}
 	mu         sync.Mutex
 	next, lost uint64
+	failures   map[string]uint64
 	records    map[uint64]Record
 	conns      map[net.Conn]bool
 	closed     bool
+	challenges map[string]healthChallenge
+	confirmed  map[string]bool
+	verified   map[string]string
 }
 
 func Listen(parent context.Context, cfg Config) (*Server, error) {
@@ -111,7 +129,7 @@ func Listen(parent context.Context, cfg Config) (*Server, error) {
 		return nil, e
 	}
 	ctx, cancel := context.WithCancel(parent)
-	s := &Server{cfg: cfg, l: l, ctx: ctx, cancel: cancel, slots: make(chan struct{}, 256), records: map[uint64]Record{}, conns: map[net.Conn]bool{}}
+	s := &Server{cfg: cfg, l: l, ctx: ctx, cancel: cancel, slots: make(chan struct{}, 256), challenges: map[string]healthChallenge{}, confirmed: map[string]bool{}, verified: map[string]string{}, failures: map[string]uint64{}, records: map[uint64]Record{}, conns: map[net.Conn]bool{}}
 	s.wg.Add(1)
 	go s.serve()
 	return s, nil
@@ -140,7 +158,15 @@ func (s *Server) Close() {
 func (s *Server) Snapshot() Snapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := Snapshot{Listening: !s.closed, Address: s.Address(), Lost: s.lost, Records: make([]Record, 0, len(s.records))}
+	failures := make(map[string]uint64, len(s.failures))
+	for k, v := range s.failures {
+		failures[k] = v
+	}
+	ready := []string{}
+	for profile := range s.confirmed {
+		ready = append(ready, profile)
+	}
+	out := Snapshot{ReadyProfiles: ready, Failures: failures, Listening: !s.closed && s.ctx.Err() == nil, Address: s.Address(), Lost: s.lost, Records: make([]Record, 0, len(s.records))}
 	for _, r := range s.records {
 		if r.Plan.Policy.Action == flowpolicy.DirectPlus && !r.DirectPlusApplied && s.cfg.TransformApplied != nil {
 			source, _ := netip.ParseAddrPort(r.Source)
@@ -158,6 +184,11 @@ func (s *Server) serve() {
 	for {
 		c, e := s.l.Accept()
 		if e != nil {
+			s.cancel()
+			s.mu.Lock()
+			s.closed = true
+			s.mu.Unlock()
+			s.CloseConnections()
 			return
 		}
 		select {
@@ -172,6 +203,7 @@ func (s *Server) serve() {
 				s.handle(c)
 			}()
 		default:
+			s.reject("PROXY_CONNECTION_CAPACITY")
 			c.Close()
 		}
 	}
@@ -227,6 +259,11 @@ func readHeaders(b *bufio.Reader) ([]byte, error) {
 	}
 	return nil, errors.New("proxy header bound")
 }
+func (s *Server) reject(reason string) {
+	s.mu.Lock()
+	s.failures[reason]++
+	s.mu.Unlock()
+}
 func (s *Server) handle(c net.Conn) {
 	ctx, cancel := context.WithTimeout(s.ctx, 8*time.Second)
 	defer cancel()
@@ -234,11 +271,13 @@ func (s *Server) handle(c net.Conn) {
 	b := bufio.NewReaderSize(c, 8192)
 	head, e := readHeaders(b)
 	if e != nil {
+		s.reject("PROXY_HEADER_READ_FAILED")
 		return
 	}
 	parsed := bufio.NewReader(io.MultiReader(bytes.NewReader(head), b))
 	request, e := http.ReadRequest(parsed)
 	if e != nil {
+		s.reject("PROXY_HEADER_PARSE_FAILED")
 		return
 	}
 	secure := request.Method == "CONNECT"
@@ -267,7 +306,19 @@ func (s *Server) handle(c net.Conn) {
 	}
 	owner, e := s.cfg.Authorize(ctx, source, local)
 	if e != nil {
+		reason := "PROXY_AUTHORIZATION_FAILED"
+		for _, kind := range []error{ErrOwnerLookup, ErrOwnerToken, ErrOwnerSID, ErrOwnerProfile} {
+			if errors.Is(e, kind) {
+				reason = kind.Error()
+				break
+			}
+		}
+		s.reject(reason)
 		writeError(c, 403)
+		return
+	}
+	if !secure && host == "neexitlag-health.invalid" {
+		s.health(c, owner, request.URL.Path)
 		return
 	}
 	q := Request{Owner: owner, Source: source, Host: host, Port: port, Secure: secure}
@@ -276,6 +327,9 @@ func (s *Server) handle(c net.Conn) {
 		// Keep bounded failure evidence, without recording arbitrary error strings,
 		// URLs or credentials supplied by a transport implementation.
 		plan.Probe = "ORIGIN_PLAN_FAILED"
+		if errors.Is(planErr, ErrOriginDNS) {
+			plan.Probe = "ORIGIN_DNS_FAILED"
+		}
 		if errors.Is(planErr, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			plan.Probe = "NETWORK_TIMEOUT"
 		}
@@ -313,6 +367,7 @@ func (s *Server) handle(c net.Conn) {
 		s.mu.Unlock()
 	}
 	if planErr != nil || plan.Policy.Action == flowpolicy.Block {
+		s.reject(plan.Probe)
 		finish("ORIGIN_PLAN_FAILED", 0, 0)
 		writeError(c, 502)
 		return
@@ -324,6 +379,7 @@ func (s *Server) handle(c net.Conn) {
 		r.OpenFailure = openFailure(e)
 		s.records[id] = r
 		s.mu.Unlock()
+		s.reject("UPSTREAM_" + openFailure(e))
 		finish("UPSTREAM_OPEN_FAILED", 0, 0)
 		writeError(c, 502)
 		return
@@ -433,4 +489,71 @@ func openFailure(err error) string {
 		}
 	}
 	return "UPSTREAM_OPEN_FAILED"
+}
+
+// A readiness nonce is consumed only by a successfully authorized Chrome TCP
+// owner. IPC reachability or a GUI socket cannot certify Chrome PAC operation.
+type healthChallenge struct {
+	profile string
+	expires time.Time
+}
+
+func (s *Server) Challenge(profile string) (string, error) {
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return "", err
+	}
+	token := hex.EncodeToString(nonce[:])
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.verified, profile)
+	for k, v := range s.challenges {
+		if !time.Now().Before(v.expires) || v.profile == profile {
+			delete(s.challenges, k)
+		}
+	}
+	if len(s.challenges) >= 16 {
+		return "", errors.New("Chrome activation capacity")
+	}
+	s.challenges[token] = healthChallenge{profile, time.Now().Add(45 * time.Second)}
+	return "http://neexitlag-health.invalid/ready/" + token, nil
+}
+func (s *Server) health(c net.Conn, owner Owner, path string) {
+	token := strings.TrimPrefix(path, "/ready/")
+	s.mu.Lock()
+	challenge, ok := s.challenges[token]
+	valid := ok && challenge.profile == owner.Profile && time.Now().Before(challenge.expires) && (s.confirmed[owner.Profile] || len(s.confirmed) < 128)
+	if valid {
+		delete(s.challenges, token)
+		s.confirmed[owner.Profile] = true
+		s.verified[owner.Profile] = token
+	}
+	s.mu.Unlock()
+	if !valid {
+		s.reject("CHROME_READINESS_REJECTED")
+		writeError(c, 403)
+		return
+	}
+	io.WriteString(c, "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: text/plain\r\nContent-Length: 29\r\n\r\nNeExitLag Chrome transport OK")
+}
+func (s *Server) Confirmed(profile string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return !s.closed && s.ctx.Err() == nil && s.confirmed[profile]
+}
+func (s *Server) RestoreConfirmed(profiles []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, p := range profiles {
+		if len(s.confirmed) < 128 {
+			s.confirmed[p] = true
+		}
+	}
+}
+
+func (s *Server) HealthVerified(profile, url string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	token := strings.TrimPrefix(url, "http://neexitlag-health.invalid/ready/")
+	return !s.closed && s.ctx.Err() == nil && token != "" && s.verified[profile] == token
 }

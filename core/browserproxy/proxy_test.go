@@ -42,7 +42,10 @@ func TestPACOriginKeysAndOfflineFailClosed(t *testing.T) {
 		h := sha256.Sum256([]byte(name))
 		key := hex.EncodeToString(h[:])
 		want := "PROXY " + key[:32] + "." + key[32:] + ".localhost:1234"
-		if values[i] != want || strings.Contains(values[i], "DIRECT") {
+		if name != "chatgpt.com" && name != "www.youtube.com" {
+			want += "; DIRECT"
+		}
+		if values[i] != want {
 			t.Fatal(name, values[i], want)
 		}
 	}
@@ -266,5 +269,65 @@ func TestPlainHTTPForwardsAndCountsActualBytes(t *testing.T) {
 			t.Fatal("missing completed HTTP evidence", snap)
 		}
 		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestChromeHealthRequiresAuthorizedOwnerAndExactNonce(t *testing.T) {
+	var authorized atomic.Bool
+	s, err := Listen(context.Background(), Config{Authorize: func(context.Context, netip.AddrPort, netip.AddrPort) (Owner, error) {
+		if !authorized.Load() {
+			return Owner{}, ErrOwnerSID
+		}
+		return Owner{PID: 10, Profile: "chrome"}, nil
+	}, Plan: func(context.Context, Request) (Plan, error) {
+		t.Error("health used origin planner")
+		return Plan{}, nil
+	}, Open: func(context.Context, Request, Plan) (net.Conn, error) {
+		t.Error("health opened origin")
+		return nil, fmt.Errorf("unexpected")
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	url, err := s.Challenge("chrome")
+	if err != nil {
+		t.Fatal(err)
+	}
+	get := func(url string) int {
+		c, e := net.Dial("tcp4", s.Address())
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer c.Close()
+		fmt.Fprintf(c, "GET %s HTTP/1.1\r\nHost: neexitlag-health.invalid\r\n\r\n", url)
+		r, e := http.ReadResponse(bufio.NewReader(c), nil)
+		if e != nil {
+			t.Fatal(e)
+		}
+		return r.StatusCode
+	}
+	if get(url) != 403 || s.Confirmed("chrome") {
+		t.Fatal("unauthorized socket confirmed readiness")
+	}
+	authorized.Store(true)
+	if get(url+"wrong") != 403 || s.HealthVerified("chrome", url) {
+		t.Fatal("guessed nonce confirmed readiness")
+	}
+	if get(url) != 200 || !s.HealthVerified("chrome", url) {
+		t.Fatal("actual Chrome readiness missing")
+	}
+	if get(url) != 403 {
+		t.Fatal("replayed activation nonce accepted")
+	}
+	if !s.HealthVerified("chrome", url) {
+		t.Fatal("lost IPC confirmation response not recoverable")
+	}
+	if s.Snapshot().Failures["OWNER_SID_MISMATCH"] != 1 {
+		t.Fatal("owner failure evidence missing", s.Snapshot())
+	}
+	next, _ := s.Challenge("chrome")
+	if s.HealthVerified("chrome", url) || s.HealthVerified("chrome", next) {
+		t.Fatal("previous proof certified a new activation")
 	}
 }

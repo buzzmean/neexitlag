@@ -1,7 +1,8 @@
 using System.Collections.ObjectModel;
 namespace Neexitlag.Desktop;
-public sealed class BrowserLaunch { public string[] Arguments {get;set;}=[]; public string Address {get;set;}=""; public string Scope {get;set;}=""; }
-public sealed class BrowserTransportSnapshot {public bool Listening {get;set;}public bool Truncated {get;set;}public ulong Lost {get;set;}BrowserConnection[] records=[];public BrowserConnection[] Records {get=>records;set=>records=value??[];}}
+public sealed class ChromeActivationException(string message) : Exception(message);
+public sealed class BrowserLaunch { public string HealthUrl {get;set;}=""; public string[] Arguments {get;set;}=[]; public string Address {get;set;}=""; public string Scope {get;set;}=""; }
+public sealed class BrowserTransportSnapshot {public string[] ReadyProfiles {get;set;}=[];public Dictionary<string,ulong> Failures {get;set;}=[];public bool Listening {get;set;}public bool Truncated {get;set;}public ulong Lost {get;set;}BrowserConnection[] records=[];public BrowserConnection[] Records {get=>records;set=>records=value??[];}}
 public sealed class BrowserOwner {public uint Pid {get;set;} public ulong CreationTime {get;set;} public string Exe {get;set;}="";public string ProfileId {get;set;}="";}
 public sealed class BrowserPlan {public FlowPolicyEvidence Policy {get;set;}=new();public string Probe {get;set;}="";public int HttpStatus {get;set;}}
 public sealed class BrowserConnection {
@@ -19,10 +20,31 @@ public sealed partial class DesktopViewModel {
   Replace(BrowserDomains,status.Records.OrderByDescending(r=>r.Id).Take(32));
   foreach(var app in Applications)app.ApplyBrowserRecords(status);
  }
+ public async Task VerifyChromeAsync(Profile profile,BrowserLaunch launch,CancellationToken ct=default){
+  if(!launch.HealthUrl.StartsWith("http://neexitlag-health.invalid/ready/",StringComparison.Ordinal))throw new ChromeActivationException(Text.Get("ChromeActivationFailed"));
+  for(int i=0;i<100;i++){
+   try{await client.Call<System.Text.Json.JsonElement>("browser.confirm",new{profile_id=profile.Id,health_url=launch.HealthUrl},ct);return;}
+   catch(ServiceException e) when(e.Failure==ServiceFailure.Rejected){await Task.Delay(200,ct);}
+  }
+  var diagnostics=await ChromeStatusAsync(ct);
+  throw new ChromeActivationException(Text.Get("ChromeActivationFailed")+" "+string.Join(", ",diagnostics.Failures.Where(p=>p.Value>0).Select(p=>p.Key).Take(8)));
+ }
+ public async Task CommitChromeAsync(Profile original,CancellationToken ct=default){
+  var copy=original.Copy();copy.Mode="AUTO";
+  await client.Call<Profile[]>("profile.set",copy,ct);
+  var status=await client.Call<Snapshot>("optimize",new{enabled=true},ct);
+  if(!status.Optimizing)throw new ChromeActivationException(Text.Get("ChromeActivationFailed"));
+  await RefreshAsync(ct);
+ }
+ public async Task RestoreChromeAsync(Profile original,CancellationToken ct=default){
+  var copy=original.Copy();if(copy.Mode=="AUTO")copy.Mode="DIRECT";
+  await client.Call<Profile[]>("profile.set",copy,ct);await RefreshAsync(ct);
+ }
+ public Task<BrowserTransportSnapshot> ChromeStatusAsync(CancellationToken ct=default)=>client.Call<BrowserTransportSnapshot>("browser.status",cancellationToken:ct);
  public Task<ProcessIdentity[]> ChromeProcessesAsync(string exe,CancellationToken ct=default)=>client.Call<ProcessIdentity[]>("processes",new{executables=new[]{exe}},ct);
  public Task<BrowserLaunch> PrepareChromeAsync(Profile profile,string directory,CancellationToken ct=default){
-  if(profile.Mode!="AUTO"||!profile.Executables.Any(p=>string.Equals(p.Replace('\\','/').Split('/').Last(),"chrome.exe",StringComparison.OrdinalIgnoreCase)))throw new InvalidOperationException(Text.Get("SelectChromeAuto"));
-  return client.Call<BrowserLaunch>("browser.start",new{profile_id=profile.Id,directory},ct);
+  if(!profile.Executables.Any(p=>string.Equals(p.Replace('\\','/').Split('/').Last(),"chrome.exe",StringComparison.OrdinalIgnoreCase)))throw new InvalidOperationException(Text.Get("SelectChromeAuto"));
+  return client.Call<BrowserLaunch>("browser.prepare",new{profile_id=profile.Id,directory},ct);
  }
 }
 

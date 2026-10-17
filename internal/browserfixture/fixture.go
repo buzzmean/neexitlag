@@ -13,6 +13,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -25,21 +26,27 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
-var Domains = []string{"chatgpt.com", "www.youtube.com", "ordinary.example", "blocked.example"}
+var Domains = []string{"chatgpt.com", "www.youtube.com", "ordinary.example", "blocked.example", "vk.com", "music.yandex.ru", "langame.ru"}
 
 type Fixture struct {
-	Server      *httptest.Server
-	Roots       *x509.CertPool
-	SPKI, Nonce string
-	Resolver    *net.Resolver
-	DNS         *net.UDPConn
-	mu          sync.Mutex
-	Seen        map[string]int
-	Protocols   map[string]int
+	ExpectedFailures        map[int][]string
+	ProtectedDirectAttempts atomic.Uint64
+	HealthURL               string
+	BeforeRequests          func() error
+	Server                  *httptest.Server
+	Roots                   *x509.CertPool
+	SPKI, Nonce             string
+	Resolver                *net.Resolver
+	DNS                     *net.UDPConn
+	mu                      sync.Mutex
+	Seen                    map[string]int
+	Protocols               map[string]int
 }
 
 func New() (*Fixture, error) {
@@ -74,6 +81,12 @@ func New() (*Fixture, error) {
 	f.Server = httptest.NewUnstartedServer(http.HandlerFunc(f.serve))
 	f.Server.EnableHTTP2 = true
 	f.Server.TLS = &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12, GetConfigForClient: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+		if hello.ServerName == "chatgpt.com" {
+			peer, _, _ := net.SplitHostPort(hello.Conn.RemoteAddr().String())
+			if peer != "127.0.0.2" {
+				f.ProtectedDirectAttempts.Add(1)
+			}
+		}
 		if hello.ServerName == "blocked.example" {
 			peer, _, _ := net.SplitHostPort(hello.Conn.RemoteAddr().String())
 			if peer != "127.0.0.2" {
@@ -125,7 +138,12 @@ func (f *Fixture) serve(w http.ResponseWriter, r *http.Request) {
 			stage = "1"
 		}
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, `<!doctype html><title>PENDING</title><body><script>Promise.all(%s.map(h=>fetch('https://'+h+':%d/check',{cache:'no-store'}).then(r=>{if(r.status!==200)throw Error('HTTP '+r.status);return r.text();}).then(v=>{if(v!==%q)throw Error('wrong nonce');}))).then(()=>{document.title='NEEXITLAG_PASS_%s';document.body.textContent='CONTROLLED_HTTPS_OK';}).catch(e=>{document.title='NEEXITLAG_FAIL';document.body.textContent=String(e);});</script>`, `['chatgpt.com','www.youtube.com','ordinary.example','blocked.example']`, f.Port(), f.Nonce, f.Nonce+"_"+stage)
+		stageID, _ := strconv.Atoi(stage)
+		expected, _ := json.Marshal(f.ExpectedFailures[stageID])
+		if string(expected) == "null" {
+			expected = []byte("[]")
+		}
+		fmt.Fprintf(w, `<!doctype html><title>PENDING</title><body><script>const expectedFailures=%s;Promise.all(%s.map(async h=>{let value;try{const r=await fetch('https://'+h+':%d/check?stage=%s',{cache:'no-store'});if(r.status!==200)throw Error('HTTP '+r.status);value=await r.text();}catch(e){if(expectedFailures.includes(h))return;throw e;}if(expectedFailures.includes(h))throw Error('UNEXPECTED PROTECTED SUCCESS '+h);if(value!==%q)throw Error('wrong nonce');})).then(()=>{document.title='NEEXITLAG_PASS_%s';document.body.textContent='CONTROLLED_HTTPS_OK';}).catch(e=>{document.title='NEEXITLAG_FAIL';document.body.textContent=String(e);});</script>`, expected, string(domainJSON()), f.Port(), stage, f.Nonce, f.Nonce+"_"+stage)
 		return
 	}
 	if r.URL.Path != "/" && r.URL.Path != "/check" {
@@ -134,6 +152,8 @@ func (f *Fixture) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Fprint(w, f.Nonce)
 }
+func domainJSON() []byte { b, _ := json.Marshal(Domains); return b }
+
 func (f *Fixture) dns() {
 	data := make([]byte, 2048)
 	for {

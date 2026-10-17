@@ -460,7 +460,7 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		defer c.activationMu.Unlock()
 	}
 	switch method {
-	case "browser.start", "browser.status":
+	case "browser.start", "browser.prepare", "browser.confirm", "browser.status":
 		return c.handleBrowser(method, raw)
 	case "local.presets", "local.preset.apply", "local.get", "local.set", "local.metrics", "local.network", "local.record", "local.recommend", "local.compare":
 		return c.handleLocal(method, raw)
@@ -653,6 +653,14 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 			p.Identity.Helpers = []string{p.Identity.Executable}
 		}
 		prepareAuto(&p)
+		if browserAuto(p) && c.BrowserOwnerSID != "" {
+			c.browser.mu.Lock()
+			ready := c.browser.server != nil && c.browser.server.Confirmed(p.ID)
+			c.browser.mu.Unlock()
+			if !ready {
+				return nil, errors.New("Chrome AUTO not activated: prepare CONNECT, install Chrome PAC and verify readiness before publishing AUTO")
+			}
+		}
 		if p.Mode == profiles.Auto && p.LocalStrategyID != "" && p.AutoNetwork == "" {
 			for _, old := range c.Profiles.List() {
 				if old.ID == p.ID && old.Mode == profiles.DirectPlus && old.LocalStrategyID == p.LocalStrategyID {
@@ -702,6 +710,14 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		}
 		if e := security.Parse(raw, &v); e != nil {
 			return nil, e
+		}
+		c.mu.Lock()
+		automatic := c.settings.Automatic
+		c.mu.Unlock()
+		if v.Enabled && automatic {
+			if err := c.requireChromeActivation(); err != nil {
+				return nil, err
+			}
 		}
 		if !c.Demo && c.Backend == nil {
 			return nil, errors.New("Windows capture backend is not configured")
@@ -757,6 +773,14 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		c.mu.Lock()
 		oldSettings := c.settings
 		c.mu.Unlock()
+		c.mu.Lock()
+		enabled := c.enabled
+		c.mu.Unlock()
+		if s.Automatic && enabled {
+			if err := c.requireChromeActivation(); err != nil {
+				return nil, err
+			}
+		}
 		apply := func() error {
 			c.mu.Lock()
 			c.settings = s

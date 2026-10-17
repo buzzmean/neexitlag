@@ -276,13 +276,15 @@ func (t *tcpRedirect) processPacket(p []byte, a [80]byte, classify Classifier) {
 	t.b.associations.mu.RLock()
 	association, known := t.b.associations.items[tuple]
 	t.b.associations.mu.RUnlock()
-	if known && IsCurrent(association.Identity) {
+	// A live cached process does not prove that it still owns this tuple:
+	// Windows reuses ephemeral ports while the old process is still running.
+	// Query the exact native TCP owner first, especially for service-created
+	// DIRECT/CONNECT sockets; stale Chrome associations must never recurse.
+	pid, ownerErr := resolveTCPOwner(tuple)
+	if ownerErr == nil {
+		id, _ = t.b.cache.Lookup(pid)
+	} else if known && IsCurrent(association.Identity) {
 		id = association.Identity
-	} else {
-		pid, ownerErr := resolveTCPOwner(tuple)
-		if ownerErr == nil {
-			id, _ = t.b.cache.Lookup(pid)
-		}
 	}
 	decision, self := ClassifyCapture(id, tuple, uint32(os.Getpid()), classify)
 	t.delegatedMu.Lock()

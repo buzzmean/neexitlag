@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"errors"
 	"github.com/buzzmean/neexitlag/core/flowpolicy"
 	"github.com/buzzmean/neexitlag/core/security"
 	"github.com/buzzmean/neexitlag/core/transport"
@@ -12,6 +13,8 @@ import (
 	"github.com/buzzmean/neexitlag/tools/labcert"
 	"net"
 	"net/netip"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -50,8 +53,12 @@ func TestChromePACRealHTTPSOriginIsolation(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer pool.Close()
+	var relayDown atomic.Bool
 	open := func(ctx context.Context, q Request, p Plan) (net.Conn, error) {
 		if p.Policy.Action == flowpolicy.RelayRequired {
+			if relayDown.Load() {
+				return nil, errors.New("required relay unavailable")
+			}
 			return pool.OpenTCP(ctx, p.Destination)
 		}
 		return (&net.Dialer{}).DialContext(ctx, "tcp4", p.Destination.String())
@@ -95,22 +102,51 @@ func TestChromePACRealHTTPSOriginIsolation(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	defer proxy.Close()
+	defer func() { proxy.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	args, e := ChromeArguments(proxy.Address(), t.TempDir())
+	args, e := ChromeArgumentsGuarded(proxy.Address(), t.TempDir(), []string{"blocked.example"}, false)
 	if e != nil {
 		t.Fatal(e)
 	}
-	out, e := f.RunChrome(ctx, chrome, args)
+	f.ExpectedFailures = map[int][]string{2: {"chatgpt.com", "blocked.example"}, 3: {"chatgpt.com", "blocked.example", "www.youtube.com"}}
+	rules := []string{}
+	for _, domain := range browserfixture.Domains {
+		rules = append(rules, "MAP "+domain+" 127.0.0.1")
+	}
+	args = append(args, "--host-resolver-rules="+strings.Join(rules, ", "))
+	cfg := proxy.cfg
+	cfg.Address = proxy.Address()
+	var earlier []Record
+	out, e := f.RunChrome(ctx, chrome, args,
+		func() error {
+			earlier = append(earlier, proxy.Snapshot().Records...)
+			relayDown.Store(true)
+			proxy.CloseConnections()
+			return nil
+		},
+		func() error { proxy.Close(); earlier = append(earlier, proxy.Snapshot().Records...); return nil },
+		func() error {
+			relayDown.Store(false)
+			var err error
+			proxy, err = Listen(context.Background(), cfg)
+			return err
+		},
+	)
 	if e != nil {
 		t.Fatal(e, out, proxy.Snapshot())
 	}
 	snap := proxy.Snapshot()
 	seen := map[string]bool{}
-	for _, r := range snap.Records {
+	for _, r := range append(earlier, snap.Records...) {
 		for _, host := range browserfixture.Domains {
 			if r.Domain == host {
+				if r.Result == "UPSTREAM_OPEN_FAILED" {
+					if r.Plan.Policy.Action != flowpolicy.RelayRequired || r.Sent != 0 || r.Received != 0 {
+						t.Fatal("failed protected open downgraded", r)
+					}
+					continue
+				}
 				seen[host] = true
 				if (host == "chatgpt.com" || host == "blocked.example") && (r.Plan.Policy.Action != flowpolicy.RelayRequired || r.Plan.Policy.Fallback != flowpolicy.Required || r.Sent == 0 || r.Received == 0) {
 					t.Fatal("protected transport not proved", r)
@@ -118,7 +154,10 @@ func TestChromePACRealHTTPSOriginIsolation(t *testing.T) {
 			}
 		}
 	}
-	if len(seen) != 4 || snap.Lost != 0 {
+	if f.ProtectedDirectAttempts.Load() != 0 {
+		t.Fatal("protected TLS attempted DIRECT", f.ProtectedDirectAttempts.Load())
+	}
+	if len(seen) != len(browserfixture.Domains) || snap.Lost != 0 {
 		t.Fatal("missing origin CONNECT / possible pooling", seen, snap.Lost)
 	}
 	if server.Metrics.TCPConnections.Load() < 2 || server.Metrics.RXBytes.Load() == 0 {

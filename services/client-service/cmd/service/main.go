@@ -36,13 +36,13 @@ func runReady(ctx context.Context, path string, ready func()) error {
 		}
 	}
 	controller.Start()
+	if e = controller.RestoreBrowserTransport(); e != nil {
+		slog.Warn("Chrome transport not restored; proxy remains fail-closed", "error", e)
+	}
 	if controller.Snapshot().Settings.Automatic {
 		if _, e := controller.Handle(ctx, "optimize", []byte(`{"enabled":true}`)); e != nil {
 			slog.Warn("automatic capture unavailable; networking remains DIRECT", "error", e)
 		}
-	}
-	if e = controller.RestoreBrowserTransport(); e != nil {
-		slog.Warn("Chrome transport not restored; proxy remains fail-closed", "error", e)
 	}
 	server, e := ipc.New(strings.TrimSpace(string(token)), controller.Handle)
 	if e != nil {

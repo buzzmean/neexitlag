@@ -188,12 +188,24 @@ internal static class Program
         Require(!root.TryGetProperty("ProxyBypassList",out _),"Chrome rejects ProxyBypassList in pac_script policy mode");
         Pass("Chrome PAC mandatory policy encoding; no registry or Windows proxy modified by test");
     }
+    static void ChromeRecoveryGuard(){
+        var p=new Profile{Id="chrome",Executables=[@"C:\Apps\chrome.exe"],Mode="AUTO"};
+        var pac=ChromePolicy.ClosedGuard(p);
+        var script=System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(pac.Split(',')[1]));
+        var info=new System.Diagnostics.ProcessStartInfo("node"){UseShellExecute=false,RedirectStandardInput=true,RedirectStandardOutput=true,RedirectStandardError=true};
+        info.ArgumentList.Add("-e");info.ArgumentList.Add("let s='';process.stdin.on('data',b=>s+=b);process.stdin.on('end',()=>{const vm=require('vm'),c={};vm.createContext(c);vm.runInContext(s,c);console.log(JSON.stringify(['vk.com','chatgpt.com','api.openai.com','openai.com.evil.test','music.yandex.ru'].map(h=>c.FindProxyForURL('https://'+h,h))));});");
+        using var node=System.Diagnostics.Process.Start(info)!;node.StandardInput.Write(script);node.StandardInput.Close();var raw=node.StandardOutput.ReadToEnd();if(!node.WaitForExit(10000))throw new Exception("PAC evaluator timeout");
+        Require(node.ExitCode==0,node.StandardError.ReadToEnd());var routes=System.Text.Json.JsonSerializer.Deserialize<string[]>(raw)!;
+        Require(routes[0]=="DIRECT"&&routes[3]=="DIRECT"&&routes[4]=="DIRECT","Ordinary recovery routes broken");
+        Require(routes[1].StartsWith("PROXY ")&&routes[2].StartsWith("PROXY ")&&!routes[1].Contains("DIRECT")&&!routes[2].Contains("DIRECT"),"OpenAI guard leaked DIRECT");
+        Pass("Chrome recovery PAC executes: ordinary DIRECT; protected OpenAI fail-closed; suffix boundary exact");
+    }
     [STAThread]
     static int Main()
     {
         Directory.CreateDirectory(Output); settings = Path.Combine(Path.GetTempPath(), "neexitlag-native-" + Guid.NewGuid() + ".json");
         var app = new App(); app.InitializeComponent(); app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-        try { ChromeProxyValue(); Picker(); StrategiesNull(); Lifecycle(); Dropdowns(); Pass("native WPF desktop regression suite"); return 0; }
+        try { ChromeProxyValue(); ChromeRecoveryGuard(); Picker(); StrategiesNull(); Lifecycle(); Dropdowns(); Pass("native WPF desktop regression suite"); return 0; }
         catch (Exception e) { Console.Error.WriteLine(e); File.WriteAllText(Path.Combine(Output, "failure.txt"), e.ToString()); return 1; }
         finally { foreach (System.Windows.Window w in app.Windows.Cast<System.Windows.Window>().ToArray()) { if (w is MainWindow m) m.Exit(); else w.Close(); } app.Shutdown(); File.Delete(settings); }
     }

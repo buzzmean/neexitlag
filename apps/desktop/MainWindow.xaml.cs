@@ -37,7 +37,7 @@ public partial class MainWindow : Window
         };
         var menu = new System.Windows.Forms.ContextMenuStrip();
         menu.Items.Add(Text.Get("OpenApp"), null, (_, _) => Dispatcher.Invoke(ShowFromTray));
-        var enable = menu.Items.Add(Text.Get("TrayEnable"), null, async (_, _) => await Execute(() => model.OptimizeAsync(true, lifetime.Token)));
+        var enable = menu.Items.Add(Text.Get("TrayEnable"), null, async (_, _) => await Execute(EnableOptimizationAsync));
         var disable = menu.Items.Add(Text.Get("TrayDisable"), null, async (_, _) => await Execute(() => model.OptimizeAsync(false, lifetime.Token)));
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         menu.Items.Add(Text.Get("Exit"), null, (_, _) => Dispatcher.Invoke(Exit));
@@ -145,7 +145,7 @@ public partial class MainWindow : Window
         if(!localLoaded){ShowMessage("LocalLoadFirst");return;}
         localConfig.Enabled=LocalEnabled.IsChecked==true;localConfig.User=localRules.ToArray();
         localConfig=await model.SaveLocalStrategiesAsync(localConfig,lifetime.Token);
-        if(LocalAuto.IsChecked==true && AppGrid.SelectedItem is ApplicationRow row)await model.SetProfileAsync(row.Profile,"AUTO",null,lifetime.Token);
+        if(LocalAuto.IsChecked==true && AppGrid.SelectedItem is ApplicationRow row){if(IsChrome(row.Profile))await ActivateChromeSites(row);else await model.SetProfileAsync(row.Profile,"AUTO",null,lifetime.Token);}
         LocalCounters.Text=Text.Get("LocalSaved");
     });
     void SelectLocal(object sender,SelectionChangedEventArgs e){if(LocalGrid.SelectedItem is not LocalStrategyProfile p)return;LocalApp.Text=p.Application;LocalSplitPosition.Text=(p.SplitPosition==0?1:p.SplitPosition).ToString(System.Globalization.CultureInfo.InvariantCulture);LocalPorts.Text=string.Join(",",p.Ports ?? []);LocalDomains.Text=string.Join(",",p.Domains ?? []);LocalIPs.Text=string.Join(",",p.Ips ?? []);LocalExcludeDomains.Text=string.Join(",",p.ExcludeDomains ?? []);LocalExcludeIPs.Text=string.Join(",",p.ExcludeIps ?? []);foreach(ComboBoxItem item in LocalMechanism.Items)if((string)item.Tag==p.Strategy)LocalMechanism.SelectedItem=item;}
@@ -180,7 +180,7 @@ public partial class MainWindow : Window
         if(!string.IsNullOrWhiteSpace(LocalCA.Text)){p.ArgumentList.Add("-EndpointCA");p.ArgumentList.Add(LocalCA.Text);}try{System.Diagnostics.Process.Start(p);}catch{ShowMessage("LocalSelect");}
     }
     async void Reconnect(object sender, RoutedEventArgs e) => await Refresh();
-    async void ToggleOptimize(object sender, RoutedEventArgs e) => await Execute(() => model.OptimizeAsync(!model.Optimizing, lifetime.Token));
+    async void ToggleOptimize(object sender, RoutedEventArgs e) => await Execute(() => model.Optimizing?model.OptimizeAsync(false,lifetime.Token):EnableOptimizationAsync());
     void AddApplication(object sender, RoutedEventArgs e) => new AddApplicationWindow(this, model, lifetime.Token).ShowDialog();
     async void ApplyPreset(object sender,RoutedEventArgs e)
     {
@@ -245,6 +245,7 @@ public partial class MainWindow : Window
             ShowMessage("SelectApplication");
             return;
         }
+        if(((string?)Mode.SelectedValue ?? "AUTO")=="AUTO"&&IsChrome(row.Profile)){await Execute(()=>ActivateChromeSites(row));return;}
         var copy=row.Profile.Copy();copy.Fallback=(string?)ProfileFallback.SelectedValue ?? "";
         await Execute(async () => { await model.SetProfileAsync(copy, (string?)Mode.SelectedValue ?? "AUTO", (string?)RelayChoice.SelectedValue, lifetime.Token); });
     }

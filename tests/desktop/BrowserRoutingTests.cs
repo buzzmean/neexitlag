@@ -25,4 +25,37 @@ public class BrowserRoutingTests {
   var value=System.Text.Json.JsonSerializer.Deserialize<BrowserTransportSnapshot>("{\"listening\":false,\"records\":null}",WireJson.Options)!;
   var model=new DesktopViewModel(new FakeService());model.ApplyBrowser(value);Assert.Empty(model.BrowserDomains);
  }
+
+ [Fact]public async Task ChromePrepareDoesNotPublishAUTOOrEnableCapture(){
+  var service=new BrowserService();var vm=new DesktopViewModel(service);
+  var p=new Profile{Id="chrome",Mode="DIRECT_PLUS",Executables=[@"C:\Apps\chrome.exe"]};
+  var launch=await vm.PrepareChromeAsync(p,@"C:\Users\test\Chrome");
+  Assert.Single(service.Fake.Calls);Assert.Equal("browser.prepare",service.Fake.Calls[0].method);
+  Assert.Equal("DIRECT_PLUS",p.Mode);Assert.NotEmpty(launch.HealthUrl);
+ }
+ [Fact]public async Task ChromeCommitDoesNotIgnoreRejectedProfileOrFailedOptimize(){
+  var service=new BrowserService();var vm=new DesktopViewModel(service);
+  var p=new Profile{Id="chrome",Mode="DIRECT",Executables=[@"C:\Apps\chrome.exe"]};
+  service.Fake.Failure=new ServiceException(ServiceFailure.Rejected);
+  await Assert.ThrowsAsync<ServiceException>(()=>vm.CommitChromeAsync(p));
+  Assert.DoesNotContain(service.Fake.Calls,c=>c.method=="optimize");
+  service.Fake.Failure=null;service.Fake.Calls.Clear();service.Fake.State.Optimizing=false;
+  await Assert.ThrowsAsync<ChromeActivationException>(()=>vm.CommitChromeAsync(p));
+  Assert.Equal(new[]{"profile.set","optimize"},service.Fake.Calls.Select(c=>c.method));
+ }
+ [Fact]public async Task ChromeRollbackRestoresOrdinaryDIRECTInsteadOfBrokenUnactivatedAUTO(){
+  var service=new BrowserService();var vm=new DesktopViewModel(service);
+  var p=new Profile{Id="chrome",Mode="AUTO",Executables=[@"C:\Apps\chrome.exe"],LocalStrategyId="working-youtube"};
+  await vm.RestoreChromeAsync(p);
+  var sent=(Profile)service.Fake.Calls.Single(c=>c.method=="profile.set").payload!;
+  Assert.Equal("DIRECT",sent.Mode);Assert.Equal("working-youtube",sent.LocalStrategyId);Assert.Equal("AUTO",p.Mode);
+  Assert.DoesNotContain(service.Fake.Calls,c=>c.method=="optimize");
+ }
+ sealed class BrowserService:IServiceClient{
+  public FakeService Fake=new();
+  public Task<T> Call<T>(string method,object? payload=null,CancellationToken cancellationToken=default){
+   if(method=="browser.prepare"){Fake.Calls.Add((method,payload));return Task.FromResult((T)(object)new BrowserLaunch{HealthUrl="http://neexitlag-health.invalid/ready/nonce"});}
+   return Fake.Call<T>(method,payload,cancellationToken);
+  }
+ }
 }

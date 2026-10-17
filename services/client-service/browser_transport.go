@@ -39,15 +39,18 @@ func newBrowserRuntime() *browserRuntime {
 func (c *Controller) browserOwner(ctx context.Context, source, local netip.AddrPort) (browserproxy.Owner, error) {
 	id, err := wp.LookupTCPPeer(source, local)
 	if err != nil {
-		return browserproxy.Owner{}, err
+		return browserproxy.Owner{}, browserproxy.ErrOwnerLookup
 	}
 	sid, sidErr := wp.ProcessUserSID(id)
-	if sidErr != nil || c.BrowserOwnerSID == "" || sid != c.BrowserOwnerSID {
-		return browserproxy.Owner{}, errors.New("browser connection belongs to another user")
+	if sidErr != nil {
+		return browserproxy.Owner{}, browserproxy.ErrOwnerToken
+	}
+	if c.BrowserOwnerSID == "" || sid != c.BrowserOwnerSID {
+		return browserproxy.Owner{}, browserproxy.ErrOwnerSID
 	}
 	p, ok := c.matchApplication(id)
-	if !ok || !browserAuto(p) {
-		return browserproxy.Owner{}, errors.New("Chrome AUTO owner required")
+	if !ok || !chromeProfile(p) || p.Trial != nil {
+		return browserproxy.Owner{}, browserproxy.ErrOwnerProfile
 	}
 	return browserproxy.Owner{PID: id.PID, Birth: id.CreationTime, Exe: id.Path, Profile: p.ID}, nil
 }
@@ -146,7 +149,7 @@ func (c *Controller) browserOpen(ctx context.Context, q browserproxy.Request, pl
 	if current.network != plan.Network || current.enabled != plan.Enabled {
 		return nil, errors.New("browser policy changed before upstream open")
 	}
-	if current.enabled && protectedBrowserDomain(q.Host) && plan.Policy.Action != flowpolicy.RelayRequired {
+	if protectedBrowserDomain(q.Host) && plan.Policy.Action != flowpolicy.RelayRequired {
 		return nil, errors.New("protected origin cannot downgrade")
 	}
 	d := applyFlowResult(current.profile, wp.Decision{}, plan.Policy, current.network, c.browserLocal(plan.Policy.Strategy))
@@ -188,7 +191,7 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 	addresses, err := resolver.LookupNetIP(lookup, "ip", q.Host)
 	stop()
 	if err != nil || len(addresses) == 0 {
-		return browserproxy.Plan{}, errors.New("origin DNS unavailable; system DNS unchanged")
+		return browserproxy.Plan{}, browserproxy.ErrOriginDNS
 	}
 	// Prefer IPv4 for the existing native DIRECT+ backend. IPv6 relay/direct can
 	// use the existing authenticated transport, not an unsupported native bypass.
@@ -196,7 +199,7 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 	dest := netip.AddrPortFrom(addresses[0].Unmap(), q.Port)
 	tuple := wp.Tuple{Protocol: "tcp", Source: q.Source, Destination: dest}
 	result := c.browserFlow(current.profile, current.id, tuple, q.Host, current.network)
-	if !current.enabled {
+	if !current.enabled && !protectedBrowserDomain(q.Host) {
 		result = flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailOpen, Source: "optimization_disabled", Reason: "user disabled optimization"}
 	}
 	plan := browserproxy.Plan{Network: current.network, Enabled: current.enabled, Policy: result, Destination: dest, Probe: "NOT_PROBED"}
@@ -224,7 +227,9 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 		key.Revision += ":http"
 	}
 	if cached, ok := c.browser.learned.Lookup(key, time.Now()); ok && (cached.Confirmed || !cached.RetryAfter.IsZero()) {
-		plan.Policy = cached.Route
+		if cached.Confirmed || cached.Route.Action != flowpolicy.RelayRequired {
+			plan.Policy = cached.Route
+		}
 		plan.Probe = cached.Outcome
 		plan.HTTPStatus = cached.HTTPStatus
 		return plan, nil
@@ -236,7 +241,8 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 	if !exists {
 		if len(c.browser.plans) >= 32 {
 			c.browser.mu.Unlock()
-			return plan, errors.New("browser probe queue full")
+			plan.Probe = "PROBE_CAPACITY_DIRECT_UNVERIFIED"
+			return plan, nil
 		}
 		pending = make(chan struct{})
 		c.browser.plans[key] = pending
@@ -246,12 +252,15 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 		select {
 		case <-pending:
 			if v, ok := c.browser.learned.Lookup(key, time.Now()); ok {
-				plan.Policy = v.Route
+				if v.Confirmed || v.Route.Action != flowpolicy.RelayRequired {
+					plan.Policy = v.Route
+				}
 				plan.Probe = v.Outcome
 				plan.HTTPStatus = v.HTTPStatus
 				return plan, nil
 			}
-			return plan, errors.New("origin probe unavailable")
+			plan.Probe = "PROBE_UNAVAILABLE_DIRECT_UNVERIFIED"
+			return plan, nil
 		case <-ctx.Done():
 			return plan, ctx.Err()
 		}
@@ -260,17 +269,20 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 	select {
 	case c.browser.probes <- struct{}{}:
 		defer func() { <-c.browser.probes }()
-	case <-ctx.Done():
-		return plan, ctx.Err()
+	default:
+		plan.Probe = "PROBE_CAPACITY_DIRECT_UNVERIFIED"
+		return plan, nil
 	}
 	strategy, _ := c.browserScopedLocal(current.profile, q.Host, current.network, q.Port)
 	relay := current.profile.RelayID
 	if relay == "" {
 		relay = "VPS-01"
 	}
+	ordinary := plan.Policy
 	attempt, err := c.browser.learned.Begin(key, strategy, relay, time.Now())
 	if err != nil {
-		return plan, err
+		plan.Probe = "PROBE_CACHE_CAPACITY_DIRECT_UNVERIFIED"
+		return plan, nil
 	}
 	for tries := 0; tries < 3; tries++ {
 		plan.Policy = attempt.Route
@@ -304,6 +316,9 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 		}
 		if attempt.Confirmed || !attempt.RetryAfter.IsZero() {
 			plan.Policy = attempt.Route
+			if !attempt.Confirmed && attempt.Route.Action == flowpolicy.RelayRequired && !attempt.RetryAfter.IsZero() {
+				plan.Policy = ordinary
+			}
 			plan.Probe = attempt.Outcome
 			plan.HTTPStatus = status
 			return plan, nil
@@ -316,7 +331,7 @@ func (c *Controller) handleBrowser(method string, raw json.RawMessage) (any, err
 	defer c.browser.mu.Unlock()
 	if method == "browser.status" {
 		if c.browser.server == nil {
-			return browserproxy.Snapshot{Records: []browserproxy.Record{}}, nil
+			return browserproxy.Snapshot{ReadyProfiles: []string{}, Failures: map[string]uint64{}, Records: []browserproxy.Record{}}, nil
 		}
 		view := c.browser.server.Snapshot()
 		sort.Slice(view.Records, func(i, j int) bool { return view.Records[i].ID > view.Records[j].ID })
@@ -333,14 +348,37 @@ func (c *Controller) handleBrowser(method string, raw json.RawMessage) (any, err
 	var q struct {
 		Profile   string `json:"profile_id"`
 		Directory string `json:"directory"`
+		HealthURL string `json:"health_url"`
 	}
 	if err := security.Parse(raw, &q); err != nil {
 		return nil, err
 	}
+	if method == "browser.confirm" {
+		if c.browser.server == nil || !c.browser.server.HealthVerified(q.Profile, q.HealthURL) {
+			return nil, errors.New("Chrome PAC readiness not observed: check Chrome policy, TCP owner/SID and browser.status failures")
+		}
+		if c.customPath != "" {
+			if err := c.saveBrowserAddress(); err != nil {
+				return nil, err
+			}
+		}
+		return map[string]bool{"ready": true}, nil
+	}
 	found := false
+	extra := []string{}
+	strict := false
 	for _, p := range c.Profiles.List() {
-		if p.ID == q.Profile && browserAuto(p) {
+		if p.ID == q.Profile && chromeProfile(p) && p.Trial == nil {
 			found = true
+			for _, rule := range p.Rules {
+				if rule.Action != flowpolicy.Direct {
+					if len(rule.Domains) == 0 {
+						strict = true
+					} else {
+						extra = append(extra, rule.Domains...)
+					}
+				}
+			}
 		}
 	}
 	if c.BrowserOwnerSID == "" {
@@ -349,7 +387,7 @@ func (c *Controller) handleBrowser(method string, raw json.RawMessage) (any, err
 	c.mu.Lock()
 	enabled := c.enabled && c.settings.Automatic
 	c.mu.Unlock()
-	if !enabled {
+	if !enabled && method != "browser.prepare" {
 		return nil, errors.New("Chrome site routing requires enabled optimization and automatic routing")
 	}
 	if !found || q.Directory == "" || len(q.Directory) > 2048 {
@@ -372,16 +410,24 @@ func (c *Controller) handleBrowser(method string, raw json.RawMessage) (any, err
 			}
 		}
 	}
-	args, err := browserproxy.ChromeArguments(c.browser.server.Address(), q.Directory)
+	healthURL := ""
+	if method == "browser.prepare" {
+		var err error
+		healthURL, err = c.browser.server.Challenge(q.Profile)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args, err := browserproxy.ChromeArgumentsGuarded(c.browser.server.Address(), q.Directory, extra, strict)
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"arguments": args, "address": c.browser.server.Address(), "scope": "Chrome launch only; system proxy unchanged", "http3": "HTTP CONNECT uses TCP; QUIC relay transport unchanged", "verification": "origin probe only; authenticated browser page result is not observed"}, nil
+	return map[string]any{"health_url": healthURL, "arguments": args, "address": c.browser.server.Address(), "scope": "Chrome launch only; system proxy unchanged", "http3": "HTTP CONNECT uses TCP; QUIC relay transport unchanged", "verification": "origin probe only; authenticated browser page result is not observed"}, nil
 }
 
 func (c *Controller) saveBrowserAddress() error {
 	path := filepath.Join(filepath.Dir(c.customPath), "browser-transport.json")
-	raw, _ := json.Marshal(map[string]string{"address": c.browser.address})
+	raw, _ := json.Marshal(map[string]any{"address": c.browser.address, "ready_profiles": c.browser.server.Snapshot().ReadyProfiles})
 	f, err := os.CreateTemp(filepath.Dir(path), ".browser-transport-*")
 	if err != nil {
 		return err
@@ -403,8 +449,8 @@ func (c *Controller) saveBrowserAddress() error {
 	return os.Rename(name, path)
 }
 
-// Restore the existing non-secret local port only after normal service startup
-// has enabled capture. A service restart must not require changing Chrome's PAC.
+// Restore the existing non-secret local port before normal service startup
+// starts capture. A service restart must not require changing Chrome's PAC.
 func (c *Controller) RestoreBrowserTransport() error {
 	if c.customPath == "" {
 		return nil
@@ -417,7 +463,8 @@ func (c *Controller) RestoreBrowserTransport() error {
 		return err
 	}
 	var saved struct {
-		Address string `json:"address"`
+		Address       string   `json:"address"`
+		ReadyProfiles []string `json:"ready_profiles"`
 	}
 	if err = security.Parse(raw, &saved); err != nil {
 		return err
@@ -427,12 +474,6 @@ func (c *Controller) RestoreBrowserTransport() error {
 	if err != nil || pe != nil || host != "127.0.0.1" || port == 0 {
 		return errors.New("invalid saved Chrome loopback port")
 	}
-	c.mu.Lock()
-	ready := !c.settings.Automatic || c.enabled
-	c.mu.Unlock()
-	if !ready {
-		return errors.New("Chrome transport restore waits for enabled optimization")
-	}
 	c.browser.mu.Lock()
 	defer c.browser.mu.Unlock()
 	c.browser.address = saved.Address
@@ -441,5 +482,20 @@ func (c *Controller) RestoreBrowserTransport() error {
 		return err
 	}
 	c.browser.server = server
+	server.RestoreConfirmed(saved.ReadyProfiles)
+	return nil
+}
+
+func (c *Controller) requireChromeActivation() error {
+	if c.BrowserOwnerSID == "" {
+		return nil
+	} // portable/demo controllers have no Windows owner.
+	c.browser.mu.Lock()
+	defer c.browser.mu.Unlock()
+	for _, p := range c.Profiles.List() {
+		if browserAuto(p) && (c.browser.server == nil || !c.browser.server.Confirmed(p.ID)) {
+			return errors.New("Chrome AUTO requires verified CONNECT/PAC activation in Applications before Optimize; no capture state changed")
+		}
+	}
 	return nil
 }
