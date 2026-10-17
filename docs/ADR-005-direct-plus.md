@@ -5,7 +5,7 @@ Base: codex/windows-tcp-web at 3306fa7d03c292c795a90f63d8547f78ad15430b.
 
 ## Decision
 
-Retain one NeExitLag WinDivert owner and existing non-overlapping IPv4 UDP/TCP NETWORK filters plus existing FLOW/SOCKET/IPv6 guard. Do not add winws, a second packet backend, TLS termination, process injection, global route/DNS changes or a new tunnel. The classifier yields DIRECT, DIRECT_PLUS, RELAY (and existing BLOCK). Route.Direct() continues to mean native/direct egress including DIRECT_PLUS for compatibility; Route.Type()/Local() distinguish local transformation.
+Retain one VELIQ WinDivert owner and existing non-overlapping IPv4 UDP/TCP NETWORK filters plus existing FLOW/SOCKET/IPv6 guard. Do not add winws, a second packet backend, TLS termination, process injection, global route/DNS changes or a new tunnel. The classifier yields DIRECT, DIRECT_PLUS, RELAY (and existing BLOCK). Route.Direct() continues to mean native/direct egress including DIRECT_PLUS for compatibility; Route.Type()/Local() distinguish local transformation.
 
 LocalStrategyEngine owns an immutable versioned configuration and small atomic metrics. Existing bounded capture tables own per-flow strategy state. TCP route eligibility is pinned on a new SYN; only an eligible native DIRECT_PLUS flow may transform initial payload. Existing TCP sessions never migrate to relay/local. First complete TCP payload can refine eligibility with HTTP Host / TLS SNI without decrypting TLS application data. Unknown/fragmented/ECH metadata passes through. UDP requires an explicit IP set, not an inferred QUIC domain.
 

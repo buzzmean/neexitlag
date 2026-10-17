@@ -3,7 +3,7 @@ function Get-HotAttachRoots($Processes,[string[]]$Expected){
  $roots=@()
  foreach($name in $Expected){
   $matches=@($Processes|Where-Object{([string](Get-SimValue $_ 'Path' '')).Replace('\','/').Split('/')[-1] -ieq $name})
-  if(!$matches.Count){throw "Start $name before enabling NeExitLag"}
+  if(!$matches.Count){throw "Start $name before enabling VELIQ"}
   $pids=@{};foreach($p in $matches){$pids[[string](Get-SimValue $p 'PID' 0)]=$true}
   $top=@($matches|Where-Object{!$pids.ContainsKey([string](Get-SimValue $_ 'ParentPID' 0))})
   if(!$top.Count){throw "Cannot identify existing root process: $name"}

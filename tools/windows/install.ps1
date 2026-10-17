@@ -61,9 +61,9 @@ $manifestPath=Join-Path $InstallDirectory "service.json"
 [IO.File]::WriteAllText($manifestPath,($manifest|ConvertTo-Json -Depth 4),[Text.UTF8Encoding]::new($false))
 Protect-ServiceDirectory $InstallDirectory $OwnerSid
 $binary='"'+(Join-Path $InstallDirectory "neexitlag-service.exe")+'" -config "'+$manifestPath+'"'
-New-Service -Name neexitlag -BinaryPathName $binary -DisplayName "neexitlag Routing Service" -StartupType Automatic | Out-Null
+New-Service -Name neexitlag -BinaryPathName $binary -DisplayName "VELIQ Routing Service" -StartupType Automatic | Out-Null
 & sc.exe failure neexitlag reset= 86400 actions= restart/5000/restart/5000/restart/5000 | Out-Null
 if($LASTEXITCODE){throw "Failed to configure service recovery"}
 Start-Service neexitlag
 (Get-Service neexitlag).WaitForStatus('Running',[TimeSpan]::FromSeconds(30))
-Write-Host "neexitlag service installed. Run the desktop GUI without elevation."
+Write-Host "VELIQ service installed. Run the desktop GUI without elevation."

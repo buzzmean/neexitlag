@@ -179,9 +179,9 @@ go build -trimpath -o .\bin\windows-e2e\neexitlag-service.exe .\services\client-
 .\tools\windows\build-e2e.ps1
 ```
 
-Or download **windows-real-e2e-tools** and **NeExitLag-win-x64** from the SAME
+Or download **windows-real-e2e-tools** and **VELIQ-win-x64** from the SAME
 successful Verify HEAD. The GUI archive now includes tools/windows; keep them
-beside NeExitLag.exe so AUTO never asks users to locate a test script.
+beside VELIQ.exe so AUTO never asks users to locate a test script.
 Close the old GUI via tray Exit; close the target apps before the service update.
 No uninstall, reinstall, enrollment, driver replacement or VPS command is needed.
 From elevated PowerShell, set only the extracted bundle path:

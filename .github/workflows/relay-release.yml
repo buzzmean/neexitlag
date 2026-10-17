@@ -58,9 +58,9 @@ jobs:
           sha256sum *.exe > SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
-          name: neexitlag-relay-linux-amd64
+          name: VELIQ-relay-linux-amd64
           path: dist/relay/
       - uses: actions/upload-artifact@v4
         with:
-          name: neexitlag-route-test-windows-amd64
+          name: VELIQ-route-test-windows-amd64
           path: dist/windows/

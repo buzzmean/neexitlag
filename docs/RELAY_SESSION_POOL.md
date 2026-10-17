@@ -149,7 +149,7 @@ if($LASTEXITCODE -ne 0){throw 'Service build failed'}
 The GUI executable has no changes in this follow-up. To rebuild the full GUI/tools
 bundle optionally run `.\tools\windows\build-desktop.ps1 -Output .\bin\release`
 and `.\tools\windows\build-e2e.ps1`. Matching successful Verify artifacts also
-provide windows-real-e2e-tools and NeExitLag-win-x64; the service bundle includes
+provide windows-real-e2e-tools and VELIQ-win-x64; the service bundle includes
 this instruction. Never combine binaries/scripts from different HEADs for proof.
 
 From elevated PowerShell in the checkout, replace the existing SCM binary only:

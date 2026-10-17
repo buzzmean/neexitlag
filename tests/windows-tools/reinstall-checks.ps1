@@ -41,7 +41,7 @@ try {
   $global:neexitlagReinstallFixture.mockService|Add-Member ScriptMethod WaitForStatus {param($status,$timeout) $this.Status=$status}
   $global:neexitlagReinstallFixture.mockService|Add-Member ScriptMethod Dispose {$this.Disposed=$true}
   function Get-Service {param([string]$Name) if($Name -ne 'neexitlag'){throw 'Unexpected SCM name'};if($global:neexitlagReinstallFixture.serviceCreated){return $global:neexitlagReinstallFixture.mockService}}
-  function New-Service {param($Name,$BinaryPathName,$DisplayName,$StartupType) if($Name -ne 'neexitlag'){throw 'Unexpected SCM creation'};$global:neexitlagReinstallFixture.creates++;$global:neexitlagReinstallFixture.serviceCreated=$true;$global:neexitlagReinstallFixture.mockService.Status='Running'}
+  function New-Service {param($Name,$BinaryPathName,$DisplayName,$StartupType) if($Name -ne 'neexitlag' -or $DisplayName -ne 'VELIQ Routing Service'){throw 'SCM compatibility/display-name mismatch'};$global:neexitlagReinstallFixture.creates++;$global:neexitlagReinstallFixture.serviceCreated=$true;$global:neexitlagReinstallFixture.mockService.Status='Running'}
   function Start-Service {param($Name) if($Name -ne 'neexitlag'){throw 'Unexpected SCM start'}}
   function Stop-Service {param($Name) if($Name -ne 'neexitlag'){throw 'Unexpected SCM stop'};$global:neexitlagReinstallFixture.mockService.Status='Stopped'}
   function sc.exe {if($args[0] -eq 'delete'){$global:neexitlagReinstallFixture.deletes++;$global:neexitlagReinstallFixture.serviceCreated=$false};$global:LASTEXITCODE=0}

@@ -72,7 +72,7 @@ public sealed class ViewModelTests
         service.Failure = new ServiceException(ServiceFailure.Stopped);
         await vm.RefreshAsync();
         Assert.False(vm.Available);
-        Assert.Equal("Служба NeExitLag остановлена", vm.Connection);
+        Assert.Equal("Служба VELIQ остановлена", vm.Connection);
         Assert.Equal("Нет данных", vm.Rx);
         Assert.Empty(vm.Routes);
         service.Failure = null;
@@ -154,7 +154,7 @@ public sealed class ViewModelTests
         Assert.Contains(vm.Diagnostics, c => c.Name == "Соединение через сервер" && c.Status == "Недоступно");
         Assert.Contains(vm.Diagnostics, c => c.Name == "Прямое соединение" && c.Status == "Работает");
     }
-    [Theory][InlineData(ServiceFailure.NotInstalled, "Служба NeExitLag не установлена")][InlineData(ServiceFailure.Stopped, "Служба NeExitLag остановлена")][InlineData(ServiceFailure.Incompatible, "Несовместимая версия службы")][InlineData(ServiceFailure.Unavailable, "Не удалось подключиться к службе")] public void StatusMappingIsRussian(ServiceFailure failure, string expected) => Assert.Equal(expected, Text.Failure(new ServiceException(failure, "English internals")));
+    [Theory][InlineData(ServiceFailure.NotInstalled, "Служба VELIQ не установлена")][InlineData(ServiceFailure.Stopped, "Служба VELIQ остановлена")][InlineData(ServiceFailure.Incompatible, "Несовместимая версия службы")][InlineData(ServiceFailure.Unavailable, "Не удалось подключиться к службе")] public void StatusMappingIsRussian(ServiceFailure failure, string expected) => Assert.Equal(expected, Text.Failure(new ServiceException(failure, "English internals")));
     [Fact]
     public void RouteRenderingMarksPrimaryBackupAndNoData()
     {

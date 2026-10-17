@@ -23,9 +23,10 @@ $service=Get-Service -Name neexitlag -ErrorAction Stop
 $scm=Get-CimInstance -ClassName Win32_Service -Filter "Name='neexitlag'" -OperationTimeoutSec 5
 if($null -eq $scm){throw 'Installed SCM service not found'}
 Assert-ServiceUpdateScmTarget ([string]$scm.PathName) $target
+$oldDisplayName=[string]$scm.DisplayName
 $serviceProcess=[int]$scm.ProcessId
 foreach($process in @(Get-Process -Name neexitlag-service -ErrorAction SilentlyContinue)){
- if($process.Path -ieq $target -and $process.Id -ne $serviceProcess){throw 'Close NeExitLag GUI first: its owner-scoped recovery process still uses the installed binary'}
+ if($process.Path -ieq $target -and $process.Id -ne $serviceProcess){throw 'Close VELIQ (or legacy NeExitLag) GUI first: its owner-scoped recovery process still uses the installed binary'}
 }
 $backupRoot=Join-Path $root 'backups'
 if(Test-Path -LiteralPath $backupRoot){if((Get-Item -LiteralPath $backupRoot -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Backup directory is a reparse point'}}else{New-Item -ItemType Directory -Path $backupRoot|Out-Null}
@@ -63,7 +64,8 @@ try{
   if(!$ready -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 300}
  }while(!$ready -and [DateTime]::UtcNow -lt $deadline)
  if(!$ready){throw 'Updated service IPC readiness failed'}
- Write-Host "Windows service updated. Backup: $backup"
+ Set-Service -Name neexitlag -DisplayName 'VELIQ Routing Service'
+ Write-Host "VELIQ Windows service updated. Backup: $backup"
  Write-Host 'Only service executable ACL changed: owner RX, SYSTEM/admins F. Identity, credentials, driver and state ACLs preserved.'
 }catch{
  $failure=$_.Exception.Message
@@ -78,6 +80,7 @@ try{
   if($null -ne $failedService -and $failedService.ProcessId -gt 0){try{$failedProcess=[Diagnostics.Process]::GetProcessById([int]$failedService.ProcessId);if(!$failedProcess.WaitForExit(30000)){throw 'Failed service image still running; backup retained'}}catch [ArgumentException]{} }
   Copy-Item -LiteralPath (Join-Path $backup 'neexitlag-service.exe') -Destination $target -Force
   Set-Acl -LiteralPath $target -AclObject $oldAcl
+  Set-Service -Name neexitlag -DisplayName $oldDisplayName
   Start-Service neexitlag
   $service.WaitForStatus('Running',[TimeSpan]::FromSeconds(30))
  }catch{throw "Windows update failed ($failure); automatic binary rollback failed. Backup retained: $backup"}

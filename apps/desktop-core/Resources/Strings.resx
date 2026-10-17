@@ -229,10 +229,10 @@
     <value>Соединение со службой установлено.</value>
   </data>
   <data name="ServiceMissing" xml:space="preserve">
-    <value>Служба NeExitLag не установлена</value>
+    <value>Служба VELIQ не установлена</value>
   </data>
   <data name="ServiceStopped" xml:space="preserve">
-    <value>Служба NeExitLag остановлена</value>
+    <value>Служба VELIQ остановлена</value>
   </data>
   <data name="ServiceIncompatible" xml:space="preserve">
     <value>Несовместимая версия службы</value>
@@ -316,7 +316,7 @@
     <value>Автоматическая установка обновлений пока недоступна.</value>
   </data>
   <data name="OpenApp" xml:space="preserve">
-    <value>Открыть NeExitLag</value>
+    <value>Открыть VELIQ</value>
   </data>
   <data name="TrayEnable" xml:space="preserve">
     <value>Включить оптимизацию</value>
@@ -328,7 +328,7 @@
     <value>Выход</value>
   </data>
   <data name="TrayHint" xml:space="preserve">
-    <value>NeExitLag работает в области уведомлений</value>
+    <value>VELIQ работает в области уведомлений</value>
   </data>
   <data name="NoActiveApps" xml:space="preserve">
     <value>Нет активных приложений</value>
@@ -376,7 +376,7 @@
     <value>Удалить выбранное приложение из списка?</value>
   </data>
   <data name="ConfirmTitle" xml:space="preserve">
-    <value>NeExitLag</value>
+    <value>VELIQ</value>
   </data>
   <data name="ProcessUnavailable" xml:space="preserve">
     <value>Не удалось получить список процессов</value>
@@ -555,7 +555,7 @@
   <data name="AutoStartFailed" xml:space="preserve"><value>Не удалось запустить проверку маршрута.</value></data>
   <data name="AutoProbeFailed" xml:space="preserve"><value>Проверка маршрута не завершена. Диагностика сохранена:</value></data>
   <data name="AutoChecking" xml:space="preserve"><value>Проверка маршрута…</value></data>
-  <data name="AutoConfigured" xml:space="preserve"><value>AUTO настроен. NeExitLag автоматически обновит сетевые соединения выбранного приложения.</value></data>
+  <data name="AutoConfigured" xml:space="preserve"><value>AUTO настроен. VELIQ автоматически обновит сетевые соединения выбранного приложения.</value></data>
   <data name="ProtectedFlowBlocked" xml:space="preserve"><value>Защищённый маршрут недоступен</value></data>
   <data name="ProtectedRoute" xml:space="preserve"><value>Защищённый маршрут</value></data>
   <data name="HybridRoute" xml:space="preserve"><value>Прямой и защищённый маршрут</value></data>
@@ -575,7 +575,7 @@
   <data name="ChromeSitesLaunched" xml:space="preserve"><value>Chrome запущен с маршрутизацией по сайтам. Профиль сохранён; proxy Windows не изменён.</value></data>
   <data name="DomainLabel" xml:space="preserve"><value>Домен</value></data>
   <data name="ReasonLabel" xml:space="preserve"><value>Причина</value></data>
-  <data name="ChromeProxyManaged" xml:space="preserve"><value>В Chrome уже настроен другой или управляемый proxy. NeExitLag не будет его перезаписывать.</value></data>
+  <data name="ChromeProxyManaged" xml:space="preserve"><value>В Chrome уже настроен другой или управляемый proxy. VELIQ не будет его перезаписывать.</value></data>
   <data name="DisableChromeSites" xml:space="preserve"><value>Отключить PAC Chrome</value></data>
   <data name="ChromeSitesRemoved" xml:space="preserve"><value>Включён безопасный PAC: обычные сайты DIRECT, OpenAI остаётся защищён. Маршрут действующих соединений не изменён; перезапустите Chrome для полного применения.</value></data>
   <data name="ChromeRoutesByDomain" xml:space="preserve"><value>Маршруты по сайтам</value></data>

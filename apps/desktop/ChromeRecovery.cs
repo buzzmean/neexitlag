@@ -21,7 +21,7 @@ internal sealed class ChromeRecovery : IDisposable {
   if(File.Exists(State)&&new FileInfo(State).Length>262144)throw new ChromeActivationException("Chrome recovery state exceeds bound");
   if(File.Exists(State))saved=JsonSerializer.Deserialize<Saved>(await File.ReadAllTextAsync(State,ct),Json);
   var program=InstalledProgram;
-  if(!File.Exists(program))throw new ChromeActivationException("Installed neexitlag-service.exe is required for Chrome recovery");
+  if(!File.Exists(program))throw new ChromeActivationException("VELIQ Chrome recovery requires the installed service executable");
   ushort port=0;
   if(saved is {} previous){
    if(!Path.GetFullPath(previous.Program).Equals(Path.GetFullPath(program),StringComparison.OrdinalIgnoreCase)||!IPEndPoint.TryParse(previous.Address,out var endpoint)||!IPAddress.Loopback.Equals(endpoint.Address))throw new ChromeActivationException("Invalid owned Chrome recovery state");

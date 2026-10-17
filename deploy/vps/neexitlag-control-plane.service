@@ -1,5 +1,5 @@
 [Unit]
-Description=neexitlag E2E control plane
+Description=VELIQ E2E control plane
 After=network-online.target postgresql.service
 Requires=postgresql.service
 [Service]

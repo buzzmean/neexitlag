@@ -409,7 +409,7 @@ class Upgrade:
         # Persistent boot recovery runs before either application service. It
         # restores files only; it never waits for services ordered after itself.
         unit = b / 'recovery.service'
-        unit.write_text('[Unit]\nDescription=NeExitLag pending upgrade boot recovery\nAfter=postgresql.service\nRequires=postgresql.service\nBefore=neexitlag-relay.service neexitlag-control-plane.service\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/usr/bin/python3 ' + STATE + '/production-upgrade.py recover\nTimeoutStartSec=240\n[Install]\nWantedBy=multi-user.target\n')
+        unit.write_text('[Unit]\nDescription=VELIQ pending upgrade boot recovery\nAfter=postgresql.service\nRequires=postgresql.service\nBefore=neexitlag-relay.service neexitlag-control-plane.service\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/usr/bin/python3 ' + STATE + '/production-upgrade.py recover\nTimeoutStartSec=240\n[Install]\nWantedBy=multi-user.target\n')
         self.install(unit, RECOVERY, 0o644)
         guard = b / 'guard.conf'
         guard.write_text('[Unit]\nRequires=neexitlag-upgrade-recover.service\nAfter=neexitlag-upgrade-recover.service\n')

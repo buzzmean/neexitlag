@@ -23,7 +23,7 @@ public sealed class ResourceTests
             string key = entry.Attribute("name")!.Value;
             string text = Text.Get(key);
             Assert.Equal(entry.Element("value")!.Value, text);
-            if (text != "NeExitLag")
+            if (text != "VELIQ")
                 Assert.Matches("[А-Яа-яЁё]", text);
         }
     }
@@ -39,7 +39,7 @@ public sealed class ResourceTests
                 Assert.False(string.IsNullOrEmpty(Text.Get(key)));
             }
             else
-                Assert.True(a.Value.StartsWith("{Binding") || a.Value == "NeExitLag", $"Unlocalized visible XAML: {a}");
+                Assert.True(a.Value.StartsWith("{Binding") || a.Value == "VELIQ", $"Unlocalized visible XAML: {a}");
         }
     }
     [Fact]

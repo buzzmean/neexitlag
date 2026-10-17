@@ -7,7 +7,7 @@
 |---|---|
 | `dotnet build` из корня | PASS, 0 warnings / 0 errors |
 | `dotnet test --no-build` из корня | PASS, 36 tests, 0 skipped |
-| Self-contained win-x64 single-file publish | PASS, `bin/release/NeExitLag.exe` |
+| Self-contained win-x64 single-file publish | PASS, `bin/release/VELIQ.exe` |
 | Проверка PE | x86-64, Windows GUI subsystem, asInvoker, PerMonitorV2 |
 | `go test -race -count=1 -timeout 120s ./...` | PASS, с настоящим PostgreSQL |
 | `go vet ./...` | PASS |
@@ -27,9 +27,9 @@
 сохранение UI-выбора при неизменившихся snapshots. Фикстуры не являются E2E.
 
 В Windows CI добавлен запуск настоящего опубликованного EXE с UI Automation:
-окно NeExitLag, русская навигация, активация первого экземпляра вторым,
+окно VELIQ, русская навигация, активация первого экземпляра вторым,
 состояние отсутствующей службы и корректное завершение. Smoke успешно выполнен в Windows CI, а не только синтаксически проверен.
-CI также сохраняет опубликованный EXE как артефакт `NeExitLag-win-x64`.
+CI также сохраняет опубликованный EXE как артефакт `VELIQ-win-x64`.
 
 Production GUI не содержит HTTP/browser transport. HTTP adapter старого демо
 остаётся только в tests/desktop-bindings. Маршрутизация, WinDivert, relay,

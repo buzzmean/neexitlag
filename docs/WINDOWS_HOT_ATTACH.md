@@ -1,6 +1,6 @@
 # HOT ATTACH — applications may already be running
 
-Normal usage: leave Chrome, Edge, ChatGPT/Codex and Discord running, open NeExitLag
+Normal usage: leave Chrome, Edge, ChatGPT/Codex and Discord running, open VELIQ
 and enable Optimize (or start the already-installed service with automatic
 optimization enabled). No process restart, manual reconnect, elevation of the GUI
 or user PowerShell is part of this product flow. Changing an application profile
@@ -180,7 +180,7 @@ test intentionally keeps apps alive across controlled OFF/ON windows; traffic
 while OFF is DIRECT and outside the protection assertion.
 
 With Happ completely OFF, first run Chrome YouTube, Edge ChatGPT, ChatGPT/Codex
-and Discord. Then start NeExitLag/enable Optimize through the GUI with the existing
+and Discord. Then start VELIQ/enable Optimize through the GUI with the existing
 profiles. Observe automatic recovery without restarting/reconnecting an app.
 To collect strict incremental developer proof for two OFF/ON cycles:
 

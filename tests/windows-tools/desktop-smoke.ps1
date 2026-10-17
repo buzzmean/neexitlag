@@ -1,6 +1,6 @@
 # Windows-only native-window smoke; does not claim real network acceptance.
 [CmdletBinding()]
-param([string]$Executable=(Join-Path $PSScriptRoot '..\..\bin\release\NeExitLag.exe'))
+param([string]$Executable=(Join-Path $PSScriptRoot '..\..\bin\release\VELIQ.exe'))
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
@@ -18,7 +18,7 @@ try {
  $first=Start-Process $Executable -PassThru
  $deadline=[DateTime]::UtcNow.AddSeconds(30)
  do {$first.Refresh();if($first.HasExited){throw 'Нативное приложение завершилось при запуске'};if($first.MainWindowHandle -ne 0){break};Start-Sleep -Milliseconds 200}while([DateTime]::UtcNow -lt $deadline)
- if($first.MainWindowHandle -eq 0 -or $first.MainWindowTitle -ne 'NeExitLag'){throw 'Нативное окно NeExitLag не открылось'}
+ if($first.MainWindowHandle -eq 0 -or $first.MainWindowTitle -ne 'VELIQ'){throw 'Нативное окно VELIQ не открылось'}
  $window=[Windows.Automation.AutomationElement]::FromHandle($first.MainWindowHandle)
  $deadline=[DateTime]::UtcNow.AddSeconds(15)
  do {
@@ -28,14 +28,16 @@ try {
  }while([DateTime]::UtcNow -lt $deadline)
  if($missing.Count){throw ('Отсутствуют русские элементы окна: '+($missing -join ', '))}
  if(@($names|Where-Object {$_ -in @('Home','Applications','Routes','Statistics','Diagnostics','Settings')}).Count){throw 'Обнаружены английские элементы интерфейса'}
- $second=Start-Process $Executable -PassThru
+ $alias=Join-Path (Split-Path $Executable) 'NeExitLag.exe'
+ if((Get-FileHash $alias).Hash -ne (Get-FileHash $Executable).Hash){throw 'Legacy GUI entrypoint differs from VELIQ'}
+ $second=Start-Process $alias -PassThru
  if(!$second.WaitForExit(10000)){throw 'Второй экземпляр не передал активацию первому'}
  $first.Refresh();if($first.HasExited){throw 'Первый экземпляр завершился при активации'}
  Write-Output 'PASS: нативное WPF-окно, русская навигация и единственный экземпляр'
  if(!(Get-Service neexitlag -ErrorAction SilentlyContinue)) {
   $deadline=[DateTime]::UtcNow.AddSeconds(15)
-  do {$names=@($window.FindAll([Windows.Automation.TreeScope]::Descendants,[Windows.Automation.Condition]::TrueCondition)|ForEach-Object {$_.Current.Name});if('Служба NeExitLag не установлена' -in $names){break};Start-Sleep -Milliseconds 200}while([DateTime]::UtcNow -lt $deadline)
-  if('Служба NeExitLag не установлена' -notin $names){throw 'Отсутствующая служба не отображена по-русски'}
+  do {$names=@($window.FindAll([Windows.Automation.TreeScope]::Descendants,[Windows.Automation.Condition]::TrueCondition)|ForEach-Object {$_.Current.Name});if('Служба VELIQ не установлена' -in $names){break};Start-Sleep -Milliseconds 200}while([DateTime]::UtcNow -lt $deadline)
+  if('Служба VELIQ не установлена' -notin $names){throw 'Отсутствующая служба не отображена по-русски'}
   Write-Output 'PASS: отсутствие службы без падения'
  }
  [void]$first.CloseMainWindow();if(!$first.WaitForExit(10000)){throw 'X не завершил опубликованный GUI при MinimizeToTray OFF'}

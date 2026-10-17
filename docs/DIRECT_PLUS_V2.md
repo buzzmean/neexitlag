@@ -58,7 +58,7 @@ AUTO использует cache по network fingerprint + config/strategy revis
 
 ## Обновление service + GUI без переустановки credentials
 
-Скачайте artifacts одного успешного HEAD: `windows-real-e2e-tools.zip` и `NeExitLag-win-x64.zip` в корень checkout. Закройте GUI через «Выход» в трее; запомните его прежний путь. Выполните elevated PowerShell (замените только `$GuiInstalled` на существующий путь):
+Скачайте artifacts одного успешного HEAD: `windows-real-e2e-tools.zip` и `VELIQ-win-x64.zip` в корень checkout. Закройте GUI через «Выход» в трее; запомните его прежний путь. Выполните elevated PowerShell (замените только `$GuiInstalled` на существующий путь):
 
 ```powershell
 $ErrorActionPreference='Stop'
@@ -67,10 +67,10 @@ if($LASTEXITCODE){throw 'git switch failed'}
 git pull --ff-only origin codex/direct-plus-flowseal
 if($LASTEXITCODE){throw 'git pull failed'}
 Expand-Archive .\windows-real-e2e-tools.zip .\bin\windows-e2e -Force
-Expand-Archive .\NeExitLag-win-x64.zip .\.e2e\gui-update -Force
+Expand-Archive .\VELIQ-win-x64.zip .\.e2e\gui-update -Force
 $GuiInstalled='C:\NeExitLag\NeExitLag.exe' # ваш существующий путь GUI
 $replacement=(Resolve-Path .\bin\windows-e2e\neexitlag-service.exe).Path
-$guiReplacement=(Resolve-Path .\.e2e\gui-update\NeExitLag.exe).Path
+$guiReplacement=(Resolve-Path .\.e2e\gui-update\VELIQ.exe).Path
 $svc=Get-CimInstance Win32_Service -Filter "Name='neexitlag'"
 if(!$svc -or $svc.PathName -notmatch '^"([^"\r\n]+)"'){throw 'Cannot determine installed service executable'}
 $installed=$Matches[1]

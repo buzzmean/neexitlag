@@ -115,7 +115,7 @@ Start-Service neexitlag
 (Get-Service neexitlag).WaitForStatus('Running',[TimeSpan]::FromSeconds(15))
 ```
 
-Run `bin\release\NeExitLag.exe` as the normal user from a non-elevated shell.
+Run `bin\release\VELIQ.exe` as the normal user from a non-elevated shell.
 Alternatively extract service/tools and GUI artifacts from the **same new Verify
 HEAD**, set `$replacement` to that extracted service executable and use the same
 update block. Keep tools beside the GUI. No VPS or credentials changes are needed.

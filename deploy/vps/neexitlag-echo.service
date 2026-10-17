@@ -1,5 +1,5 @@
 [Unit]
-Description=neexitlag authenticated remote UDP acceptance target
+Description=VELIQ authenticated remote UDP acceptance target
 After=network-online.target
 [Service]
 User=neexitlag-echo

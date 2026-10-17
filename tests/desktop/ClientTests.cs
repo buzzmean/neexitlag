@@ -104,7 +104,7 @@ public sealed class ClientTests
         var client = new ServiceClient(Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".token"));
         var error = await Assert.ThrowsAsync<ServiceException>(() => client.Call<Snapshot>("status"));
         Assert.Equal(ServiceFailure.NotInstalled, error.Failure);
-        Assert.Equal("Служба NeExitLag не установлена", Text.Failure(error));
+        Assert.Equal("Служба VELIQ не установлена", Text.Failure(error));
     }
     [Fact]
     public async Task UnavailablePipeHasBoundedDeadline()

@@ -10,6 +10,6 @@ $output=Join-Path ([IO.Path]::GetTempPath()) ('neexitlag-build-ps51-'+[Guid]::Ne
 $global:neexitlagDesktopPublishFixture=@{published=$false}
 function dotnet {
  $values=@($args);$index=[Array]::IndexOf($values,'-o');if($values[0] -ne 'publish' -or $index -lt 0){throw 'Unexpected publish command'}
- [IO.File]::WriteAllBytes((Join-Path $values[$index+1] 'NeExitLag.exe'),[byte[]]@(77,90));$global:neexitlagDesktopPublishFixture.published=$true;$global:LASTEXITCODE=0
+ [IO.File]::WriteAllBytes((Join-Path $values[$index+1] 'VELIQ.exe'),[byte[]]@(77,90));$global:neexitlagDesktopPublishFixture.published=$true;$global:LASTEXITCODE=0
 }
-try{& $script -Output $output;if(!$global:neexitlagDesktopPublishFixture.published -or !(Test-Path (Join-Path $output 'NeExitLag.exe'))){throw 'PS5.1 wrapper did not execute publish'};Write-Host 'PASS real PS5.1 build-desktop parsing and execution'}finally{Remove-Variable neexitlagDesktopPublishFixture -Scope Global -ErrorAction SilentlyContinue;Remove-Item Function:\dotnet;Remove-Item $output -Recurse -Force -ErrorAction SilentlyContinue}
+try{& $script -Output $output;if(!$global:neexitlagDesktopPublishFixture.published -or !(Test-Path (Join-Path $output 'VELIQ.exe'))){throw 'PS5.1 wrapper did not execute publish'};if((Get-FileHash (Join-Path $output 'NeExitLag.exe')).Hash -ne (Get-FileHash (Join-Path $output 'VELIQ.exe')).Hash){throw 'Legacy alias mismatch'};Write-Host 'PASS real PS5.1 build-desktop parsing and execution'}finally{Remove-Variable neexitlagDesktopPublishFixture -Scope Global -ErrorAction SilentlyContinue;Remove-Item Function:\dotnet;Remove-Item $output -Recurse -Force -ErrorAction SilentlyContinue}

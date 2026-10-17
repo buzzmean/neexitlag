@@ -14,7 +14,7 @@ normal SSH client; SSH passwords are entered interactively, never pasted into a
 script. The existing SSH port remains unchanged (add `-P PORT`/`-p PORT` if needed).
 
 ```powershell
-scp .\neexitlag-relay-linux-amd64.zip root@2.56.177.4:/root/
+scp .\VELIQ-relay-linux-amd64.zip root@2.56.177.4:/root/
 ssh root@2.56.177.4
 ```
 
@@ -24,7 +24,7 @@ On Ubuntu/Debian, prerequisites and release verification:
 apt-get update
 apt-get install -y ca-certificates curl python3 unzip
 mkdir -p /root/neexitlag-release
-unzip -o /root/neexitlag-relay-linux-amd64.zip -d /root/neexitlag-release
+unzip -o /root/VELIQ-relay-linux-amd64.zip -d /root/neexitlag-release
 cd /root/neexitlag-release
 cat HEAD_COMMIT
 sha256sum -c SHA256SUMS

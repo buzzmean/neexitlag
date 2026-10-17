@@ -45,7 +45,7 @@ func TestRunningApplicationsGroupsProcessesAndPreservesIdentity(t *testing.T) {
 }
 func TestRunningApplicationsFiltersSystemAndInvalidIdentities(t *testing.T) {
 	all := []windowsplatform.ProcessIdentity{{PID: 50, Path: `C:\Apps\game.exe`, CreationTime: 1}}
-	for i, n := range []string{"System", "Idle", "svchost.exe", "lsass.exe", "services.exe", "dwm.exe", "NeExitLag.exe", "neexitlag-service.exe", "RuntimeBroker.exe"} {
+	for i, n := range []string{"System", "Idle", "svchost.exe", "lsass.exe", "services.exe", "dwm.exe", "NeExitLag.exe", "VELIQ.exe", "neexitlag-service.exe", "RuntimeBroker.exe"} {
 		all = append(all, windowsplatform.ProcessIdentity{PID: uint32(i + 100), Path: `C:\Windows\System32\` + n, CreationTime: 1})
 	}
 	for i, p := range []string{"", "relative.exe", `C:game.exe`, `\\device\game.exe`, `C:\game.txt`, "C:\\bad\nname.exe", `C:\game.exe:ads.exe`} {

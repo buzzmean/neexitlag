@@ -84,7 +84,7 @@ public partial class MainWindow {
    return false;
   }
   if(await Running()){
-   if(System.Windows.MessageBox.Show(this,Text.Get("ChromeSitesRestart"),"NeExitLag",MessageBoxButton.YesNo,MessageBoxImage.Information)!=MessageBoxResult.Yes)return;
+   if(System.Windows.MessageBox.Show(this,Text.Get("ChromeSitesRestart"),"VELIQ",MessageBoxButton.YesNo,MessageBoxImage.Information)!=MessageBoxResult.Yes)return;
    // Chrome's own quit path preserves its profile/session. Never kill Chrome or
    // copy/remove user data. A cancelled/blocked quit refuses activation.
    var quit=new ProcessStartInfo(exe){UseShellExecute=false};quit.ArgumentList.Add("chrome://quit");using var started=Process.Start(quit);

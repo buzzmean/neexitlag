@@ -168,7 +168,7 @@ The updater keeps a persistent binary/ACL backup, replaces only the executable,
 grants owner RX only on it, checks SCM/IPC and rolls back binary/ACL on failure.
 It does not reinstall, enroll, read out credentials or change identity/driver/
 state ACLs. No SSH/VPS action is performed. Then run the newly built
-`bin/release/NeExitLag.exe` as the normal owner user. Select Chrome →
+`bin/release/VELIQ.exe` as the normal owner user. Select Chrome →
 **Chrome: AUTO по сайтам**, allow the initial graceful restart and keep the GUI
 running. Updating only the service while keeping the old GUI is insufficient.
 Disabling/removing Chrome policy retains the protected guard; Chrome restart may

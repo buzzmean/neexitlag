@@ -122,7 +122,7 @@ func ProbeOriginDetailed(ctx context.Context, host string, port uint16, secure b
 	if err != nil {
 		return probeError(r, err)
 	}
-	req.Header.Set("User-Agent", "NeExitLag-Origin-Probe/2")
+	req.Header.Set("User-Agent", "VELIQ-Origin-Probe/2")
 	req.Header.Set("Accept-Encoding", "identity")
 	req.Header.Set("Cache-Control", "no-cache")
 	tr := &http.Transport{Proxy: nil, ForceAttemptHTTP2: true, DisableKeepAlives: true, MaxResponseHeaderBytes: 32768,
