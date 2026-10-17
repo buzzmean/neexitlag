@@ -187,16 +187,8 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 	if err != nil {
 		return browserproxy.Plan{}, err
 	}
-	// Validated alternative answers are scoped to this app/network/policy and
-	// expire at authoritative DNS TTL. Re-reading poisoned system DNS must not
-	// discard that evidence on every Chrome CONNECT.
-	if current.enabled && current.network != "" && q.Secure {
-		if cached, ok := c.browser.dns.Lookup(c.browserDNSKey(q, current), time.Now()); ok && cached.Verified {
-			result := c.browserFlow(current.profile, current.id, wp.Tuple{Protocol: "tcp", Source: q.Source, Destination: cached.Destination}, q.Host, current.network)
-			if result.Action != flowpolicy.Block && result.Source != "rule" && !youtubeDomain(q.Host) {
-				return browserproxy.Plan{Network: current.network, Enabled: current.enabled, Policy: browserDNSPolicy(current), Destination: cached.Destination, Probe: "DNS_RELAY_HTTP_VERIFIED", HTTPStatus: cached.Probe.Status, DNSRecovery: &cached}, nil
-			}
-		}
+	if cached, ok := c.browserDNSCachedPlan(q, current); ok {
+		return cached, nil
 	}
 	lookup, stop := context.WithTimeout(ctx, time.Second)
 	resolver := c.BrowserResolver
@@ -306,6 +298,9 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 	if exists {
 		select {
 		case <-pending:
+			if cached, ok := c.browserDNSCachedPlan(q, current); ok {
+				return cached, nil
+			}
 			if v, ok := c.browser.learned.Lookup(key, time.Now()); ok {
 				if v.Confirmed || v.BrowserTrial || v.Route.Action != flowpolicy.RelayRequired {
 					plan.Policy = v.Route
@@ -404,7 +399,6 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 		if q.Secure && networkError != "" && (attempt.Stage == 2 || networkError == "TLS_CERTIFICATE_ERROR") {
 			recovered, ok := c.recoverBrowserDNS(ctx, q, current, plan)
 			if ok {
-				c.browser.learned.Forget(key)
 				return recovered, nil
 			}
 			plan.DNSRecovery = recovered.DNSRecovery
