@@ -218,3 +218,53 @@ func TestFailedOriginPlanRetainsBoundedEvidence(t *testing.T) {
 		t.Fatal(snap)
 	}
 }
+
+func TestPlainHTTPForwardsAndCountsActualBytes(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/real" || r.Header.Get("Proxy-Authorization") != "" {
+			t.Error("wrong request or proxy credentials forwarded")
+		}
+		fmt.Fprint(w, "real response")
+	}))
+	defer target.Close()
+	s, e := Listen(context.Background(), Config{Authorize: func(context.Context, netip.AddrPort, netip.AddrPort) (Owner, error) { return Owner{PID: 1}, nil }, Plan: func(context.Context, Request) (Plan, error) {
+		return Plan{Policy: flowpolicy.Result{Action: flowpolicy.Direct}}, nil
+	}, Open: func(ctx context.Context, _ Request, _ Plan) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "tcp", target.Listener.Addr().String())
+	}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer s.Close()
+	c, e := net.Dial("tcp", s.Address())
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer c.Close()
+	c.SetDeadline(time.Now().Add(2 * time.Second))
+	fmt.Fprint(c, "GET http://ordinary.example/real HTTP/1.1\r\nHost: ordinary.example\r\nProxy-Authorization: do-not-forward\r\n\r\n")
+	response, e := http.ReadResponse(bufio.NewReader(c), nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	raw, e := io.ReadAll(response.Body)
+	response.Body.Close()
+	if e != nil || string(raw) != "real response" {
+		t.Fatal(string(raw), e)
+	}
+	until := time.Now().Add(time.Second)
+	for {
+		snap := s.Snapshot()
+		if len(snap.Records) == 1 && !snap.Records[0].Active {
+			r := snap.Records[0]
+			if r.Sent == 0 || r.Received == 0 || r.Result != "HTTP_RESPONSE" {
+				t.Fatal(r)
+			}
+			break
+		}
+		if time.Now().After(until) {
+			t.Fatal("missing completed HTTP evidence", snap)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}

@@ -341,8 +341,9 @@ func (s *Server) handle(c net.Conn) {
 		request.Close = true
 		request.Header.Del("Proxy-Authorization")
 		request.Header.Del("Proxy-Connection")
-		if e = request.Write(upstream); e != nil {
-			finish("HTTP_WRITE_FAILED", 0, 0)
+		var sent uint64
+		if e = request.Write(countWriter{Writer: upstream, add: func(n int) { sent += uint64(n); s.account(id, uint64(n), 0) }}); e != nil {
+			finish("HTTP_WRITE_FAILED", sent, 0)
 			return
 		}
 		n, e := io.Copy(countWriter{Writer: c, add: func(n int) { s.account(id, 0, uint64(n)) }}, upstream)
@@ -350,7 +351,7 @@ func (s *Server) handle(c net.Conn) {
 		if e != nil {
 			result = "HTTP_READ_FAILED"
 		}
-		finish(result, 0, uint64(n))
+		finish(result, sent, uint64(n))
 		return
 	}
 	if _, e = io.WriteString(c, "HTTP/1.1 200 Connection Established\r\n\r\n"); e != nil {
