@@ -149,9 +149,19 @@ func TestCONNECTPreservesPipelinedTLSBytesAndShutdown(t *testing.T) {
 	if _, err = io.ReadFull(b, response); err != nil || string(response) != "opaque-first-TLS-bytes" {
 		t.Fatal("pipelined data lost", string(response), err)
 	}
-	snap := s.Snapshot()
-	if len(snap.Records) != 1 || !snap.Records[0].Active || snap.Records[0].Sent == 0 || snap.Records[0].Received == 0 {
-		t.Fatal("missing live tunnel counters", snap)
+	// The peer can receive bytes before Write returns and commits accounting.
+	// Wait for that commit; the tunnel must remain active throughout the check.
+	var snap Snapshot
+	until := time.Now().Add(time.Second)
+	for {
+		snap = s.Snapshot()
+		if len(snap.Records) == 1 && snap.Records[0].Active && snap.Records[0].Sent > 0 && snap.Records[0].Received > 0 {
+			break
+		}
+		if time.Now().After(until) {
+			t.Fatal("missing live tunnel counters", snap)
+		}
+		time.Sleep(time.Millisecond)
 	}
 	done := make(chan struct{})
 	go func() { s.Close(); close(done) }()
