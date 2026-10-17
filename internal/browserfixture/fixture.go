@@ -113,7 +113,9 @@ func (f *Fixture) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	f.mu.Lock()
 	f.Seen[host]++
-	f.Protocols[host] = r.ProtoMajor
+	if r.Method != "HEAD" {
+		f.Protocols[host] = r.ProtoMajor
+	}
 	f.mu.Unlock()
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Cache-Control", "no-store")

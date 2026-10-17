@@ -163,6 +163,9 @@ func (f *Fixture) RunChrome(ctx context.Context, chrome string, args []string, t
 		if f.Seen[host] == 0 {
 			return title, errors.New("controlled target saw no request for an origin")
 		}
+		if f.Protocols[host] != 2 {
+			return title, fmt.Errorf("controlled Chrome origin %s did not negotiate HTTP/2", host)
+		}
 	}
 	return title, nil
 }
