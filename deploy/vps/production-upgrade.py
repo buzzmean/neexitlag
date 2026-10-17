@@ -468,6 +468,18 @@ class Upgrade:
                 f.flush()
                 os.fsync(f.fileno())
             state['backup_hashes'] = {p.name: digest(p) for p in b.iterdir() if p.is_file() and p.name not in ['state.json', 'private.log']}
+            # copy2/close is not a durability barrier. Persist every recovery
+            # file and its directory entries BEFORE replacing a running binary.
+            for saved in b.iterdir():
+                if saved.is_file():
+                    with saved.open('rb') as source:
+                        os.fsync(source.fileno())
+            for directory in [b, b.parent]:
+                fd = os.open(directory, os.O_DIRECTORY)
+                try:
+                    os.fsync(fd)
+                finally:
+                    os.close(fd)
             state['backup_complete'] = True
             state['phase'] = 'installing-relay'
             self.save(b, state)

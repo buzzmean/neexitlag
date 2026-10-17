@@ -276,6 +276,23 @@ class UpgradeTests(unittest.TestCase):
             self.up.commit(result['id'], self.report)
         self.assertEqual(self.up.load(result['id'])[1]['phase'], 'pending-verification')
 
+    def test_failed_backup_durability_barrier_prevents_candidate_install(self):
+        sync = m.os.fsync
+        fired = [False]
+        def fail_at_backup(fd):
+            # Linux-only OS tests: fail when syncing old relay backup data.
+            link = os.readlink('/proc/self/fd/' + str(fd))
+            if link.endswith('/old-relay') and not fired[0]:
+                fired[0] = True
+                raise OSError('injected storage failure')
+            return sync(fd)
+        with patch.object(m.os, 'fsync', side_effect=fail_at_backup):
+            with self.assertRaises(m.UpgradeError):
+                self.apply()
+        self.assertTrue(fired[0])
+        self.assertEqual(self.h.path(m.BIN + '/relay').read_bytes(), b'old binary relay')
+        self.assertTrue(all(self.h.active.values()))
+
     def test_missing_echo_tcp_refused_before_any_service_stop(self):
         self.h.missing_echo_tcp = True
         with self.assertRaises(m.UpgradeError):

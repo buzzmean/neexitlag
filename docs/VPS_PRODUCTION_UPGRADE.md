@@ -125,7 +125,8 @@ operational prerequisite; this tool does not rotate credentials.
 2. Permanent backup directory `/var/backups/neexitlag-upgrades/<UTC-ID>/`, mode0700:
    old binaries, original units + configuration archive (ACL/xattr preserved),
    custom-format DB dump, cluster globals, stopped-relay state archive, hashes,
-   transaction state and root-only private command log. **No automatic deletion.**
+   transaction state and root-only private command log. Backup files and directory
+   entries are fsynced before binary replacement. **No automatic deletion.**
    Secret contents and raw journal/DB stderr are never emitted to the operator
    console or uploaded to Actions. Store a separately secured off-host copy via
    your backup policy; this procedure does not exfiltrate credentials.
