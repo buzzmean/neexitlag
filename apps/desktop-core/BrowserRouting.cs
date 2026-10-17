@@ -23,17 +23,29 @@ public sealed partial class DesktopViewModel {
  public async Task VerifyChromeAsync(Profile profile,BrowserLaunch launch,CancellationToken ct=default){
   if(!launch.HealthUrl.StartsWith("http://neexitlag-health.invalid/ready/",StringComparison.Ordinal))throw new ChromeActivationException(Text.Get("ChromeActivationFailed"));
   for(int i=0;i<100;i++){
-   try{await client.Call<System.Text.Json.JsonElement>("browser.confirm",new{profile_id=profile.Id,health_url=launch.HealthUrl},ct);return;}
+   try{var proof=await client.Call<System.Text.Json.JsonElement>("browser.confirm",new{profile_id=profile.Id,health_url=launch.HealthUrl},ct);if(!proof.TryGetProperty("ready",out var ready)||ready.ValueKind!=System.Text.Json.JsonValueKind.True)throw new ChromeActivationException(Text.Get("ChromeActivationFailed"));return;}
    catch(ServiceException e) when(e.Failure==ServiceFailure.Rejected){await Task.Delay(200,ct);}
   }
   var diagnostics=await ChromeStatusAsync(ct);
   throw new ChromeActivationException(Text.Get("ChromeActivationFailed")+" "+string.Join(", ",diagnostics.Failures.Where(p=>p.Value>0).Select(p=>p.Key).Take(8)));
+ }
+ public async Task ActivatePreparedChromeAsync(Profile original,BrowserLaunch launch,Func<Task> probe,Func<Task> launchUserChrome,CancellationToken ct=default){
+  await probe();
+  await VerifyChromeAsync(original,launch,ct);
+  await CommitChromeAsync(original,ct);
+  await launchUserChrome();
+ }
+ public async Task RestoreOptimizationAsync(bool enabled,CancellationToken ct=default){
+  var status=await client.Call<Snapshot>("optimize",new{enabled},ct);
+  if(status.Optimizing!=enabled)throw new ChromeActivationException(Text.Get("ChromeRollbackFailed"));
+  await RefreshAsync(ct);
  }
  public async Task CommitChromeAsync(Profile original,CancellationToken ct=default){
   var copy=original.Copy();copy.Mode="AUTO";
   await client.Call<Profile[]>("profile.set",copy,ct);
   var status=await client.Call<Snapshot>("optimize",new{enabled=true},ct);
   if(!status.Optimizing)throw new ChromeActivationException(Text.Get("ChromeActivationFailed"));
+  if(!status.Settings.Automatic)throw new ChromeActivationException(Text.Get("ChromeAutomaticDisabled"));
   await RefreshAsync(ct);
  }
  public async Task RestoreChromeAsync(Profile original,CancellationToken ct=default){

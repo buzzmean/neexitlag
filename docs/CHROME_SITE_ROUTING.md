@@ -183,12 +183,13 @@ Activation now proceeds in this order:
    guard; no profile or global Optimize change yet.
 2. `browser.prepare` binds the bounded loopback listener and returns a 128-bit,
    45-second, one-use readiness URL. Bind failure leaves routing unchanged.
-3. Install the owned current-user online PAC and launch the persistent Chrome
-   profile. Chrome itself requests the readiness URL through PAC; TCP owner,
+3. Install the owned current-user online PAC. An isolated, empty headless Chrome
+   profile requests the readiness URL through the **actual policy**, without proxy
+   launch flags; real user tabs are not restored before AUTO is ready. TCP owner,
    creation identity, executable profile and owner SID are checked before proof.
 4. `browser.confirm` verifies that exact nonce. IPC reachability, a listening port
    or the GUI's own TCP connection cannot certify Chrome readiness.
-5. Publish Chrome AUTO and enable capture. A new AUTO profile and Optimize with
+5. Publish Chrome AUTO, enable capture, then launch/restore the real user profile. A new AUTO profile and Optimize with
    an unactivated Chrome AUTO are rejected before capture state changes. The GUI
    checks command results and cannot label a rejected command as success.
 6. Failure installs the guarded recovery PAC and restores a safe Chrome profile

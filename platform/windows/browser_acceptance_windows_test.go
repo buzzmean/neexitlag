@@ -146,15 +146,7 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		t.Fatal(err)
 	}
 	args := result.(map[string]any)["arguments"].([]string)
-	f.HealthURL = result.(map[string]any)["health_url"].(string)
-	f.BeforeRequests = func() error {
-		proof, _ := json.Marshal(map[string]string{"profile_id": p.ID, "health_url": f.HealthURL})
-		if _, e := c.Handle(ctx, "browser.confirm", proof); e != nil {
-			return e
-		}
-		put()
-		return nil
-	}
+	healthURL := result.(map[string]any)["health_url"].(string)
 
 	// Exercise the actual current-user Chrome platform policy, not just launch
 	// flags. This key is confined to the disposable Windows CI user; no WinINET,
@@ -182,6 +174,15 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 	if pac == "" {
 		t.Fatal("missing real PAC")
 	}
+	// No policy must fail before publishing AUTO; a successful Chrome process
+	// exit or a bound listener is not sufficient activation evidence.
+	if err := browserfixture.RunPolicyHealthProbe(ctx, chrome, healthURL, t.TempDir()); err == nil {
+		t.Fatal("Chrome activated without actual policy")
+	}
+	proof, _ := json.Marshal(map[string]string{"profile_id": p.ID, "health_url": healthURL})
+	if _, err := c.Handle(ctx, "browser.confirm", proof); err == nil {
+		t.Fatal("failed policy probe falsely confirmed readiness")
+	}
 	policyJSON, _ := json.Marshal(map[string]any{"ProxyMode": "pac_script", "ProxyPacUrl": pac, "ProxyPacMandatory": true})
 	if e = policy.SetStringValue("ProxySettings", string(policyJSON)); e != nil {
 		t.Fatal(e)
@@ -208,6 +209,15 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 	if e = policy.SetStringValue("ProxySettings", string(policyJSON)); e != nil {
 		t.Fatal(e)
 	}
+	// Actual policy, normal sandbox, a disposable health profile. Commit AUTO
+	// before starting/restoring the real seven-origin Chrome process.
+	if err := browserfixture.RunPolicyHealthProbe(ctx, chrome, healthURL, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Handle(ctx, "browser.confirm", proof); err != nil {
+		t.Fatal(err)
+	}
+	put()
 	earlier := []browserproxy.Record{}
 	sample := func() error {
 		view, e := c.Handle(ctx, "browser.status", nil)

@@ -263,3 +263,26 @@ func (l *chromeLog) Write(p []byte) (int, error) {
 	return n, nil
 }
 func (l *chromeLog) String() string { l.mu.Lock(); defer l.mu.Unlock(); return string(l.tail) }
+
+// RunPolicyHealthProbe mirrors the GUI's empty readiness profile. It supplies
+// no PAC/proxy flags: native Windows must use the actual current-user policy.
+// Real user tabs are launched only after this process exits and AUTO commits.
+func RunPolicyHealthProbe(parent context.Context, chrome, healthURL, directory string) error {
+	ctx, cancel := context.WithTimeout(parent, 20*time.Second)
+	defer cancel()
+	args := []string{"--headless=new", "--dump-dom", "--timeout=15000", "--no-first-run", "--user-data-dir=" + directory, healthURL}
+	if runtime.GOOS != "windows" {
+		args = append(args, "--no-sandbox")
+	}
+	cmd := exec.CommandContext(ctx, chrome, args...)
+	stdout, stderr := &chromeLog{}, &chromeLog{}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("Chrome policy health process: %w; %s", err, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "NeExitLag Chrome transport OK") {
+		return errors.New("Chrome policy did not reach authenticated readiness endpoint")
+	}
+	return nil
+}

@@ -582,4 +582,5 @@
   <data name="ChromeActivationFailed" xml:space="preserve"><value>Chrome AUTO не активирован: CONNECT/PAC не прошёл проверку Chrome owner/SID. Обычные сайты восстановлены; защита OpenAI сохранена. Проверьте browser.status, Chrome policy и журнал службы.</value></data>
   <data name="ChromeRollbackFailed" xml:space="preserve"><value>Chrome AUTO не активирован. Защитный PAC сохранён, но восстановление профиля не подтверждено. Проверьте доступность службы.</value></data>
   <data name="ChromeGuardFailed" xml:space="preserve"><value>Не удалось установить защитный Chrome PAC. Активация отменена; маршруты не изменены. Проверьте управление Chrome policy.</value></data>
+  <data name="ChromeAutomaticDisabled" xml:space="preserve"><value>Для Chrome AUTO включите автоматическую маршрутизацию в настройках. Активация отменена; защитный PAC сохранён.</value></data>
 </root>

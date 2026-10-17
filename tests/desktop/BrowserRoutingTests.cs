@@ -60,9 +60,31 @@ public class BrowserRoutingTests {
   Assert.Equal(0,sent.PolicyData!["rules"].GetArrayLength());Assert.Equal("private.example",sent.PolicyData["browser_recovery_rules"][0].GetProperty("domains")[0].GetString());
   Assert.Equal(1,p.PolicyData["rules"].GetArrayLength());
  }
+
+ [Fact]public async Task RealChromeTabsLaunchOnlyAfterPolicyProofAndCaptureCommit(){
+  var service=new BrowserService();service.Fake.State.Optimizing=true;service.Fake.State.Settings.Automatic=true;
+  var vm=new DesktopViewModel(service);var p=new Profile{Id="chrome",Mode="DIRECT",Executables=[@"C:\Apps\chrome.exe"]};
+  var launch=new BrowserLaunch{HealthUrl="http://neexitlag-health.invalid/ready/nonce"};
+  await vm.ActivatePreparedChromeAsync(p,launch,
+   ()=>{Assert.DoesNotContain(service.Fake.Calls,c=>c.method=="profile.set"||c.method=="optimize");return Task.CompletedTask;},
+   ()=>{Assert.Contains(service.Fake.Calls,c=>c.method=="browser.confirm");Assert.Contains(service.Fake.Calls,c=>c.method=="profile.set");Assert.Contains(service.Fake.Calls,c=>c.method=="optimize");return Task.CompletedTask;});
+  Assert.Equal(new[]{"browser.confirm","profile.set","optimize"},service.Fake.Calls.Take(3).Select(c=>c.method));
+ }
+ [Fact]public async Task FailedPolicyProbeNeverPublishesAUTOOrLaunchesUserTabs(){
+  var service=new BrowserService();var vm=new DesktopViewModel(service);bool launched=false;
+  await Assert.ThrowsAsync<IOException>(()=>vm.ActivatePreparedChromeAsync(new(),new(),()=>throw new IOException("probe failed"),()=>{launched=true;return Task.CompletedTask;}));
+  Assert.False(launched);Assert.Empty(service.Fake.Calls);
+ }
+
+ [Fact]public async Task FalseReadinessACKNeverLaunchesTabsOrPublishesAUTO(){
+  var service=new BrowserService{ConfirmReady=false};var vm=new DesktopViewModel(service);bool launched=false;
+  await Assert.ThrowsAsync<ChromeActivationException>(()=>vm.ActivatePreparedChromeAsync(new(){Id="chrome"},new(){HealthUrl="http://neexitlag-health.invalid/ready/nonce"},()=>Task.CompletedTask,()=>{launched=true;return Task.CompletedTask;}));
+  Assert.False(launched);Assert.Single(service.Fake.Calls);Assert.Equal("browser.confirm",service.Fake.Calls[0].method);
+ }
  sealed class BrowserService:IServiceClient{
-  public FakeService Fake=new();
+  public FakeService Fake=new();public bool ConfirmReady=true;
   public Task<T> Call<T>(string method,object? payload=null,CancellationToken cancellationToken=default){
+   if(method=="browser.confirm"){Fake.Calls.Add((method,payload));return Task.FromResult((T)(object)System.Text.Json.JsonSerializer.SerializeToElement(new{ready=ConfirmReady}));}
    if(method=="browser.prepare"){Fake.Calls.Add((method,payload));return Task.FromResult((T)(object)new BrowserLaunch{HealthUrl="http://neexitlag-health.invalid/ready/nonce"});}
    return Fake.Call<T>(method,payload,cancellationToken);
   }
