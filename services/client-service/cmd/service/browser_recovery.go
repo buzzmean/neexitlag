@@ -74,6 +74,22 @@ func runBrowserRecoveryWithDial(parent context.Context, port uint16, direct func
 		scanner.Buffer(make([]byte, 4096), 262144)
 		first := true
 		for scanner.Scan() {
+			var command struct {
+				Op string `json:"op"`
+			}
+			if !first && json.Unmarshal(scanner.Bytes(), &command) == nil && command.Op == "status" {
+				snapshot := server.DirectSnapshot()
+				raw, err := json.Marshal(snapshot)
+				for err == nil && len(raw) > 58000 && len(snapshot.Records) > 0 {
+					snapshot.Truncated = true
+					snapshot.Records = snapshot.Records[:len(snapshot.Records)-1]
+					raw, err = json.Marshal(snapshot)
+				}
+				if err != nil || len(raw) > 58000 || encoder.Encode(snapshot) != nil {
+					return
+				}
+				continue
+			}
 			var cfg browserproxy.RecoverySettings
 			err := json.Unmarshal(scanner.Bytes(), &cfg)
 			if err == nil && (!filepath.IsAbs(cfg.GuardFile) || filepath.Base(cfg.GuardFile) != "browser-recovery-guard.json" || !filepath.IsAbs(cfg.Executable)) {

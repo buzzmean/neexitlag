@@ -330,6 +330,28 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 			}
 			json.Unmarshal(raw, &result)
 			if result.Result.Value == f.Nonce+":DIRECT" {
+				if err := json.NewEncoder(stdin).Encode(map[string]string{"op": "status"}); err != nil {
+					return err
+				}
+				if !reader.Scan() {
+					return errors.New("recovery metadata pipe closed")
+				}
+				var proof browserproxy.Snapshot
+				if err := json.Unmarshal(reader.Bytes(), &proof); err != nil {
+					return err
+				}
+				if proof.Truncated || proof.Lost != 0 {
+					return errors.New("recovery evidence incomplete")
+				}
+				found := false
+				for _, record := range proof.Records {
+					if record.EvidenceSource == "RECOVERY_DIRECT" && record.Plan.Policy.Action == flowpolicy.Direct && record.Owner.Profile == p.ID && record.Sent > 0 {
+						found = true
+					}
+				}
+				if !found {
+					return errors.New("independent recovery actual socket evidence missing")
+				}
 				return nil
 			}
 			if time.Now().After(until) {

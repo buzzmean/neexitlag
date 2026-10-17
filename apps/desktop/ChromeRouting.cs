@@ -49,7 +49,7 @@ public partial class MainWindow {
   chromeMonitoring=true;
   try{
    try{await chromeRecovery.StartAsync(lifetime.Token);model.ApplyRecovery(await chromeRecovery.SnapshotAsync(lifetime.Token));}
-   catch(Exception error)when(error is IOException or System.Net.Http.HttpRequestException or ChromeActivationException or JsonException){model.ApplyRecovery(new());model.SetNotice(Text.Get("ChromeRecoveryUnavailable"));}
+   catch(Exception error)when(!lifetime.IsCancellationRequested && error is (IOException or System.ComponentModel.Win32Exception or UnauthorizedAccessException or OperationCanceledException or ChromeActivationException or JsonException)){model.ApplyRecovery(new());model.SetNotice(Text.Get("ChromeRecoveryUnavailable"));}
    if(!model.Available){ChromePolicy.Suspend(wasOptimizing);return;}
    if(!ChromePolicy.Applied){
     foreach(var p in model.Applications.Where(r=>r.Profile.Mode=="AUTO"&&IsChrome(r.Profile)).Select(r=>r.Profile.Copy()).ToArray()){ChromePolicy.Guard(p);await model.RestoreChromeAsync(p,lifetime.Token);}

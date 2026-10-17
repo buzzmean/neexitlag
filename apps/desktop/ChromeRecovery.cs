@@ -11,11 +11,12 @@ internal sealed class ChromeRecovery : IDisposable {
  static readonly JsonSerializerOptions Json=new(){PropertyNamingPolicy=JsonNamingPolicy.SnakeCaseLower,PropertyNameCaseInsensitive=true};
  static string State=>Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"NeExitLag","chrome-recovery.json");
  Process? process;Task? stderr;Saved? saved;string metadataToken="";
- readonly System.Net.Http.HttpClient http=new(new System.Net.Http.HttpClientHandler{UseProxy=false,AllowAutoRedirect=false}){Timeout=TimeSpan.FromSeconds(3),MaxResponseContentBufferSize=65536};
+ readonly SemaphoreSlim startGate=new(1,1),protocolGate=new(1,1);
  public string Address {get;private set;}="";
  public bool Running=>process is {} p&&!p.HasExited;
  static string InstalledProgram=>Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),"neexitlag","neexitlag-service.exe");
- public async Task StartAsync(CancellationToken ct){
+ public async Task StartAsync(CancellationToken ct){await startGate.WaitAsync(ct);try{await StartCoreAsync(ct);}finally{startGate.Release();}}
+ async Task StartCoreAsync(CancellationToken ct){
   if(Running)return;
   if(File.Exists(State)&&new FileInfo(State).Length>262144)throw new ChromeActivationException("Chrome recovery state exceeds bound");
   if(File.Exists(State))saved=JsonSerializer.Deserialize<Saved>(await File.ReadAllTextAsync(State,ct),Json);
@@ -38,7 +39,8 @@ internal sealed class ChromeRecovery : IDisposable {
   metadataToken=secret;Address=local.ToString();
   if(saved is {} existing)await ConfigureAsync(existing.Settings,ct);
  }
- public async Task ConfigureAsync(BrowserRecoverySettings cfg,CancellationToken ct){
+ public async Task ConfigureAsync(BrowserRecoverySettings cfg,CancellationToken ct){await protocolGate.WaitAsync(ct);try{await ConfigureCoreAsync(cfg,ct);}finally{protocolGate.Release();}}
+ async Task ConfigureCoreAsync(BrowserRecoverySettings cfg,CancellationToken ct){
   if(!Running)throw new ChromeActivationException("Chrome recovery listener is not running");
   using var timeout=CancellationTokenSource.CreateLinkedTokenSource(ct);timeout.CancelAfter(TimeSpan.FromSeconds(8));
   await process!.StandardInput.WriteLineAsync(JsonSerializer.Serialize(cfg,Json).AsMemory(),timeout.Token);await process.StandardInput.FlushAsync(timeout.Token);
@@ -60,11 +62,15 @@ internal sealed class ChromeRecovery : IDisposable {
   try{p.StandardInput.Close();if(!p.HasExited&&!p.WaitForExit(2000))p.Kill(entireProcessTree:true);}catch(InvalidOperationException){}finally{p.Dispose();process=null;Address="";}
  }
  public async Task<BrowserTransportSnapshot> SnapshotAsync(CancellationToken ct){
-  if(!Running)throw new ChromeActivationException("Chrome recovery process unavailable");
-  using var request=new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Get,"http://"+Address+"/status");
-  request.Headers.Host="neexitlag-recovery-status.invalid";request.Headers.Authorization=new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer",metadataToken);
-  using var response=await http.SendAsync(request,ct);response.EnsureSuccessStatusCode();
-  return JsonSerializer.Deserialize<BrowserTransportSnapshot>(await response.Content.ReadAsStringAsync(ct),Json)??throw new ChromeActivationException("Invalid recovery metadata");
+  await protocolGate.WaitAsync(ct);
+  try{
+   if(!Running)throw new ChromeActivationException("Chrome recovery process unavailable");
+   using var timeout=CancellationTokenSource.CreateLinkedTokenSource(ct);timeout.CancelAfter(TimeSpan.FromSeconds(3));
+   await process!.StandardInput.WriteLineAsync("{\"op\":\"status\"}".AsMemory(),timeout.Token);await process.StandardInput.FlushAsync(timeout.Token);
+   var reply=await ReadAsync(timeout.Token);
+   return reply.Deserialize<BrowserTransportSnapshot>(Json)??throw new ChromeActivationException("Invalid recovery metadata");
+  }finally{protocolGate.Release();}
  }
- public void Dispose(){DisposeProcess();http.Dispose();}
+
+ public void Dispose()=>DisposeProcess();
 }
