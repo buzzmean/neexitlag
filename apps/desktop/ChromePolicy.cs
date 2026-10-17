@@ -7,7 +7,7 @@ internal static class ChromePolicy {
  static string State=>Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"NeExitLag","chrome-proxy-policy.json");
  internal static string CreateValue(string[] args){
   var pac=args.Single(p=>p.StartsWith("--proxy-pac-url=",StringComparison.Ordinal)).Substring("--proxy-pac-url=".Length);
-  return JsonSerializer.Serialize(new{ProxyMode="pac_script",ProxyPacUrl=pac,ProxyPacMandatory=true,ProxyBypassList="<-loopback>"});
+  return JsonSerializer.Serialize(new{ProxyMode="pac_script",ProxyPacUrl=pac,ProxyPacMandatory=true});
  }
  internal static void Install(string[] args){
   var json=CreateValue(args);

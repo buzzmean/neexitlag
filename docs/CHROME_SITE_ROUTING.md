@@ -140,7 +140,9 @@ jumbo-MSS packets otherwise exceed the existing engine’s 1500-byte packet boun
 These are real packets, not synthetic counters; TLS features remain enabled.
 Loopback packet observation is enabled only through a test-binary constructor,
 not a production flag. The Chrome acceptance uses a temporary browser directory
-and a pinned ephemeral test certificate; production never enables CDP or ignores
+and a pinned ephemeral test certificate. It also exercises actual current-user
+Chrome PAC policy without the proxy launch flags; the disposable CI user’s value
+is removed afterward, and any foreign policy is refused. Production never enables CDP or ignores
 certificate errors.
 
 ```powershell

@@ -185,7 +185,7 @@ internal static class Program
         var root=value.RootElement;
         Require(root.GetProperty("ProxyMode").GetString()=="pac_script","Chrome-only PAC mode missing");
         Require(root.GetProperty("ProxyPacMandatory").GetBoolean(),"PAC evaluation failure must not authorize DIRECT");
-        Require(root.GetProperty("ProxyBypassList").GetString()=="<-loopback>","Implicit loopback bypass must be disabled");
+        Require(!root.TryGetProperty("ProxyBypassList",out _),"Chrome rejects ProxyBypassList in pac_script policy mode");
         Pass("Chrome PAC mandatory policy encoding; no registry or Windows proxy modified by test");
     }
     [STAThread]

@@ -7,6 +7,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"github.com/buzzmean/neexitlag/core/browserproxy"
 	"github.com/buzzmean/neexitlag/core/flowpolicy"
 	"github.com/buzzmean/neexitlag/core/localstrategy"
@@ -18,6 +19,7 @@ import (
 	cs "github.com/buzzmean/neexitlag/services/client-service"
 	"github.com/buzzmean/neexitlag/services/relay"
 	"github.com/buzzmean/neexitlag/tools/labcert"
+	"golang.org/x/sys/windows/registry"
 	"io"
 	"net"
 	"net/netip"
@@ -140,6 +142,39 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		t.Fatal(err)
 	}
 	args := result.(map[string]any)["arguments"].([]string)
+	// Exercise the actual current-user Chrome platform policy, not just launch
+	// flags. This key is confined to the disposable Windows CI user; no WinINET,
+	// WinHTTP or machine proxy value is read/written. Refuse any foreign policy.
+	policy, _, e := registry.CreateKey(registry.CURRENT_USER, `Software\Policies\Google\Chrome`, registry.QUERY_VALUE|registry.SET_VALUE)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer policy.Close()
+	if _, _, e = policy.GetStringValue("ProxySettings"); !errors.Is(e, registry.ErrNotExist) {
+		t.Fatal("refusing foreign Chrome proxy policy", e)
+	}
+	pac := ""
+	clean := []string{}
+	for _, a := range args {
+		if strings.HasPrefix(a, "--proxy-pac-url=") {
+			pac = strings.TrimPrefix(a, "--proxy-pac-url=")
+			continue
+		}
+		if strings.HasPrefix(a, "--proxy-bypass-list=") {
+			continue
+		}
+		clean = append(clean, a)
+	}
+	if pac == "" {
+		t.Fatal("missing real PAC")
+	}
+	policyJSON, _ := json.Marshal(map[string]any{"ProxyMode": "pac_script", "ProxyPacUrl": pac, "ProxyPacMandatory": true})
+	if e = policy.SetStringValue("ProxySettings", string(policyJSON)); e != nil {
+		t.Fatal(e)
+	}
+	defer policy.DeleteValue("ProxySettings")
+	args = clean
+
 	out, err := f.RunChrome(ctx, chrome, args, func() error {
 		for _, enabled := range []string{`{"enabled":false}`, `{"enabled":true}`} {
 			if _, e := c.Handle(ctx, "optimize", []byte(enabled)); e != nil {
