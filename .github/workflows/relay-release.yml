@@ -44,6 +44,8 @@ jobs:
           cp -r deploy/vps dist/relay/deploy/vps
           cp docs/FIRST_REAL_RELAY_TEST.md dist/relay/
           git rev-parse HEAD > dist/relay/HEAD_COMMIT
+          python3 deploy/vps/upgrade-manifest.py dist/relay "$(git rev-parse HEAD)"
+          cp docs/VPS_PRODUCTION_UPGRADE.md dist/relay/
           cd dist/relay
           sha256sum bin/* deploy/vps/*.sh deploy/vps/*.py deploy/vps/*.service deploy/vps/example.env > SHA256SUMS
       - name: Build Windows amd64 standalone route-test
@@ -51,6 +53,7 @@ jobs:
         run: |
           mkdir -p dist/windows
           go build -trimpath -ldflags='-s -w' -o dist/windows/neexitlag-route-test-windows-amd64.exe ./tools/route-test
+          cp tools/windows/update-vps.ps1 dist/windows/
           cd dist/windows
           sha256sum *.exe > SHA256SUMS
       - uses: actions/upload-artifact@v4

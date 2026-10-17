@@ -77,6 +77,10 @@ jobs:
         with:
           name: NeExitLag-win-x64
           path: bin/release/
+      - run: ./tests/windows-tools/vps-upgrade-tests.ps1
+        shell: powershell
+      - run: ./tests/windows-tools/vps-upgrade-tests.ps1
+        shell: pwsh
       - run: ./tools/windows/parse-scripts.ps1
         shell: pwsh
       - run: ./tools/windows/build-e2e.ps1

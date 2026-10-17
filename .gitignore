@@ -24,3 +24,5 @@ TestResults/
 
 # Native WPF regression host build products
 tests/desktop-native/bin/
+
+/dist/
