@@ -59,6 +59,9 @@ jobs:
       - name: Native Windows capture lifecycle race regressions
         run: go test -race -v -timeout 90s ./platform/windows -run 'TestUDPForwardNative|TestTCPNativeAdmissionBurst|TestTCPNativeQueuedSetupCancellation|TestTCPNativeInitialWriteReleasesAdmission|TestTCPAdmission|TestTCPNativePipe|TestUDPAdmission|TestUDPIdleBoundary|TestTCPDropAndFailureEvidence|TestTCPCopyFailureClassification|TestWorkerRejection|TestHotAttach|TestNativeHotAttach'
         timeout-minutes: 4
+      - name: Repeated native Windows authenticated TCP bursts
+        run: go test -race -v -count 3 -timeout 120s ./tests/integration -run '^TestPoolTCPBurstContinuity$'
+        timeout-minutes: 4
       - run: dotnet build --nologo
       - run: dotnet test --nologo
       - run: ./tests/windows-tools/build-desktop-ps51.ps1
