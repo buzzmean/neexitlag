@@ -289,6 +289,13 @@ func (t *tcpRedirect) processPacket(p []byte, a [80]byte, classify Classifier) {
 	delegated, owned := t.delegated[tuple]
 	t.delegatedMu.Unlock()
 	if owned {
+		// Port reservation can race an unrelated bind. Only the service's actual
+		// socket may consume an internal delegation, never another process using
+		// the same tuple during the bounded reservation/bind interval.
+		pid, ownerErr := resolveTCPOwner(tuple)
+		owned = ownerErr == nil && pid == uint32(os.Getpid())
+	}
+	if owned {
 		id = delegated.owner.identity
 		decision = delegated.decision
 		self = false
@@ -744,6 +751,9 @@ func (t *tcpRedirect) dialLocalStrategy(ctx context.Context, e *tcpEntry, d Deci
 func (t *tcpRedirect) dialLocalStrategyFrom(ctx context.Context, e *tcpEntry, d Decision, bind netip.Addr) (net.Conn, error) {
 	var bound Tuple
 	c, err := dialBoundIPv4(ctx, bind, e.tuple.Destination, func(source netip.AddrPort) error {
+		if bound.Source.IsValid() {
+			t.releaseDelegated(bound, e.identity)
+		}
 		bound = Tuple{Protocol: "tcp", Source: source, Destination: e.tuple.Destination}
 		t.delegatedMu.Lock()
 		defer t.delegatedMu.Unlock()

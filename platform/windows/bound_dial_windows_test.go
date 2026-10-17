@@ -83,3 +83,31 @@ func TestNativeBoundDialCancellationAndRegistrationFailure(t *testing.T) {
 		t.Fatal("connect ignored cancellation")
 	}
 }
+
+func TestNativeBoundDialRetriesOnlyPreSYNPortCollision(t *testing.T) {
+	target, e := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer target.Close()
+	calls := 0
+	var occupied *net.TCPListener
+	c, e := dialBoundIPv4(context.Background(), netip.MustParseAddr("127.0.0.1"), target.Addr().(*net.TCPAddr).AddrPort(), func(a netip.AddrPort) error {
+		calls++
+		if calls == 1 {
+			occupied, e = net.ListenTCP("tcp4", net.TCPAddrFromAddrPort(a))
+			return e
+		}
+		return nil
+	})
+	if occupied != nil {
+		defer occupied.Close()
+	}
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer c.Close()
+	if calls != 2 {
+		t.Fatal("collision did not receive one bounded retry", calls)
+	}
+}
