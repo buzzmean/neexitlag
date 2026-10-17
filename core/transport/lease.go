@@ -52,6 +52,7 @@ func (c *Client) renew(fetch func(context.Context) ([]byte, error)) {
 			c.leaseMu.Lock()
 			c.lease.State = "expired"
 			c.leaseMu.Unlock()
+			c.rememberEndReason("authorization_lease_expired")
 			c.conn.CloseWithError(protocol.ClientLeaseExpiredCode, "authorization_lease_expired")
 			return
 		}
@@ -156,10 +157,21 @@ func (c *Client) renew(fetch func(context.Context) ([]byte, error)) {
 	}
 }
 
+// Publish a terminal reason before Done. QUIC may close its DATAGRAM reader
+// before its Context cancellation cause is observable to another goroutine.
+func (c *Client) rememberEndReason(reason string) {
+	c.endReason.CompareAndSwap(nil, &sessionEnd{reason})
+}
 func (c *Client) SessionEndReason() string {
+	if end := c.endReason.Load(); end != nil && (end.reason == "authorization_lease_expired" || end.reason == "device_revoked") {
+		return end.reason
+	}
 	err := context.Cause(c.conn.Context())
 	if reason := AuthorizationEndReason(err); reason != "" {
 		return reason
+	}
+	if end := c.endReason.Load(); end != nil {
+		return end.reason
 	}
 	if err != nil {
 		return "session_transport_closed"
@@ -227,6 +239,7 @@ func (c *Client) leaseWatchdog() {
 		c.leaseMu.Lock()
 		if !time.Now().Before(c.lease.ValidUntil) {
 			c.lease.State = "expired"
+			c.rememberEndReason("authorization_lease_expired")
 			c.conn.CloseWithError(protocol.ClientLeaseExpiredCode, "authorization_lease_expired")
 			c.leaseMu.Unlock()
 			return

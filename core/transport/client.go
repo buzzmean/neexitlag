@@ -20,7 +20,10 @@ import (
 var ErrClosed = errors.New("flow or session closed")
 var ErrRelayRejected = errors.New("relay rejected flow")
 
+type sessionEnd struct{ reason string }
+
 type Client struct {
+	endReason      atomic.Pointer[sessionEnd]
 	controlReplies chan []byte
 	controlSend    chan struct{}
 	leaseChanged   chan struct{}
@@ -177,6 +180,11 @@ func (c *Client) receive() {
 	for {
 		b, e := c.conn.ReceiveDatagram(context.Background())
 		if e != nil {
+			if reason := AuthorizationEndReason(e); reason != "" {
+				c.rememberEndReason(reason)
+			} else {
+				c.rememberEndReason("session_transport_closed")
+			}
 			return
 		}
 		if c.controlReplies != nil && len(b) > 0 && b[0] == protocol.LeaseAckDatagram {
