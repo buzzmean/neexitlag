@@ -32,6 +32,12 @@ try{
  foreach($relative in $protected){if((Get-FileHash (Join-Path $root $relative)).Hash -ne $hashes[$relative]){throw "Upgrade changed $relative"}}
  $backups=@(Get-ChildItem (Join-Path $installed 'backups') -Directory)
  if($backups.Count -ne 2 -or !(Test-Path (Join-Path $backups[0].FullName 'NeExitLag.exe'))){throw 'Persistent legacy backup missing'}
+ # A pre-existing unidentified executable must not be replaced.
+ $foreign=Join-Path $root 'foreign';[void][IO.Directory]::CreateDirectory($foreign)
+ $foreignExe=Join-Path $foreign 'VELIQ.exe';[IO.File]::WriteAllText($foreignExe,'foreign application')
+ $rejected=$false
+ try{& $script -SourceDirectory $source -InstallDirectory $foreign -ShortcutDirectory $links}catch{if($_.Exception.Message -notlike '*no installation marker*'){throw};$rejected=$true}
+ if(!$rejected -or [IO.File]::ReadAllText($foreignExe) -ne 'foreign application'){throw 'Foreign executable overwritten'}
  Write-Host 'PASS VELIQ legacy upgrade, identical alias, shortcut, startup, repeat install, preserved identity/profiles/recovery/preferences'
 }finally{
  if($hadRun){New-ItemProperty -LiteralPath $runKey -Name NeExitLag -Value $oldRun -PropertyType $oldKind -Force|Out-Null}else{Remove-ItemProperty -LiteralPath $runKey -Name NeExitLag -ErrorAction SilentlyContinue}

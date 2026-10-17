@@ -23,7 +23,10 @@ The GUI assembly/product and primary executable are `VELIQ.exe`. The publish
 wrapper also emits a byte-identical `NeExitLag.exe` entry point, so existing
 shortcuts/autostart still launch the new application. Both use the same mutex and
 activation pipe: running one while the other is open activates the existing GUI.
-The Windows running-app picker excludes both executable names.
+The Windows running-app picker excludes both executable names. Release artifacts
+use VELIQ labels and also publish legacy download-name aliases with the identical
+bytes and manifests, preserving existing pinned update-vps/download automation.
+The updater therefore needs no server or credential migration.
 
 ## Windows update
 

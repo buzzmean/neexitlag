@@ -64,3 +64,13 @@ jobs:
         with:
           name: VELIQ-route-test-windows-amd64
           path: dist/windows/
+      # Compatibility aliases consumed by existing pinned update-vps tooling.
+      # Same verified bytes/manifest; no second build and no server-side change.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neexitlag-relay-linux-amd64
+          path: dist/relay/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neexitlag-route-test-windows-amd64
+          path: dist/windows/

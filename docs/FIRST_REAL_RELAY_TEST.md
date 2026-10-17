@@ -144,11 +144,11 @@ private network for remote scraping. Never expose private metrics broadly.
 
 Open GitHub Actions → **Relay release and route test** → successful run on
 `codex/real-relay-deployment`. Download artifact
-`neexitlag-route-test-windows-amd64`, then extract
+`VELIQ-route-test-windows-amd64` (legacy download alias retained), then extract
 **`neexitlag-route-test-windows-amd64.exe`** and `SHA256SUMS` into the existing
 Windows repository/work directory. No Go installation or driver is needed for
 this CLI. Verify the exe hash with `Get-FileHash -Algorithm SHA256` against the
-artifact checksum. The matching Linux artifact is `neexitlag-relay-linux-amd64`.
+artifact checksum. The matching Linux artifact is `VELIQ-relay-linux-amd64` (legacy alias retained).
 
 Use the already enrolled `.e2e/bundle/windows/device` and existing out-of-band
 trust/echo token. **Do not copy server CA signing keys into Windows test state.**

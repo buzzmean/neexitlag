@@ -89,6 +89,11 @@ jobs:
         with:
           name: VELIQ-win-x64
           path: bin/release/
+      # Existing artifact consumers retain a compatible download name.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NeExitLag-win-x64
+          path: bin/release/
       - run: ./tools/windows/parse-scripts.ps1
         shell: pwsh
       - run: ./tools/windows/build-e2e.ps1
