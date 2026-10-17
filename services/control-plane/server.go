@@ -189,9 +189,9 @@ func (a *API) config(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, 503, "config unavailable")
 		return
 	}
-	var env security.Envelope
 	var cfg security.Config
-	if security.Parse(raw, &env) != nil || security.Parse(env.Payload, &cfg) != nil {
+	keys := map[string]ed25519.PublicKey{a.Settings.KeyID: a.Settings.SigningKey.Public().(ed25519.PublicKey)}
+	if security.Verify("config", keys, raw, &cfg) != nil {
 		a.fail(w, 500, "stored config invalid")
 		return
 	}
@@ -400,9 +400,9 @@ func (a *API) heartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	raw, e := a.Store.LatestConfig(r.Context())
 	if e == nil {
-		var env security.Envelope
 		var cfg security.Config
-		if security.Parse(raw, &env) == nil && security.Parse(env.Payload, &cfg) == nil && time.Since(cfg.GeneratedAt) > 30*time.Second {
+		keys := map[string]ed25519.PublicKey{a.Settings.KeyID: a.Settings.SigningKey.Public().(ed25519.PublicKey)}
+		if security.Verify("config", keys, raw, &cfg) == nil && time.Since(cfg.GeneratedAt) > 30*time.Second {
 			if _, e = a.publish(r.Context()); e != nil {
 				a.fail(w, 503, "config publication failed")
 				return

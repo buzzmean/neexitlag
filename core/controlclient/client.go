@@ -59,8 +59,12 @@ func (c *Client) request(ctx context.Context, method, path string, value any, to
 		return nil, errors.New("control plane request failed")
 	}
 	defer response.Body.Close()
-	b, e := io.ReadAll(io.LimitReader(response.Body, security.MaxDocument+1))
-	if e != nil || len(b) > security.MaxDocument {
+	limit := security.MaxDocument
+	if method == "GET" && path == "/api/v1/config" {
+		limit = security.MaxConfigDocument
+	}
+	b, e := io.ReadAll(io.LimitReader(response.Body, int64(limit+1)))
+	if e != nil || len(b) > limit {
 		return nil, errors.New("invalid control plane response size")
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {

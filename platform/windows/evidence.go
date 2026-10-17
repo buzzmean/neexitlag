@@ -35,11 +35,17 @@ type CaptureCounters struct {
 	LoopPrevented      uint64 `json:"loop_prevention_packets"`
 	Replies            uint64 `json:"relay_reply_packets"`
 }
+type TCPAdmissionEvidence struct {
+	State  string  `json:"state"`
+	WaitMS float64 `json:"wait_ms"`
+}
+
 type FlowEvidence struct {
-	HotAttach       *HotAttachFlow `json:"hot_attach,omitempty"`
-	FailureCause    string         `json:"failure_cause,omitempty"`
-	DropCause       string         `json:"last_drop_cause,omitempty"`
-	Lifecycle       string         `json:"lifecycle,omitempty"`
+	TCPAdmission    *TCPAdmissionEvidence `json:"tcp_admission,omitempty"`
+	HotAttach       *HotAttachFlow        `json:"hot_attach,omitempty"`
+	FailureCause    string                `json:"failure_cause,omitempty"`
+	DropCause       string                `json:"last_drop_cause,omitempty"`
+	Lifecycle       string                `json:"lifecycle,omitempty"`
 	updateSeq       uint64
 	recordKey       evidenceKey
 	RelayOpen       *RelayOpenEvidence         `json:"relay_open,omitempty"`

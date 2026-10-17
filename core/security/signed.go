@@ -18,6 +18,17 @@ import (
 
 const MaxDocument = 65536
 
+// Configs carry the complete revocation set. This bound is domain-specific:
+// tickets, proofs, IPC and other documents retain their original 64 KiB limit.
+const MaxConfigDocument = 1024 * 1024
+
+func documentLimit(domain string) int {
+	if domain == "config" {
+		return MaxConfigDocument
+	}
+	return MaxDocument
+}
+
 var ErrSignature = errors.New("invalid signature or untrusted key")
 
 type Envelope struct {
@@ -26,8 +37,9 @@ type Envelope struct {
 	Signature string          `json:"signature"`
 }
 
-func Parse(b []byte, v any) error {
-	if len(b) > MaxDocument {
+func Parse(b []byte, v any) error { return parseLimit(b, v, MaxDocument) }
+func parseLimit(b []byte, v any, limit int) error {
+	if len(b) > limit {
 		return errors.New("document too large")
 	}
 	d := json.NewDecoder(bytes.NewReader(b))
@@ -55,14 +67,14 @@ func Sign(domain, kid string, key ed25519.PrivateKey, value any) ([]byte, error)
 	}
 	sig := ed25519.Sign(key, append([]byte("neexitlag:"+domain+":v1\x00"), p...))
 	b, e := json.Marshal(Envelope{kid, p, base64.RawURLEncoding.EncodeToString(sig)})
-	if len(b) > MaxDocument {
+	if len(b) > documentLimit(domain) {
 		return nil, errors.New("document too large")
 	}
 	return b, e
 }
 func Verify(domain string, keys map[string]ed25519.PublicKey, b []byte, value any) error {
 	var env Envelope
-	if e := Parse(b, &env); e != nil {
+	if e := parseLimit(b, &env, documentLimit(domain)); e != nil {
 		return e
 	}
 	key := keys[env.KeyID]
@@ -70,7 +82,7 @@ func Verify(domain string, keys map[string]ed25519.PublicKey, b []byte, value an
 	if e != nil || len(key) != ed25519.PublicKeySize || !ed25519.Verify(key, append([]byte("neexitlag:"+domain+":v1\x00"), env.Payload...), sig) {
 		return ErrSignature
 	}
-	return Parse(env.Payload, value)
+	return parseLimit(env.Payload, value, documentLimit(domain))
 }
 
 type Identity struct {

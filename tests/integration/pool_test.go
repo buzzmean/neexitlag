@@ -511,3 +511,82 @@ func TestPoolSingleFlightCreationSurvivesOneCallerCancellation(t *testing.T) {
 		t.Fatal("creation was not single-flight", x.issued.Load())
 	}
 }
+
+func TestPoolTCPBurstContinuity(t *testing.T) {
+	for _, count := range []int{160, 256, 320} {
+		t.Run(fmt.Sprint(count), func(t *testing.T) {
+			x := newPoolFixture(t, transport.DefaultPoolConfig(), nil)
+			e := routing.New(1024)
+			e.SetRelay("VPS-01", x.pool)
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			conns := make([]net.Conn, count)
+			errs := make(chan error, count)
+			// Match production Windows admission: all requests start together,
+			// but at most 128 perform upstream setup. The pool deliberately
+			// retains its bounded 256-waiter contract even for a 320-flow burst.
+			setup := make(chan struct{}, 128)
+			var wg sync.WaitGroup
+			for i := range conns {
+				wg.Add(1)
+				go func(i int) {
+					defer wg.Done()
+					select {
+					case setup <- struct{}{}:
+					case <-ctx.Done():
+						errs <- ctx.Err()
+						return
+					}
+					c, err := e.OpenTCP(ctx, routing.Flow{PID: uint32(i%4 + 1), ApplicationID: fmt.Sprintf("app-%d", i%4), ProcessPath: fmt.Sprintf("app-%d.exe", i%4), Source: netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), uint16(30000+i)), Destination: x.tcp, PinnedPolicy: &routing.Policy{Route: routing.Route{RelayID: "VPS-01"}, BlockOnFailure: true}})
+					<-setup
+					if err != nil {
+						errs <- err
+						return
+					}
+					conns[i] = c
+				}(i)
+			}
+			wg.Wait()
+			close(errs)
+			defer func() {
+				for _, c := range conns {
+					if c != nil {
+						c.Close()
+					}
+				}
+			}()
+			for err := range errs {
+				t.Error(err)
+			}
+			if t.Failed() {
+				return
+			}
+			// Preserve exactly these sockets while filling every other session; repeat
+			// traffic after full saturation, not just successful initial OPEN replies.
+			for round := 0; round < 3; round++ {
+				for _, c := range conns {
+					assertTCPEcho(t, c)
+				}
+			}
+			flows := e.Snapshot()
+			if len(flows) != count {
+				t.Fatal("established connections lost", len(flows))
+			}
+			for _, f := range flows {
+				if f.Route.RelayID != "VPS-01" {
+					t.Fatal("DIRECT leak", f)
+				}
+			}
+			s := x.pool.Snapshot()
+			if s.ActiveFlows != count || s.OpenFailures != 0 || s.ActiveSessions > 8 || s.ProbeReservePerSession != 1 || s.ApplicationMaximumCapacity != 376 || x.server.Metrics.RejectedFlows.Load() != 0 {
+				t.Fatal(s)
+			}
+			for _, session := range s.Sessions {
+				if session.ActiveFlows > 47 {
+					t.Fatal("probe reserve consumed", session)
+				}
+			}
+			t.Logf("%d exact TCP sockets retained across 3 bidirectional rounds, %d sessions, no rejects/leaks", count, s.ActiveSessions)
+		})
+	}
+}

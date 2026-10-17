@@ -1,6 +1,9 @@
 package windowsplatform
 
-import "github.com/buzzmean/neexitlag/core/flowpolicy"
+import (
+	"github.com/buzzmean/neexitlag/core/flowpolicy"
+	"time"
+)
 
 // A dropped packet is not itself a failed routing decision. Callers must name
 // the cause and distinguish fail-close from teardown/queue disposal explicitly.
@@ -44,5 +47,15 @@ func (l *EvidenceLedger) RecordLifecycle(id ProcessIdentity, t Tuple, state stri
 	if v, ok := l.lookupLocked(k); ok {
 		v.Lifecycle = state
 		l.storeLocked(k, v)
+	}
+}
+
+func (l *EvidenceLedger) RecordTCPAdmission(id ProcessIdentity, t Tuple, state string, wait time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	k := l.keyLocked(id, t)
+	if f, ok := l.lookupLocked(k); ok {
+		f.TCPAdmission = &TCPAdmissionEvidence{State: state, WaitMS: float64(wait) / float64(time.Millisecond)}
+		l.storeLocked(k, f)
 	}
 }

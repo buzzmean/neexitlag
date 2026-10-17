@@ -32,7 +32,7 @@ type tcpRedirect struct {
 	listener    *net.TCPListener
 	port        uint16
 	state       *tcpState
-	slots       chan struct{}
+	admission   *tcpAdmission
 	wg          sync.WaitGroup
 }
 
@@ -53,7 +53,7 @@ func (b *WinDivertBackend) startTCP(d *divertDLL) (*tcpRedirect, error) {
 	d.setParam.Call(h, 0, 2048)
 	d.setParam.Call(h, 1, 100)
 	d.setParam.Call(h, 2, 4*1024*1024)
-	return &tcpRedirect{b: b, handle: h, listener: l, port: port, state: newTCPState(8192), delegated: map[Tuple]delegatedTCP{}, slots: make(chan struct{}, 128)}, nil
+	return &tcpRedirect{b: b, handle: h, listener: l, port: port, state: newTCPState(8192), delegated: map[Tuple]delegatedTCP{}, admission: newTCPAdmission()}, nil
 }
 func (t *tcpRedirect) start(classify Classifier) {
 	t.wg.Add(3)
@@ -316,27 +316,15 @@ func (t *tcpRedirect) processPacket(p []byte, a [80]byte, classify Classifier) {
 		t.record(e, "self", len(p))
 	}
 	if mode == "opening" {
-		select {
-		case t.slots <- struct{}{}:
-			t.wg.Add(1)
-			if decision.Deferred {
-				t.wg.Done()
-				e.mode = "relay"
-				err = t.reflect(e, p, a, false)
-				<-t.slots
-			} else {
-				e.openDone = make(chan struct{})
-				go t.open(e, append([]byte(nil), p...), a)
-			}
-		default:
-			if decision.BlockOnFailure {
-				e.mode = "block"
-				t.b.evidence.RecordDrop(e.identity, e.tuple, "TCP_OPEN_CAPACITY", true)
-			} else {
-				e.mode = "direct"
-				err = t.send(p, a)
-				t.record(e, "direct", len(p))
-			}
+		if decision.Deferred {
+			// No upstream work until accept/ClientHello. Do not consume an
+			// opening permit for the app-side SYN handshake.
+			e.mode = "relay"
+			err = t.reflect(e, p, a, false)
+		} else {
+			e.openDone = make(chan struct{})
+			syn := append([]byte(nil), p...)
+			t.admitOpen(e, func(release func()) { t.open(e, syn, a, release) })
 		}
 	} else if mode == "direct" {
 		err = e.localBuffer.Push(e.decision, &e.localState, e.identity, e.tuple, p, func(q []byte) error { return t.send(q, a) }, t.b.evidence, time.Now())
@@ -349,10 +337,47 @@ func (t *tcpRedirect) processPacket(p []byte, a [80]byte, classify Classifier) {
 	}
 }
 
-func (t *tcpRedirect) open(e *tcpEntry, syn []byte, a [80]byte) {
+// Called with state.mu held. Capture and accept never wait for an opening
+// permit. Only setup work queues; established pipe goroutines hold no permits.
+func (t *tcpRedirect) admitOpen(e *tcpEntry, run func(func())) {
+	t.wg.Add(1)
+	ctx, cancel := context.WithCancel(t.b.ctx)
+	e.openCancel = cancel
+	t.b.evidence.RecordTCPAdmission(e.identity, e.tuple, "TCP_ADMISSION_QUEUED", 0)
+	fail := func(cause string, wait time.Duration) {
+		t.b.evidence.RecordTCPAdmission(e.identity, e.tuple, cause, wait)
+		t.b.evidence.RecordFailure(e.identity, e.tuple, cause, true)
+		t.state.retire(e, time.Now())
+		e.finishOpen()
+		t.wg.Done()
+	}
+	if !t.admission.submit(ctx, func(wait time.Duration, err error, release func()) {
+		defer cancel()
+		if err != nil {
+			t.state.mu.Lock()
+			if e.mode != "closed" && e.mode != "hot_attach" && t.b.ctx.Err() == nil {
+				fail("TCP_ADMISSION_TIMEOUT", wait)
+			} else {
+				e.finishOpen()
+				t.wg.Done()
+			}
+			t.state.mu.Unlock()
+			return
+		}
+		t.b.evidence.RecordTCPAdmission(e.identity, e.tuple, "TCP_ADMISSION_READY", wait)
+		run(release)
+	}) {
+		// A genuine hard resource bound (384 pending setups), not temporary
+		// saturation of the 128 workers. Never bypass protected policy.
+		cancel()
+		fail("TCP_ADMISSION_LIMIT", 0)
+	}
+}
+
+func (t *tcpRedirect) open(e *tcpEntry, syn []byte, a [80]byte, release func()) {
 	defer t.wg.Done()
 	defer e.finishOpen()
-	defer func() { <-t.slots }()
+	defer release()
 	t.state.mu.Lock()
 	valid := t.state.entries[e.tuple] == e && e.mode == "opening"
 	t.state.mu.Unlock()
@@ -433,22 +458,12 @@ func (t *tcpRedirect) accept() {
 			e.openDone = make(chan struct{})
 		}
 		up := e.upstream
-		t.wg.Add(1)
-		t.state.mu.Unlock()
 		if e.decision.Deferred {
-			select {
-			case t.slots <- struct{}{}:
-				go t.deferredOpen(e, c)
-			default:
-				c.Close()
-				t.state.mu.Lock()
-				t.b.evidence.RecordFailure(e.identity, e.tuple, "TCP_OPEN_CAPACITY", true)
-				e.finishOpen()
-				t.state.retire(e, time.Now())
-				t.state.mu.Unlock()
-				t.wg.Done()
-			}
+			t.admitOpen(e, func(release func()) { t.deferredOpen(e, c, release) })
+			t.state.mu.Unlock()
 		} else {
+			t.wg.Add(1)
+			t.state.mu.Unlock()
 			go t.pipe(e, c, up)
 		}
 	}
@@ -564,14 +579,9 @@ func (t *tcpRedirect) cleanup() {
 // The app-side handshake has completed locally; upstream is opened exactly once
 // after outer SNI. A failure closes this connection, never retries its TLS bytes
 // on a different egress. Only a future connection can choose a different route.
-func (t *tcpRedirect) deferredOpen(e *tcpEntry, c net.Conn) {
+func (t *tcpRedirect) deferredOpen(e *tcpEntry, c net.Conn, release func()) {
 	defer e.finishOpen()
-	held := true
-	defer func() {
-		if held {
-			<-t.slots
-		}
-	}()
+	defer release()
 	t.state.mu.Lock()
 	valid := t.state.entries[e.tuple] == e && e.mode == "relay"
 	t.state.mu.Unlock()
@@ -680,6 +690,10 @@ func (t *tcpRedirect) deferredOpen(e *tcpEntry, c net.Conn) {
 	}
 	t.b.evidence.RecordUpstreamOpened(e.identity, e.tuple, d.Route)
 	t.state.mu.Unlock()
+	// Established writes can block on peer backpressure indefinitely; they
+	// must never retain an opening permit and starve unrelated new flows.
+	release()
+	e.finishOpen()
 	if len(data) > 0 {
 		n, werr := writeTCP(up, data)
 		if n > 0 {
@@ -701,9 +715,6 @@ func (t *tcpRedirect) deferredOpen(e *tcpEntry, c net.Conn) {
 		}
 	}
 	data = nil
-	<-t.slots
-	held = false
-	e.finishOpen()
 	t.pipe(e, c, up)
 }
 func (t *tcpRedirect) dialLocalStrategy(ctx context.Context, e *tcpEntry, d Decision) (net.Conn, error) {
@@ -729,7 +740,7 @@ func (t *tcpRedirect) dialLocalStrategy(ctx context.Context, e *tcpEntry, d Deci
 			bound = Tuple{Protocol: "tcp", Source: netip.AddrPortFrom(e.tuple.Source.Addr(), uint16(v.Port)), Destination: e.tuple.Destination}
 			t.delegatedMu.Lock()
 			defer t.delegatedMu.Unlock()
-			if len(t.delegated) >= 128 || !t.b.evidence.BindUpstream(e.identity, bound, e.tuple) {
+			if len(t.delegated) >= t.state.limit || !t.b.evidence.BindUpstream(e.identity, bound, e.tuple) {
 				bindErr = fmt.Errorf("delegated TCP limit")
 				return
 			}
