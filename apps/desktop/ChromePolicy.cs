@@ -10,11 +10,12 @@ internal static class ChromePolicy {
  [DllImport("userenv.dll", SetLastError=true)]
  [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
  [return: MarshalAs(UnmanagedType.Bool)]
- static extern bool RefreshPolicy([MarshalAs(UnmanagedType.Bool)] bool machine);
+ static extern bool RefreshPolicyEx([MarshalAs(UnmanagedType.Bool)] bool machine, uint options);
  internal static void NotifyPolicyChanged(){
   // Chromium PolicyLoaderWin watches RegisterGPNotification, not registry writes.
-  // Queue a CURRENT USER refresh; never machine policy or gpupdate /force.
-  if(!RefreshPolicy(false))throw new Win32Exception(Marshal.GetLastWin32Error(),"Chrome user policy notification failed");
+  // Reapply CURRENT USER policy even when GPO version did not change (RP_FORCE).
+  // Never machine policy; no gpupdate.exe or elevated child process.
+  if(!RefreshPolicyEx(false,1))throw new Win32Exception(Marshal.GetLastWin32Error(),"Chrome user policy notification failed");
  }
  static string State=>TestStatePath??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"NeExitLag","chrome-proxy-policy.json");
  internal static string CreateValue(string[] args){

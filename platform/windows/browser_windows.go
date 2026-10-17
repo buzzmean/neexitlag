@@ -122,8 +122,9 @@ func ChromeProxyPolicyActive(sid, expected string) bool {
 // NotifyChromePolicyChanged queues a current-user Windows policy refresh. Chrome
 // watches RegisterGPNotification, not individual HKCU registry key writes. Call
 // as the policy owner, never as the SYSTEM service on another user's behalf.
+// RP_FORCE reapplies user policy even if GPO version is unchanged by our HKCU write.
 func NotifyChromePolicyChanged() error {
-	r, _, err := windows.NewLazySystemDLL("userenv.dll").NewProc("RefreshPolicy").Call(0)
+	r, _, err := windows.NewLazySystemDLL("userenv.dll").NewProc("RefreshPolicyEx").Call(0, 1)
 	if r == 0 {
 		return err
 	}

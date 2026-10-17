@@ -222,8 +222,9 @@ results authorize automatic escalation. Explicit required rules are untouched.
 
 Windows Chrome's `PolicyLoaderWin` watches `RegisterGPNotification`, rather
 than individual registry writes. Every owned GUI policy change now queues
-`RefreshPolicy(false)` for the **current user**. It does not refresh machine
-policy or run `gpupdate /force`. A successful queue operation is not readiness:
+`RefreshPolicyEx(false, RP_FORCE)` for the **current user**: a normal refresh
+can skip processing when the GPO version is unchanged by our owned registry write.
+It does not refresh machine policy or launch `gpupdate.exe`. A successful queue operation is not readiness:
 the native acceptance waits for a real nonce response whose TCP owner at the
 target is Chrome itself before measuring ordinary DIRECT recovery. Notification
 failure remains an explicit error with the ownership journal intact for rollback.
