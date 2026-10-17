@@ -6,6 +6,10 @@ param(
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 Assert-Administrator
+function Assert-ServiceUpdateScmTarget([string]$CommandLine,[string]$ExpectedPath){
+ $match=[regex]::Match($CommandLine,'^\s*"([^"]+)"(?:\s|$)')
+ if(!$match.Success -or [IO.Path]::GetFullPath($match.Groups[1].Value) -ine [IO.Path]::GetFullPath($ExpectedPath)){throw 'SCM executable does not match the requested installation; update refused'}
+}
 $source=(Get-Item -LiteralPath $ServiceExecutable -Force).FullName
 $root=(Get-Item -LiteralPath $InstallDirectory -Force).FullName
 $target=Join-Path $root 'neexitlag-service.exe';$manifestFile=Join-Path $root 'service.json'
@@ -18,6 +22,7 @@ $owner=[Security.Principal.SecurityIdentifier]::new([string]$manifest.owner_sid)
 $service=Get-Service -Name neexitlag -ErrorAction Stop
 $scm=Get-CimInstance -ClassName Win32_Service -Filter "Name='neexitlag'" -OperationTimeoutSec 5
 if($null -eq $scm){throw 'Installed SCM service not found'}
+Assert-ServiceUpdateScmTarget ([string]$scm.PathName) $target
 $serviceProcess=[int]$scm.ProcessId
 foreach($process in @(Get-Process -Name neexitlag-service -ErrorAction SilentlyContinue)){
  if($process.Path -ieq $target -and $process.Id -ne $serviceProcess){throw 'Close NeExitLag GUI first: its owner-scoped recovery process still uses the installed binary'}
@@ -29,22 +34,23 @@ New-Item -ItemType Directory -Path $backup|Out-Null
 $oldAcl=Get-Acl -LiteralPath $target
 $oldAcl.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::All)|Set-Content -LiteralPath (Join-Path $backup 'binary.sddl') -Encoding ASCII
 Copy-Item -LiteralPath $target -Destination (Join-Path $backup 'neexitlag-service.exe')
-function Set-BinaryOwnerReadExecute([string]$Path){
+function Set-BinaryOwnerReadExecute([string]$Path,[string]$OwnerSid){
+ $binaryOwner=[Security.Principal.SecurityIdentifier]::new($OwnerSid)
  $acl=[Security.AccessControl.FileSecurity]::new();$acl.SetAccessRuleProtection($true,$false)
  $acl.SetOwner([Security.Principal.SecurityIdentifier]::new('S-1-5-32-544'))
  foreach($sid in @('S-1-5-18','S-1-5-32-544')){[void]$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($sid),[Security.AccessControl.FileSystemRights]::FullControl,[Security.AccessControl.AccessControlType]::Allow))}
- [void]$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($owner,[Security.AccessControl.FileSystemRights]::ReadAndExecute,[Security.AccessControl.AccessControlType]::Allow))
+ [void]$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($binaryOwner,[Security.AccessControl.FileSystemRights]::ReadAndExecute,[Security.AccessControl.AccessControlType]::Allow))
  Set-Acl -LiteralPath $Path -AclObject $acl
 }
 $pending=Join-Path $root ('.service-update-'+[Guid]::NewGuid().ToString('N')+'.exe')
 try{
  Copy-Item -LiteralPath $source -Destination $pending
- Set-BinaryOwnerReadExecute $pending
+ Set-BinaryOwnerReadExecute $pending $owner.Value
  Stop-Service neexitlag
  $service.WaitForStatus('Stopped',[TimeSpan]::FromSeconds(30))
  if($serviceProcess -gt 0){try{$process=[Diagnostics.Process]::GetProcessById($serviceProcess);if(!$process.WaitForExit(30000)){throw 'Stopped service process did not exit; executable not replaced'}}catch [ArgumentException]{} }
  [IO.File]::Replace($pending,$target,$null)
- Set-BinaryOwnerReadExecute $target
+ Set-BinaryOwnerReadExecute $target $owner.Value
  if((Get-FileHash -LiteralPath $target).Hash -ne (Get-FileHash -LiteralPath $source).Hash){throw 'Installed binary hash mismatch'}
  Start-Service neexitlag
  $service.WaitForStatus('Running',[TimeSpan]::FromSeconds(30))

@@ -74,6 +74,28 @@ try {
     }
    }
   }
+  # Exercise only the updater's pure SCM-target validator and actual executable
+  # ACL operation. No production SCM/IPC update is invoked by these filesystem tests.
+  $parseErrors=$null;$tokens=$null
+  $updateAst=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '../../tools/windows/update-service.ps1'),[ref]$tokens,[ref]$parseErrors)
+  if($parseErrors.Count){throw 'Updater did not parse'}
+  foreach($name in @('Assert-ServiceUpdateScmTarget','Set-BinaryOwnerReadExecute')){
+   $definition=$updateAst.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst]},$true)|Where-Object{$_.Name -eq $name}|Select-Object -First 1
+   if($null -eq $definition){throw "Missing updater validator: $name"}
+   . ([scriptblock]::Create($definition.Extent.Text))
+  }
+  $binary=Join-Path $target 'neexitlag-service.exe'
+  Assert-ServiceUpdateScmTarget ('"'+$binary+'" -config "'+(Join-Path $target 'service.json')+'"') $binary
+  Reject-Install {Assert-ServiceUpdateScmTarget '"C:\Wrong\service.exe"' $binary} '*SCM executable does not match*'
+  Reject-Install {Assert-ServiceUpdateScmTarget $binary $binary} '*SCM executable does not match*'
+  Set-BinaryOwnerReadExecute $binary $owner
+  foreach($rule in (Get-Acl -LiteralPath $binary).Access){
+   $sid=$rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+   if($sid -eq $owner -and (($rule.FileSystemRights -band [Security.AccessControl.FileSystemRights]::Write) -or !($rule.FileSystemRights -band [Security.AccessControl.FileSystemRights]::ExecuteFile))){throw 'Updater owner binary rights must be RX only'}
+   if($sid -notin @($owner,'S-1-5-18','S-1-5-32-544')){throw 'Updater broadened executable access'}
+  }
+  foreach($name in $protected){if((Get-FileHash (Join-Path $target $name)).Hash -ne $hashes[$name]){throw 'Executable ACL update modified preserved credentials/state'}}
+  Write-Output 'PASS updater SCM target refusal and owner executable RX without credential/state changes'
   Write-Output 'PASS actual Windows install/uninstall/reinstall with mocked SCM: binary updated, credentials/token/state preserved, restrictive ACLs'
  }
 }finally{Remove-Item $temp -Recurse -Force;Remove-Variable neexitlagReinstallFixture -Scope Global -ErrorAction SilentlyContinue}
