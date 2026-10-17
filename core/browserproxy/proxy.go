@@ -296,7 +296,7 @@ func (s *Server) handle(c net.Conn) {
 	if secure {
 		target = request.RequestURI
 		defaultPort = 443
-	} else if request.URL.Scheme != "http" || request.URL.User != nil {
+	} else if (request.URL.Scheme != "http" && !(request.URL.Scheme == "" && request.Method == "GET" && request.Host == "neexitlag-recovery-status.invalid" && request.URL.Path == "/status")) || request.URL.User != nil {
 		writeError(c, 400)
 		return
 	}

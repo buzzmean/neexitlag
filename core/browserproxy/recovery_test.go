@@ -309,3 +309,41 @@ func TestRecoveryLiveGuardPreventsStaleDirectAuthorization(t *testing.T) {
 		c.Close()
 	}
 }
+
+func TestRecoveryMetadataAcceptsDirectHTTPOriginFormOnlyForPrivateStatus(t *testing.T) {
+	r, err := ListenRecovery(context.Background(), "127.0.0.1:0", func(context.Context, netip.AddrPort, netip.AddrPort, RecoverySettings) (Owner, error) {
+		t.Error("metadata caller entered Chrome forwarding authentication")
+		return Owner{}, ErrOwnerProfile
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	r.AuthorizeMetadata(func(context.Context, netip.AddrPort, netip.AddrPort) error { return nil })
+	for _, test := range []struct {
+		host, token string
+		status      int
+	}{{"neexitlag-recovery-status.invalid", r.MetadataToken(), 200}, {"neexitlag-recovery-status.invalid", "wrong", 403}, {"ordinary.example", r.MetadataToken(), 400}} {
+		conn, err := net.Dial("tcp4", r.Address())
+		if err != nil {
+			t.Fatal(err)
+		}
+		// HttpClient with UseProxy=false uses origin-form even with a Host override.
+		fmt.Fprintf(conn, "GET /status HTTP/1.1\r\nHost: %s\r\nAuthorization: Bearer %s\r\n\r\n", test.host, test.token)
+		reply, err := http.ReadResponse(bufio.NewReader(conn), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if reply.StatusCode != test.status {
+			t.Fatal(test.host, reply.StatusCode, test.status)
+		}
+		if test.status == 200 {
+			var proof Snapshot
+			if err = json.NewDecoder(reply.Body).Decode(&proof); err != nil || !proof.Listening {
+				t.Fatal("invalid metadata", err)
+			}
+		}
+		reply.Body.Close()
+		conn.Close()
+	}
+}
