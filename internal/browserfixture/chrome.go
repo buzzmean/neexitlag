@@ -35,14 +35,15 @@ func (f *Fixture) RunChrome(ctx context.Context, chrome string, args []string, t
 		args = append(args, "--no-sandbox")
 	}
 	cmd := exec.CommandContext(ctx, chrome, args...)
-	cmd.Stdout = io.Discard
+	cmd.Stdout = nil
+	cmd.WaitDelay = 2 * time.Second
 	stderr := &chromeLog{}
 	cmd.Stderr = stderr
 	if e := cmd.Start(); e != nil {
 		return "", e
 	}
 	ended := make(chan error, 1)
-	go func() { ended <- cmd.Wait() }()
+	go func() { ended <- waitChromeProcess(cmd) }()
 	defer func() {
 		cmd.Process.Kill()
 		select {
@@ -229,12 +230,23 @@ func (f *Fixture) RunChrome(ctx context.Context, chrome string, args []string, t
 
 	}
 	// This is an isolated test browser only. Production never opens CDP.
-	websocket.JSON.Send(conn, map[string]any{"id": sequence + 1, "method": "Browser.close"})
+	if e := websocket.JSON.Send(conn, map[string]any{"id": sequence + 1, "method": "Browser.close"}); e != nil {
+		return title, fmt.Errorf("CDP/INSTRUMENTATION_FAILURE: Chrome close command: %w", e)
+	}
+	// Release the DevTools client rather than leaving a shutdown WebSocket
+	// attached. Windows can keep redirected handles in crashpad/utility children;
+	// WaitDelay bounds those pipes after the real parent process has exited.
+	conn.Close()
 	select {
 	case e := <-ended:
 		ended <- e
-	case <-time.After(3 * time.Second):
-		return title, errors.New("isolated Chrome did not exit")
+		if e != nil {
+			return title, fmt.Errorf("CDP/INSTRUMENTATION_FAILURE: Chrome exit: %w", e)
+		}
+	case <-ctx.Done():
+		return title, ctx.Err()
+	case <-time.After(15 * time.Second):
+		return title, errors.New("CDP/INSTRUMENTATION_FAILURE: isolated Chrome graceful exit deadline")
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -319,11 +331,27 @@ func RunPolicyHealthProbe(parent context.Context, chrome, healthURL, directory s
 	stdout, stderr := &chromeLog{}, &chromeLog{}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	if err := cmd.Run(); err != nil {
+	cmd.WaitDelay = 2 * time.Second
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	if err := waitChromeProcess(cmd); err != nil {
 		return fmt.Errorf("Chrome policy health process: %w; %s", err, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "NeExitLag Chrome transport OK") {
 		return errors.New("Chrome policy did not reach authenticated readiness endpoint")
 	}
 	return nil
+}
+
+// Run only by the goroutine owning Wait: ProcessState is safe to read after it
+// returns. A real non-zero exit, deadline or signal is never ignored. The sole
+// accepted error means the parent exited successfully but a descendant retained
+// an inherited diagnostic pipe; it is not evidence of another application flow.
+func waitChromeProcess(cmd *exec.Cmd) error {
+	err := cmd.Wait()
+	if errors.Is(err, exec.ErrWaitDelay) && cmd.ProcessState != nil && cmd.ProcessState.Exited() && cmd.ProcessState.ExitCode() == 0 {
+		return nil
+	}
+	return err
 }

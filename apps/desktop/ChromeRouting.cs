@@ -32,8 +32,13 @@ public partial class MainWindow {
   using var deadline=CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);deadline.CancelAfter(TimeSpan.FromSeconds(20));
   var stdout=ReadAutoOutput(process.StandardOutput,deadline.Token);var stderr=ReadAutoOutput(process.StandardError,deadline.Token);
   try{
-   await process.WaitForExitAsync(deadline.Token);await Task.WhenAll(stdout,stderr);
+   await process.WaitForExitAsync(deadline.Token);
    if(process.ExitCode!=0)throw new ChromeActivationException(Text.Get("ChromeActivationFailed"));
+   // Readiness is certified by browser.confirm's server-side nonce, not logs.
+   // A descendant retaining a redirected handle must not keep activation open
+   // after the actual helper Chrome exited with code 0.
+   deadline.Cancel();
+   try{await Task.WhenAll(stdout,stderr);}catch(OperationCanceledException)when(process.HasExited&&process.ExitCode==0){}
   }finally{
    // Own disposable empty health profile ONLY, never the user's Chrome/profile.
    if(!process.HasExited){process.Kill(entireProcessTree:true);await process.WaitForExitAsync(CancellationToken.None);}

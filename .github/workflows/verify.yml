@@ -63,7 +63,7 @@ jobs:
       # Each load fixture already creates 160/256/320 simultaneous connections.
       # Separate test binaries must not compete for the same Windows socket/
       # ephemeral-port resources and turn independent fixtures into one load.
-      - run: go test -p 1 ./core/... ./platform/windows ./services/client-service ./tests/integration
+      - run: go test -p 1 ./core/... ./internal/browserfixture ./platform/windows ./services/client-service ./tests/integration
       - name: Native Windows capture lifecycle race regressions
         run: go test -race -v -timeout 90s ./platform/windows -run 'TestUDPForwardNative|TestTCPNativeAdmissionBurst|TestTCPNativeQueuedSetupCancellation|TestTCPNativeInitialWriteReleasesAdmission|TestTCPAdmission|TestTCPNativePipe|TestUDPAdmission|TestUDPIdleBoundary|TestTCPDropAndFailureEvidence|TestTCPCopyFailureClassification|TestWorkerRejection|TestHotAttach|TestNativeHotAttach'
         timeout-minutes: 4
