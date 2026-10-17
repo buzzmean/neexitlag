@@ -18,6 +18,8 @@ import (
 	cs "github.com/buzzmean/neexitlag/services/client-service"
 	"github.com/buzzmean/neexitlag/services/relay"
 	"github.com/buzzmean/neexitlag/tools/labcert"
+	"io"
+	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -65,7 +67,7 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 	}
 	defer c.Close()
 	backend := wp.NewBrowserLoopbackFixture(files, c.Engine)
-	c.Backend = backend
+	c.Backend = browserMTUFixture{backend}
 	c.BrowserResolver = f.Resolver
 	c.BrowserProbeRoots = f.Roots
 	c.Start()
@@ -182,7 +184,8 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		case "www.youtube.com":
 			if r.Plan.Policy.Action != flowpolicy.DirectPlus || !r.DirectPlusApplied || r.Sent == 0 || r.Received == 0 {
 				proof, _ := backend.DiagnosticsScoped(wp.EvidenceQuery{Destination: f.Destination().String()})
-				t.Fatal("YouTube local route missing", r, proof)
+				rawProof, _ := json.Marshal(proof)
+				t.Fatal("YouTube local route missing", r, string(rawProof))
 			}
 			found[r.Domain] = true
 		case "ordinary.example":
@@ -218,4 +221,48 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		t.Fatal("real authenticated relay not used")
 	}
 	t.Log("PASS: same Chrome simultaneous controlled HTTPS+HTTP2: protected RELAY_REQUIRED, YouTube native disorder with modified packets, ordinary DIRECT, blocked unknown -> real relay; no production VPS touched")
+}
+
+// Loopback's jumbo MSS can emit a complete modern Chrome ClientHello in one
+// >1500-byte packet, outside the production engine's explicit packet bound.
+// This fixture models ordinary Internet MTU using actual bounded socket writes;
+// the unchanged WinDivert engine still captures/reassembles/transforms every
+// packet, and acceptance requires its real modified-packet counters. No TLS
+// feature or cipher is disabled, and no production MTU/route is modified.
+type browserMTUFixture struct{ *wp.WinDivertBackend }
+
+func (b browserMTUFixture) OpenBrowserLocalTCP(ctx context.Context, id wp.ProcessIdentity, src, dst netip.AddrPort, d wp.Decision) (net.Conn, error) {
+	c, e := b.WinDivertBackend.OpenBrowserLocalTCP(ctx, id, src, dst, d)
+	if e != nil {
+		return nil, e
+	}
+	return browserMTUConn{c}, nil
+}
+
+type browserMTUConn struct{ net.Conn }
+
+func (c browserMTUConn) Write(p []byte) (int, error) {
+	total := 0
+	for len(p) > 0 {
+		size := len(p)
+		if size > 1000 {
+			size = 1000
+		}
+		n, e := c.Conn.Write(p[:size])
+		total += n
+		if e != nil {
+			return total, e
+		}
+		if n != size {
+			return total, io.ErrShortWrite
+		}
+		p = p[size:]
+	}
+	return total, nil
+}
+func (c browserMTUConn) CloseWrite() error {
+	if v, ok := c.Conn.(interface{ CloseWrite() error }); ok {
+		return v.CloseWrite()
+	}
+	return nil
 }

@@ -63,6 +63,8 @@ jobs:
         shell: pwsh
       - run: |
           $env:NEEXITLAG_TEST_DRIVER_DIR=(Resolve-Path .e2e/windivert).Path
+          go test -race -timeout 30s -v ./platform/windows -run '^TestNativeBoundDial'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go test -timeout 90s -v ./platform/windows -run TestNativeCaptureHandlesStartStop
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go test -timeout 120s -v ./platform/windows -run '^TestChromeSitesNativeAcceptance$'

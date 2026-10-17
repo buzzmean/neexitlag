@@ -135,6 +135,9 @@ complete evidence. It also disables/re-enables optimization and verifies new
 responses in the same Chrome process. Every YouTube CONNECT must have its own
 positive native transform evidence. Missing browser/driver/proof cannot be
 reported as PASS.
+The loopback fixture uses 1000-byte socket writes to model Internet MTU; its
+jumbo-MSS packets otherwise exceed the existing engine’s 1500-byte packet bound.
+These are real packets, not synthetic counters; TLS features remain enabled.
 Loopback packet observation is enabled only through a test-binary constructor,
 not a production flag. The Chrome acceptance uses a temporary browser directory
 and a pinned ephemeral test certificate; production never enables CDP or ignores
