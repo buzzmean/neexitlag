@@ -559,6 +559,7 @@ func TestPoolTCPBurstContinuity(t *testing.T) {
 				t.Error(err)
 			}
 			if t.Failed() {
+				t.Logf("last relay upstream dial failure: %+v", x.server.Metrics.LastUpstreamDialFailure.Load())
 				return
 			}
 			// Preserve exactly these sockets while filling every other session; repeat

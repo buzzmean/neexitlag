@@ -38,7 +38,17 @@ type AcceptanceConfig struct {
 	DropRenewalACKs int
 }
 
+// UpstreamDialFailure retains only the latest bounded setup error, never payload.
+// It separates actual target/socket failures from admission/session capacity.
+type UpstreamDialFailure struct {
+	At          time.Time `json:"at"`
+	Protocol    string    `json:"protocol"`
+	Destination string    `json:"destination"`
+	Detail      string    `json:"detail"`
+}
+
 type Metrics struct {
+	LastUpstreamDialFailure                                                          atomic.Pointer[UpstreamDialFailure]
 	OpenRejected                                                                     [8]atomic.Uint64
 	Renewals, RenewalRejected, LeaseExpiries, Revocations                            atomic.Uint64
 	Sessions, Flows                                                                  atomic.Int64
@@ -295,6 +305,11 @@ func (x *session) open(s *quic.Stream) {
 	d := net.Dialer{}
 	c, e := d.DialContext(ctx, map[byte]string{protocol.UDP: "udp", protocol.TCP: "tcp"}[o.Kind], o.Destination.String())
 	if e != nil {
+		detail := e.Error()
+		if len(detail) > 512 {
+			detail = detail[:512]
+		}
+		x.server.Metrics.LastUpstreamDialFailure.Store(&UpstreamDialFailure{At: time.Now(), Protocol: map[byte]string{protocol.UDP: "udp", protocol.TCP: "tcp"}[o.Kind], Destination: o.Destination.String(), Detail: detail})
 		code := byte(6)
 		var ne net.Error
 		if errors.As(e, &ne) && ne.Timeout() {

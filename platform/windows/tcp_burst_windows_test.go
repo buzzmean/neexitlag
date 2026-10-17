@@ -153,6 +153,7 @@ func testTCPNativeBurst(t *testing.T, count int, deferred bool) {
 		e.openDone = make(chan struct{})
 		entries[i] = e
 		b.evidence.BeginFlow(id, tuple)
+		b.evidence.RecordBytes(id, tuple, "captured", "", uint64(len(tcpPacket(t, tuple))))
 		b.evidence.RecordPolicy(id, tuple, decision, "")
 		if deferred {
 			redirect.admitOpen(e, func(release func()) {
@@ -324,7 +325,7 @@ func TestTCPNativeInitialWriteReleasesAdmission(t *testing.T) {
 	tuple := testTuple()
 	id := ProcessIdentity{PID: 88, CreationTime: 1, Path: "protected.exe"}
 	route := routing.Route{RelayID: "VPS-01"}
-	resolved := Decision{Flow: routing.Flow{PID: 88, ApplicationID: "protected", Source: tuple.Source, Destination: tuple.Destination, PinnedPolicy: &routing.Policy{Route: route, BlockOnFailure: true}}, Route: route, BlockOnFailure: true, Policy: flowpolicy.Result{Action: flowpolicy.RelayRequired, Fallback: flowpolicy.Required}}
+	resolved := Decision{Flow: routing.Flow{PID: 88, ProcessPath: id.Path, ApplicationID: "protected", Source: tuple.Source, Destination: tuple.Destination, PinnedPolicy: &routing.Policy{Route: route, BlockOnFailure: true}}, Route: route, BlockOnFailure: true, Policy: flowpolicy.Result{Action: flowpolicy.RelayRequired, Fallback: flowpolicy.Required}}
 	d := resolved
 	d.Deferred = true
 	d.ResolveDomain = func(string) Decision { return resolved }

@@ -57,7 +57,7 @@ jobs:
       - run: go build ./...
       - run: go test ./core/... ./platform/windows ./services/client-service ./tests/integration
       - name: Native Windows capture lifecycle race regressions
-        run: go test -race -timeout 90s ./platform/windows -run 'TestUDPForwardNative|TestTCPNativeAdmissionBurst|TestTCPNativeQueuedSetupCancellation|TestTCPNativeInitialWriteReleasesAdmission|TestTCPAdmission|TestTCPNativePipe|TestUDPAdmission|TestUDPIdleBoundary|TestTCPDropAndFailureEvidence|TestTCPCopyFailureClassification|TestWorkerRejection|TestHotAttach|TestNativeHotAttach'
+        run: go test -race -v -timeout 90s ./platform/windows -run 'TestUDPForwardNative|TestTCPNativeAdmissionBurst|TestTCPNativeQueuedSetupCancellation|TestTCPNativeInitialWriteReleasesAdmission|TestTCPAdmission|TestTCPNativePipe|TestUDPAdmission|TestUDPIdleBoundary|TestTCPDropAndFailureEvidence|TestTCPCopyFailureClassification|TestWorkerRejection|TestHotAttach|TestNativeHotAttach'
         timeout-minutes: 4
       - run: dotnet build --nologo
       - run: dotnet test --nologo
