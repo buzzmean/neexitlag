@@ -97,8 +97,9 @@ func (c *Controller) ConnectRemote(ctx context.Context, m Manifest) error {
 	if !ok || !public.Equal(key.Public()) {
 		return errors.New("device certificate does not match persisted identity")
 	}
-	cert := tls.Certificate{Certificate: [][]byte{block.Bytes}, PrivateKey: key, Leaf: leaf}
-	cfg := &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: certPool, Certificates: []tls.Certificate{cert}}
+	renewer := &certRenewer{path: m.DeviceCertificate, roots: certPool, key: key}
+	renewer.current.Store(&tls.Certificate{Certificate: [][]byte{block.Bytes}, PrivateKey: key, Leaf: leaf})
+	cfg := &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: certPool, GetClientCertificate: renewer.clientCertificate}
 	cache := security.NewConfigCache(keys, filepath.Join(m.StateDirectory, "signed-config.json"))
 	_ = cache.Load(time.Now())
 	cp := &controlclient.Client{BaseURL: m.ControlPlaneURL, Cache: cache, DeviceID: identity.ID, DeviceKey: key}
@@ -108,6 +109,9 @@ func (c *Controller) ConnectRemote(ctx context.Context, m Manifest) error {
 			return e
 		}
 	}
+	renewer.fetch = cp.RenewCertificate
+	c.wg.Add(1)
+	go func() { defer c.wg.Done(); renewer.run(c.ctx) }()
 	c.DiagnosticHTTPClient = cp.HTTP
 	c.ControlPlaneURL = m.ControlPlaneURL
 	c.TCPDiagnosticTarget = m.TCPProbeTarget

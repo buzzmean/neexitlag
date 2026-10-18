@@ -13,9 +13,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"github.com/buzzmean/neexitlag/core/optimizer"
-	"github.com/buzzmean/neexitlag/core/profiles"
-	"github.com/buzzmean/neexitlag/core/security"
 	"io"
 	"math/big"
 	"net"
@@ -23,6 +20,10 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/buzzmean/neexitlag/core/optimizer"
+	"github.com/buzzmean/neexitlag/core/profiles"
+	"github.com/buzzmean/neexitlag/core/security"
 )
 
 type Settings struct {
@@ -98,6 +99,7 @@ func (a *API) Handler() http.Handler {
 		respond(w, 200, map[string]string{"version": "0.3.0-dev", "ipc_version": "1"})
 	})
 	m.HandleFunc("/api/v1/devices", a.devices)
+	m.HandleFunc("POST /api/v1/devices/renew", a.renewCertificate)
 	m.HandleFunc("/api/v1/relays", a.relays)
 	m.HandleFunc("POST /api/v1/relays/heartbeat", a.heartbeat)
 	m.HandleFunc("/api/v1/apps", a.apps)
@@ -216,16 +218,7 @@ func (a *API) devices(w http.ResponseWriter, r *http.Request) {
 			a.fail(w, 400, "invalid device key")
 			return
 		}
-		serialText, e := security.NewID()
-		if e != nil {
-			a.fail(w, 500, "identity generation failed")
-			return
-		}
-		serial := new(big.Int)
-		serial.SetString(serialText, 16)
-		now := time.Now()
-		cert := &x509.Certificate{SerialNumber: serial, NotBefore: now.Add(-time.Minute), NotAfter: now.Add(30 * 24 * time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}
-		der, e := x509.CreateCertificate(nilReader{}, cert, a.Settings.CA, pub, a.Settings.CAKey)
+		der, e := issueClientCertificate(a.Settings.CA, a.Settings.CAKey, pub, time.Now())
 		if e != nil {
 			a.fail(w, 500, "certificate issuance failed")
 			return
@@ -397,4 +390,54 @@ func (a *API) heartbeat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	respond(w, 200, map[string]string{"status": "accepted"})
+}
+
+// ClientCertificateLifetime is the validity of issued device certificates. Devices
+// renew through /api/v1/devices/renew well before expiry.
+const ClientCertificateLifetime = 30 * 24 * time.Hour
+
+func issueClientCertificate(ca *x509.Certificate, caKey crypto.Signer, pub ed25519.PublicKey, now time.Time) ([]byte, error) {
+	serialText, e := security.NewID()
+	if e != nil {
+		return nil, e
+	}
+	serial := new(big.Int)
+	serial.SetString(serialText, 16)
+	cert := &x509.Certificate{SerialNumber: serial, NotBefore: now.Add(-time.Minute), NotAfter: now.Add(ClientCertificateLifetime), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}
+	return x509.CreateCertificate(nilReader{}, cert, ca, pub, caKey)
+}
+
+// renewCertificate reissues the certificate for the key the device is already
+// registered with. The device proves possession of that key (fresh, single-use
+// proof bound to the renewal audience, so ticket proofs cannot be replayed here);
+// the key and identity never change and revoked devices are refused.
+func (a *API) renewCertificate(w http.ResponseWriter, r *http.Request) {
+	var p security.Proof
+	if body(r, &p) != nil || p.RelayID != security.RenewalAudience {
+		a.fail(w, 400, "invalid renewal proof")
+		return
+	}
+	d, e := a.Store.Device(r.Context(), p.DeviceID)
+	if e != nil || d.Revoked {
+		a.AuthFailures.Add(1)
+		a.fail(w, 401, "device unavailable")
+		return
+	}
+	key, e := security.DecodePublicKey(d.PublicKey)
+	if e != nil || p.Verify(key, time.Now()) != nil {
+		a.AuthFailures.Add(1)
+		a.fail(w, 401, "invalid device proof")
+		return
+	}
+	if e = a.Store.ConsumeProof(r.Context(), p); e != nil {
+		a.AuthFailures.Add(1)
+		a.fail(w, 401, "proof replay or revoked device")
+		return
+	}
+	der, e := issueClientCertificate(a.Settings.CA, a.Settings.CAKey, key, time.Now())
+	if e != nil {
+		a.fail(w, 500, "certificate issuance failed")
+		return
+	}
+	respond(w, 200, map[string]string{"id": d.ID, "certificate": string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))})
 }

@@ -95,6 +95,29 @@ func (c *Client) Ticket(ctx context.Context, relay string) ([]byte, error) {
 	}
 	return c.request(ctx, "POST", "/api/v1/auth", proof, "")
 }
+
+// RenewCertificate asks the control plane for a fresh certificate for the same
+// device key. The returned PEM must be verified by the caller before use.
+func (c *Client) RenewCertificate(ctx context.Context) (string, error) {
+	if len(c.DeviceKey) != ed25519.PrivateKeySize {
+		return "", errors.New("device identity required")
+	}
+	proof, e := security.NewProof(c.DeviceID, security.RenewalAudience, c.DeviceKey, time.Now())
+	if e != nil {
+		return "", e
+	}
+	raw, e := c.request(ctx, "POST", "/api/v1/devices/renew", proof, "")
+	if e != nil {
+		return "", e
+	}
+	var out struct {
+		Certificate string `json:"certificate"`
+	}
+	if e = security.Parse(raw, &out); e != nil || out.Certificate == "" {
+		return "", errors.New("invalid renewal response")
+	}
+	return out.Certificate, nil
+}
 func (c *Client) Register(ctx context.Context, name, publicKey, adminToken string) (string, error) {
 	raw, e := c.request(ctx, "POST", "/api/v1/devices", map[string]string{"id": c.DeviceID, "name": name, "public_key": publicKey}, adminToken)
 	if e != nil {
