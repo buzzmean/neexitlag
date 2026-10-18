@@ -12,6 +12,7 @@ on:
       - 'services/client-service/browser*'
       - 'services/client-service/controller.go'
       - 'services/client-service/ipc_handlers.go'
+      - 'tools/windows/diag-no-vpn.ps1'
       - 'platform/windows/edge_policy*'
   pull_request:
   workflow_dispatch:
@@ -27,6 +28,18 @@ jobs:
         with: {go-version: '1.25.x'}
       - uses: actions/setup-dotnet@v4
         with: {dotnet-version: '8.0.x'}
+      - name: Parse focused diagnostics with Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $tokens=$null; $errors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path tools/windows/diag-no-vpn.ps1),[ref]$tokens,[ref]$errors)
+          if ($errors.Count) { throw ($errors | Out-String) }
+      - name: Parse focused diagnostics with PowerShell 7
+        shell: pwsh
+        run: |
+          $tokens=$null; $errors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path tools/windows/diag-no-vpn.ps1),[ref]$tokens,[ref]$errors)
+          if ($errors.Count) { throw ($errors | Out-String) }
       - name: Desktop core regressions, including unchanged Chrome behavior
         run: dotnet test tests/desktop/NeExitLag.Client.Tests.csproj --nologo
       - name: WPF build

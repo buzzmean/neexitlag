@@ -381,7 +381,7 @@ Step 'sni' {
    $addrs+=@(Resolve-DnsName @q|Where-Object{$_.Type -eq 'A'}|ForEach-Object{$_.IPAddress})
   }catch{Say ("DNS www.youtube.com via $(if($srv){$srv}else{'system'}): "+($_.Exception.Message -replace '\s+',' '))}
  }
- $addrs=@($addrs|Select-Object -Unique|Select-Object -First 6)
+ $addrs=@($addrs|Select-Object -Unique|Select-Object -First 8)
  if($addrs.Count -eq 0){Say 'No A records for www.youtube.com, SNI test skipped.';return}
  Say ("Addresses tested: "+($addrs -join ', '))
  $short={param($x)
@@ -412,29 +412,54 @@ Step 'sni' {
 }}
 
 if($Only -contains 'youtube'){
-Section 'YouTube: service build, flag, stalls, YouTube/googlevideo records (browser.status)'
+Section 'YouTube: Chrome + Edge, address/domain cache and actual relay payload bytes per minute'
 Step 'youtube' {
  $st=Invoke-IPC 'status'
- $settings=Prop $st 'settings'
- Say ("service build: "+(Prop $st 'build' '(none: the running service is OLDER than the build stamp)')+"; optimizing: "+(Prop $st 'optimizing')+"; youtube_via_relay: "+(Prop $settings 'youtube_via_relay' 'false (default; absent = off)'))
- $b=Invoke-IPC 'browser.status'
- Say ("listening: "+(Prop $b 'listening')+"; policy_ready: "+(Prop $b 'policy_ready')+"; ready_profiles: "+((@(Prop $b 'ready_profiles' @())) -join ', '))
- $cache=Prop $b 'direct_timeout_cache'
- if($null -eq $cache){Say 'direct_timeout_cache: ABSENT (service older than 0fc9f97)'}
- else{
-  Say ("direct_timeout_cache: stalls_total="+(Prop $cache 'direct_stalls_total' 'ABSENT (older than 91c9016)')+"; stall_retries_via_relay="+(Prop $cache 'stall_retries_via_relay' '-')+"; stall_retries_failed="+(Prop $cache 'stall_retries_failed' '-')+"; active_origins="+(Prop $cache 'active_origins')+"; relay_steered_flows="+(Prop $cache 'relay_steered_flows')+"; origins_cached_total="+(Prop $cache 'origins_cached_total')+"; background_direct_probes="+(Prop $cache 'background_direct_probes')+"; recovered_to_direct="+(Prop $cache 'recovered_to_direct'))
-  $top=@(Prop $cache 'top_origins' @())
-  foreach($o in $top){Say ("  cached origin: "+(Prop $o 'host')+":"+(Prop $o 'port')+" since "+(Prop $o 'since')+" next_direct_probe "+(Prop $o 'next_direct_probe')+" relay_steered_flows "+(Prop $o 'relay_steered_flows'))}
+ Say ("service build: "+(Prop $st 'build' '-')+"; optimizing: "+(Prop $st 'optimizing')+"; youtube_via_relay="+(Prop (Prop $st 'settings') 'youtube_via_relay' $false)+" (relay-first preference; fallback no longer needs this flag)")
+ $allRecords=@();$shownUsage=$false
+ foreach($lane in @('browser','edge')){
+  try{$snapshot=Invoke-IPC ($lane+'.status')}catch{Say ($lane+': IPC unavailable: '+(Scrub $_.Exception.Message));continue}
+  Say ($lane+": listening="+(Prop $snapshot 'listening')+" policy_ready="+(Prop $snapshot 'policy_ready')+" ready_profiles="+(@(Prop $snapshot 'ready_profiles' @()) -join ',')+" last_error="+(Prop $snapshot 'last_error' '')+" truncated="+(Prop $snapshot 'truncated')+" lost="+(Prop $snapshot 'lost'))
+  $cache=Prop $snapshot 'direct_timeout_cache'
+  if($cache){
+   Say ("cache (shared by both lanes): domains="+(Prop $cache 'active_origins')+" addresses="+(Prop $cache 'active_addresses' '-')+" stalls="+(Prop $cache 'direct_stalls_total')+" rechecks="+(Prop $cache 'background_direct_probes')+" recovered_verified="+(Prop $cache 'recovered_to_direct'))
+   foreach($origin in @(Prop $cache 'top_origins' @())){
+    Say (" cache: network="+(Prop $origin 'network' '-')+" profile="+(Prop $origin 'profile_id' '-')+" domain="+(Prop $origin 'host')+" port="+(Prop $origin 'port')+" address="+(Prop $origin 'address' '(domain)')+" reason="+(Prop $origin 'reason' '-')+" distinct="+(Prop $origin 'distinct_failed_addresses' '-')+" ttl_ms="+(Prop $origin 'ttl_remaining_ms' '-')+" next_probe="+(Prop $origin 'next_direct_probe'))
+   }
+  }
+  $usage=Prop $snapshot 'relay_usage'
+  if($usage -and -not $shownUsage){
+   $shownUsage=$true
+   Say ("relay usage (shared, TCP payload excluding QUIC overhead/probes): googlevideo="+(Prop $usage 'googlevideo_active_tunnels')+"/"+(Prop $usage 'googlevideo_tunnel_limit')+" cap_events="+(Prop $usage 'googlevideo_limit_events')+" truncated="+(Prop $usage 'truncated')+" overflow_bytes="+(Prop $usage 'cardinality_overflow_bytes'))
+   foreach($minute in @(Prop $usage 'minutes' @())){Say (" minute="+(Prop $minute 'minute_utc')+" profile="+(Prop $minute 'profile_id')+" domain="+(Prop $minute 'domain')+" tx="+(Prop $minute 'sent_bytes')+" rx="+(Prop $minute 'received_bytes'))}
+  }
+  $failures=Prop $snapshot 'failures'
+  if($failures){foreach($property in $failures.PSObject.Properties){if($property.Name -match 'DIRECT_|UPSTREAM_|MIDSTREAM'){Say (" $lane failure "+$property.Name+'='+$property.Value)}}}
+  foreach($record in @(Prop $snapshot 'records' @())){
+   $allRecords+= $record
+   if((Prop $record 'domain' '') -notmatch '(^|\.)(youtube\.com|googlevideo\.com|ytimg\.com|ggpht\.com|youtu\.be|youtube-nocookie\.com)$'){continue}
+   $plan=Prop $record 'plan';$policy=Prop $plan 'policy';$owner=Prop $record 'owner'
+   Say (" $lane #"+(Prop $record 'id')+" process="+(Prop $owner 'exe')+" pid="+(Prop $owner 'pid')+" profile="+(Prop $owner 'profile_id')+" "+(Prop $record 'domain')+":"+(Prop $record 'port')+" -> "+(Prop $plan 'destination')+" action="+(Prop $policy 'action')+" source="+(Prop $policy 'source')+" probe="+(Prop $plan 'probe')+" attempts="+(Prop $plan 'direct_attempts' '-')+" result="+(Prop $record 'result')+" open_failure="+(Prop $record 'open_failure')+" tx="+(Prop $record 'sent_bytes')+" rx="+(Prop $record 'received_bytes'))
+  }
  }
- $f=Prop $b 'failures'
- if($f){foreach($k in $f.PSObject.Properties.Name|Where-Object{$_ -like 'DIRECT_STALL*' -or $_ -like 'UPSTREAM_*'}){Say ("  failures."+$k+" = "+$f.$k)}}
- $rx='(^|\.)(youtube\.com|googlevideo\.com|ytimg\.com|ggpht\.com|youtu\.be|youtube-nocookie\.com|googleusercontent\.com)$'
- $recs=@(Prop $b 'records' @())|Where-Object{(Prop $_ 'domain' '') -match $rx}
- Say ("YouTube/googlevideo records: "+@($recs).Count+" (of "+@(Prop $b 'records' @()).Count+" total)")
- foreach($r in ($recs|Select-Object -Last 40)){
-  $plan=Prop $r 'plan';$pol=Prop $plan 'policy'
-  Say ("  #"+(Prop $r 'id')+" "+(Prop $r 'domain')+":"+(Prop $r 'port')+" -> "+(Prop $plan 'destination')+" action="+(Prop $pol 'action')+" source="+(Prop $pol 'source')+" probe="+(Prop $plan 'probe')+" result="+(Prop $r 'result')+" open_failure="+(Prop $r 'open_failure')+" sent="+(Prop $r 'sent_bytes')+" recv="+(Prop $r 'received_bytes')+" stall_retried_via_relay="+(Prop $r 'stall_retried_via_relay' $false))
+ $videoName=@($allRecords|ForEach-Object{Prop $_ 'domain' ''}|Where-Object{$_ -match '(^|\.)googlevideo\.com$'}|Select-Object -First 1)
+ if($videoName.Count){$videoOrigin=[string]$videoName[0]}else{$videoOrigin='redirector.googlevideo.com';Say 'No real video CDN hostname in retained evidence; using redirector only as a DNS/TLS control, not as video PASS.'}
+ Say ("googlevideo address checks: "+$videoOrigin)
+ $videoAddresses=@()
+ foreach($dnsServer in @($null,'8.8.8.8')){
+  try{
+   $query=@{Name=$videoOrigin;Type='A';DnsOnly=$true;ErrorAction='Stop'};if($dnsServer){$query.Server=$dnsServer}
+   $found=@(Resolve-DnsName @query|Where-Object{$_.Type -eq 'A'}|ForEach-Object{$_.IPAddress}|Select-Object -Unique)
+   Say (" DNS "+$(if($dnsServer){$dnsServer}else{'system'})+': '+($found -join ','));$videoAddresses+=$found
+  }catch{Say (' DNS failed: '+(Scrub $_.Exception.Message))}
  }
+ foreach($ipAddress in @($videoAddresses|Select-Object -Unique|Select-Object -First 8)){
+  foreach($serverName in @($videoOrigin,'www.youtube.com','www.google.com','example.com')){
+   $probe=Test-TlsSni $ipAddress $serverName 443 3000
+   Say (" $ipAddress SNI=$serverName TCP="+$probe.Tcp+" tcp_ms="+$probe.TcpMs+" TLS="+$probe.Tls)
+  }
+ }
+ Say 'These DNS/TCP/TLS controls do not establish video playback, HTTP/3, site usability or an Internet PASS.'
 }}
 
 if(Want 'browser'){
@@ -495,7 +520,7 @@ Step 'headless' {
     $errText=Read-SharedText $e
     $title=[regex]::Match($dom,'(?is)<title[^>]*>(.*?)</title>').Groups[1].Value.Trim()
     $err=[regex]::Match($dom+' '+$errText,'ERR_[A-Z_]+').Value
-    $verdict=if(-not $finished){'TIMEOUT (30 s)'}elseif($err){"FAILED $err"}elseif($dom.Length -lt 200){'EMPTY PAGE'}else{'PAGE LOADED'}
+    $verdict=if(-not $finished){'TIMEOUT (30 s)'}elseif($err){"FAILED $err"}elseif($dom.Length -lt 200){'EMPTY PAGE'}else{'DOM RECEIVED (not full-site PASS)'}
     Say "  $site [$verdict] $($w.ElapsedMilliseconds) ms, dom $($dom.Length) bytes, title: '$title'"
    }catch{Say "  $site ERROR $($_.Exception.Message)"}
    finally{
