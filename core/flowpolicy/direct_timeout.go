@@ -12,9 +12,10 @@ import (
 // it never authorizes DIRECT, and a cached origin is re-checked by one background
 // DIRECT probe per TTL so traffic returns to DIRECT when the path recovers.
 //
-// An origin is cached after two timeouts in a row within TimeoutWindow (a success in
-// between resets the count). Only connect timeouts count: resets, TLS failures and
-// HTTP errors are evidence about the site, not about reachability.
+// Address-aware callers record a failed destination immediately; only TWO DISTINCT
+// failed IPs within TimeoutWindow promote the domain. Legacy callers without an
+// address retain their two-event contract. Cancellation/HTTP errors do not create
+// verdicts. Only verified end-to-end success clears them.
 type DirectTimeoutCache struct {
 	mu      sync.Mutex
 	entries map[DirectTimeoutKey]*directTimeoutEntry
@@ -140,7 +141,7 @@ func (c *DirectTimeoutCache) NoteRetry(ok bool) {
 	c.mu.Unlock()
 }
 
-// RecordSuccess clears the count: DIRECT connected, so DIRECT works for this origin.
+// RecordSuccess clears a verdict only after caller-verified application success.
 func (c *DirectTimeoutCache) RecordSuccess(k DirectTimeoutKey) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

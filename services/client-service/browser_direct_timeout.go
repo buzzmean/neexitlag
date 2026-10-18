@@ -51,23 +51,14 @@ func (c *Controller) directTimeoutKey(current profilesResult, q browserproxy.Req
 	return key
 }
 
-// stallTracked: for HTTPS tunnels on 443 the proxy watches the origin's first byte, so a
-// bare TCP connect must not count as DIRECT working (a blackholing path accepts it).
-func stallTracked(q browserproxy.Request) bool { return q.Secure && q.Port == 443 }
-
-// observeDirectOpen feeds the cache from every real DIRECT open and probe. Only a
-// connect deadline counts as a timeout; cancellation by the browser and every other
-// error say nothing about reachability.
+// Только подтверждённые ошибки открытия меняют failure verdict. Успешный
+// TCP connect и непроверенный TLS байт не подтверждают работоспособность сайта.
 func (c *Controller) observeDirectOpen(current profilesResult, q browserproxy.Request, plan browserproxy.Plan, err error, now time.Time) {
 	if current.network == "" || !directTimeoutEligible(q, plan) {
 		return
 	}
 	key := c.directTimeoutKey(current, q, plan)
 	switch {
-	case err == nil:
-		if !stallTracked(q) {
-			c.browser.directTimeouts.RecordSuccess(key)
-		}
 	case errors.Is(err, context.DeadlineExceeded) || err != nil && plan.Destination.IsValid() && retryableDirectOpen(err):
 		c.browser.directTimeouts.RecordTimeout(key, now)
 	}

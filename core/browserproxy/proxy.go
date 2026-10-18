@@ -119,7 +119,7 @@ type Config struct {
 	// most once per tunnel; on error the tunnel is closed (never retried over DIRECT).
 	OnStall func(context.Context, Request, Plan) (net.Conn, Plan, error)
 	// OnDirectAnswered is called once when such a DIRECT tunnel receives its first byte
-	// from the origin (a connect alone proves nothing: a blackholing path accepts it).
+	// from the origin. This is progress only: a TLS alert/byte does not prove HTTPS.
 	OnDirectAnswered func(Request, Plan)
 	// StallTimeout is the silence after the first client bytes that counts as a stall
 	// (default DefaultStallTimeout).

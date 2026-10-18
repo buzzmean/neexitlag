@@ -112,7 +112,7 @@ func (x *stallConn) Read(p []byte) (int, error) {
 			x.settle()
 			cur.SetReadDeadline(time.Time{})
 			if direct && x.answered != nil {
-				x.answered() // the DIRECT origin really answered: application-level success
+				x.answered() // transport progress only, not verified HTTPS/site success
 			}
 			return n, nil
 		}

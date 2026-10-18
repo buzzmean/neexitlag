@@ -80,12 +80,12 @@ func TestOnlyConnectDeadlinesOnOrdinaryDirectOriginsCount(t *testing.T) {
 	if s := c.browser.directTimeouts.Stats(); s.ActiveOrigins != 0 || s.Created != 0 {
 		t.Fatalf("ineligible events were cached: %+v", s)
 	}
-	// A success in between resets the consecutive count.
+	// A TCP ACK alone is not an HTTP success and must not clear the verdict.
 	c.observeDirectOpen(cur, ordinary, directPlan, context.DeadlineExceeded, now)
 	c.observeDirectOpen(cur, ordinary, directPlan, nil, now.Add(time.Second))
 	c.observeDirectOpen(cur, ordinary, directPlan, context.DeadlineExceeded, now.Add(2*time.Second))
-	if _, steered := c.steerTimedOutOrigin(directPlan, cur, ordinary, now.Add(3*time.Second)); steered {
-		t.Fatal("timeouts separated by a success counted as consecutive")
+	if _, steered := c.steerTimedOutOrigin(directPlan, cur, ordinary, now.Add(3*time.Second)); !steered {
+		t.Fatal("bare TCP ACK erased the failure verdict")
 	}
 }
 
