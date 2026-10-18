@@ -55,7 +55,7 @@ func TestServiceUnavailableProfilesAndAuthenticatedCommandsBoundary(t *testing.T
 	if e := c2.SetCustomPath(c.customPath); e != nil {
 		t.Fatal(e)
 	}
-	if len(c2.Profiles.List()) != 4 {
+	if len(c2.Profiles.List()) != len(profiles.Defaults())+1 {
 		t.Fatal("local profile persistence")
 	}
 }
@@ -82,7 +82,7 @@ func TestAcceptanceProfileCleanupPersistsWithoutDeletingDefaults(t *testing.T) {
 	if e := c2.SetCustomPath(path); e != nil {
 		t.Fatal(e)
 	}
-	if len(c2.Profiles.List()) != 3 {
+	if len(c2.Profiles.List()) != len(profiles.Defaults()) {
 		t.Fatal("temporary acceptance profile survived cleanup")
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"github.com/buzzmean/neexitlag/core/routing"
 	wp "github.com/buzzmean/neexitlag/platform/windows"
 	"path"
+	"sort"
 	"strings"
 	"time"
 )
@@ -20,11 +21,35 @@ func presetFor(p profiles.Profile) string {
 			return "discord"
 		case "chatgpt.exe":
 			return "openai"
+		case "claude.exe":
+			return "anthropic"
+		case "telegram.exe":
+			return "telegram"
 		case "msedge.exe":
 			return "openai-web"
 		}
 	}
 	return ""
+}
+
+// relayFirstPreset marks applications whose services are blocked or region-locked
+// for the user: every flow goes through the relay and never falls back to DIRECT
+// (fail-closed), so the real address is not exposed and nothing silently degrades.
+func relayFirstPreset(preset string) bool {
+	switch preset {
+	case "openai", "openai-web", "anthropic", "telegram":
+		return true
+	}
+	return false
+}
+func relayFirstReason(preset string) string {
+	switch preset {
+	case "anthropic":
+		return "Anthropic relay-first: blocked service, consistent egress"
+	case "telegram":
+		return "Telegram relay-first: blocked service"
+	}
+	return "OpenAI consistent egress"
 }
 func prepareAuto(p *profiles.Profile) {
 	if p.Mode != profiles.Auto {
@@ -127,7 +152,7 @@ func (c *Controller) matchApplication(id wp.ProcessIdentity) (profiles.Profile, 
 			break
 		}
 	}
-	for _, p := range c.Profiles.List() {
+	for _, p := range customFirst(c.Profiles.List()) {
 		if p.GroupMatch(id, c.groupAll) {
 			if len(c.groupBindings) >= 4096 {
 				for pid := range c.groupBindings {
@@ -192,7 +217,7 @@ func (c *Controller) evaluateFlow(p profiles.Profile, id wp.ProcessIdentity, t w
 		return applyFlowResult(p, d, c.browserFlow(p, id, t, domain, network), network, c.Local)
 	}
 	result, matched := flowpolicy.Evaluate(p.Rules, flowpolicy.Input{Protocol: t.Protocol, Destination: t.Destination, Domain: domain, Network: network})
-	if !matched && p.Mode == profiles.Auto && presetFor(p) != "openai" && presetFor(p) != "openai-web" && presetFor(p) != "discord" && domain != "" {
+	if !matched && p.Mode == profiles.Auto && !relayFirstPreset(presetFor(p)) && presetFor(p) != "discord" && domain != "" {
 		target := domain
 		if learned, ok := c.AutoLearned.Lookup(c.learnKey(p, network, t.Protocol, target, t.Destination.Port()), time.Now()); ok {
 			result = learned
@@ -213,11 +238,11 @@ func (c *Controller) evaluateFlow(p profiles.Profile, id wp.ProcessIdentity, t w
 		if relay == "" {
 			relay = "VPS-01"
 		}
-		switch presetFor(p) {
-		case "openai", "openai-web":
-			result = flowpolicy.Result{Action: flowpolicy.RelayRequired, RelayID: relay, Fallback: flowpolicy.Required, Reason: "OpenAI consistent egress", Source: "preset"}
+		switch preset := presetFor(p); {
+		case relayFirstPreset(preset):
+			result = flowpolicy.Result{Action: flowpolicy.RelayRequired, RelayID: relay, Fallback: flowpolicy.Required, Reason: relayFirstReason(preset), Source: "preset"}
 			matched = true
-		case "discord":
+		case preset == "discord":
 			result = flowpolicy.Result{Action: flowpolicy.RelayRequired, RelayID: relay, Fallback: flowpolicy.Required, Reason: "Discord control/update consistent egress", Source: "preset"}
 			matched = true
 			if t.Protocol == "udp" && t.Destination.Port() >= 1024 {
@@ -292,4 +317,41 @@ func sameProfileExecutables(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// customFirst orders the user's own profiles before built-in ones, the same
+// precedence profiles.Registry.Match applies to ordinary matching.
+func customFirst(all []profiles.Profile) []profiles.Profile {
+	sort.SliceStable(all, func(a, b int) bool { return all[a].Custom && !all[b].Custom })
+	return all
+}
+
+// dropShadowedBuiltIns removes a built-in relay-first profile when the user's own
+// saved profiles already cover the same executable name. The user's profile wins;
+// two profiles for one program would make matching ambiguous.
+func dropShadowedBuiltIns(registry *profiles.Registry, saved []profiles.Profile) {
+	names := map[string]bool{}
+	ids := map[string]bool{}
+	for _, p := range saved {
+		ids[p.ID] = true
+		for _, exe := range p.Executables {
+			names[path.Base(strings.ToLower(strings.ReplaceAll(exe, "\\", "/")))] = true
+		}
+	}
+	for _, id := range profiles.BuiltInRelayFirstIDs {
+		if ids[id] {
+			continue // the saved copy replaces the built-in one through Upsert
+		}
+		for _, p := range registry.List() {
+			if p.ID != id {
+				continue
+			}
+			for _, exe := range p.Executables {
+				if names[path.Base(strings.ToLower(exe))] {
+					registry.Delete(id)
+					break
+				}
+			}
+		}
+	}
 }

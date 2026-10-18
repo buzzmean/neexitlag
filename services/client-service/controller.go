@@ -181,7 +181,7 @@ func (c *Controller) syncPolicies() {
 		if p.Fallback != "" {
 			policy.BlockOnFailure = p.Fallback == flowpolicy.Required || p.Fallback == flowpolicy.FailBlock
 		}
-		if p.Mode == profiles.Auto && (presetFor(p) == "openai" || presetFor(p) == "openai-web") {
+		if p.Mode == profiles.Auto && relayFirstPreset(presetFor(p)) {
 			policy.Auto = false
 			policy.Route = routing.Route{RelayID: p.RelayID}
 			if policy.Route.RelayID == "" {
@@ -249,6 +249,7 @@ func (c *Controller) SetCustomPath(path string) error {
 	if e = security.Parse(b, &all); e != nil {
 		return e
 	}
+	dropShadowedBuiltIns(c.Profiles, all)
 	for _, p := range all {
 		prepareAuto(&p)
 		c.mu.Lock()

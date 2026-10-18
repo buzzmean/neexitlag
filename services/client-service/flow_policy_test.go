@@ -150,7 +150,7 @@ func TestPresetIsolationPreservesChromeAndPendingGeneration(t *testing.T) {
 	if count != len(before) {
 		t.Fatal("Chrome strategy deleted")
 	}
-	if len(c.Profiles.List()) != 3 {
+	if len(c.Profiles.List()) != len(profiles.Defaults()) {
 		t.Fatal("preset mutated routing profiles")
 	}
 }

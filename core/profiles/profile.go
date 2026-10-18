@@ -102,8 +102,24 @@ func (p Profile) Validate() error {
 	}
 	return nil
 }
+
+// BuiltInRelayFirstIDs are the default profiles for services that are blocked for
+// the user. They match by executable name, not by path: packaged apps live in
+// versioned WindowsApps folders that change with every update.
+var BuiltInRelayFirstIDs = []string{"claude-desktop", "chatgpt-desktop", "telegram"}
+
 func Defaults() []Profile {
-	return []Profile{{ID: "cs2", Name: "Counter-Strike 2", Executables: []string{"cs2.exe"}, Mode: Auto, ProtocolHints: []string{"udp", "tcp"}}, {ID: "discord", Name: "Discord", Executables: []string{"Discord.exe"}, Mode: Auto}, {ID: "steam", Name: "Steam", Executables: []string{"steam.exe"}, Mode: Direct}}
+	return []Profile{
+		{ID: "cs2", Name: "Counter-Strike 2", Executables: []string{"cs2.exe"}, Mode: Auto, ProtocolHints: []string{"udp", "tcp"}},
+		{ID: "discord", Name: "Discord", Executables: []string{"Discord.exe"}, Mode: Auto},
+		{ID: "steam", Name: "Steam", Executables: []string{"steam.exe"}, Mode: Direct},
+		{ID: "claude-desktop", Name: "Claude (desktop)", Executables: []string{"claude.exe"}, Mode: Auto, AppPreset: "anthropic", Fallback: flowpolicy.Required},
+		// Codex helpers are covered only through verified ancestry from ChatGPT.exe
+		// (Identity.Helpers); a stray codex.exe must never inherit the protected group.
+		{ID: "chatgpt-desktop", Name: "ChatGPT / Codex (desktop)", Executables: []string{"ChatGPT.exe"}, Mode: Auto, AppPreset: "openai", Fallback: flowpolicy.Required,
+			Identity: &ApplicationIdentity{Root: "c:/program files/windowsapps", Executable: "ChatGPT.exe", Helpers: []string{"codex.exe", "codex-windows-sandbox-service.exe", "codex-computer-use-swift.exe"}}},
+		{ID: "telegram", Name: "Telegram Desktop", Executables: []string{"Telegram.exe"}, Mode: Auto, AppPreset: "telegram", Fallback: flowpolicy.Required},
+	}
 }
 
 type Identity struct {
