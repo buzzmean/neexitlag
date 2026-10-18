@@ -101,34 +101,21 @@ func TestKnownBadAddressSkipsToPeerWithoutPoisoningOtherDestination(t *testing.T
 		t.Fatal("failed IP retried or whole domain poisoned", actual, e)
 	}
 }
-func TestGooglevideoRelayCapCanOnlyDowngradeOrdinaryAutomaticFallback(t *testing.T) {
+func TestGooglevideoRelayCapNeverDowngradesToKnownDeadDirect(t *testing.T) {
 	c, cur := timeoutFixture(t)
-	p := boundedDirectPlan()
-	p.Policy = flowpolicy.Result{Action: flowpolicy.RelayRequired, Fallback: flowpolicy.Required, Source: "direct_timeout_cache"}
-	a, b := net.Pipe()
-	defer a.Close()
-	defer b.Close()
-	for _, tc := range []struct {
-		host, source string
-		wantDirect   bool
-	}{{"r.googlevideo.com", "direct_timeout_cache", true}, {"chatgpt.com", "direct_timeout_cache", false}, {"r.googlevideo.com", "rule", false}} {
-		p.Policy.Source = tc.source
+	for _, host := range []string{"r.googlevideo.com", "chatgpt.com"} {
+		p := boundedDirectPlan()
+		p.Policy = flowpolicy.Result{Action: flowpolicy.RelayRequired, Fallback: flowpolicy.Required, Source: "direct_timeout_cache"}
 		calls := 0
-		_, actual, err := c.openBrowserPlan(context.Background(), cur, browserproxy.Request{Host: tc.host, Port: 443}, p, func(_ context.Context, _ browserproxy.Request, p browserproxy.Plan) (net.Conn, error) {
+		_, actual, err := c.openBrowserPlan(context.Background(), cur, browserproxy.Request{Host: host, Port: 443}, p, func(_ context.Context, _ browserproxy.Request, p browserproxy.Plan) (net.Conn, error) {
 			calls++
-			if p.Policy.Action == flowpolicy.Direct {
-				return a, nil
+			if p.Policy.Action != flowpolicy.RelayRequired {
+				t.Fatal("DIRECT leak")
 			}
 			return nil, errVideoRelayCapacity
 		})
-		if tc.wantDirect {
-			if err != nil || actual.Policy.Source != "googlevideo_relay_limit" || calls != 2 {
-				t.Fatal(actual, calls, err)
-			}
-		} else {
-			if err == nil || actual.Policy.Action != flowpolicy.RelayRequired || calls != 1 {
-				t.Fatal("protected/explicit route leaked", actual, calls, err)
-			}
+		if !errors.Is(err, errVideoRelayCapacity) || calls != 1 || actual.Policy.Action != flowpolicy.RelayRequired {
+			t.Fatal(actual, err, calls)
 		}
 	}
 }

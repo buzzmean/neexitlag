@@ -192,7 +192,7 @@ func (c *Controller) openBrowser(ctx context.Context, q browserproxy.Request, pl
 	release := func() {}
 	if observe && d.Route.RelayID != "" && isVideo(q) {
 		var ok bool
-		release, ok = c.relayUsage().acquireVideo()
+		release, ok = c.relayUsage().acquireVideoContext(ctx)
 		if !ok {
 			return nil, errVideoRelayCapacity
 		}

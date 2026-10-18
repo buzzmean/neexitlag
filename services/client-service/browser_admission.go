@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/buzzmean/neexitlag/core/browserproxy"
-	"github.com/buzzmean/neexitlag/core/flowpolicy"
 )
 
 const browserDirectBudget = 3 * time.Second
@@ -53,9 +52,6 @@ func (c *Controller) browserOpenPlan(ctx context.Context, q browserproxy.Request
 func (c *Controller) openBrowserPlan(ctx context.Context, current profilesResult, q browserproxy.Request, p browserproxy.Plan, open func(context.Context, browserproxy.Request, browserproxy.Plan) (net.Conn, error)) (net.Conn, browserproxy.Plan, error) {
 	if !p.Enabled || !directTimeoutEligible(q, p) {
 		conn, err := open(ctx, q, p)
-		if errors.Is(err, errVideoRelayCapacity) && ordinaryRelayFallback(q, p) {
-			return c.openVideoOverflow(ctx, q, p, open)
-		}
 		return conn, p, err
 	}
 	if p.DirectDeadline.IsZero() {
@@ -102,34 +98,8 @@ func (c *Controller) relayAfterDirect(ctx context.Context, current profilesResul
 		p.Policy.Reason = "Cached failed destination addresses; no DIRECT dial for this new flow"
 	}
 	conn, err := open(ctx, q, p)
-	if errors.Is(err, errVideoRelayCapacity) {
-		return c.openVideoOverflow(ctx, q, p, open)
-	}
 	return conn, p, err
 }
 func (c *Controller) directAddressFailed(cur profilesResult, q browserproxy.Request, p browserproxy.Plan) bool {
 	return cur.network != "" && c.browser.directTimeouts.AddressFailed(c.directTimeoutKey(cur, q, p), time.Now())
-}
-
-func ordinaryRelayFallback(q browserproxy.Request, p browserproxy.Plan) bool {
-	if protectedBrowserDomain(q.Host) || !flowpolicy.DomainMatches(q.Host, "googlevideo.com") {
-		return false
-	}
-	switch p.Policy.Source {
-	case "direct_timeout_cache", "direct_open_retry", "direct_stall_retry", "youtube_relay_first":
-		return true
-	}
-	return false
-}
-func (c *Controller) openVideoOverflow(ctx context.Context, q browserproxy.Request, p browserproxy.Plan, open func(context.Context, browserproxy.Request, browserproxy.Plan) (net.Conn, error)) (net.Conn, browserproxy.Plan, error) {
-	p.Policy = flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailOpen, Source: "googlevideo_relay_limit", Reason: "Four googlevideo relay tunnels already active on this PC; this ordinary origin remains DIRECT"}
-	p.Probe = "VIDEO_RELAY_CAPACITY_DIRECT"
-	p.DirectCandidates = nil
-	p.DirectIndex = 2
-	p.DirectDeadline = time.Now().Add(browserDirectAttempt)
-	attempt, stop := directAttemptContext(ctx, p)
-	defer stop()
-	p.DirectAttempts++
-	conn, err := open(attempt, q, p)
-	return conn, p, err
 }

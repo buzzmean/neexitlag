@@ -135,13 +135,11 @@ func TestSilentDirectOriginIsRetriedViaRelayThenCachedRelayFirst(t *testing.T) {
 			t.Fatalf("tunnel %d: %q after %v", i+1, got, took)
 		}
 	}
-	if stats := c.browser.directTimeouts.Stats(); stats.Stalls != 2 || stats.StallRetries != 2 || stats.ActiveOrigins != 1 {
-		// youtube.com and googlevideo.com are different origins: each has one stall, so
-		// neither is cached yet. Drive the second stall of one origin.
-		t.Logf("after two different origins: %+v", stats)
+	if stats := c.browser.directTimeouts.Stats(); stats.Stalls != 2 || stats.StallRetries != 2 || stats.ActiveOrigins != 2 {
+		t.Fatalf("both domains must be cached after their first SNI stall: %+v", stats)
 	}
-	took, _ := browser("www.youtube.com") // second stall for www.youtube.com
-	t.Logf("tunnel 3 (www.youtube.com again): answered via relay after %v (second stall, cache now active)", took.Round(time.Millisecond))
+	took, _ := browser("www.youtube.com") // already cached after the first stall
+	t.Logf("tunnel 3 (www.youtube.com again): answered via relay after %v (cached after first stall)", took.Round(time.Millisecond))
 
 	directBefore := silentSaw.conns()
 	took, got := browser("www.youtube.com") // cached: straight to the relay, no waiting
@@ -154,7 +152,7 @@ func TestSilentDirectOriginIsRetriedViaRelayThenCachedRelayFirst(t *testing.T) {
 	}
 	stats := c.browser.directTimeouts.Stats()
 	t.Logf("direct_timeout_cache: %+v", stats)
-	if stats.Stalls != 3 || stats.StallRetries != 3 || stats.StallRetryFails != 0 || stats.Hits < 1 || stats.ActiveOrigins < 1 {
+	if stats.Stalls != 2 || stats.StallRetries != 2 || stats.StallRetryFails != 0 || stats.Hits < 1 || stats.ActiveOrigins < 1 {
 		t.Fatalf("counters wrong: %+v", stats)
 	}
 	if relaySaw.text() != "CLIENT-HELLOCLIENT-HELLOCLIENT-HELLOCLIENT-HELLO" {

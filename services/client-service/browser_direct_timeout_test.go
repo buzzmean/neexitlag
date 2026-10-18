@@ -260,3 +260,29 @@ func TestYouTubeViaRelaySettingSurvivesSettingsSetAndPersists(t *testing.T) {
 		t.Fatalf("default must stay out of settings.json: %s", b)
 	}
 }
+
+func TestYouTubeFirstClientHelloStallPromotesDomainWithoutAnotherDirectAddress(t *testing.T) {
+	for _, host := range []string{"www.youtube.com", "r.googlevideo.com", "i.ytimg.com"} {
+		c, cur := timeoutFixture(t)
+		q := browserproxy.Request{Host: host, Port: 443, Secure: true}
+		calls := 0
+		_, actual, _ := c.stallRetry(context.Background(), cur, q, boundedDirectPlan(), func(_ context.Context, _ browserproxy.Request, p browserproxy.Plan) (net.Conn, error) {
+			calls++
+			if p.Policy.Action != flowpolicy.RelayRequired {
+				t.Fatal("redundant DIRECT SNI retry")
+			}
+			return nil, errors.New("test relay unavailable")
+		})
+		if calls != 1 || actual.Policy.Action != flowpolicy.RelayRequired {
+			t.Fatal(calls, actual)
+		}
+		if _, ok := c.steerTimedOutOrigin(boundedDirectPlan(), cur, q, time.Now()); !ok {
+			t.Fatal("first stall did not promote domain", host)
+		}
+		other := cur
+		other.network = "another-network"
+		if _, ok := c.steerTimedOutOrigin(boundedDirectPlan(), other, q, time.Now()); ok {
+			t.Fatal("cross-network verdict")
+		}
+	}
+}

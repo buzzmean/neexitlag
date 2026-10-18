@@ -1,6 +1,7 @@
 package clientservice
 
 import (
+	"context"
 	"errors"
 	"github.com/buzzmean/neexitlag/core/browserproxy"
 	"github.com/buzzmean/neexitlag/core/flowpolicy"
@@ -12,7 +13,9 @@ import (
 
 var errVideoRelayCapacity = errors.New("GOOGLEVIDEO_RELAY_CAPACITY")
 
-const videoRelayLimit = 4
+const videoRelayLimit = 8
+const videoRelayWaitLimit = 32
+const videoRelayWait = 2 * time.Second
 const relayUsageCapacity = 1024
 const relayUsageRetention = 10 * time.Minute
 
@@ -30,6 +33,8 @@ type relayMinute struct {
 type relayUsageSnapshot struct {
 	VideoActive    int           `json:"googlevideo_active_tunnels"`
 	VideoLimit     int           `json:"googlevideo_tunnel_limit"`
+	VideoWaiting   int           `json:"googlevideo_waiters"`
+	VideoTimeouts  uint64        `json:"googlevideo_admission_failures"`
 	VideoLimitHits uint64        `json:"googlevideo_limit_events"`
 	OverflowBytes  uint64        `json:"cardinality_overflow_bytes"`
 	Truncated      bool          `json:"truncated"`
@@ -39,6 +44,9 @@ type browserRelayUsage struct {
 	mu                  sync.Mutex
 	minutes             map[relayMinuteKey]relayMinute
 	video               int
+	waiting             int
+	admissionFailures   uint64
+	changed             chan struct{}
 	limitHits, overflow uint64
 }
 
@@ -59,8 +67,67 @@ func (u *browserRelayUsage) acquireVideo() (func(), bool) {
 	}
 	u.video++
 	var once sync.Once
-	return func() { once.Do(func() { u.mu.Lock(); u.video--; u.mu.Unlock() }) }, true
+	return func() {
+		once.Do(func() {
+			u.mu.Lock()
+			u.video--
+			if u.changed != nil {
+				close(u.changed)
+				u.changed = nil
+			}
+			u.mu.Unlock()
+		})
+	}, true
 }
+
+// The caller's existing flow worker waits; no goroutine or unbounded queue is
+// created. Eight active tunnels and at most 32 waiters are shared by both browsers.
+func (u *browserRelayUsage) acquireVideoContext(ctx context.Context) (func(), bool) {
+	if ctx.Err() != nil {
+		return nil, false
+	}
+	if release, ok := u.acquireVideo(); ok {
+		return release, true
+	}
+	u.mu.Lock()
+	if u.waiting >= videoRelayWaitLimit {
+		u.admissionFailures++
+		u.mu.Unlock()
+		return nil, false
+	}
+	u.waiting++
+	u.mu.Unlock()
+	defer func() { u.mu.Lock(); u.waiting--; u.mu.Unlock() }()
+	timer := time.NewTimer(videoRelayWait)
+	defer timer.Stop()
+	for {
+		u.mu.Lock()
+		if u.changed == nil {
+			u.changed = make(chan struct{})
+		}
+		changed := u.changed
+		u.mu.Unlock()
+		if ctx.Err() == nil {
+			if release, ok := u.acquireVideo(); ok {
+				return release, true
+			}
+		}
+		select {
+		case <-changed:
+		case <-ctx.Done():
+			u.mu.Lock()
+			u.admissionFailures++
+			u.mu.Unlock()
+			return nil, false
+		case <-timer.C:
+			u.mu.Lock()
+			u.admissionFailures++
+			u.mu.Unlock()
+			return nil, false
+		}
+	}
+}
+
 func (u *browserRelayUsage) account(profile, domain string, tx, rx uint64, at time.Time) {
 	if tx+rx == 0 {
 		return
@@ -86,7 +153,7 @@ func (u *browserRelayUsage) account(profile, domain string, tx, rx uint64, at ti
 func (u *browserRelayUsage) snapshot() relayUsageSnapshot {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	s := relayUsageSnapshot{VideoActive: u.video, VideoLimit: videoRelayLimit, VideoLimitHits: u.limitHits, OverflowBytes: u.overflow, Minutes: []relayMinute{}}
+	s := relayUsageSnapshot{VideoActive: u.video, VideoLimit: videoRelayLimit, VideoLimitHits: u.limitHits, VideoWaiting: u.waiting, VideoTimeouts: u.admissionFailures, OverflowBytes: u.overflow, Minutes: []relayMinute{}}
 	for _, v := range u.minutes {
 		if time.Since(v.Minute) <= relayUsageRetention {
 			s.Minutes = append(s.Minutes, v)

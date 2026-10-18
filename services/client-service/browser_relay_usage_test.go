@@ -1,6 +1,7 @@
 package clientservice
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"sync"
@@ -11,7 +12,7 @@ import (
 func TestVideoLimitIsPerPCAndReleasesExactlyOnceOnClose(t *testing.T) {
 	u := &browserRelayUsage{minutes: map[relayMinuteKey]relayMinute{}}
 	var release []func()
-	for i := 0; i < 4; i++ {
+	for i := 0; i < videoRelayLimit; i++ {
 		r, ok := u.acquireVideo()
 		if !ok {
 			t.Fatal("under limit rejected")
@@ -19,7 +20,7 @@ func TestVideoLimitIsPerPCAndReleasesExactlyOnceOnClose(t *testing.T) {
 		release = append(release, r)
 	}
 	if _, ok := u.acquireVideo(); ok {
-		t.Fatal("fifth video admitted")
+		t.Fatal("over-limit video admitted")
 	}
 	release[0]()
 	release[0]()
@@ -89,5 +90,80 @@ func TestRelayUsageIsBoundedAndReportsOverflowInsteadOfSilentlyLosingEvidence(t 
 	u.account("p", "new.example", 1, 1, now.Add(relayUsageRetention+time.Minute))
 	if len(u.minutes) != 1 {
 		t.Fatal("retention did not evict old minutes")
+	}
+}
+
+func TestVideoAdmissionWaitsForSlotAndNeverExceedsEight(t *testing.T) {
+	u := &browserRelayUsage{}
+	var held []func()
+	for i := 0; i < videoRelayLimit; i++ {
+		r, ok := u.acquireVideo()
+		if !ok {
+			t.Fatal("capacity")
+		}
+		held = append(held, r)
+	}
+	result := make(chan func(), 1)
+	go func() {
+		r, ok := u.acquireVideoContext(context.Background())
+		if !ok {
+			result <- nil
+			return
+		}
+		result <- r
+	}()
+	deadline := time.Now().Add(time.Second)
+	for u.snapshot().VideoWaiting != 1 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if u.snapshot().VideoWaiting != 1 {
+		t.Fatal("waiter not queued")
+	}
+	select {
+	case <-result:
+		t.Fatal("ninth admitted without slot")
+	default:
+	}
+	held[0]()
+	select {
+	case r := <-result:
+		if r == nil {
+			t.Fatal("released slot not acquired")
+		}
+		r()
+	case <-time.After(time.Second):
+		t.Fatal("waiter stuck")
+	}
+	for _, r := range held[1:] {
+		r()
+	}
+	if u.snapshot().VideoActive != 0 {
+		t.Fatal("permit leaked")
+	}
+}
+func TestVideoAdmissionIsBoundedAndCanceledWaiterDoesNotLeak(t *testing.T) {
+	u := &browserRelayUsage{}
+	var held []func()
+	for i := 0; i < videoRelayLimit; i++ {
+		r, _ := u.acquireVideo()
+		held = append(held, r)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Millisecond)
+	defer cancel()
+	if _, ok := u.acquireVideoContext(ctx); ok {
+		t.Fatal("saturated admitted")
+	}
+	if s := u.snapshot(); s.VideoWaiting != 0 || s.VideoTimeouts != 1 || s.VideoActive != videoRelayLimit {
+		t.Fatal(s)
+	}
+	u.mu.Lock()
+	u.waiting = videoRelayWaitLimit
+	u.mu.Unlock()
+	started := time.Now()
+	if _, ok := u.acquireVideoContext(context.Background()); ok || time.Since(started) > time.Second {
+		t.Fatal("unbounded queue")
+	}
+	for _, r := range held {
+		r()
 	}
 }

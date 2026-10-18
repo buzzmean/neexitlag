@@ -92,7 +92,7 @@ func (c *Controller) steerTimedOutOrigin(plan browserproxy.Plan, current profile
 	if relay == "" {
 		relay = "VPS-01"
 	}
-	plan.Policy = flowpolicy.Result{Action: flowpolicy.RelayRequired, RelayID: relay, Fallback: flowpolicy.Required, Source: "direct_timeout_cache", Reason: "Two distinct DIRECT addresses failed on this network/profile; relay-first pending bounded TLS/HTTP recheck"}
+	plan.Policy = flowpolicy.Result{Action: flowpolicy.RelayRequired, RelayID: relay, Fallback: flowpolicy.Required, Source: "direct_timeout_cache", Reason: "DIRECT failure confirmed on this network/profile; relay-first pending bounded TLS/HTTP recheck"}
 	plan.Probe = "DIRECT_TIMEOUT_CACHED"
 	return plan, true
 }
@@ -145,9 +145,13 @@ func (c *Controller) stallRetry(ctx context.Context, current profilesResult, q b
 		return nil, plan, errors.New("stall retry not allowed for this origin")
 	}
 	if current.network != "" {
-		c.browser.directTimeouts.RecordStall(c.directTimeoutKey(current, q, plan), time.Now())
+		if youtubeDomain(q.Host) {
+			c.browser.directTimeouts.RecordOriginStall(c.directTimeoutKey(current, q, plan), time.Now())
+		} else {
+			c.browser.directTimeouts.RecordStall(c.directTimeoutKey(current, q, plan), time.Now())
+		}
 	}
-	if next, ok := nextDirectPlan(plan); ok && !c.directAddressFailed(current, q, next) {
+	if next, ok := nextDirectPlan(plan); !youtubeDomain(q.Host) && ok && !c.directAddressFailed(current, q, next) {
 		attempt, stop := directAttemptContext(ctx, next)
 		next.DirectAttempts++
 		conn, err := open(attempt, q, next)
@@ -162,9 +166,6 @@ func (c *Controller) stallRetry(ctx context.Context, current profilesResult, q b
 	}
 	next := stallRetryPlan(current, plan)
 	conn, err := open(ctx, q, next)
-	if errors.Is(err, errVideoRelayCapacity) {
-		return c.openVideoOverflow(ctx, q, next, open)
-	}
 	c.browser.directTimeouts.NoteRetry(err == nil)
 	return conn, next, err
 }

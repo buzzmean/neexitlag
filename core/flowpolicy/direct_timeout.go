@@ -130,6 +130,29 @@ func (c *DirectTimeoutCache) RecordStall(k DirectTimeoutKey, now time.Time) bool
 	return c.RecordTimeout(k, now)
 }
 
+// RecordOriginStall promotes a domain after an actual silent ClientHello, when
+// the caller has evidence that address rotation cannot bypass that domain's SNI
+// filtering. It never authorizes DIRECT and retains the normal TTL/recheck.
+func (c *DirectTimeoutCache) RecordOriginStall(k DirectTimeoutKey, now time.Time) {
+	c.RecordStall(k, now)
+	k.Address = ""
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e := c.entries[k]
+	if e == nil {
+		c.makeRoom(now)
+		e = &directTimeoutEntry{}
+		c.entries[k] = e
+	}
+	if !e.active {
+		c.created++
+		e.since = now
+	}
+	e.active = true
+	e.nextProbe = now.Add(DirectTimeoutTTL)
+	e.reason = "DIRECT_ORIGIN_CLIENTHELLO_STALL"
+}
+
 // NoteRetry counts the outcome of a transparent retry through the relay.
 func (c *DirectTimeoutCache) NoteRetry(ok bool) {
 	c.mu.Lock()
