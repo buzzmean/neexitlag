@@ -155,7 +155,7 @@ func (c *DirectTimeoutCache) RecordSuccess(k DirectTimeoutKey) {
 		}
 	}
 	if e := c.entries[k]; e != nil {
-		if e.active {
+		if e.active && k.Address == "" {
 			c.recovered++
 		}
 		delete(c.entries, k)

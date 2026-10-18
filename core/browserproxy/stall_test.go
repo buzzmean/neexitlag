@@ -289,3 +289,52 @@ func TestOversizedFirstFlightIsNotReplayed(t *testing.T) {
 		t.Fatal("more than the replay buffer cannot be replayed safely; the original tunnel must be left alone")
 	}
 }
+
+func TestTwoSilentDirectAddressesThenRelayWithinSharedBudget(t *testing.T) {
+	first, _ := silentOrigin(t, false)
+	second, _ := silentOrigin(t, false)
+	relay, rec := answeringOrigin(t)
+	var opens atomic.Int32
+	a := netip.MustParseAddrPort(first)
+	b := netip.MustParseAddrPort(second)
+	cfg := Config{Authorize: func(context.Context, netip.AddrPort, netip.AddrPort) (Owner, error) { return Owner{PID: 1}, nil },
+		Plan: func(context.Context, Request) (Plan, error) {
+			return Plan{Enabled: true, Destination: a, DirectCandidates: []netip.AddrPort{a, b}, DirectDeadline: time.Now().Add(400 * time.Millisecond), DirectAttempts: 1, Policy: flowpolicy.Result{Action: flowpolicy.Direct}}, nil
+		},
+		Open: func(ctx context.Context, _ Request, _ Plan) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "tcp", first)
+		},
+		OnStall: func(ctx context.Context, _ Request, p Plan) (net.Conn, Plan, error) {
+			n := opens.Add(1)
+			addr := relay
+			if n == 1 {
+				addr = second
+				p.Destination = b
+				p.DirectAttempts = 2
+			} else {
+				p.Policy = flowpolicy.Result{Action: flowpolicy.RelayRequired, Fallback: flowpolicy.Required, RelayID: "VPS-01"}
+			}
+			c, e := (&net.Dialer{}).DialContext(ctx, "tcp", addr)
+			return c, p, e
+		}}
+	s, e := Listen(context.Background(), cfg)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer s.Close()
+	client, reader := connectVia(t, s.Address(), "youtube.com:443")
+	start := time.Now()
+	client.Write([]byte("CLIENT-HELLO"))
+	data := make([]byte, len("SERVER-HELLO"))
+	if _, e = io.ReadFull(reader, data); e != nil {
+		t.Fatal(e)
+	}
+	if opens.Load() != 2 || time.Since(start) > time.Second || rec.get() != "CLIENT-HELLO" {
+		t.Fatal("ladder/budget/replay", opens.Load(), time.Since(start), rec.get())
+	}
+	client.Write([]byte("ESTABLISHED-BYTES"))
+	time.Sleep(30 * time.Millisecond)
+	if opens.Load() != 2 {
+		t.Fatal("established connection retried")
+	}
+}

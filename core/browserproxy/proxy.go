@@ -62,14 +62,17 @@ type Trial struct {
 	DurationMS       int64  `json:"duration_ms"`
 }
 type Plan struct {
-	DNSRecovery *DNSRecoveryResult `json:"dns_recovery,omitempty"`
-	Trials      []Trial            `json:"trials,omitempty"`
-	Network     string             `json:"network"`
-	Enabled     bool               `json:"optimizing"`
-	Policy      flowpolicy.Result  `json:"policy"`
-	Destination netip.AddrPort     `json:"destination"`
-	Probe       string             `json:"probe"`
-	HTTPStatus  int                `json:"http_status,omitempty"`
+	DirectCandidates []netip.AddrPort   `json:"direct_candidates,omitempty"`
+	DirectDeadline   time.Time          `json:"-"`
+	DirectAttempts   int                `json:"direct_attempts,omitempty"`
+	DNSRecovery      *DNSRecoveryResult `json:"dns_recovery,omitempty"`
+	Trials           []Trial            `json:"trials,omitempty"`
+	Network          string             `json:"network"`
+	Enabled          bool               `json:"optimizing"`
+	Policy           flowpolicy.Result  `json:"policy"`
+	Destination      netip.AddrPort     `json:"destination"`
+	Probe            string             `json:"probe"`
+	HTTPStatus       int                `json:"http_status,omitempty"`
 }
 type Record struct {
 	EvidenceSource    string    `json:"evidence_source,omitempty"`
@@ -464,36 +467,10 @@ func (s *Server) handle(c net.Conn) {
 		writeError(c, 502)
 		return
 	}
-	if secure && s.cfg.OnStall != nil && port == 443 && plan.Enabled && plan.Policy.Action == flowpolicy.Direct {
-		original := plan
-		upstream = newStallConn(ctx, upstream, s.cfg.StallTimeout, func(ctx context.Context) (net.Conn, error) {
-			stallCtx, stop := context.WithTimeout(ctx, 5*time.Second)
-			defer stop()
-			next, nextPlan, err := s.cfg.OnStall(stallCtx, q, original)
-			if err != nil {
-				return nil, err
-			}
-			s.mu.Lock()
-			r := s.records[id]
-			r.Plan, r.StallRetried = nextPlan, true
-			s.records[id] = r
-			s.mu.Unlock()
-			return next, nil
-		}, func(stalled, retried bool, err error) {
-			switch {
-			case stalled:
-				s.reject("DIRECT_STALL")
-			case retried:
-				s.reject("DIRECT_STALL_RETRIED_VIA_RELAY")
-			case err != nil:
-				s.reject("DIRECT_STALL_RETRY_FAILED")
-			}
-		}, func() {
-			if s.cfg.OnDirectAnswered != nil {
-				s.cfg.OnDirectAnswered(q, original)
-			}
-		})
+	if secure && port == 443 && plan.Enabled && plan.Policy.Action == flowpolicy.Direct && s.cfg.OnStall != nil {
+		upstream = s.watchDirect(ctx, upstream, q, plan, id, 0)
 	}
+
 	s.mu.Lock()
 	s.conns[upstream] = true
 	s.mu.Unlock()
@@ -548,6 +525,10 @@ func (s *Server) handle(c net.Conn) {
 	result := "TUNNEL_CLOSED"
 	if re != nil || tx.err != nil {
 		result = "TUNNEL_ENDED"
+	}
+	if errors.Is(re, ErrDirectMidstreamStall) {
+		result = "DIRECT_MIDSTREAM_STALL"
+		s.reject(result)
 	}
 	finish(result, uint64(tx.n), uint64(rx))
 }
