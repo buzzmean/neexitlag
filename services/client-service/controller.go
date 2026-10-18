@@ -131,6 +131,7 @@ func New(ctx context.Context) *Controller {
 		k, err := c.localKey(m.Application, m.Destination.String(), m.Protocol)
 		return err != nil || !c.Learned.Quarantined(k, m.StrategyID, time.Now())
 	}
+	c.Selector.SetFlapGuard(optimizer.DefaultFlapGuard())
 	c.Measurements.OnFailure = c.Selector.ReportProbeFailure
 	c.Engine.SetAutoSelector(func(f routing.Flow) routing.Policy {
 		c.mu.Lock()

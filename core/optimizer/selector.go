@@ -73,6 +73,9 @@ type Selection struct {
 	Tertiary  string       `json:"tertiary"`
 	Ranked    []RouteScore `json:"ranked"`
 	Changed   bool         `json:"changed"`
+	// Held names the reason the selector stayed on a faulted route instead of
+	// moving to another route that is not healthy either.
+	Held string `json:"held,omitempty"`
 }
 type RouteSelector struct {
 	mu                                   sync.Mutex
@@ -84,6 +87,50 @@ type RouteSelector struct {
 	history                              RouteHistory
 	current, pending                     string
 	since, pendingSince                  time.Time
+	guard                                FlapGuard
+}
+
+// FlapGuard is client-side switching damping. It is deliberately not part of the
+// signed Parameters document: older clients parse that document strictly, and the
+// damping must hold whatever the server publishes. The zero value disables it.
+type FlapGuard struct {
+	// RelativeImprovement: a voluntary switch must beat the current score by this
+	// fraction of it (scores are in the thousands under loss; 5 units is noise).
+	RelativeImprovement float64
+	// After MaxChanges route changes within Window, a voluntary switch needs Dwell on
+	// the current route. Faults still fail over immediately.
+	Window     time.Duration
+	MaxChanges int
+	Dwell      time.Duration
+	// HoldWithoutHealthyAlternative: when the current route is faulted and the only
+	// candidate is measured unhealthy too, stay put instead of swapping faults.
+	HoldWithoutHealthyAlternative bool
+}
+
+func DefaultFlapGuard() FlapGuard {
+	return FlapGuard{RelativeImprovement: 0.2, Window: 30 * time.Minute, MaxChanges: 3, Dwell: 10 * time.Minute, HoldWithoutHealthyAlternative: true}
+}
+func (s *RouteSelector) SetFlapGuard(g FlapGuard) {
+	s.mu.Lock()
+	s.guard = g
+	s.mu.Unlock()
+}
+
+// dwellLocked is the time a route must have been current before a voluntary switch.
+func (s *RouteSelector) dwellLocked(now time.Time) time.Duration {
+	dwell := s.p.MinimumLifetime
+	if s.guard.MaxChanges > 0 && s.guard.Window > 0 {
+		recent := 0
+		for _, c := range s.history.Changes {
+			if now.Sub(c.At) <= s.guard.Window {
+				recent++
+			}
+		}
+		if recent >= s.guard.MaxChanges && s.guard.Dwell > dwell {
+			dwell = s.guard.Dwell
+		}
+	}
+	return dwell
 }
 
 func New(p Parameters) *RouteSelector {
@@ -226,7 +273,23 @@ func (s *RouteSelector) Select(now time.Time) Selection {
 		best = Direct
 	}
 	unhealthy := math.IsInf(currentScore, 1) && s.current != Direct
-	if best != s.current && (unhealthy || currentScore-lookup(ranked, best) >= s.p.MinimumImprovement) {
+	// Swapping one fault for another only churns connections: when the candidate is
+	// measured unhealthy as well, keep the current route and report why.
+	hold := false
+	if unhealthy && s.guard.HoldWithoutHealthyAlternative && math.IsInf(lookup(ranked, best), 1) {
+		// best has no finite score only when nothing healthy is ranked, so best is the
+		// DIRECT fallback: hold if DIRECT was measured fresh (hence unhealthy); if it
+		// was never measured or is stale, failing over to it stays the safe default.
+		if best == Direct && directFresh {
+			hold = true
+			out.Held = "no_healthy_alternative"
+		}
+	}
+	needed := s.p.MinimumImprovement
+	if s.guard.RelativeImprovement > 0 && !math.IsInf(currentScore, 1) {
+		needed = math.Max(needed, s.guard.RelativeImprovement*currentScore)
+	}
+	if !hold && best != s.current && (unhealthy || currentScore-lookup(ranked, best) >= needed) {
 		if unhealthy {
 			out.Changed = true
 		} else {
@@ -246,7 +309,7 @@ func (s *RouteSelector) Select(now time.Time) Selection {
 			// A lone lossy round is visible in statistics, but is not sustained evidence.
 			currentQuality, candidateQuality := s.qualityLocked(s.current, now), s.qualityLocked(best, now)
 			sustainedLossEvidence := currentQuality.Loss <= candidateQuality.Loss || currentQuality.LossRounds >= 2
-			if now.Sub(s.since) >= s.p.MinimumLifetime && now.Sub(s.pendingSince) >= s.p.ConfirmationPeriod && s.pendingRounds >= 3 && sustainedLossEvidence {
+			if now.Sub(s.since) >= s.dwellLocked(now) && now.Sub(s.pendingSince) >= s.p.ConfirmationPeriod && s.pendingRounds >= 3 && sustainedLossEvidence {
 				out.Changed = true
 			}
 		}
