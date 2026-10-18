@@ -15,6 +15,9 @@ import (
 // Browser AUTO is an origin policy, never a process-wide optimizer winner. Trial
 // profiles and explicit MANUAL/DIRECT/DIRECT+ retain their existing contracts.
 func browserAuto(p profiles.Profile) bool {
+	if edgeSitesProfile(p) {
+		return p.Mode == profiles.Auto && p.Trial == nil
+	}
 	return p.Mode == profiles.Auto && p.Trial == nil && chromeProfile(p)
 }
 func chromeProfile(p profiles.Profile) bool {

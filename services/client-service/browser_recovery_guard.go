@@ -25,7 +25,7 @@ func (c *Controller) publishBrowserGuard(deny bool) error {
 	guard := browserproxy.RecoveryGuard{Version: 1, Deny: deny, Profiles: map[string]browserproxy.RecoveryGuardProfile{}}
 	if !deny {
 		for _, p := range c.Profiles.List() {
-			if !chromeProfile(p) || p.Trial != nil {
+			if (!chromeProfile(p) && !edgeProfile(p)) || p.Trial != nil {
 				continue
 			}
 			entry := browserproxy.RecoveryGuardProfile{Executables: p.Executables, Strict: p.Mode != profiles.Auto && p.Mode != profiles.Direct}

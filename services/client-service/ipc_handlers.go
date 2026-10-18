@@ -215,7 +215,15 @@ func (c *Controller) handleProfileSet(ctx context.Context, raw json.RawMessage) 
 		p.Identity.Helpers = []string{p.Identity.Executable}
 	}
 	prepareAuto(&p)
-	if browserAuto(p) && c.BrowserOwnerSID != "" {
+	if edgeSitesProfile(p) && p.Mode == profiles.Auto && c.BrowserOwnerSID != "" {
+		c.browser.mu.Lock()
+		ready := c.edgeReadyLocked(p)
+		c.browser.mu.Unlock()
+		if !ready {
+			return nil, errors.New("Edge AUTO requires verified Edge PAC before publishing profile")
+		}
+	}
+	if browserAuto(p) && !edgeSitesProfile(p) && c.BrowserOwnerSID != "" {
 		c.browser.mu.Lock()
 		ready := c.browser.recoveryAddress != "" && c.browser.server != nil && c.browser.server.Confirmed(p.ID)
 		c.browser.mu.Unlock()
@@ -261,6 +269,9 @@ func (c *Controller) handleProfileSet(ctx context.Context, raw json.RawMessage) 
 		return nil
 	}); e != nil {
 		return nil, e
+	}
+	if edgeProfile(p) && p.Mode != profiles.Auto {
+		c.forgetEdgeProfile(p.ID)
 	}
 	if chromeProfile(p) && !browserAuto(p) {
 		c.browser.mu.Lock()
@@ -325,6 +336,7 @@ func (c *Controller) handleOptimize(ctx context.Context, raw json.RawMessage) (a
 	c.enabled = v.Enabled
 	c.mu.Unlock()
 	if v.Enabled != wasEnabled {
+		c.closeEdgeConnections()
 		c.browser.mu.Lock()
 		bs := c.browser.server
 		c.browser.mu.Unlock()
@@ -377,6 +389,7 @@ func (c *Controller) handleSettingsSet(ctx context.Context, raw json.RawMessage)
 		return nil, updateErr
 	}
 	if oldSettings.Automatic != s.Automatic {
+		c.closeEdgeConnections()
 		c.browser.mu.Lock()
 		bs := c.browser.server
 		c.browser.mu.Unlock()

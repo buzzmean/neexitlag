@@ -25,6 +25,7 @@ import (
 )
 
 type browserRuntime struct {
+	edge            *edgeRuntime // Independent Edge transport; Chrome fields stay unchanged.
 	dns             *browserproxy.DNSRecovery
 	address         string
 	expectedPAC     string
@@ -60,6 +61,9 @@ func (c *Controller) browserOwner(ctx context.Context, source, local netip.AddrP
 	return browserproxy.Owner{PID: id.PID, Birth: id.CreationTime, Exe: id.Path, Profile: p.ID}, nil
 }
 func (c *Controller) browserProfile(owner browserproxy.Owner) (profilesResult, error) {
+	if edgeExecutable(owner.Exe) {
+		return c.edgeOwnerProfile(owner)
+	}
 	id := wp.ProcessIdentity{PID: owner.PID, CreationTime: owner.Birth, Path: owner.Exe}
 	if !wp.IsCurrent(id) {
 		return profilesResult{}, errors.New("Chrome owner exited/reused")
@@ -619,6 +623,7 @@ func (c *Controller) saveBrowserAddress() error {
 // Restore the existing non-secret local port before normal service startup
 // starts capture. A service restart must not require changing Chrome's PAC.
 func (c *Controller) RestoreBrowserTransport() error {
+	c.restoreEdgeTransport() // Edge failure is diagnosed separately; never prevents Chrome restore.
 	if err := c.publishBrowserGuard(false); err != nil {
 		return err
 	}
@@ -661,12 +666,18 @@ func (c *Controller) RestoreBrowserTransport() error {
 }
 
 func (c *Controller) requireChromeActivation() error {
+	if err := c.requireEdgeActivation(); err != nil {
+		return err
+	}
 	if c.BrowserOwnerSID == "" {
 		return nil
 	} // portable/demo controllers have no Windows owner.
 	c.browser.mu.Lock()
 	defer c.browser.mu.Unlock()
 	for _, p := range c.Profiles.List() {
+		if edgeSitesProfile(p) {
+			continue
+		} // Edge has its own PAC readiness.
 		if browserAuto(p) && (c.browser.recoveryAddress == "" || c.browser.server == nil || !c.browser.server.Confirmed(p.ID) || !wp.ChromeProxyPolicyActive(c.BrowserOwnerSID, c.browser.expectedPAC)) {
 			return errors.New("Chrome AUTO requires verified CONNECT/PAC activation in Applications before Optimize; no capture state changed")
 		}

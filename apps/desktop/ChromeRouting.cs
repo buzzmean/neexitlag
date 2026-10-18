@@ -30,6 +30,7 @@ public partial class MainWindow {
   }catch(Exception error)when(!lifetime.IsCancellationRequested){
    model.SetNotice(Text.Get("ChromeAutoSetupFailed")+" "+error.Message);
   }
+  await EnsureEdgeCoverageAsync(installed);
   var gaps=BrowserCatalog.NotCovered(installed);
   return gaps.Length==0?null:Text.Get("BrowsersNotCovered")+" "+string.Join(", ",gaps)+".";
  }
@@ -73,6 +74,7 @@ public partial class MainWindow {
   try{await ActivateChromeSitesCore(row);}finally{chromeActivating=false;}
  }
  async Task MonitorChromeTransportAsync(bool wasOptimizing){
+  await MonitorEdgeTransportAsync();
   if(chromeActivating||chromeMonitoring||!ChromePolicy.Monitored)return;
   chromeMonitoring=true;
   try{

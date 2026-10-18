@@ -212,6 +212,7 @@ func (c *Controller) Start() {
 }
 func (c *Controller) Close() {
 	c.cancel()
+	c.closeEdge()
 	c.browser.mu.Lock()
 	bs := c.browser.server
 	c.browser.mu.Unlock()
@@ -481,6 +482,18 @@ func (c *Controller) Snapshot() Snapshot {
 	return snapshot
 }
 func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMessage) (result any, err error) {
+	if isEdgeMutation(method) {
+		c.activationMu.Lock()
+		defer c.activationMu.Unlock()
+		if e := c.publishBrowserGuard(true); e != nil {
+			return nil, e
+		}
+		defer func() {
+			if e := c.publishBrowserGuard(false); e != nil && err == nil {
+				result, err = nil, e
+			}
+		}()
+	}
 	switch method {
 	case "optimize", "profile.set", "profile.delete", "settings.set", "local.set", "local.preset.apply", "auto.commit", "browser.prepare", "browser.start", "browser.confirm":
 		c.activationMu.Lock()
@@ -496,6 +509,8 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		}()
 	}
 	switch method {
+	case "edge.prepare", "edge.confirm", "edge.policy", "edge.status":
+		return c.handleEdge(method, raw)
 	case "browser.origin.check":
 		return c.checkBrowserOrigin(ctx, raw)
 	case "browser.start", "browser.prepare", "browser.confirm", "browser.status":
