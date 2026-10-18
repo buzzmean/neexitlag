@@ -4,12 +4,16 @@ namespace Neexitlag.Desktop;
 
 public sealed class EdgeTransportStatus {
  public bool Listening {get;set;} public bool PolicyReady {get;set;} public bool Truncated {get;set;} public ulong Lost {get;set;}
- public string RecoveryAddress {get;set;}=""; public string[] ReadyProfiles {get;set;}=[];
+ public string LastError {get;set;}=""; public string RecoveryAddress {get;set;}=""; public string[] ReadyProfiles {get;set;}=[];
  public BrowserConnection[] Records {get;set;}=[];
  public BrowserTransportSnapshot Snapshot()=>new(){Listening=Listening,RecoveryAddress=RecoveryAddress,ReadyProfiles=ReadyProfiles,Records=Records,Truncated=Truncated,Lost=Lost};
 }
+public sealed class EdgeDomainRow(BrowserConnection connection) {
+ public string Domain=>connection.Domain; public string Route=>connection.Route; public string Reason=>connection.Reason;
+ public string Outcome=>connection.OpenFailure!=""?connection.OpenFailure:connection.Plan.Probe is "HTTP_SUCCESS" or "DNS_RELAY_HTTP_VERIFIED"?$"Origin HTTP {connection.Plan.HttpStatus}; страница Edge не проверена":connection.Plan.Probe;
+}
 public sealed partial class DesktopViewModel {
- public ObservableCollection<BrowserConnection> EdgeDomains {get;}=[];
+ public ObservableCollection<EdgeDomainRow> EdgeDomains {get;}=[];
  public string EdgeState {get;private set;}="Edge: не настроен";
  public async Task<Profile?> EnsureEdgeProfileAsync(IReadOnlyList<InstalledBrowser> installed,CancellationToken ct=default){
   var edge=installed.FirstOrDefault(b=>b.Id=="edge"&&b.AutoSupported);
@@ -41,8 +45,12 @@ public sealed partial class DesktopViewModel {
   await EdgePolicyAsync(original,"guard",ct);
   await RestoreChromeAsync(original,ct); // existing profile-preserving transaction
  }
+ public void ApplyEdgePolicyState(EdgeTransportStatus status){
+  EdgeState=status.LastError!=""?"Edge: "+status.LastError:status.Listening&&status.PolicyReady&&status.ReadyProfiles.Length>0?"Edge CONNECT/PAC готовы; доступность сайтов проверяется отдельно":"Edge PAC не подтверждён / guard: protected-домены без DIRECT";
+  Changed(nameof(EdgeState));
+ }
  public void ApplyEdge(BrowserTransportSnapshot status){
-  Replace(EdgeDomains,status.Records.OrderByDescending(r=>r.Started).ThenByDescending(r=>r.Id).Take(32));
+  Replace(EdgeDomains,status.Records.OrderByDescending(r=>r.Started).ThenByDescending(r=>r.Id).Take(32).Select(r=>new EdgeDomainRow(r)));
   EdgeState=status.Listening?"Edge CONNECT: слушает; AUTO требует подтверждённого PAC":"Edge CONNECT: недоступен; защищённые домены закрыты";
   Changed(nameof(EdgeState));
   foreach(var row in Applications.Where(a=>BrowserCatalog.IsEdge(a.Profile)))row.ApplyEdgeRecords(status);

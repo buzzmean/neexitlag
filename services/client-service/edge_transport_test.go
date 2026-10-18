@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -83,6 +84,17 @@ func TestEdgePolicyJournalBeforeRegistryWriteAndGuardNoDirectLeak(t *testing.T) 
 	c := New(context.Background())
 	defer c.Close()
 	c.BrowserOwnerSID = "owner"
+	if runtime.GOOS == "windows" {
+		self, err := wp.NewDiscovery().Lookup(uint32(os.Getpid()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		c.BrowserOwnerSID, err = wp.ProcessUserSID(self)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	owner := c.BrowserOwnerSID
 	dir := t.TempDir()
 	if err := c.SetCustomPath(filepath.Join(dir, "profiles.json")); err != nil {
 		t.Fatal(err)
@@ -94,7 +106,7 @@ func TestEdgePolicyJournalBeforeRegistryWriteAndGuardNoDirectLeak(t *testing.T) 
 	writes := 0
 	e.write = func(sid string, owned []string, next string) error {
 		writes++
-		if sid != "owner" {
+		if sid != owner {
 			t.Fatal("wrong owner hive")
 		}
 		b, err := os.ReadFile(filepath.Join(dir, "edge-transport.json"))
@@ -185,5 +197,23 @@ func TestEdgeRestoreFailureCannotPreventChromeRestore(t *testing.T) {
 	}
 	if c.browser.edge.lastError == "" || c.browser.edge.server != nil {
 		t.Fatal("invalid Edge state reported healthy")
+	}
+}
+
+func TestEdgeGuardOnlyJournalSurvivesRestartBeforePrepare(t *testing.T) {
+	c := New(context.Background())
+	defer c.Close()
+	dir := t.TempDir()
+	if err := c.SetCustomPath(filepath.Join(dir, "profiles.json")); err != nil {
+		t.Fatal(err)
+	}
+	c.browser.edge = &edgeRuntime{saved: edgeSaved{Owned: []string{edgePolicyValue(edgeClosedPAC(edgeTestProfile()))}}}
+	if err := c.saveEdge(c.browser.edge); err != nil {
+		t.Fatal(err)
+	}
+	c.browser.edge = nil
+	c.restoreEdgeTransport()
+	if c.browser.edge == nil || c.browser.edge.lastError != "" || c.browser.edge.server != nil || len(c.browser.edge.saved.Owned) != 1 {
+		t.Fatal("guard-only ownership lost", c.browser.edge)
 	}
 }

@@ -65,4 +65,9 @@ public class EdgeRoutingTests {
   Assert.Equal(new[]{"edge.confirm"},service.Order);
  }
 
+ [Fact]public void EdgeOriginResultDoesNotClaimPagePassOrReferToChrome(){
+  var row=new EdgeDomainRow(new(){Plan=new(){Probe="DNS_RELAY_HTTP_VERIFIED",HttpStatus=200}});
+  Assert.Contains("страница Edge не проверена",row.Outcome);Assert.DoesNotContain("Chrome",row.Outcome);
+ }
+
 }

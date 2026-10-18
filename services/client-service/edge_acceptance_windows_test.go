@@ -228,7 +228,7 @@ func TestEdgeActualPolicyHTTPSOutageRestart(t *testing.T) {
 			continue
 		}
 		seen[record.Domain] = true
-		if record.Owner.Exe != edge || record.Owner.PID == 0 || record.Owner.Birth == 0 || record.Owner.Profile != p.ID {
+		if !strings.EqualFold(record.Owner.Exe, edge) || record.Owner.PID == 0 || record.Owner.Birth == 0 || record.Owner.Profile != p.ID {
 			t.Fatal("missing real Edge identity", record.Owner)
 		}
 		if record.Domain == "chatgpt.com" && (record.Plan.Policy.Action != flowpolicy.RelayRequired || record.Plan.Policy.Fallback != flowpolicy.Required) {

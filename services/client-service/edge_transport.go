@@ -270,6 +270,11 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (any, error)
 	}
 	switch method {
 	case "edge.prepare":
+		for _, other := range c.Profiles.List() {
+			if other.ID != p.ID && edgeSitesProfile(other) && other.Mode == profiles.Auto {
+				return nil, errors.New("another Edge site profile is active; keep its PAC intact")
+			}
+		}
 		if (p.Mode != profiles.Auto && p.Mode != profiles.Direct) || q.Directory == "" || len(q.Directory) > 2048 {
 			return nil, errors.New("Edge DIRECT/AUTO profile and persistent directory required")
 		}
@@ -391,14 +396,24 @@ func (c *Controller) loadEdgeTransport() error {
 	if err = security.Parse(raw, &saved); err != nil {
 		return err
 	}
-	addr, err := netip.ParseAddrPort(saved.Address)
-	if err != nil || addr.Addr() != netip.MustParseAddr("127.0.0.1") || addr.Port() == 0 || len(saved.Ready) > 128 || len(saved.Owned) > 2 || len(saved.ExpectedPAC) > 128*1024 {
-		return errors.New("invalid saved Edge endpoint/state")
+	if len(saved.Ready) > 128 || len(saved.Owned) > 2 || len(saved.ExpectedPAC) > 128*1024 {
+		return errors.New("invalid saved Edge state")
+	}
+	if saved.Address != "" {
+		addr, err := netip.ParseAddrPort(saved.Address)
+		if err != nil || addr.Addr() != netip.MustParseAddr("127.0.0.1") || addr.Port() == 0 {
+			return errors.New("invalid saved Edge endpoint")
+		}
+	} else if saved.ExpectedPAC != "" || saved.Recovery != "" || len(saved.Ready) != 0 {
+		return errors.New("incomplete saved Edge transport")
 	}
 	c.browser.mu.Lock()
 	defer c.browser.mu.Unlock()
 	e := c.edgeLocked()
 	e.saved = saved
+	if saved.Address == "" {
+		return nil
+	} // Guard-only installation also survives a restart.
 	if err = c.listenEdge(e); err != nil {
 		return err
 	}

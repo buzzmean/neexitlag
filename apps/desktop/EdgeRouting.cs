@@ -43,6 +43,8 @@ public partial class MainWindow {
   var exe=original.Executables.FirstOrDefault(p=>p.Replace('\\','/').Split('/').Last().Equals("msedge.exe",StringComparison.OrdinalIgnoreCase));
   if(exe is null||!Path.IsPathFullyQualified(exe)||!File.Exists(exe))throw new InvalidOperationException("Требуется полный путь установленного msedge.exe");
   if(original.Mode is not ("DIRECT" or "AUTO"))throw new InvalidOperationException("Для Edge-полосы выберите DIRECT или AUTO; существующий профиль не изменён.");
+  var directory=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Microsoft","Edge","User Data");
+  try{
   // SYSTEM refuses foreign policy and installs a mandatory protected-origin guard
   // before asking the user to close Edge. The GUI never writes policy registry.
   if(await EdgeRunning(exe)){
@@ -54,8 +56,6 @@ public partial class MainWindow {
    if(await EdgeRunning(exe))throw new InvalidOperationException("Edge не закрылся. Закройте Edge и фоновые окна Edge; VELIQ не завершает процесс принудительно.");
   }
   await model.EdgePolicyAsync(original,"guard",lifetime.Token);
-  var directory=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Microsoft","Edge","User Data");
-  try{
    await edgeRecovery.StartAsync(lifetime.Token);
    var launch=await model.PrepareEdgeAsync(original,directory,edgeRecovery.Address,lifetime.Token);
    launch.RecoverySettings.Executable=exe;
@@ -87,7 +87,7 @@ public partial class MainWindow {
    var recovery=await edgeRecovery.SnapshotAsync(lifetime.Token);
    snapshot.Records=snapshot.Records.Concat(recovery.Records.Where(r=>r.EvidenceSource=="RECOVERY_DIRECT"&&r.Plan.Policy.Action=="DIRECT")).ToArray();
    snapshot.Lost+=recovery.Lost;snapshot.Truncated|=recovery.Truncated;
-   model.ApplyEdge(snapshot);
+   model.ApplyEdge(snapshot);model.ApplyEdgePolicyState(status);
    if(!status.Listening)model.SetNotice("Служба Edge CONNECT недоступна: ordinary DIRECT recovery, protected-домены закрыты.");
    else if(!status.PolicyReady&&model.Applications.Any(r=>EdgeSites(r.Profile)&&r.Profile.Mode=="AUTO")){
     foreach(var p in model.Applications.Where(r=>EdgeSites(r.Profile)&&r.Profile.Mode=="AUTO").Select(r=>r.Profile.Copy()).ToArray())await model.RestoreEdgeAsync(p,lifetime.Token);
