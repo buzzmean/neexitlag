@@ -32,7 +32,7 @@ Telegram, Claude, ChatGPT, Chrome (профиль Chrome создан вручн
 | diag-скрипт | `tools/windows/diag-no-vpn.ps1` | Claude Code | `claude/serene-cori-msra1u` | передано Codex. готово (`578a45f`, `28841f2`); дальше только по новым данным владельца |
 | Лестница адресов, кэш по (домен, адрес), запасной переход без флага, мидстрим-детектор, ограничитель релея | `core/flowpolicy/direct_timeout.go`, `core/browserproxy/{proxy,stall}.go`, `services/client-service/{browser_direct_timeout,browser_transport}.go`, тесты | Claude Code | — | передано Codex, не начато; план ниже, нужно «да» владельца на старт |
 | `diag-no-vpn.ps1 -Only youtube`: расширение (адреса googlevideo, столбец «процесс») | `tools/windows/diag-no-vpn.ps1` | Claude Code | — | передано Codex; базовая версия `ea4792a` готова |
-| GUI A и YouTube/браузерный proxy B, Edge | `core/browserproxy/*`, `core/flowpolicy/direct_timeout.go`, `services/client-service/browser_*.go`, `controller.go`, `tools/windows/diag-no-vpn.ps1`, Edge-файлы, `apps/desktop-core/DesktopViewModel.cs`, `apps/desktop/MainWindow.xaml.cs`, новые GUI error-boundary файлы и тесты | Codex | `codex/work` | В РАБОТЕ 18.10.2026: A — диагностика и план; B — два DIRECT адреса/≤3 с, relay-first TTL 10 мин, лимит googlevideo=4, поминутные байты. QUIC/IPv6 только аудит до отдельного «да» |
+| GUI A и YouTube/браузерный proxy B, Edge | `core/browserproxy/*`, `core/flowpolicy/direct_timeout.go`, `services/client-service/browser_*.go`, `controller.go`, `tools/windows/diag-no-vpn.ps1`, Edge-файлы, `apps/desktop-core/DesktopViewModel.cs`, `apps/desktop/MainWindow.xaml.cs`, новые GUI error-boundary файлы и тесты, `docs/BROWSER_DIRECT_FALLBACK.md`, `docs/EDGE_SITE_ROUTING.md` | Codex | `codex/work` | В РАБОТЕ 18.10.2026: A — диагностика и план; B — два DIRECT адреса/≤3 с, relay-first TTL 10 мин, лимит googlevideo=4, поминутные байты. QUIC/IPv6 только аудит до отдельного «да» |
 
 | Discord медленно, DIRECT+ для YouTube | не определены | никто | — | свободно для Codex после диагностики; Go-файлы застоя (выше) не трогать |
 | PR #8, `codex/direct-plus-flowseal` | — | не трогать | — | только владелец |
@@ -150,3 +150,19 @@ CI: GitHub connector возвращает пустой список запуск
 Осталось: получить actual C#/WPF/Windows CI; коротко проверить Edge на ПК владельца без VPN. Существующий Edge MANUAL/DIRECT/старый relay-first профиль не мигрирует автоматически — opt-in через «Сайты Edge AUTO». Edge предупредит «Управляется вашей организацией»; «Отключить PAC Edge» освобождает ordinary DIRECT и сохраняет protected guard. Recovery требует GUI; после утраты per-user recovery-state повторная активация проверяет новый процесс, а не доверяет старому ready-флагу. VPS/credentials/certificates/PR #8 не менялись, ветка `codex/direct-plus-flowseal` сохранена.
 
 На ПК: выполнить [обычную пересборку/обновление службы с SHA256-проверкой](../EDGE_SITE_ROUTING.md), включить Edge в VELIQ, VPN OFF, затем `& .\tools\windows\diag-no-vpn.ps1 -Only browser`; `diag-result.txt` не коммитить. До подтверждения Windows CI не считать этот код готовым production-релизом.
+
+
+### Уточнение владельца и прогресс Codex, 18.10.2026
+
+- Разрешены задачи A/B; обращения за разрешением больше не нужны без блокера.
+- Реестр после отказа Edge уже содержал owned `ProxySettings`: первоначальный отказ
+  не доказан как ошибка выбора строки. Подтверждены дефекты порядка guard до listener,
+  раннего выхода отката без профиля и общего GUI-обработчика, очищавшего таблицу.
+- A: `9435dbf`, `0f5788d`, `430d323`: граница ошибок GUI, listener/recovery до live PAC,
+  guarded rollback без профиля, phase/code в GUI + `edge.status.last_error`, новый AUTO pending.
+  Go-регрессии проходят; .NET/WPF и живой Windows/ISP здесь не исполнялись.
+- B: `5895d4b`, `a65e6ab`: адресный/доменный кэш, bounded first-flight и midstream.
+  Дальше: интеграция service fallback/лимитера/байт, полный race/vet/build, диагностика.
+- Область нового документа `docs/BROWSER_DIRECT_FALLBACK.md` закреплена за Codex:
+  семантика отказов/лимитов, read-only QUIC/IPv6-аудит и команды владельцу. Маршруты
+  QUIC/IPv6 до отдельного «да» НЕ менять.
