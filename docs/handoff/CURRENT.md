@@ -1,6 +1,6 @@
 # CURRENT — состояние проекта (обновляется в конце каждой сессии)
 
-Обновлено: 18.10.2026, Claude Code передал работу Codex; ветка `claude/serene-cori-msra1u`.
+Обновлено: 18.10.2026, Codex; рабочая ветка `codex/work`. История передачи Claude сохранена ниже.
 
 ## (a) Цель
 Чистый Windows 10/11: установил, нажал «Оптимизировать» — заблокированные в РФ сервисы работают без VPN: ChatGPT, Claude, YouTube, Discord, Telegram, браузеры Chrome и Edge. Первый заказчик — клуб на 36 ПК с откатом при перезагрузке.
@@ -8,14 +8,18 @@
 ## (b) Состояние на 18.10.2026
 - VPS 2.56.177.4 обновлён по PR #8 (17.10). Сертификат релея и control-plane продлён до 16.01.2027 (следующее продление ~2.01.2027).
 - Потери UDP до VPS в покое: 0%.
-- На ПК владельца установлена служба из ветки `claude/serene-cori-msra1u`. Проверка: `Get-FileHash bin\windows-e2e\neexitlag-service.exe` (SHA256 должен совпасть с `%ProgramData%\neexitlag\neexitlag-service.exe`). Последний известный хеш начинался с `5A7C3BCB` (сборка до `28841f2`; в status поле `build` покажет коммит новых сборок).
-- Службу на ПК нужно пересобрать, чтобы получить коммиты `28841f2`..`9bb43bd` (отпечаток сборки, флаг YouTube).
+- Последний предоставленный Windows build: `1ceaf07ce96d+modified`, connected/optimizing true.
+- Chrome CONNECT/PAC ready. Edge после отказа: listener/policy false, ready_profiles пуст;
+  owned ProxySettings успел появиться. Дефекты транзакции/ошибок исправлены в codex/work;
+  нужен новый service **и** GUI, SHA256 built==installed. VPS update не нужен.
+- Код A/B завершён (см. (k)), Go-проверки PASS. C#/WPF и реальные Windows/ISP результаты
+  этой версии не получены; CI для ветки пока не виден через доступный API.
 
 ## (c) Что работает на живом ПК
 Telegram, Claude, ChatGPT, Chrome (профиль Chrome создан вручную).
 
 ## (d) Открыто
-- YouTube: DIRECT без ответа (гипотеза: блокировка по SNI; проверяет секция `sni` в diag). Прозрачный повтор через релей реализован, но за флагом `youtube_via_relay` (по умолчанию выключен) до ответа владельца про канал и лимит трафика VPS.
+- YouTube: по отчёту владельца TCP к каждому из 8 A-адресов не подключается за 6 с, поэтому это не доказательство SNI-specific блокировки. В codex/work fallback независим от флага, максимум 2 DIRECT IPv4-адреса/3 с, доменный TTL 10 минут; ждём короткий Windows ретест.
 - Edge-полоса реализована в `codex/work` (коммиты `c017322`, `9d66683`, `91d78c7`, `78dc824`, `a18967c`): отдельные PAC/CONNECT/recovery, owner-SID policy через службу, guarded rollback. Реальная Windows/ISP-проверка и C#/WPF-компиляция пока НЕ подтверждены; см. (j) и `docs/EDGE_SITE_ROUTING.md`.
 - Discord медленно (headless Chrome: 15.4 с до DOM); причина не найдена.
 - DIRECT+ для YouTube выключен по умолчанию; путь привязки к Chrome AUTO не разобран до конца (`ApplyPresetAsync` ставит DIRECT+ на весь профиль).
@@ -32,19 +36,18 @@ Telegram, Claude, ChatGPT, Chrome (профиль Chrome создан вручн
 | diag-скрипт | `tools/windows/diag-no-vpn.ps1` | Claude Code | `claude/serene-cori-msra1u` | передано Codex. готово (`578a45f`, `28841f2`); дальше только по новым данным владельца |
 | Лестница адресов, кэш по (домен, адрес), запасной переход без флага, мидстрим-детектор, ограничитель релея | `core/flowpolicy/direct_timeout.go`, `core/browserproxy/{proxy,stall}.go`, `services/client-service/{browser_direct_timeout,browser_transport}.go`, тесты | Claude Code | — | передано Codex, не начато; план ниже, нужно «да» владельца на старт |
 | `diag-no-vpn.ps1 -Only youtube`: расширение (адреса googlevideo, столбец «процесс») | `tools/windows/diag-no-vpn.ps1` | Claude Code | — | передано Codex; базовая версия `ea4792a` готова |
-| GUI A и YouTube/браузерный proxy B, Edge | `core/browserproxy/*`, `core/flowpolicy/direct_timeout.go`, `services/client-service/browser_*.go`, `controller.go`, `tools/windows/diag-no-vpn.ps1`, Edge-файлы, `apps/desktop-core/DesktopViewModel.cs`, `apps/desktop/MainWindow.xaml.cs`, новые GUI error-boundary файлы и тесты, `docs/BROWSER_DIRECT_FALLBACK.md`, `docs/EDGE_SITE_ROUTING.md` | Codex | `codex/work` | В РАБОТЕ 18.10.2026: A — диагностика и план; B — два DIRECT адреса/≤3 с, relay-first TTL 10 мин, лимит googlevideo=4, поминутные байты. QUIC/IPv6 только аудит до отдельного «да» |
-
+| GUI A и YouTube/браузерный proxy B, Edge | `core/browserproxy/*`, `core/flowpolicy/direct_timeout.go`, `services/client-service/browser_*.go`, `controller.go`, `tools/windows/diag-no-vpn.ps1`, Edge-файлы, `apps/desktop-core/DesktopViewModel.cs`, `apps/desktop/MainWindow.xaml.cs`, новые GUI error-boundary файлы и тесты, `.github/workflows/edge-native.yml`, `tests/desktop/*`, `docs/BROWSER_DIRECT_FALLBACK.md`, `docs/EDGE_SITE_ROUTING.md` | Codex | `codex/work` | ЗАВЕРШЕНО 18.10.2026: A/B закоммичены и запушены; файлы освобождены. Windows/C#/CI не подтверждены. QUIC/IPv6 только аудит, реализация ждёт отдельного «да» |
 | Discord медленно, DIRECT+ для YouTube | не определены | никто | — | свободно для Codex после диагностики; Go-файлы застоя (выше) не трогать |
 | PR #8, `codex/direct-plus-flowseal` | — | не трогать | — | только владелец |
 
-Для Codex, без пересечения: Edge-«полоса» (после «да» владельца) или разбор Discord/DIRECT+ в `core/localstrategy/` и `services/client-service/browser_flow*.go`. Перед стартом пометить строку здесь и сделать `git pull`.
+Строки Claude со статусом «передано Codex» сохранены как история; старые «нужно да»/запреты области не отменяют разрешение владельца на A/B. Новую работу снова помечать перед правками по PROTOCOL.md. QUIC/IPv6 routing менять только после отдельного «да».
 
 
 Новые ветки: `claude/<тема>`, `codex/<тема>`, база — `claude/serene-cori-msra1u`.
 
 ## (f) Сборка и установка службы на ПК (по CLAUDE.md / docs/AGENT_RULES.md)
 Только по просьбе владельца, на его ПК:
-1. Закрыть Chrome и GUI («Выход» в трее). `git branch --show-current` = `claude/serene-cori-msra1u`, `git pull`.
+1. Закрыть Chrome, Edge и GUI («Выход» в трее). Сохранить локальные правки; `git switch codex/work`, `git pull --ff-only origin codex/work`. Полный stop-on-error блок: [BROWSER_DIRECT_FALLBACK.md](../BROWSER_DIRECT_FALLBACK.md#обновление-windows-без-vps).
 2. Обычное окно PowerShell: `& .\tools\windows\build-e2e.ps1`, затем `& .\tools\windows\build-desktop.ps1`.
 3. Elevated PowerShell под тем же SID владельца: `& .\tools\windows\update-service.ps1`.
 4. Обычное окно: `& .\tools\windows\install-desktop.ps1`.
@@ -54,13 +57,17 @@ Telegram, Claude, ChatGPT, Chrome (профиль Chrome создан вручн
 Запрещено: `update-vps.ps1`, `install.ps1`, `uninstall.ps1`, `setup-e2e.ps1`, `tools/vps-provision`, `tools/enroll`.
 
 ## (g) Как проверить без VPN
-`& .\tools\windows\diag-no-vpn.ps1` (запускать из репозитория, не из старых копий; версия в шапке отчёта — `2026-10-18.5` или новее). Смотреть шапку (версия, коммит, `build` службы), разделы `sni`, `1b`, `1d` (`direct_stalls_total`, `stall_retries_via_relay`), `1f` (`probe_accounting`).
+`& .\tools\windows\diag-no-vpn.ps1` (запускать из репозитория, не из старых копий; версия в шапке отчёта — `2026-10-18.7` или новее). Смотреть шапку (версия, коммит, `build` службы), разделы `sni`, `1b`, `1d` (`direct_stalls_total`, `stall_retries_via_relay`), `1f` (`probe_accounting`).
 Доказательство: хеши службы совпадают и есть живая проверка на ПК владельца. Зелёный CI, лаборатория и Go-тесты доказательством работы на ПК не являются.
-Управление флагом YouTube: `settings.set` с полным объектом Settings и `"youtube_via_relay": true` (по умолчанию выключен).
+Управление флагом YouTube: `settings.set` с полным объектом Settings и `"youtube_via_relay": true` означает relay-first сразу для ordinary YouTube. По умолчанию выключен; аварийный fallback от него не зависит. Configured DIRECT+ и protected rules не заменяются.
 
 ## (h) Журнал решений
 | Дата | Решение | Почему |
 |---|---|---|
+| 18.10.2026 | A: live PAC только после listener/recovery ACK; при отказе owned static guard, включая отсутствие профиля; AUTO pending для нового msedge | По данным владельца guard записывался до запуска listener, generic GUI catch стирал приложения. Mandatory PAC сохраняется ради protected fail-closed; чужая политика не удаляется |
+| 18.10.2026 | B: fallback без флага, два IP/3 с, два разных отказа → домен relay-first TTL 10 мин, максимум четыре googlevideo CONNECT relay на ПК | Владелец подтвердил отсутствие DIRECT TCP ко всем восьми IP. Лестница из восьми адресов не помогает; VPS 1 vCPU/2 GiB, неизвестен лимит трафика |
+| 18.10.2026 | Перед retry закрыть неответивший Engine tuple; не повторять TLS early/application data; первый байт/ACK не очищает cache verdict | `ErrFlowExists` мешал повторному OPEN того же tuple; safety и отсутствие ложного HTTP PASS |
+| 18.10.2026 | QUIC/IPv6 только аудит: IPv6 guard уже есть, HTTP/3 DIRECT не разрешать по guessed IP | Нужна реальная origin/socket/protocol корреляция; отдельного «да» на изменение политики нет |
 | 18.10.2026 | Edge: раздельные listener/PAC/recovery и состояние, запись HKU owner SID только службой; три общих файла изменены только добавлениями в `91d78c7` | Разрешено владельцем после синхронизации с `90d4817`; legacy Edge relay-first не меняется без явного `app_preset=edge-sites`; protected guard сохраняется при отказе/удалении профиля |
 | 18.10.2026 | Codex: DNS-fix не переносить повторно; Edge-полоса разрешена, реализация ждёт согласования минимальных правок занятых файлов | DNS-коммиты уже входят в базу. Синхронизация: merge `221045f`. Служба допускает только Chrome и проверяет один Chrome PAC; запись HKCU сейчас выполняет GUI. Нужны точки интеграции в `browser_transport.go`, `controller.go`, `ChromeRouting.cs`; код не менялся, на ПК пока ничего запускать не нужно |
 | 18.10.2026 | C2 (relay-first claude.ai в браузере) не включать | C1 (кэш таймаутов) покрывает |
@@ -124,7 +131,9 @@ Telegram, Claude, ChatGPT, Chrome (профиль Chrome создан вручн
 Подробности — `docs/STATUS.md`, `docs/BLOCKERS.md`.
 
 
-## (j) Codex — Edge-полоса, 18.10.2026
+## (j) Исторический handoff первой Edge-полосы, 18.10.2026
+
+Данные и номера строк в этом разделе относятся к `1ceaf07`. Актуальные A/B изменения — раздел (k); старые утверждения «не изменены» не описывают новые разрешённые правки.
 
 Синхронизация: `git fetch origin`, merge `221045f` с `90d4817`; конфликт таблицы разрешён по явному решению владельца. DNS-fix повторно не переносился.
 
@@ -166,3 +175,104 @@ CI: GitHub connector возвращает пустой список запуск
 - Область нового документа `docs/BROWSER_DIRECT_FALLBACK.md` закреплена за Codex:
   семантика отказов/лимитов, read-only QUIC/IPv6-аудит и команды владельцу. Маршруты
   QUIC/IPv6 до отдельного «да» НЕ менять.
+
+
+## (k) Итог задач A/B Codex, 18.10.2026
+
+Код: `9435dbf`, `0f5788d`, `430d323`, `5895d4b`, `a65e6ab`, `0092c56`,
+`79dfaaa`, `d4fedab`, `f46ed9d`, `b50f0e6`, `d86f4a6`, `c21995a`, `a1e7b5f`, `ad3c69c`, `dea7ab7`, `5271669`. Ветка только codex/work,
+без rebase/force, без merge PR #8 и без изменения VPS/credentials/certificates.
+
+**A — подтверждённые дефекты и исправления.**
+- Generic GUI Execute catch вызывал SetUnavailable, стирал Applications и выключал
+  CanControl при ошибке отдельной операции. Теперь Edge rejection/recovery failures
+  сохраняют таблицу; настоящая потеря authenticated core status обрабатывается отдельно.
+- Кнопка больше не требует предварительно выбранной строки при единственном Edge.
+  В реальном отказе registry уже был записан: точная фаза старого отказа без last_error
+  не установлена, ошибка выбора строки не выдаётся за доказанную причину этого прогона.
+- recovery start → edge.prepare listener/profile/nonce → configuration ACK → guard/quit
+  → service live PAC → настоящий headless policy probe → edge.confirm → profile.set AUTO.
+  Новая AUTO identity имеет edge-sites-pending; внешние flows fail-closed до activation,
+  затем edge-sites. Старый DIRECT не был причиной отказа подготовки: этот режим разрешён.
+- Read-only `edge.status.activation_version >= 2` проверяется новым GUI до создания
+  pending AUTO/записи PAC, в том числе при ручном добавлении msedge. Старой службе не
+  отправляется неизвестный pending-профиль; обновлять нужно service и GUI вместе.
+  Capability version не выдаётся за listener/PAC readiness.
+- Откат через service writer без профиля, journal ownership, перенос custom protected
+  suffixes из старого PAC, строгий guard при повреждённом состоянии. Чужие proxy keys не
+  меняются. GUI показывает ordinary DIRECT только если service вернул ordinary_direct.
+- Ошибки публикации recovery guard до listener/после handleEdge тоже фиксируются
+  в last_error, с безопасным кодом вместо OS path/данных.
+- Отдельно различаются `EDGE_IPC_ACCESS_DENIED`, `EDGE_GUARD_STATE_WRITE_FAILED`
+  и `EDGE_POLICY_ACCESS_DENIED`: pipe/SID, файл guard и registry не смешиваются.
+- last_error всегда присутствует в edge.status; GUI показывает безопасные phase/code
+  и русский текст. Ошибка сохраняется в EdgeState после timer refresh; безопасный
+  `%LOCALAPPDATA%\NeExitLag\gui-failure.json` содержит phase/code/type/time.
+- `%ProgramData%\neexitlag\logs` не создаётся текущим установщиком: slog идёт в stderr;
+  SCM журнал — только lifecycle. Команды IPC/GUI diagnostics в EDGE_SITE_ROUTING.md.
+  Кто удалил ProxySettings в первоначальном тесте, по имеющимся данным не установлен.
+
+**B — что изменилось.**
+- TCP open timeout/refused/no-route: не больше двух разных IPv4 DNS адресов, общий DIRECT
+  deadline 3 с, затем relay до 502. Source/probe/attempts отражают фактическое решение.
+- Address cache и доменный verdict: два разных IP/60 с → TTL 10 мин; bounded фоновые
+  перепроверки с настоящими TLS/certificate/GET, не более четырёх probe sockets.
+  Ни ACK, ни первый TLS byte не очищает verdict. Сеть/профиль/домен/порт/IP изолированы.
+- Нет флаговой блокировки аварийного fallback; youtube_via_relay теперь только relay-first
+  preference. Protected, explicit rules, intranet и configured DIRECT+ не понижаются.
+- `direct_attempts` — количество реальных вызовов открытия, а не индекс кандидата:
+  при полном cache hit равно нулю. Слот адреса отдельно `direct_address_slot`.
+- Silent first flight безопасно повторяется только до ответа; TLS early data запрещены.
+  Старый сокет освобождает Engine tuple до открытия нового. Established application
+  bytes никогда не мигрируют/не повторяются.
+- Midstream googlevideo: после ответа и новой исходящей записи 10 с без входящих байт
+  закрывает только этот DIRECT сокет и отмечает домен/IP для следующего connection.
+- Четыре googlevideo CONNECT relay tunnels на ПК, сверх ordinary AUTO — DIRECT;
+  required/custom protected не понижаются. Если DIRECT заблокирован ISP, overflow может
+  не работать — лимит не является обещанием просмотра на 36 ПК.
+- Shared relay_usage: реальные active I/O bytes/minute/profile/domain, не probes и не
+  QUIC framing. Retention 10 мин/1024 keys/64 IPC rows; truncation/overflow видимы.
+- diag-no-vpn.ps1 -Only youtube v2026-10-18.7: Chrome+Edge/PID/exe, IP/domain cache,
+  minute bytes, system/8.8.8.8 DNS, реальные googlevideo hostnames и SNI-контроли.
+  DOM RECEIVED не выдаётся за полный site PASS.
+
+**Проверки.** Full Go race/vet, Linux build, Windows amd64 build/vet PASS; cross-compiled
+service/capture Windows tests; 21 Python deployment regression PASS. Focused тесты:
+ошибки listener/ACL/чужой policy/старого guard/удалённого профиля; pending AUTO;
+два разных IP и TTL; два молчащих DIRECT сокета → relay; настоящий routing.Engine tuple;
+no protected downgrade; cache не очищается по ACK/одному TLS байту; midstream progress,
+idle timeout, лимит/release/concurrency, minute bytes/cardinality bounds.
+
+C#/WPF **не компилировались локально** (.NET нет); native Windows/ISP здесь не запускались.
+Новые C# регрессии и PowerShell 5.1/7 AST checks включены в Edge CI. Connector для свежих
+HEAD возвращает workflow_runs=[], gh API Forbidden; CI PASS НЕ подтверждён:
+[Edge workflow](https://github.com/buzzmean/neexitlag/actions/workflows/edge-native.yml),
+[запуски codex/work](https://github.com/buzzmean/neexitlag/actions?query=branch%3Acodex%2Fwork).
+
+**Осталось владельцу/следующей сессии.** Получить Windows/C# CI, один короткий Edge
+activation и YouTube check после обновления обоих бинарников. Никакого 65-минутного
+теста не требуется. QUIC/IPv6: только анализ завершён; код маршрутизации не менялся.
+Нужны metadata protocol/socket evidence и отдельное «да» перед реализацией DIRECT QUIC.
+Read-only команды Windows/VPS и риски 1 vCPU описаны в BROWSER_DIRECT_FALLBACK.md.
+Поддержка IPv6 relay/HTTP3 DIRECT и Internet PASS этой версии НЕ заявляются.
+
+На ПК: закрыть Chrome/Edge/GUI, выполнить один stop-on-error блок обновления из
+[BROWSER_DIRECT_FALLBACK.md](../BROWSER_DIRECT_FALLBACK.md#обновление-windows-без-vps),
+запустить GUI обычным пользователем → «Сайты Edge AUTO» → VPN OFF →
+`& .\tools\windows\diag-no-vpn.ps1 -Only youtube,browser`. Не коммитить diag-result.txt.
+
+
+Точки изменений общих файлов на code HEAD `5271669`:
+- `controller.go:322` — pending AUTO guard; `controller.go:490` — Edge mutation
+  transaction, включая новый error-boundary в строках 493–503. Edge IPC dispatch
+  дополнен `edge.failure` (только безопасные коды, существующая owner-auth не менялась).
+- `browser_transport.go:163` — actual I/O meter/video permit/midstream wrapper;
+  `:226` — общий deadline и максимум два IPv4 кандидата только ordinary YouTube;
+  `:509`/`:516` — bounded status с cache/usage; `:586`/`:696` — OpenPlan + strict
+  ClientHello-only retry для обоих путей восстановления listener.
+- `apps/desktop/ChromeRouting.cs` в задачах A/B не менялся; его первоначальные две
+  Edge-точки остаются в `91d78c7`. Логика Chrome PAC/YouTube strategy не переписывалась.
+
+Владение освобождено; следующей сессии прочитать (k), сохранить историю Claude и
+сначала fetch/pull. Код для Windows ретеста — `5271669`; последующий HEAD содержит
+только финальную документацию/версию diag. Полные Go-логи тестов не коммитились.

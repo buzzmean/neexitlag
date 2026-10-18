@@ -7,7 +7,7 @@ VPS отдаёт HTTP 200. Это отчёт владельца, не новый
 
 ## Решение и границы доказательств
 
-- `youtube_via_relay=false`: максимум два разных адреса из системного DNS, общий
+- `youtube_via_relay=false`: максимум два разных IPv4-адреса из системного DNS, общий
   DIRECT budget 3 с, отдельный connect до 1300 мс. DNS входит в общий бюджет.
   Отказ/timeout/no-route до CONNECT 200 не отдаёт сразу 502: пробуется второй
   адрес, затем authenticated RELAY_REQUIRED VPS-01. Контекст отмены не повторяется.
@@ -76,7 +76,7 @@ cardinality overflow bytes. Counters обновляются во время пр
 $ErrorActionPreference='Stop'
 cd C:\neexitlag
 if (@(git status --porcelain).Count) { throw 'Есть локальные правки: сохраните их перед обновлением' }
-git fetch origin
+git fetch origin refs/heads/codex/work:refs/remotes/origin/codex/work
 if ($LASTEXITCODE) { throw 'fetch failed' }
 git switch codex/work
 if ($LASTEXITCODE) { throw 'Не удалось переключить codex/work: не продолжайте' }

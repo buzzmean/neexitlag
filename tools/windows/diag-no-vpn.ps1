@@ -207,7 +207,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-18.6 (-Only youtube, SNI table, 8443 exit-code verdict, build stamps)'
+$ScriptVersion='2026-10-18.7 (Chrome+Edge, address/domain cache, minute relay bytes, guarded Edge errors)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
