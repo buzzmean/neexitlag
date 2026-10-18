@@ -9,22 +9,27 @@ import (
 	"github.com/buzzmean/neexitlag/core/routing"
 	"github.com/buzzmean/neexitlag/core/security"
 	windowsplatform "github.com/buzzmean/neexitlag/platform/windows"
+	"log/slog"
 	"strings"
 	"time"
 )
 
 func (c *Controller) watchNetwork() {
+	// The route fingerprint is cheap and gates AUTO/Chrome freshness; the process
+	// and module conflict scan is slow, so it runs on its own cadence and never
+	// delays or invalidates the fingerprint.
+	c.wg.Add(1)
+	go func() { defer c.wg.Done(); c.watchConflicts() }()
 	tick := time.NewTicker(30 * time.Second)
 	defer tick.Stop()
 	for {
 		ctx, cancel := context.WithTimeout(c.ctx, 8*time.Second)
-		n := windowsplatform.InspectNetwork(ctx)
+		n := windowsplatform.InspectNetwork(ctx, c.NetworkHostRoutes)
 		cancel()
 		if n.Error != "" {
-			if previous := c.network.Load(); previous != nil {
-				n.Conflicts = append([]string(nil), previous.Conflicts...)
-			}
+			slog.Warn("network inspection failed; AUTO waits for a fresh fingerprint", "error", n.Error)
 		}
+		c.mergeConflicts(&n)
 		c.network.Store(&n)
 		c.Local.Suspend(len(n.Conflicts) > 0)
 		c.Learned.Cleanup(time.Now())
@@ -33,6 +38,43 @@ func (c *Controller) watchNetwork() {
 			return
 		case <-tick.C:
 		}
+	}
+}
+func (c *Controller) watchConflicts() {
+	tick := time.NewTicker(2 * time.Minute)
+	defer tick.Stop()
+	for {
+		ctx, cancel := context.WithTimeout(c.ctx, 20*time.Second)
+		scan := windowsplatform.InspectConflicts(ctx)
+		cancel()
+		if scan.Error != "" {
+			slog.Warn("conflict scan failed; previous conflicts are kept, none are assumed", "error", scan.Error)
+		} else {
+			c.conflicts.Store(&scan)
+			if n := c.network.Load(); n != nil {
+				merged := *n
+				c.mergeConflicts(&merged)
+				c.network.Store(&merged)
+			}
+			c.Local.Suspend(len(scan.Conflicts) > 0)
+		}
+		select {
+		case <-c.ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
+}
+func (c *Controller) mergeConflicts(n *windowsplatform.NetworkContext) {
+	scan := c.conflicts.Load()
+	if scan == nil {
+		n.ConflictScan = "conflict scan has not completed; conflicts unknown"
+		return
+	}
+	n.Conflicts = append([]string(nil), scan.Conflicts...)
+	n.ConflictsObservedAt = scan.ObservedAt
+	if scan.Incomplete {
+		n.ConflictScan = "some process modules inaccessible; conflict scan incomplete"
 	}
 }
 func (c *Controller) localKey(app, dest, protocol string) (localstrategy.TargetKey, error) {

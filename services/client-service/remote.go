@@ -115,6 +115,7 @@ func (c *Controller) ConnectRemote(ctx context.Context, m Manifest) error {
 	if e != nil {
 		return errors.New("explicit UDP echo probe target required")
 	}
+	c.NetworkHostRoutes = []netip.Addr{target.Addr()}
 	remote := &remoteState{controller: c, cp: cp, tls: cfg, target: target, addresses: make(map[string]string), clients: make(map[string]*transport.Pool)}
 	if m.ProbeTokenFile != "" {
 		remote.echoKey, e = e2eprobe.Token(m.ProbeTokenFile)

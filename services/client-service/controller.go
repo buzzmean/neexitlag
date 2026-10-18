@@ -73,23 +73,26 @@ type Controller struct {
 	selfExecutable  string
 	BrowserOwnerSID string // Existing installation owner; restrict the loopback endpoint to this user.
 	// In-process fixture injection only; production uses the system resolver/roots.
-	BrowserRecoveryExecutable   string                 // In-process fixture only; production authenticates its own installed binary.
-	BrowserAlternativeDNS       browserproxy.DNSLookup // In-process fixture only; no IPC/config override.
-	BrowserResolver             *net.Resolver
-	BrowserProbeRoots           *x509.CertPool
-	browser                     *browserRuntime
-	activationMu                sync.Mutex
-	relayPools                  map[string]*transport.Pool
-	autoJobs                    map[string]autoLease
-	groupBindings               map[uint32]groupBinding
-	autoMu                      sync.Mutex
-	AutoLearned                 *flowpolicy.Learning
-	groupMu                     sync.Mutex
-	groupAt                     time.Time
-	groupAll                    []profiles.Identity
-	discovery                   windowsplatform.Discovery
-	Learned                     *localstrategy.Cache
-	network                     atomic.Pointer[windowsplatform.NetworkContext]
+	BrowserRecoveryExecutable string                 // In-process fixture only; production authenticates its own installed binary.
+	BrowserAlternativeDNS     browserproxy.DNSLookup // In-process fixture only; no IPC/config override.
+	BrowserResolver           *net.Resolver
+	BrowserProbeRoots         *x509.CertPool
+	browser                   *browserRuntime
+	activationMu              sync.Mutex
+	relayPools                map[string]*transport.Pool
+	autoJobs                  map[string]autoLease
+	groupBindings             map[uint32]groupBinding
+	autoMu                    sync.Mutex
+	AutoLearned               *flowpolicy.Learning
+	groupMu                   sync.Mutex
+	groupAt                   time.Time
+	groupAll                  []profiles.Identity
+	discovery                 windowsplatform.Discovery
+	Learned                   *localstrategy.Cache
+	network                   atomic.Pointer[windowsplatform.NetworkContext]
+	conflicts                 atomic.Pointer[windowsplatform.ConflictScan]
+	// NetworkHostRoutes are extra /32 routes (relay VPS) included in the fingerprint.
+	NetworkHostRoutes           []netip.Addr
 	Local                       *localstrategy.LocalStrategyEngine
 	localMu                     sync.Mutex
 	Engine                      *routing.Engine
