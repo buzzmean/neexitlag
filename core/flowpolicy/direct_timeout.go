@@ -28,6 +28,7 @@ type DirectTimeoutKey struct {
 	Application string
 	Host        string
 	Port        uint16
+	Address     string // Empty is a domain verdict; nonempty is a specific destination IP.
 }
 
 const (
@@ -38,6 +39,8 @@ const (
 )
 
 type directTimeoutEntry struct {
+	addresses    map[string]bool // Bounded at two distinct failed addresses, never packet bursts.
+	reason       string
 	firstFailure time.Time
 	failures     int
 	active       bool
@@ -57,6 +60,45 @@ func NewDirectTimeoutCache() *DirectTimeoutCache {
 func (c *DirectTimeoutCache) RecordTimeout(k DirectTimeoutKey, now time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if k.Address != "" {
+		// Keep an address verdict immediately, but a whole-domain verdict needs two
+		// DIFFERENT failed IPs. Repeating a timeout on one server never poisons its peers.
+		domain := k
+		domain.Address = ""
+		e := c.entries[domain]
+		if e == nil {
+			c.makeRoom(now)
+			e = &directTimeoutEntry{}
+			c.entries[domain] = e
+		}
+		if e.addresses == nil || (!e.active && now.Sub(e.firstFailure) > TimeoutWindow) {
+			e.addresses = map[string]bool{}
+			e.firstFailure = now
+		}
+		if len(e.addresses) < 2 {
+			e.addresses[k.Address] = true
+		}
+		e.failures = len(e.addresses)
+		if e.failures >= 2 {
+			if !e.active {
+				c.created++
+				e.since = now
+			}
+			e.active = true
+			e.nextProbe = now.Add(DirectTimeoutTTL)
+			e.reason = "TWO_DISTINCT_DIRECT_ADDRESSES_FAILED"
+		}
+		addr := c.entries[k]
+		if addr == nil {
+			c.makeRoom(now)
+			addr = &directTimeoutEntry{firstFailure: now, since: now}
+			c.entries[k] = addr
+		}
+		addr.active = true
+		addr.nextProbe = now.Add(DirectTimeoutTTL)
+		addr.reason = "DIRECT_ADDRESS_FAILED"
+		return e.active
+	}
 	e := c.entries[k]
 	if e == nil {
 		c.makeRoom(now)
@@ -102,6 +144,16 @@ func (c *DirectTimeoutCache) NoteRetry(ok bool) {
 func (c *DirectTimeoutCache) RecordSuccess(k DirectTimeoutKey) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if k.Address != "" {
+		domain := k
+		domain.Address = ""
+		if e := c.entries[domain]; e != nil {
+			if e.active {
+				c.recovered++
+			}
+			delete(c.entries, domain)
+		}
+	}
 	if e := c.entries[k]; e != nil {
 		if e.active {
 			c.recovered++
@@ -171,15 +223,31 @@ func (c *DirectTimeoutCache) makeRoom(now time.Time) {
 	delete(c.entries, oldest)
 }
 
+// AddressFailed is only a bounded skip hint, never authorization to use DIRECT.
+func (c *DirectTimeoutCache) AddressFailed(k DirectTimeoutKey, now time.Time) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e := c.entries[k]
+	return k.Address != "" && e != nil && e.active && now.Before(e.nextProbe)
+}
+
 type DirectTimeoutOrigin struct {
-	Host      string    `json:"host"`
-	Port      uint16    `json:"port"`
-	Hits      uint64    `json:"relay_steered_flows"`
-	Since     time.Time `json:"since"`
-	NextProbe time.Time `json:"next_direct_probe"`
+	Network         string    `json:"network"`
+	Application     string    `json:"profile_id"`
+	Address         string    `json:"address,omitempty"`
+	Reason          string    `json:"reason"`
+	FailedAddresses int       `json:"distinct_failed_addresses"`
+	RemainingMS     int64     `json:"ttl_remaining_ms"`
+	Probing         bool      `json:"recheck_in_progress"`
+	Host            string    `json:"host"`
+	Port            uint16    `json:"port"`
+	Hits            uint64    `json:"relay_steered_flows"`
+	Since           time.Time `json:"since"`
+	NextProbe       time.Time `json:"next_direct_probe"`
 }
 
 type DirectTimeoutStats struct {
+	ActiveAddresses int                   `json:"active_addresses"`
 	ActiveOrigins   int                   `json:"active_origins"`
 	Hits            uint64                `json:"relay_steered_flows"`
 	Created         uint64                `json:"origins_cached_total"`
@@ -201,8 +269,16 @@ func (c *DirectTimeoutCache) Stats() DirectTimeoutStats {
 		if !e.active {
 			continue
 		}
-		s.ActiveOrigins++
-		s.Top = append(s.Top, DirectTimeoutOrigin{Host: k.Host, Port: k.Port, Hits: e.hits, Since: e.since, NextProbe: e.nextProbe})
+		if k.Address == "" {
+			s.ActiveOrigins++
+		} else {
+			s.ActiveAddresses++
+		}
+		remaining := time.Until(e.nextProbe).Milliseconds()
+		if remaining < 0 {
+			remaining = 0
+		}
+		s.Top = append(s.Top, DirectTimeoutOrigin{Network: k.Network, Application: k.Application, Address: k.Address, Reason: e.reason, FailedAddresses: len(e.addresses), RemainingMS: remaining, Probing: e.probing, Host: k.Host, Port: k.Port, Hits: e.hits, Since: e.since, NextProbe: e.nextProbe})
 	}
 	sort.Slice(s.Top, func(i, j int) bool {
 		if s.Top[i].Hits != s.Top[j].Hits {

@@ -142,3 +142,40 @@ func TestCapacityIsBoundedAndConcurrencySafe(t *testing.T) {
 		t.Fatalf("cache grew to %d entries", n)
 	}
 }
+
+func TestAddressVerdictRequiresDistinctIPsForDomainAndKeepsNetworkProfileIsolation(t *testing.T) {
+	c := NewDirectTimeoutCache()
+	now := time.Now()
+	a := dtKey
+	a.Address = "142.251.150.4"
+	b := a
+	b.Address = "142.251.151.4"
+	for i := 0; i < 10; i++ {
+		c.RecordTimeout(a, now)
+	}
+	if active, _ := c.Lookup(dtKey, now); active {
+		t.Fatal("same IP burst poisoned domain")
+	}
+	if !c.AddressFailed(a, now) || c.AddressFailed(b, now) {
+		t.Fatal("address not isolated")
+	}
+	c.RecordTimeout(b, now.Add(time.Second))
+	if active, _ := c.Lookup(dtKey, now); !active {
+		t.Fatal("two failed IPs did not make domain relay-first")
+	}
+	for _, other := range []DirectTimeoutKey{{Network: "other", Application: dtKey.Application, Host: dtKey.Host, Port: 443}, {Network: dtKey.Network, Application: "edge", Host: dtKey.Host, Port: 443}, {Network: dtKey.Network, Application: dtKey.Application, Host: dtKey.Host, Port: 8443}} {
+		if active, _ := c.Lookup(other, now); active {
+			t.Fatal("verdict leaked", other)
+		}
+	}
+	if _, due := c.Lookup(dtKey, now.Add(DirectTimeoutTTL+time.Second)); !due {
+		t.Fatal("bounded background recheck never due")
+	}
+	c.RecordSuccess(b)
+	if active, _ := c.Lookup(dtKey, now); active {
+		t.Fatal("verified address recovery did not clear domain")
+	}
+	if !c.AddressFailed(a, now) {
+		t.Fatal("recovery of peer erased failed IP")
+	}
+}
