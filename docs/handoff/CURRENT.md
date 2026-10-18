@@ -23,12 +23,18 @@ Telegram, Claude, ChatGPT, Chrome (профиль Chrome создан вручн
 - Не проверено на реальном ПК: все правки после `e436acf`; WPF-слой не компилировался (проверен только `dotnet test` на core-логике); ложные срабатывания порога застоя 2 с.
 
 ## (e) Кто чем владеет
-| Область | Агент | Ветка | Статус |
-|---|---|---|---|
-| Всё перечисленное в (g)/журнале (служба, browserproxy, diag, профили) | Claude Code | `claude/serene-cori-msra1u` | сессия закончена 18.10.2026 |
-| Сверка DNS-fix Telegram (18.10.2026; без изменений реализации) | Codex | `codex/work` | ждёт решения владельца |
-| Edge-«полоса», Discord, DIRECT+ для YouTube | никто | — | ждёт решения владельца |
-| PR #8, `codex/direct-plus-flowseal` | не трогать | — | только владелец |
+| Область | Файлы | Агент | Ветка | Статус |
+|---|---|---|---|---|
+| B3 Chrome: каталог браузеров, автосоздание профиля DIRECT | `apps/desktop-core/BrowserCatalog.cs`, `DesktopViewModel.cs`, `Resources/Strings.resx`, `apps/desktop/ChromeRouting.cs`, `tests/desktop/BrowserCoverageTests.cs` | Claude Code | `claude/serene-cori-msra1u` | ГОТОВО (`9473d72`); C#/WPF-слой не компилировался, проверен только тестами core-логики; на ПК не проверен |
+| Edge-полоса | `apps/desktop/EdgeRouting*.cs` (новые), `apps/desktop-core/BrowserCatalog.cs` (только добавление Edge), `tests/desktop/*`, `docs/EDGE_SITE_ROUTING.md` | Codex | `codex/work` | 18.10.2026: реализация разрешена; требуется согласование минимальных правок занятых файлов |
+| Застой YouTube (ноль байт после ClientHello): stallConn, кэш, повтор через релей, счётчики | `core/browserproxy/{proxy,stall}.go`, `core/flowpolicy/direct_timeout.go`, `services/client-service/{browser_direct_timeout,browser_transport,controller}.go` и тесты | Claude Code | `claude/serene-cori-msra1u` | ГОТОВО (`91c9016`, `28841f2`); только тесты, на ПК не проверено |
+| Флаг `youtube_via_relay` (выключен) | `services/client-service/{controller,browser_direct_timeout}.go`, `apps/desktop-core/Models.cs` | Claude Code | `claude/serene-cori-msra1u` | ГОТОВО (`9bb43bd`) |
+| diag-скрипт | `tools/windows/diag-no-vpn.ps1` | Claude Code | `claude/serene-cori-msra1u` | готово (`578a45f`, `28841f2`); дальше только по новым данным владельца |
+| Discord медленно, DIRECT+ для YouTube | не определены | никто | — | свободно для Codex после диагностики; Go-файлы застоя (выше) не трогать |
+| PR #8, `codex/direct-plus-flowseal` | — | не трогать | — | только владелец |
+
+Для Codex, без пересечения: Edge-«полоса» (после «да» владельца) или разбор Discord/DIRECT+ в `core/localstrategy/` и `services/client-service/browser_flow*.go`. Перед стартом пометить строку здесь и сделать `git pull`.
+
 
 Новые ветки: `claude/<тема>`, `codex/<тема>`, база — `claude/serene-cori-msra1u`.
 
