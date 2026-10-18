@@ -21,7 +21,6 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -38,16 +37,14 @@ type API struct {
 	Settings                                  Settings
 	Requests, Errors, AuthFailures, Telemetry atomic.Uint64
 	LatencyNS                                 atomic.Uint64
-	mu                                        sync.Mutex
-	tokens                                    float64
-	last                                      time.Time
+	limit                                     *limiter
 }
 
 func New(s *Store, c Settings) (*API, error) {
 	if len(c.AdminToken) < 24 || len(c.SigningKey) != ed25519.PrivateKeySize || c.KeyID == "" || c.CA == nil || c.CAKey == nil {
 		return nil, errors.New("admin token, signing key and device CA required")
 	}
-	return &API{Store: s, Settings: c, tokens: 100, last: time.Now()}, nil
+	return &API{Store: s, Settings: c, limit: newLimiter(time.Now())}, nil
 }
 func (a *API) publish(ctx context.Context) ([]byte, error) {
 	pub := a.Settings.SigningKey.Public().(ed25519.PublicKey)
@@ -109,18 +106,8 @@ func (a *API) Handler() http.Handler {
 		start := time.Now()
 		defer func() { a.LatencyNS.Add(uint64(time.Since(start))) }()
 		a.Requests.Add(1)
-		a.mu.Lock()
-		now := time.Now()
-		a.tokens += now.Sub(a.last).Seconds() * 20
-		if a.tokens > 100 {
-			a.tokens = 100
-		}
-		a.last = now
-		allowed := a.tokens >= 1
-		if allowed {
-			a.tokens--
-		}
-		a.mu.Unlock()
+		// Liveness probes cost one ping and must work even when clients are throttled.
+		allowed := r.URL.Path == "/healthz" || a.limit.allow(time.Now(), sourceKey(r))
 		if !allowed {
 			a.fail(w, 429, "rate limit")
 			return
