@@ -16,7 +16,29 @@ public partial class MainWindow {
   if(AppGrid.SelectedItem is not ApplicationRow row){ShowMessage("SelectApplication");return;}
   await Execute(()=>ActivateChromeSites(row));
  }
+ // Clean install: give Chrome a profile and run the normal PAC activation with no manual
+ // steps. Failure here must not block the rest of the optimization (Telegram, Claude...).
+ // Returns a notice about installed browsers VELIQ cannot route automatically, or null.
+ async Task<string?> EnsureBrowserCoverageAsync(){
+  var installed=BrowserCatalog.Discover(File.Exists,Environment.GetEnvironmentVariable);
+  try{
+   var created=await model.EnsureChromeProfileAsync(installed,lifetime.Token);
+   if(created is not null){
+    var row=model.Applications.FirstOrDefault(r=>r.Profile.Id==created.Id);
+    if(row is not null)await ActivateChromeSites(row);
+   }
+  }catch(Exception error)when(!lifetime.IsCancellationRequested){
+   model.SetNotice(Text.Get("ChromeAutoSetupFailed")+" "+error.Message);
+  }
+  var gaps=BrowserCatalog.NotCovered(installed);
+  return gaps.Length==0?null:Text.Get("BrowsersNotCovered")+" "+string.Join(", ",gaps)+".";
+ }
  async Task EnableOptimizationAsync(){
+  var coverageNotice=await EnsureBrowserCoverageAsync();
+  try{await EnableOptimizationCoreAsync();}
+  finally{if(coverageNotice is not null&&model.Optimizing)model.SetNotice(coverageNotice);}
+ }
+ async Task EnableOptimizationCoreAsync(){
   var status=await model.ChromeStatusAsync(lifetime.Token);
   foreach(var row in model.Applications.Where(r=>r.Profile.Mode=="AUTO"&&IsChrome(r.Profile)).ToArray()){
    if(status.RecoveryAddress==""||!status.ReadyProfiles.Contains(row.Profile.Id)){await ActivateChromeSites(row);if(!model.Optimizing)return;}

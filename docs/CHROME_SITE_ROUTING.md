@@ -239,3 +239,19 @@ specific remote Telegram TLS alert, which still requires fresh ISP diagnostics.
 Incorrect system-DNS addresses now have a bounded relay-only DoH recovery path,
 with independently verified TLS/HTTP and DNS-TTL/network-scoped pins. See
 [DNS recovery and read-only candidate comparison](CHROME_DNS_RECOVERY.md).
+
+## Automatic Chrome profile on "Optimize" (clean install)
+
+When the user presses Optimize, VELIQ looks for installed browsers (`BrowserCatalog`).
+If Chrome is installed and the service has **no profile for `chrome.exe` at any path and
+in any mode**, one is created in the same safe shape as adding Chrome by hand (DIRECT),
+and the normal PAC activation then runs (it asks before restarting a running Chrome).
+An existing Chrome profile is never modified. A failure here is shown as a notice and does
+not stop the rest of the optimization (Telegram, Claude, ChatGPT keep working).
+
+Edge, Firefox, Brave, Yandex Browser, Opera and Vivaldi are detected and listed in a notice
+as **not covered**; they stay DIRECT. Reason: a browser needs its own complete lane (policy
+key, PAC, recovery listener with that executable, readiness proof). The service holds one
+expected PAC and one recovery process, and a generic Edge profile would relay all of Edge's
+traffic (`openai-web` preset), so none is created. Adding Edge means a second lane in both
+the service and the GUI; it is deliberately not half-done.

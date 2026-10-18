@@ -569,6 +569,8 @@
   <data name="HotAttachNetworkHint" xml:space="preserve"><value>Обновлены TCP / ожидают обновления. Восстановление приложения проверяется его реальным трафиком.</value></data>
   <data name="ChromeSites" xml:space="preserve"><value>Chrome: AUTO по сайтам</value></data>
   <data name="ChromeSitesHint" xml:space="preserve"><value>Chrome с локальным PAC: маршрут закреплён за доменом. Origin-probe не подтверждает загрузку авторизованной страницы.</value></data>
+  <data name="BrowsersNotCovered" xml:space="preserve"><value>Автоматически маршрутизируется только Chrome. Эти установленные браузеры не охвачены и работают напрямую:</value></data>
+  <data name="ChromeAutoSetupFailed" xml:space="preserve"><value>Не удалось автоматически настроить Chrome, остальная оптимизация включается:</value></data>
   <data name="SelectChromeAuto" xml:space="preserve"><value>Выберите Chrome по полному пути и включите AUTO.</value></data>
   <data name="ChromeSitesRestart" xml:space="preserve"><value>Для активации маршрутов по сайтам Chrome будет перезапущен. Сохраните незаписанную работу. Профиль сохраняется; Chrome попробует восстановить вкладки. Продолжить?</value></data>
   <data name="ChromeSitesStillRunning" xml:space="preserve"><value>Chrome не завершился. Перезапуск отменён; процессы не будут принудительно остановлены.</value></data>

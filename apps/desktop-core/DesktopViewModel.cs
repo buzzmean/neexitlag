@@ -303,6 +303,21 @@ public sealed partial class DesktopViewModel : Observable
         // picker immediately; ordinary polling will fill live process evidence.
         return ok;
     }
+    // Clean install: make sure Chrome has a profile without any manual step. A profile the
+    // user (or an earlier run) already created for chrome.exe, at any path and in any mode,
+    // is left exactly as it is. Returns the profile that was just created (DIRECT, the same
+    // safe shape as adding Chrome by hand) so the caller can run the normal activation, or
+    // null when nothing was created.
+    public async Task<Profile?> EnsureChromeProfileAsync(IReadOnlyList<InstalledBrowser> installed, CancellationToken ct = default)
+    {
+        var chrome = installed.FirstOrDefault(b => b.Id == "chrome" && b.AutoSupported);
+        if (chrome is null) return null;
+        // Authoritative list from the service, not the GUI snapshot (two rapid clicks, stale poll).
+        var existing = await client.Call<Profile[]>("profiles", cancellationToken: ct);
+        if (existing.Any(BrowserCatalog.IsChrome)) return null;
+        if (!await AddApplicationAsync(chrome.ExePath, ct)) return null;
+        return Applications.Select(a => a.Profile).FirstOrDefault(BrowserCatalog.IsChrome);
+    }
     static bool SameExecutable(string a, string b)
     {
         try { return System.IO.Path.IsPathFullyQualified(a) && string.Equals(System.IO.Path.GetFullPath(a), b, StringComparison.OrdinalIgnoreCase); }
