@@ -25,4 +25,9 @@ proven where; do not read a Linux or CI result as a real-ISP result.
   network inspection exceeds its 8 s budget. Failure details are now recorded in the
   snapshot error (duration, timeout flag, bounded stderr); the root cause on the
   runner is still to be confirmed from a new failing run.
+- Probe accounting (`quality.diagnostics.probe_accounting`) now separates lost probes from
+  late ones per route; the cause of the 37-68% probe loss seen on the PC is not established.
+  Server side showed the echo received nearly all probes, local drops were 0.
+- Chrome is the only browser routed automatically (profile created on Optimize). Edge,
+  Firefox and others stay DIRECT and are listed in a notice; Edge needs its own lane.
 - No benchmark or Internet latency improvement is claimed; see `BENCHMARKS.md`.
