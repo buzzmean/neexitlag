@@ -127,7 +127,7 @@ func (c *Controller) listenEdge(e *edgeRuntime) error {
 	if e.server != nil {
 		return nil
 	}
-	server, err := browserproxy.Listen(c.ctx, browserproxy.Config{Address: e.saved.Address, Authorize: c.edgeOwner, AuthorizeForwarded: c.edgeRecoveryOwner, Plan: c.browserPlan, Open: c.browserOpen, TransformApplied: c.browserTransform, OnStall: c.browserStall, OnDirectAnswered: c.browserDirectAnswered})
+	server, err := browserproxy.Listen(c.ctx, browserproxy.Config{RequireClientHelloReplay: true, Address: e.saved.Address, Authorize: c.edgeOwner, AuthorizeForwarded: c.edgeRecoveryOwner, Plan: c.browserPlan, Open: c.browserOpen, OpenPlan: c.browserOpenPlan, TransformApplied: c.browserTransform, OnStall: c.browserStall, OnDirectAnswered: c.browserDirectAnswered})
 	if err != nil {
 		return err
 	}
@@ -219,7 +219,12 @@ func (c *Controller) writeEdgePolicy(e *edgeRuntime, pac string) error {
 	if write == nil {
 		write = wp.EdgeProxyPolicyWrite
 	}
-	return write(c.BrowserOwnerSID, e.saved.Owned, next)
+	if err := write(c.BrowserOwnerSID, e.saved.Owned, next); err != nil {
+		e.saved.Owned = old
+		_ = c.saveEdge(e) // Preserve original write error if persistence is unavailable too.
+		return err
+	}
+	return nil
 }
 func (c *Controller) handleEdge(method string, raw json.RawMessage) (result any, err error) {
 	c.browser.mu.Lock()
@@ -239,18 +244,12 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (result any,
 		}
 		snapshot.RecoveryAddress = e.saved.Recovery
 		snapshot.PolicyReady = e.policyActive(c.BrowserOwnerSID)
-		for {
-			b, _ := json.Marshal(snapshot)
-			if len(b) < 58000 || len(snapshot.Records) == 0 {
-				break
-			}
-			snapshot.Truncated = true
-			snapshot.Records = snapshot.Records[:len(snapshot.Records)-1]
-		}
+		view := browserStatusView{Snapshot: snapshot, DirectTimeouts: c.browser.directTimeouts.Stats(), RelayUsage: c.relayUsageLocked()}
+		view.bound()
 		return struct {
-			browserproxy.Snapshot
+			browserStatusView
 			LastError string `json:"last_error"`
-		}{snapshot, e.lastError}, nil
+		}{view, e.lastError}, nil
 	}
 	if c.BrowserOwnerSID == "" {
 		return nil, errors.New("Edge requires installation owner SID")
@@ -338,7 +337,7 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (result any,
 				}
 			}
 		case "install":
-			if pac == "" || e.server == nil || e.saved.Recovery == "" {
+			if pac == "" || e.server == nil || !e.server.Snapshot().Listening || e.saved.Recovery == "" {
 				return nil, errors.New("prepare Edge before installing policy")
 			}
 		default:
@@ -372,7 +371,7 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (result any,
 }
 func (c *Controller) edgeReadyLocked(p profiles.Profile) bool {
 	e := c.browser.edge
-	return e != nil && e.server != nil && e.saved.Recovery != "" && e.server.Confirmed(p.ID) && e.policyActive(c.BrowserOwnerSID)
+	return e != nil && e.server != nil && e.server.Snapshot().Listening && e.saved.Recovery != "" && e.server.Confirmed(p.ID) && e.policyActive(c.BrowserOwnerSID)
 }
 func (c *Controller) requireEdgeActivation() error {
 	if c.BrowserOwnerSID == "" {

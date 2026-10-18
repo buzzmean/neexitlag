@@ -187,7 +187,7 @@ func TestTwoStallsMakeYouTubeAndItsVideoHostsRelayFirstWithoutLeakingToDirect(t 
 }
 
 // A stalled path still completes the TCP connect. Only the origin's first byte proves DIRECT works.
-func TestConnectSuccessOnHTTPSDoesNotClearStallsButFirstByteDoes(t *testing.T) {
+func TestConnectAndUnverifiedTLSFirstByteDoNotClearFailureVerdict(t *testing.T) {
 	c, cur := timeoutFixture(t)
 	enableYouTubeRelay(c)
 	q := browserproxy.Request{Host: "www.youtube.com", Port: 443, Secure: true}
@@ -198,10 +198,10 @@ func TestConnectSuccessOnHTTPSDoesNotClearStallsButFirstByteDoes(t *testing.T) {
 	if _, ok := c.steerTimedOutOrigin(directPlan, cur, q, now.Add(3*time.Second)); !ok {
 		t.Fatal("a successful TCP connect between two stalls must not reset the count")
 	}
-	// The origin answering (first byte) is the real success and returns the origin to DIRECT.
+	// A TLS alert, one byte or handshake alone cannot prove a working HTTPS site.
 	c.recordAnswered(cur, q, directPlan)
-	if _, ok := c.steerTimedOutOrigin(directPlan, cur, q, now.Add(4*time.Second)); ok {
-		t.Fatal("an answering DIRECT origin stayed relay-first")
+	if _, ok := c.steerTimedOutOrigin(directPlan, cur, q, now.Add(4*time.Second)); !ok {
+		t.Fatal("an unverified first byte erased the failure verdict")
 	}
 }
 
@@ -219,7 +219,7 @@ func TestStallRetryPlanIsRelayRequiredFailClosedAndNeverDirect(t *testing.T) {
 }
 
 // Without youtube_via_relay YouTube is never moved to the relay, but stalls are still counted.
-func TestYouTubeRelayIsOffByDefaultButStallsAreStillCounted(t *testing.T) {
+func TestYouTubeFallbackDoesNotDependOnRelayFirstPreference(t *testing.T) {
 	c, cur := timeoutFixture(t)
 	now := time.Now()
 	yt := browserproxy.Request{Host: "rr3---sn-4g5e6nzs.googlevideo.com", Port: 443, Secure: true}
@@ -228,8 +228,8 @@ func TestYouTubeRelayIsOffByDefaultButStallsAreStillCounted(t *testing.T) {
 		c.browser.directTimeouts.RecordStall(c.directTimeoutKey(cur, q), now)
 		c.browser.directTimeouts.RecordStall(c.directTimeoutKey(cur, q), now.Add(time.Second))
 	}
-	if _, ok := c.steerTimedOutOrigin(directPlan, cur, yt, now.Add(2*time.Second)); ok {
-		t.Fatal("YouTube was steered to the relay with the flag off")
+	if _, ok := c.steerTimedOutOrigin(directPlan, cur, yt, now.Add(2*time.Second)); !ok {
+		t.Fatal("YouTube fallback incorrectly depends on flag")
 	}
 	if _, ok := c.steerTimedOutOrigin(directPlan, cur, other, now.Add(2*time.Second)); !ok {
 		t.Fatal("a non-YouTube origin must not depend on the YouTube flag")
@@ -239,8 +239,8 @@ func TestYouTubeRelayIsOffByDefaultButStallsAreStillCounted(t *testing.T) {
 		opened = true
 		return nil, errors.New("must not open")
 	}
-	if _, _, err := c.stallRetry(context.Background(), cur, yt, directPlan, open); err == nil || opened {
-		t.Fatalf("stall retry reached the relay with the flag off: err=%v opened=%v", err, opened)
+	if _, _, err := c.stallRetry(context.Background(), cur, yt, directPlan, open); err == nil || !opened {
+		t.Fatalf("fallback must attempt relay with flag off: err=%v opened=%v", err, opened)
 	}
 	if s := c.browser.directTimeouts.Stats(); s.Stalls != 5 || s.StallRetries != 0 {
 		t.Fatalf("%+v", s)

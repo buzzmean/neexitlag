@@ -326,3 +326,26 @@ func TestEdgePendingAutoNeverPublishesLegacyProcessWideRelayOrDirectLeak(t *test
 		t.Fatal("system DNS altered", d)
 	}
 }
+
+func TestFailedEdgePolicyWriteDoesNotLosePreviousOwnership(t *testing.T) {
+	c := New(context.Background())
+	defer c.Close()
+	c.BrowserOwnerSID = "owner"
+	c.Profiles.Upsert(edgeTestProfile())
+	e := c.edgeLocked()
+	old := edgePolicyValue("data:old-owned")
+	e.saved.Owned = []string{old}
+	e.write = func(string, []string, string) error { return os.ErrPermission }
+	edgeCall(c, "edge.policy", map[string]string{"profile_id": "edge", "operation": "guard"})
+	e.write = func(_ string, owned []string, _ string) error {
+		for _, value := range owned {
+			if value == old {
+				return nil
+			}
+		}
+		return errors.New("ownership lost")
+	}
+	if _, err := edgeCall(c, "edge.policy", map[string]string{"profile_id": "edge", "operation": "guard"}); err != nil {
+		t.Fatal(err)
+	}
+}

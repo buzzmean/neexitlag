@@ -25,6 +25,7 @@ import (
 )
 
 type browserRuntime struct {
+	usage           *browserRelayUsage
 	edge            *edgeRuntime // Independent Edge transport; Chrome fields stay unchanged.
 	dns             *browserproxy.DNSRecovery
 	address         string
@@ -188,10 +189,32 @@ func (c *Controller) openBrowser(ctx context.Context, q browserproxy.Request, pl
 		}
 		return backend.OpenBrowserLocalTCP(ctx, browserIdentity(q), q.Source, plan.Destination, d)
 	}
+	release := func() {}
+	if observe && d.Route.RelayID != "" && isVideo(q) {
+		var ok bool
+		release, ok = c.relayUsage().acquireVideo()
+		if !ok {
+			return nil, errVideoRelayCapacity
+		}
+	}
 	conn, err := c.Engine.OpenTCP(ctx, d.Flow)
+	if err != nil {
+		release()
+	} else if observe && d.Route.RelayID != "" {
+		conn = &relayMeterConn{Conn: conn, usage: c.relayUsage(), profile: current.profile.ID, domain: q.Host, release: release}
+	}
+
 	if observe {
 		c.observeDirectOpen(current, q, plan, err, time.Now())
 	}
+	if err == nil && observe && plan.Enabled && isVideo(q) && directTimeoutEligible(q, plan) {
+		conn = browserproxy.WatchMidstream(conn, browserproxy.DefaultMidstreamTimeout, func() {
+			if current.network != "" {
+				c.browser.directTimeouts.RecordStall(c.directTimeoutKey(current, q, plan), time.Now())
+			}
+		})
+	}
+
 	return conn, err
 }
 func (c *Controller) browserTransform(q browserproxy.Request, plan browserproxy.Plan) bool {
@@ -201,6 +224,7 @@ func (c *Controller) browserTransform(q browserproxy.Request, plan browserproxy.
 	return ok && backend.BrowserTransformApplied(browserIdentity(q), q.Source, plan.Destination)
 }
 func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (browserproxy.Plan, error) {
+	started := time.Now()
 	current, err := c.browserProfile(q.Owner)
 	if err != nil {
 		return browserproxy.Plan{}, err
@@ -256,6 +280,16 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 		return plan, nil
 	}
 	if youtubeDomain(q.Host) {
+		if directTimeoutEligible(q, plan) {
+			plan.DirectCandidates = append([]netip.AddrPort(nil), candidates[:min(2, len(candidates))]...)
+			plan.DirectDeadline = started.Add(browserDirectBudget)
+			if c.relayAllowedFor(q.Host) {
+				plan = stallRetryPlan(current, plan)
+				plan.Policy.Source = "youtube_relay_first"
+				plan.Probe = "YOUTUBE_RELAY_FIRST"
+				return plan, nil
+			}
+		}
 		// YouTube is never probed (its DIRECT+ logic lives in browserFlow). With plain DIRECT
 		// as the policy it still benefits from the cache and the stall retry: otherwise a
 		// blocked YouTube would simply never work. DIRECT+ plans are left untouched.
@@ -396,7 +430,7 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 				budget = time.Until(deadline) / time.Duration(len(candidates)-i)
 			}
 			probe, stop := context.WithTimeout(routeCtx, budget)
-			detail := browserproxy.ProbeOriginDetailed(probe, q.Host, q.Port, q.Secure, c.BrowserProbeRoots, func(ctx context.Context) (net.Conn, error) { return c.browserOpen(ctx, q, plan) })
+			detail := browserproxy.ProbeOriginDetailed(probe, q.Host, q.Port, q.Secure, c.BrowserProbeRoots, func(ctx context.Context) (net.Conn, error) { return c.browserOpenUnobserved(ctx, q, plan) })
 			stop()
 			status, rx, networkError = detail.Status, detail.Bytes, detail.Failure
 			originTLS = detail.Phase == "ORIGIN_TLS"
@@ -463,20 +497,15 @@ func (c *Controller) handleBrowser(method string, raw json.RawMessage) (any, err
 	defer c.browser.mu.Unlock()
 	if method == "browser.status" {
 		if c.browser.server == nil {
-			return browserStatusView{Snapshot: browserproxy.Snapshot{ReadyProfiles: []string{}, Failures: map[string]uint64{}, Records: []browserproxy.Record{}}, DirectTimeouts: c.browser.directTimeouts.Stats()}, nil
+			view := browserStatusView{Snapshot: browserproxy.Snapshot{ReadyProfiles: []string{}, Failures: map[string]uint64{}, Records: []browserproxy.Record{}}, DirectTimeouts: c.browser.directTimeouts.Stats(), RelayUsage: c.relayUsageLocked()}
+			view.bound()
+			return view, nil
 		}
-		view := browserStatusView{Snapshot: c.browser.server.Snapshot(), DirectTimeouts: c.browser.directTimeouts.Stats()}
+		view := browserStatusView{Snapshot: c.browser.server.Snapshot(), DirectTimeouts: c.browser.directTimeouts.Stats(), RelayUsage: c.relayUsageLocked()}
 		view.RecoveryAddress = c.browser.recoveryAddress
 		view.PolicyReady = wp.ChromeProxyPolicyActive(c.BrowserOwnerSID, c.browser.expectedPAC)
 		sort.Slice(view.Records, func(i, j int) bool { return view.Records[i].ID > view.Records[j].ID })
-		for {
-			raw, _ := json.Marshal(view)
-			if len(raw) < 58000 {
-				break
-			}
-			view.Truncated = true
-			view.Records = view.Records[:len(view.Records)-1]
-		}
+		view.bound()
 		return view, nil
 	}
 	var q struct {
@@ -546,7 +575,7 @@ func (c *Controller) handleBrowser(method string, raw json.RawMessage) (any, err
 		return nil, errors.New("selected Chrome AUTO profile and persistent user directory required")
 	}
 	if c.browser.server == nil {
-		server, err := browserproxy.Listen(c.ctx, browserproxy.Config{Address: c.browser.address, Authorize: c.browserOwner, AuthorizeForwarded: c.browserRecoveryOwner, Plan: c.browserPlan, Open: c.browserOpen, TransformApplied: c.browserTransform, OnStall: c.browserStall, OnDirectAnswered: c.browserDirectAnswered})
+		server, err := browserproxy.Listen(c.ctx, browserproxy.Config{RequireClientHelloReplay: true, Address: c.browser.address, Authorize: c.browserOwner, AuthorizeForwarded: c.browserRecoveryOwner, Plan: c.browserPlan, Open: c.browserOpen, OpenPlan: c.browserOpenPlan, TransformApplied: c.browserTransform, OnStall: c.browserStall, OnDirectAnswered: c.browserDirectAnswered})
 		if err != nil {
 			return nil, err
 		}
@@ -656,7 +685,7 @@ func (c *Controller) RestoreBrowserTransport() error {
 	c.browser.address = saved.Address
 	c.browser.expectedPAC = saved.ExpectedPAC
 	c.browser.recoveryAddress = saved.RecoveryAddress
-	server, err := browserproxy.Listen(c.ctx, browserproxy.Config{Address: saved.Address, Authorize: c.browserOwner, AuthorizeForwarded: c.browserRecoveryOwner, Plan: c.browserPlan, Open: c.browserOpen, TransformApplied: c.browserTransform, OnStall: c.browserStall, OnDirectAnswered: c.browserDirectAnswered})
+	server, err := browserproxy.Listen(c.ctx, browserproxy.Config{RequireClientHelloReplay: true, Address: saved.Address, Authorize: c.browserOwner, AuthorizeForwarded: c.browserRecoveryOwner, Plan: c.browserPlan, Open: c.browserOpen, OpenPlan: c.browserOpenPlan, TransformApplied: c.browserTransform, OnStall: c.browserStall, OnDirectAnswered: c.browserDirectAnswered})
 	if err != nil {
 		return err
 	}

@@ -74,7 +74,7 @@ func (c *Controller) recoverBrowserDNS(ctx context.Context, q browserproxy.Reque
 	result := c.browser.dns.Recover(ctx, c.browserDNSKey(q, current), q.Host, q.Port, c.BrowserProbeRoots, lookup, func(ctx context.Context, dst netip.AddrPort) (net.Conn, error) {
 		candidate := plan
 		candidate.Destination = dst
-		return c.browserOpen(ctx, q, candidate)
+		return c.browserOpenUnobserved(ctx, q, candidate)
 	})
 	plan.DNSRecovery = &result
 	plan.Trials = append(plan.Trials, result.Trials...)

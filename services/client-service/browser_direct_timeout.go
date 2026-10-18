@@ -2,6 +2,7 @@ package clientservice
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/netip"
@@ -17,6 +18,7 @@ import (
 type browserStatusView struct {
 	browserproxy.Snapshot
 	DirectTimeouts flowpolicy.DirectTimeoutStats `json:"direct_timeout_cache"`
+	RelayUsage     relayUsageSnapshot            `json:"relay_usage"`
 }
 
 // directTimeoutEligible limits the cache to ordinary DIRECT-first origins. Protected
@@ -24,7 +26,7 @@ type browserStatusView struct {
 // YouTube is eligible only while its policy is plain DIRECT; once DIRECT+ is configured
 // the plan's action is DirectPlus and this cache stays out of its way.
 func directTimeoutEligible(q browserproxy.Request, plan browserproxy.Plan) bool {
-	if plan.Policy.Action != flowpolicy.Direct || protectedBrowserDomain(q.Host) {
+	if plan.Policy.Action != flowpolicy.Direct || plan.Policy.Source == "rule" || protectedBrowserDomain(q.Host) {
 		return false
 	}
 	_, ipErr := netip.ParseAddr(q.Host)
@@ -41,8 +43,12 @@ func cacheHost(host string) string {
 	return host
 }
 
-func (c *Controller) directTimeoutKey(current profilesResult, q browserproxy.Request) flowpolicy.DirectTimeoutKey {
-	return flowpolicy.DirectTimeoutKey{Network: current.network, Application: current.profile.ID, Host: cacheHost(q.Host), Port: q.Port}
+func (c *Controller) directTimeoutKey(current profilesResult, q browserproxy.Request, plans ...browserproxy.Plan) flowpolicy.DirectTimeoutKey {
+	key := flowpolicy.DirectTimeoutKey{Network: current.network, Application: current.profile.ID, Host: cacheHost(q.Host), Port: q.Port}
+	if len(plans) > 0 && plans[0].Destination.IsValid() {
+		key.Address = plans[0].Destination.Addr().String()
+	}
+	return key
 }
 
 // stallTracked: for HTTPS tunnels on 443 the proxy watches the origin's first byte, so a
@@ -56,19 +62,18 @@ func (c *Controller) observeDirectOpen(current profilesResult, q browserproxy.Re
 	if current.network == "" || !directTimeoutEligible(q, plan) {
 		return
 	}
-	key := c.directTimeoutKey(current, q)
+	key := c.directTimeoutKey(current, q, plan)
 	switch {
 	case err == nil:
 		if !stallTracked(q) {
 			c.browser.directTimeouts.RecordSuccess(key)
 		}
-	case errors.Is(err, context.DeadlineExceeded):
+	case errors.Is(err, context.DeadlineExceeded) || err != nil && plan.Destination.IsValid() && retryableDirectOpen(err):
 		c.browser.directTimeouts.RecordTimeout(key, now)
 	}
 }
 
-// relayAllowedFor: YouTube goes to the relay only when the user enabled youtube_via_relay.
-// Stalls are still counted and shown in diagnostics either way.
+// relayAllowedFor now means explicit relay-first preference, never permission for fallback.
 func (c *Controller) relayAllowedFor(host string) bool {
 	if !youtubeDomain(host) {
 		return true
@@ -81,7 +86,7 @@ func (c *Controller) relayAllowedFor(host string) bool {
 // steerTimedOutOrigin moves a cached origin straight to the authenticated relay,
 // fail-closed. It never returns a DIRECT decision.
 func (c *Controller) steerTimedOutOrigin(plan browserproxy.Plan, current profilesResult, q browserproxy.Request, now time.Time) (browserproxy.Plan, bool) {
-	if current.network == "" || !directTimeoutEligible(q, plan) || !c.relayAllowedFor(q.Host) {
+	if current.network == "" || !directTimeoutEligible(q, plan) {
 		return plan, false
 	}
 	key := c.directTimeoutKey(current, q)
@@ -96,13 +101,12 @@ func (c *Controller) steerTimedOutOrigin(plan browserproxy.Plan, current profile
 	if relay == "" {
 		relay = "VPS-01"
 	}
-	plan.Policy = flowpolicy.Result{Action: flowpolicy.RelayRequired, RelayID: relay, Fallback: flowpolicy.Required, Source: "direct_timeout_cache", Reason: "DIRECT connect timed out twice on this network; relay-first until the next DIRECT recheck"}
+	plan.Policy = flowpolicy.Result{Action: flowpolicy.RelayRequired, RelayID: relay, Fallback: flowpolicy.Required, Source: "direct_timeout_cache", Reason: "Two distinct DIRECT addresses failed on this network/profile; relay-first pending bounded TLS/HTTP recheck"}
 	plan.Probe = "DIRECT_TIMEOUT_CACHED"
 	return plan, true
 }
 
-// browserDirectAnswered: a DIRECT tunnel received its first byte from the origin, the
-// application-level proof that DIRECT works for it.
+// browserDirectAnswered observes transport progress only; it cannot certify HTTPS.
 func (c *Controller) browserDirectAnswered(q browserproxy.Request, plan browserproxy.Plan) {
 	current, err := c.browserProfile(q.Owner)
 	if err != nil {
@@ -114,7 +118,9 @@ func (c *Controller) recordAnswered(current profilesResult, q browserproxy.Reque
 	if current.network == "" || !directTimeoutEligible(q, plan) {
 		return
 	}
-	c.browser.directTimeouts.RecordSuccess(c.directTimeoutKey(current, q))
+	// An unparsed first TLS byte is not a verified HTTP result. Only the bounded
+	// background TLS/certificate/GET probe clears a relay-first verdict.
+
 }
 
 // stallRetryPlan is the relay-first, fail-closed plan used to retry a stalled tunnel.
@@ -148,13 +154,25 @@ func (c *Controller) stallRetry(ctx context.Context, current profilesResult, q b
 		return nil, plan, errors.New("stall retry not allowed for this origin")
 	}
 	if current.network != "" {
-		c.browser.directTimeouts.RecordStall(c.directTimeoutKey(current, q), time.Now())
+		c.browser.directTimeouts.RecordStall(c.directTimeoutKey(current, q, plan), time.Now())
 	}
-	if !c.relayAllowedFor(q.Host) {
-		return nil, plan, errors.New("youtube relay retry disabled (youtube_via_relay=false)")
+	if next, ok := nextDirectPlan(plan); ok && !c.directAddressFailed(current, q, next) {
+		attempt, stop := directAttemptContext(ctx, next)
+		conn, err := open(attempt, q, next)
+		stop()
+		if err == nil {
+			return conn, next, nil
+		}
+		if ctx.Err() != nil || !retryableDirectOpen(err) {
+			return nil, next, err
+		}
+		plan = next
 	}
 	next := stallRetryPlan(current, plan)
 	conn, err := open(ctx, q, next)
+	if errors.Is(err, errVideoRelayCapacity) {
+		return c.openVideoOverflow(ctx, q, next, open)
+	}
 	c.browser.directTimeouts.NoteRetry(err == nil)
 	return conn, next, err
 }
@@ -162,11 +180,19 @@ func (c *Controller) stallRetry(ctx context.Context, current profilesResult, q b
 // revalidateDirect runs the single background DIRECT probe of a TTL. The open itself
 // reports success (origin returns to DIRECT) or a fresh timeout (entry renewed).
 func (c *Controller) revalidateDirect(current profilesResult, q browserproxy.Request, plan browserproxy.Plan, key flowpolicy.DirectTimeoutKey) {
+	// A TTL storm cannot allocate one socket/goroutine per cached origin.
+	select {
+	case c.browser.probes <- struct{}{}:
+	default:
+		c.browser.directTimeouts.ProbeDone(key, time.Now(), false)
+		return
+	}
 	probePlan := plan
 	probePlan.Policy = flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailOpen, Source: "direct_timeout_recheck", Reason: "periodic background DIRECT recheck of a timed-out origin"}
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
+		defer func() { <-c.browser.probes }()
 		ctx, cancel := context.WithTimeout(c.ctx, 3*time.Second)
 		defer cancel()
 		conclusive := false
@@ -180,11 +206,35 @@ func (c *Controller) revalidateDirect(current profilesResult, q browserproxy.Req
 		detail := browserproxy.ProbeOriginDetailed(ctx, q.Host, q.Port, q.Secure, c.BrowserProbeRoots, open)
 		switch detail.Failure {
 		case "":
-			c.browser.directTimeouts.RecordSuccess(key) // DIRECT works end to end again
+			c.browser.directTimeouts.RecordSuccess(c.directTimeoutKey(current, q, probePlan)) // Verified TLS + HTTP GET, never bare ACK.
 			conclusive = true
 		case "NETWORK_TIMEOUT", "CONNECTION_RESET", "TLS_FAILED", "CONNECTION_FAILED":
-			c.browser.directTimeouts.RecordTimeout(key, time.Now()) // still broken: renew
+			c.browser.directTimeouts.RecordTimeout(c.directTimeoutKey(current, q, probePlan), time.Now()) // Still broken.
+			c.browser.directTimeouts.RecordTimeout(key, time.Now())                                       // Renew claimed domain TTL.
 			conclusive = true
 		}
 	}()
+}
+
+// Keep IPC below 64 KiB including all auxiliary diagnostics, not just records.
+// Counters remain exact; omitted detail is explicitly marked as truncated.
+func (v *browserStatusView) bound() {
+	for {
+		raw, _ := json.Marshal(v)
+		if len(raw) < 57000 {
+			return
+		}
+		v.Truncated = true
+		switch {
+		case len(v.Records) > 0:
+			v.Records = v.Records[:len(v.Records)-1]
+		case len(v.RelayUsage.Minutes) > 0:
+			v.RelayUsage.Minutes = v.RelayUsage.Minutes[:len(v.RelayUsage.Minutes)-1]
+			v.RelayUsage.Truncated = true
+		case len(v.DirectTimeouts.Top) > 0:
+			v.DirectTimeouts.Top = v.DirectTimeouts.Top[:len(v.DirectTimeouts.Top)-1]
+		default:
+			return
+		}
+	}
 }
