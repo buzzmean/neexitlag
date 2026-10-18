@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/buzzmean/neexitlag/core/flowpolicy"
+	"github.com/buzzmean/neexitlag/core/routing"
 )
 
 // listener helpers -----------------------------------------------------------------
@@ -336,5 +337,47 @@ func TestTwoSilentDirectAddressesThenRelayWithinSharedBudget(t *testing.T) {
 	time.Sleep(30 * time.Millisecond)
 	if opens.Load() != 2 {
 		t.Fatal("established connection retried")
+	}
+}
+
+type engineFixtureRelay struct{ destination string }
+
+func (r engineFixtureRelay) OpenTCP(ctx context.Context, _ netip.AddrPort) (net.Conn, error) {
+	return (&net.Dialer{}).DialContext(ctx, "tcp", r.destination)
+}
+func (r engineFixtureRelay) OpenDatagram(context.Context, netip.AddrPort) (routing.Datagram, error) {
+	return nil, errors.New("UDP unused")
+}
+func TestStallReleasesActualEngineTupleBeforeOpeningRequiredRelay(t *testing.T) {
+	dead, _ := silentOrigin(t, false)
+	relay, _ := answeringOrigin(t)
+	engine := routing.New(8)
+	engine.SetRelay("VPS-01", engineFixtureRelay{relay})
+	f := routing.Flow{PID: 7, ProcessPath: "chrome.exe", ApplicationID: "chrome", Source: netip.MustParseAddrPort("127.0.0.1:5555"), Destination: netip.MustParseAddrPort(dead), PinnedPolicy: &routing.Policy{}}
+	cfg := Config{Authorize: func(context.Context, netip.AddrPort, netip.AddrPort) (Owner, error) { return Owner{PID: 7}, nil }, Plan: func(context.Context, Request) (Plan, error) {
+		return Plan{Enabled: true, Policy: flowpolicy.Result{Action: flowpolicy.Direct}}, nil
+	},
+		Open: func(ctx context.Context, _ Request, _ Plan) (net.Conn, error) { return engine.OpenTCP(ctx, f) }, StallTimeout: 60 * time.Millisecond,
+		OnStall: func(ctx context.Context, _ Request, p Plan) (net.Conn, Plan, error) {
+			next := f
+			next.PinnedPolicy = &routing.Policy{Route: routing.Route{RelayID: "VPS-01"}, BlockOnFailure: true}
+			conn, e := engine.OpenTCP(ctx, next)
+			p.Policy = flowpolicy.Result{Action: flowpolicy.RelayRequired, Fallback: flowpolicy.Required, RelayID: "VPS-01"}
+			return conn, p, e
+		}}
+	s, e := Listen(context.Background(), cfg)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer s.Close()
+	client, reader := connectVia(t, s.Address(), "youtube.com:443")
+	client.Write([]byte("CLIENT-HELLO"))
+	data := make([]byte, 12)
+	if _, e = io.ReadFull(reader, data); e != nil {
+		t.Fatal("same-tuple relay retry failed", e)
+	}
+	snapshot := engine.Snapshot()
+	if len(snapshot) != 1 || snapshot[0].Route.RelayID != "VPS-01" {
+		t.Fatal("relay reservation lost to old Close", snapshot)
 	}
 }

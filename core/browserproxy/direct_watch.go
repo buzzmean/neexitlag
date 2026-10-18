@@ -27,7 +27,7 @@ func (s *Server) watchDirect(ctx context.Context, conn net.Conn, q Request, plan
 			timeout = time.Nanosecond
 		}
 	}
-	return newStallConn(ctx, conn, timeout, func(ctx context.Context) (net.Conn, error) {
+	watch := newStallConn(ctx, conn, timeout, func(ctx context.Context) (net.Conn, error) {
 		stallCtx, stop := context.WithTimeout(ctx, 5*time.Second)
 		defer stop()
 		next, nextPlan, err := s.cfg.OnStall(stallCtx, q, plan)
@@ -65,4 +65,6 @@ func (s *Server) watchDirect(ctx context.Context, conn net.Conn, q Request, plan
 			s.cfg.OnDirectAnswered(q, plan)
 		}
 	})
+	watch.handshakeOnly = s.cfg.RequireClientHelloReplay
+	return watch
 }

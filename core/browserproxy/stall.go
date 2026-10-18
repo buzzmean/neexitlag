@@ -28,20 +28,22 @@ var errNoReplay = errors.New("first flight not replayable")
 // connection, replays the recorded first flight to it and carries on, so the browser
 // never sees the failure. It is one-shot and only ever moves traffic TOWARDS the relay.
 type stallConn struct {
-	mu        sync.Mutex
-	cur       net.Conn
-	timeout   time.Duration
-	firstAt   time.Time
-	rec       []byte
-	overflow  bool
-	settled   bool
-	retried   bool
-	closed    bool
-	halfClose bool
-	onStall   func(context.Context) (net.Conn, error)
-	onSwap    func(stalled bool, retried bool, err error)
-	answered  func()
-	ctx       context.Context
+	retryGate     sync.RWMutex
+	handshakeOnly bool
+	mu            sync.Mutex
+	cur           net.Conn
+	timeout       time.Duration
+	firstAt       time.Time
+	rec           []byte
+	overflow      bool
+	settled       bool
+	retried       bool
+	closed        bool
+	halfClose     bool
+	onStall       func(context.Context) (net.Conn, error)
+	onSwap        func(stalled bool, retried bool, err error)
+	answered      func()
+	ctx           context.Context
 }
 
 func newStallConn(ctx context.Context, upstream net.Conn, timeout time.Duration, onStall func(context.Context) (net.Conn, error), onSwap func(bool, bool, error), answered func()) *stallConn {
@@ -54,6 +56,8 @@ func newStallConn(ctx context.Context, upstream net.Conn, timeout time.Duration,
 func (x *stallConn) current() net.Conn { x.mu.Lock(); defer x.mu.Unlock(); return x.cur }
 
 func (x *stallConn) Write(p []byte) (int, error) {
+	x.retryGate.RLock()
+	defer x.retryGate.RUnlock()
 	x.mu.Lock()
 	defer x.mu.Unlock()
 	if x.closed {
@@ -131,10 +135,13 @@ func (x *stallConn) Read(p []byte) (int, error) {
 		// Silent past the deadline, or reset/closed with zero bytes after the client's
 		// first flight: the DIRECT path failed the same way a connect timeout does.
 		x.mu.Lock()
-		replayable := !x.overflow && !x.retried && len(x.rec) > 0
+		replayable := !x.overflow && !x.retried && len(x.rec) > 0 && (!x.handshakeOnly || clientHelloFlight(x.rec))
 		x.mu.Unlock()
 		if !replayable {
 			x.settle()
+			if x.handshakeOnly {
+				return 0, errNoReplay
+			}
 			if isTimeout(err) {
 				continue
 			}
@@ -143,8 +150,14 @@ func (x *stallConn) Read(p []byte) (int, error) {
 		if x.onSwap != nil {
 			x.onSwap(true, false, nil)
 		}
+		// Release the failed Engine reservation before opening the same tuple on
+		// another transport. Writers wait behind this bounded admission; they cannot
+		// race an old socket close or write through a half-switched first flight.
+		x.retryGate.Lock()
+		cur.Close()
 		next, serr := x.onStall(x.ctx)
 		if serr != nil {
+			x.retryGate.Unlock()
 			x.settle()
 			if x.onSwap != nil {
 				x.onSwap(false, false, serr)
@@ -152,10 +165,12 @@ func (x *stallConn) Read(p []byte) (int, error) {
 			return 0, serr
 		}
 		if rerr := x.swap(next); rerr != nil {
+			x.retryGate.Unlock()
 			next.Close()
 			x.settle()
 			return 0, rerr
 		}
+		x.retryGate.Unlock()
 		if x.onSwap != nil {
 			x.onSwap(false, true, nil)
 		}
@@ -170,7 +185,7 @@ func (x *stallConn) swap(next net.Conn) error {
 	if x.closed {
 		return net.ErrClosed
 	}
-	if x.overflow || len(x.rec) == 0 {
+	if x.overflow || len(x.rec) == 0 || x.handshakeOnly && !clientHelloFlight(x.rec) {
 		return errNoReplay
 	}
 	next.SetWriteDeadline(time.Now().Add(15 * time.Second))

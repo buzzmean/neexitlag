@@ -105,13 +105,15 @@ type Snapshot struct {
 	Records         []Record          `json:"records"`
 }
 type Config struct {
-	MetadataToken      string
-	AuthorizeMetadata  func(context.Context, netip.AddrPort, netip.AddrPort) error
-	Metadata           func() Snapshot
-	OpenPlan           func(context.Context, Request, Plan) (net.Conn, Plan, error)
-	Address            string // Empty allocates a port; otherwise fixed loopback only.
-	AuthorizeForwarded func(context.Context, netip.AddrPort, netip.AddrPort, netip.AddrPort, netip.AddrPort) (Owner, error)
-	TransformApplied   func(Request, Plan) bool
+	// Production enables this: TLS early/application data must never be replayed.
+	RequireClientHelloReplay bool
+	MetadataToken            string
+	AuthorizeMetadata        func(context.Context, netip.AddrPort, netip.AddrPort) error
+	Metadata                 func() Snapshot
+	OpenPlan                 func(context.Context, Request, Plan) (net.Conn, Plan, error)
+	Address                  string // Empty allocates a port; otherwise fixed loopback only.
+	AuthorizeForwarded       func(context.Context, netip.AddrPort, netip.AddrPort, netip.AddrPort, netip.AddrPort) (Owner, error)
+	TransformApplied         func(Request, Plan) bool
 	// OnStall, when set, is asked for a relay connection when an ordinary DIRECT port-443
 	// tunnel gets no answer from the origin after the browser's first bytes. It is called at
 	// most once per tunnel; on error the tunnel is closed (never retried over DIRECT).

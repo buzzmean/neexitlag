@@ -25,6 +25,7 @@ type midstreamConn struct {
 	net.Conn
 	mu           sync.Mutex
 	timeout      time.Duration
+	progress     uint64
 	answered     bool
 	pending      time.Time
 	readDeadline time.Time
@@ -33,10 +34,13 @@ type midstreamConn struct {
 }
 
 func (c *midstreamConn) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	progress := c.progress
+	c.mu.Unlock()
 	n, e := c.Conn.Write(p)
 	if n > 0 {
 		c.mu.Lock()
-		if c.answered && c.pending.IsZero() {
+		if c.answered && c.progress == progress && c.pending.IsZero() {
 			c.pending = time.Now()
 		}
 		c.mu.Unlock()
@@ -72,6 +76,7 @@ func (c *midstreamConn) Read(p []byte) (int, error) {
 		if n > 0 {
 			c.mu.Lock()
 			c.answered = true
+			c.progress++
 			c.pending = time.Time{}
 			c.mu.Unlock()
 			return n, e
