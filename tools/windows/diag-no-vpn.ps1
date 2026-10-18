@@ -6,7 +6,7 @@ Writes diag-result.txt next to this script (falls back to %TEMP% if that folder 
 writable). Changes nothing on the machine. Reads no token/identity/certificate into the
 report; the whole report is scrubbed of secret-shaped values before the run ends.
 Self-contained: does not need common.ps1. -Only limits the run to some sections:
-  env, service, ipc, tcp, udp, mtu, dns, sites, browser, apps
+  env, service, ipc, tcp, udp, mtu, dns, sites, sni, browser, apps
 #>
 param(
  [string]$VpsHost='2.56.177.4',
@@ -66,6 +66,42 @@ function Stop-OwnBrowser($Process,[string]$Marker){
    Where-Object{$_.CommandLine -and $_.CommandLine.Contains($Marker)}|
    ForEach-Object{Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue}
  }catch{}
+}
+
+# TCP connect + TLS handshake to one IP with a chosen SNI. Certificate validation stays
+# ON: the callback returns the real verdict. It only records whether the server answered
+# the ClientHello at all, which is what separates "SNI/data blocked" (timeout, reset) from
+# "reachable" (server certificate received, even if it is for another name).
+function Test-TlsSni([string]$Address,[string]$Sni,[int]$Port=443,[int]$TimeoutMs=5000){
+ $result=[ordered]@{Ip=$Address;Sni=$Sni;Tcp='';TcpMs=-1;Tls='';Detail=''}
+ $client=New-Object Net.Sockets.TcpClient
+ try{
+  $watch=[Diagnostics.Stopwatch]::StartNew()
+  $task=$client.ConnectAsync($Address,$Port)
+  $connected=$false;try{$connected=$task.Wait($TimeoutMs) -and $client.Connected}catch{}
+  $result.TcpMs=[int]$watch.ElapsedMilliseconds
+  if(-not $connected){$result.Tcp='FAILED';$result.Tls='not attempted';return [pscustomobject]$result}
+  $result.Tcp='OK'
+  $client.ReceiveTimeout=$TimeoutMs;$client.SendTimeout=$TimeoutMs
+  $global:SniProbe=@{Got=$false;Errors=''}
+  $cb=[Net.Security.RemoteCertificateValidationCallback]{param($sender,$certificate,$chain,$errors) $global:SniProbe.Got=$true;$global:SniProbe.Errors=[string]$errors;return ($errors -eq [Net.Security.SslPolicyErrors]::None)}
+  $ssl=New-Object Net.Security.SslStream($client.GetStream(),$false,$cb)
+  $hs=[Diagnostics.Stopwatch]::StartNew()
+  try{
+   $ssl.AuthenticateAsClient($Sni,$null,[Security.Authentication.SslProtocols]::Tls12,$false)
+   $result.Tls="OK in $($hs.ElapsedMilliseconds) ms (certificate verified)"
+  }catch{
+   $inner=$_.Exception.GetBaseException()
+   if($global:SniProbe.Got){$result.Tls="SERVER ANSWERED in $($hs.ElapsedMilliseconds) ms (certificate not accepted for this name: $($global:SniProbe.Errors))"}
+   elseif($inner -is [Net.Sockets.SocketException] -and $inner.SocketErrorCode -eq 'ConnectionReset'){$result.Tls="RESET after ClientHello ($($hs.ElapsedMilliseconds) ms)"}
+   elseif($inner -is [IO.IOException] -and $inner.Message -match 'timed out|timeout|expired'){$result.Tls="NO ANSWER (timeout $($hs.ElapsedMilliseconds) ms)"}
+   elseif($inner -is [Net.Sockets.SocketException] -and $inner.SocketErrorCode -eq 'TimedOut'){$result.Tls="NO ANSWER (timeout $($hs.ElapsedMilliseconds) ms)"}
+   else{$result.Tls="FAILED ($($inner.GetType().Name): $($inner.Message -replace '\s+',' '))"}
+  }
+  $ssl.Dispose()
+ }catch{$result.Tls="ERROR $($_.Exception.Message)"}
+ finally{$client.Close()}
+ return [pscustomobject]$result
 }
 
 # ---------- IPC (same wire format as the GUI: 4-byte big-endian length + JSON) ----------
@@ -249,8 +285,16 @@ Step 'tcp' {
  # Normal verification against the project CA. --ssl-no-revoke only skips the
  # revocation-list download that a private CA cannot answer; it does not weaken the chain,
  # validity or host checks.
- $text=(& $curlExe.Source -sS -m 10 --ssl-no-revoke --cacert $caPath -o NUL -w 'HTTP %{http_code} tls_verify=%{ssl_verify_result} connect=%{time_connect}s tls=%{time_appconnect}s' "https://${VpsHost}:${ControlPlanePort}/healthz" 2>&1|Out-String).Trim() -replace '\s+',' '
- $verdict=if($text -match 'tls_verify=0' -and $text -match 'HTTP 2'){'handshake and certificate OK against the project CA'}elseif($text -match 'tls_verify=0'){'certificate OK against the project CA'}else{'could not confirm (see note above; not a service verdict)'}
+ $raw=(& $curlExe.Source -sS -m 10 --ssl-no-revoke --cacert $caPath -o NUL -w 'HTTP %{http_code} tls_verify=%{ssl_verify_result} connect=%{time_connect}s tls=%{time_appconnect}s' "https://${VpsHost}:${ControlPlanePort}/healthz" 2>&1|Out-String)
+ $curlExit=$LASTEXITCODE   # must be read right after the native call
+ $text=($raw.Trim() -replace '\s+',' ')
+ $tlsSeconds=0.0
+ $tlsMatch=[regex]::Match($text,'tls=([0-9]+(?:[.,][0-9]+)?)s')
+ if($tlsMatch.Success){[void][double]::TryParse(($tlsMatch.Groups[1].Value -replace ',','.'),[Globalization.NumberStyles]::Float,[Globalization.CultureInfo]::InvariantCulture,[ref]$tlsSeconds)}
+ # OK only when curl itself succeeded, a TLS handshake really happened (time > 0) and the
+ # certificate verified against the project CA. Anything else, including a curl/Schannel
+ # error such as SEC_E_ILLEGAL_MESSAGE with tls=0, is "undetermined", never a pass.
+ $verdict=if($curlExit -eq 0 -and $tlsSeconds -gt 0 -and $text -match 'tls_verify=0'){'handshake and certificate OK against the project CA'}else{"UNDETERMINED (curl exit code $curlExit, tls time ${tlsSeconds}s): the handshake did not complete here; this probe cannot tell a service fault from a client TLS limit"}
  Say "curl with project CA: $text -> $verdict"
 }}
 
@@ -312,6 +356,39 @@ foreach($site in @('chatgpt.com','claude.ai','www.youtube.com','web.telegram.org
    catch{$resp=$_.Exception.Response;if($resp){Say "$site [ANSWERS] HTTP $([int]$resp.StatusCode)"}else{Say "$site [FAILS] $($_.Exception.Message)"}}
   }
  }
+}}
+
+if(Want 'sni'){
+Section 'YouTube: TCP + TLS per IP with different SNI (is it SNI blocking?)'
+Step 'sni' {
+ $addrs=@()
+ foreach($srv in @($null,'8.8.8.8')){
+  try{
+   $q=@{Name='www.youtube.com';Type='A';DnsOnly=$true;ErrorAction='Stop'};if($srv){$q.Server=$srv}
+   $addrs+=@(Resolve-DnsName @q|Where-Object{$_.Type -eq 'A'}|ForEach-Object{$_.IPAddress})
+  }catch{Say ("DNS www.youtube.com via $(if($srv){$srv}else{'system'}): "+($_.Exception.Message -replace '\s+',' '))}
+ }
+ $addrs=@($addrs|Select-Object -Unique|Select-Object -First 6)
+ if($addrs.Count -eq 0){Say 'No A records for www.youtube.com, SNI test skipped.';return}
+ Say ("Addresses tested: "+($addrs -join ', ')+"; SNI sets: www.youtube.com (target), www.google.com (control, works directly), example.com (foreign)")
+ $verdicts=@()
+ foreach($ip in $addrs){
+  $row=@{}
+  foreach($sni in 'www.youtube.com','www.google.com','example.com'){
+   $r=Test-TlsSni $ip $sni 443 5000
+   $row[$sni]=$r
+   Say ("  $ip SNI=$sni : tcp $($r.Tcp) ($($r.TcpMs) ms); tls $($r.Tls)")
+  }
+  $answered={param($x) $x.Tls -like 'OK*' -or $x.Tls -like 'SERVER ANSWERED*'}
+  $yt=$row['www.youtube.com'];$gg=$row['www.google.com'];$ex=$row['example.com']
+  $v=if($yt.Tcp -ne 'OK'){"$ip : TCP connect fails (IP/port level block), not an SNI verdict"}
+     elseif(& $answered $yt){"$ip : server answers for www.youtube.com (no block at this layer)"}
+     elseif((& $answered $gg) -or (& $answered $ex)){"$ip : www.youtube.com gets no answer while another SNI is answered -> SNI-BASED BLOCKING LIKELY"}
+     else{"$ip : TCP opens but no SNI gets an answer -> data after the handshake is dropped for this IP (IP-level), not SNI-specific"}
+  $verdicts+=$v
+ }
+ Say 'Verdict per address:'
+ foreach($v in $verdicts){Say "  $v"}
 }}
 
 if(Want 'browser'){
