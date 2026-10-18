@@ -20,7 +20,7 @@ public partial class MainWindow {
     await edgeRecovery.StartAsync(lifetime.Token);
     if(!edgeRecovery.Configured||status.RecoveryAddress!=edgeRecovery.Address||!status.Listening||!status.PolicyReady||!status.ReadyProfiles.Contains(row.Profile.Id))await ActivateEdgeSites(row.Profile.Copy());
    }
-  }catch(Exception error)when(!lifetime.IsCancellationRequested){model.SetNotice("Edge AUTO не включён: "+error.Message);}
+  }catch(Exception error)when(!lifetime.IsCancellationRequested){model.ReportActionFailure(EdgeErrors.Wrap("edge.prepare",error));}
  }
  async void OpenEdgeSites(object sender,RoutedEventArgs args)=>await Execute(async()=>{
   var profile=EdgeProfileSelection.Select((AppGrid.SelectedItem as ApplicationRow)?.Profile,model.Applications.Select(r=>r.Profile));
@@ -45,12 +45,12 @@ public partial class MainWindow {
  }
  async Task<bool> ActivateEdgeSites(Profile original){
   if(edgeActivating)throw new InvalidOperationException("Активация Edge уже выполняется");edgeActivating=true;
-  try{return await ActivateEdgeSitesCore(original);}finally{edgeActivating=false;}
+  try{var activated=await ActivateEdgeSitesCore(original);if(!activated&&EdgePending(original))await model.RestoreEdgeAsync(original,lifetime.Token);return activated;}finally{edgeActivating=false;}
  }
  async Task<bool> ActivateEdgeSitesCore(Profile original){
   var exe=original.Executables.FirstOrDefault(p=>p.Replace('\\','/').Split('/').Last().Equals("msedge.exe",StringComparison.OrdinalIgnoreCase));
-  if(exe is null||!Path.IsPathFullyQualified(exe)||!File.Exists(exe))throw new InvalidOperationException("Требуется полный путь установленного msedge.exe");
-  if(original.Mode is not ("DIRECT" or "AUTO"))throw new InvalidOperationException("Для Edge-полосы выберите DIRECT или AUTO; существующий профиль не изменён.");
+  if(exe is null||!Path.IsPathFullyQualified(exe)||!File.Exists(exe))throw new EdgeActivationException("edge.prepare","EDGE_CONFIGURATION_INVALID","Требуется полный путь установленного msedge.exe.");
+  if(original.Mode is not ("DIRECT" or "AUTO"))throw new EdgeActivationException("edge.prepare","EDGE_PROFILE_MODE_INVALID","Выберите DIRECT или AUTO; существующий профиль не изменён.");
   var phase="edge.policy";
   var directory=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Microsoft","Edge","User Data");
   try{
@@ -112,7 +112,7 @@ public partial class MainWindow {
     foreach(var p in model.Applications.Where(r=>EdgeSites(r.Profile)&&r.Profile.Mode=="AUTO").Select(r=>r.Profile.Copy()).ToArray())await model.RestoreEdgeAsync(p,lifetime.Token);
     model.SetNotice("Edge PAC изменён или недоступен: AUTO остановлен для Edge; Chrome не изменён.");
    }
-  }catch(Exception error)when(!lifetime.IsCancellationRequested){model.SetNotice("Edge recovery: "+error.Message);}
+  }catch(Exception error)when(!lifetime.IsCancellationRequested){model.ReportActionFailure(EdgeErrors.Wrap("edge.recovery",error));}
   finally{edgeMonitoring=false;}
  }
 }

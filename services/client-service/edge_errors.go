@@ -21,6 +21,8 @@ func edgeErrorCode(err error) string {
 	switch {
 	case strings.Contains(text, "another owner"), strings.Contains(text, "foreign"), strings.Contains(text, "machine-managed"):
 		return "EDGE_POLICY_MANAGED"
+	case strings.Contains(text, "readiness not observed"):
+		return "EDGE_READINESS_NOT_OBSERVED"
 	case strings.Contains(text, "SID"):
 		return "EDGE_OWNER_SID_REQUIRED"
 	case strings.Contains(text, "DIRECT/AUTO"):
@@ -29,8 +31,6 @@ func edgeErrorCode(err error) string {
 		return "EDGE_PROFILE_NOT_FOUND"
 	case strings.Contains(text, "Automatic routing"):
 		return "EDGE_AUTOMATIC_DISABLED"
-	case strings.Contains(text, "readiness not observed"):
-		return "EDGE_READINESS_NOT_OBSERVED"
 	case strings.Contains(text, "proof expired"):
 		return "EDGE_READINESS_EXPIRED"
 	case strings.Contains(text, "prepare Edge"):
