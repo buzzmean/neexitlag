@@ -490,6 +490,17 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 	if isEdgeMutation(method) {
 		c.activationMu.Lock()
 		defer c.activationMu.Unlock()
+		// Include guard-publication failures before/after handleEdge in the same
+		// bounded status diagnostic; otherwise a failure before listener was invisible.
+		defer func() {
+			if err != nil {
+				c.browser.mu.Lock()
+				e := c.edgeLocked()
+				e.lastError = method + ": " + edgeErrorCode(err)
+				err = errors.New(e.lastError)
+				c.browser.mu.Unlock()
+			}
+		}()
 		if e := c.publishBrowserGuard(true); e != nil {
 			return nil, e
 		}

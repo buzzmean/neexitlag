@@ -385,3 +385,26 @@ func TestLegacyEdgeRollbackWithoutProfilePreservesCustomProtectedDomains(t *test
 		t.Fatal("corrupt legacy state granted ordinary DIRECT")
 	}
 }
+
+func TestEdgeGuardPublicationFailureBeforeListenerStillAppearsInStatus(t *testing.T) {
+	c := New(context.Background())
+	defer c.Close()
+	c.BrowserOwnerSID = "owner"
+	c.Profiles.Upsert(edgeTestProfile())
+	file := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(file, []byte("not secret"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	c.customPath = filepath.Join(file, "profiles.json")
+	if _, err := edgeCall(c, "edge.prepare", map[string]string{"profile_id": "edge", "directory": t.TempDir(), "recovery_address": "127.0.0.1:17777"}); err == nil {
+		t.Fatal("guard write error hidden")
+	}
+	status, err := edgeCall(c, "edge.status", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(status)
+	if !strings.Contains(string(raw), "edge.prepare: EDGE_OPERATION_FAILED") || strings.Contains(string(raw), file) {
+		t.Fatal("missing safe pre-listener error", string(raw))
+	}
+}

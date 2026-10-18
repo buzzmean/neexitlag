@@ -18,6 +18,11 @@ func edgeErrorCode(err error) string {
 		return "EDGE_TIMEOUT"
 	}
 	text := err.Error()
+	for _, code := range strings.Fields(text) {
+		if edgeGUIFailureAllowed("edge.prepare", code) {
+			return code
+		}
+	}
 	switch {
 	case strings.Contains(text, "another owner"), strings.Contains(text, "foreign"), strings.Contains(text, "machine-managed"):
 		return "EDGE_POLICY_MANAGED"
