@@ -255,3 +255,10 @@ key, PAC, recovery listener with that executable, readiness proof). The service 
 expected PAC and one recovery process, and a generic Edge profile would relay all of Edge's
 traffic (`openai-web` preset), so none is created. Adding Edge means a second lane in both
 the service and the GUI; it is deliberately not half-done.
+
+## YouTube через relay: флаг `youtube_via_relay`
+
+По умолчанию **выключен**. Застой DIRECT-туннеля к YouTube/googlevideo/ytimg/ggpht считается и виден в
+`browser.status` (`direct_stalls_total`), но ни кэш, ни повтор не уводят YouTube в relay: видео — тяжёлый
+трафик, лимиты тарифа VPS не подтверждены. Включение: `settings.set` с полным объектом Settings и
+`"youtube_via_relay": true` (остальные сайты от флага не зависят).

@@ -49,6 +49,9 @@ type Settings struct {
 	Automatic     bool   `json:"automatic"`
 	Failover      string `json:"failover"`
 	UpdateChannel string `json:"update_channel"`
+	// YouTubeViaRelay lets the stall retry and the timeout cache move YouTube to the relay.
+	// Off by default: video traffic is heavy and the VPS plan limits are not confirmed.
+	YouTubeViaRelay bool `json:"youtube_via_relay,omitempty"`
 }
 type Snapshot struct {
 	HotAttach      *windowsplatform.HotAttachStatus `json:"hot_attach,omitempty"`

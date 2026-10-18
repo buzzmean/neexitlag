@@ -66,6 +66,7 @@ func startOrigin(t *testing.T, answer bool) (string, *tcpSink) {
 func TestSilentDirectOriginIsRetriedViaRelayThenCachedRelayFirst(t *testing.T) {
 	c := New(context.Background())
 	t.Cleanup(c.Close)
+	enableYouTubeRelay(c)
 	cur := profilesResult{profile: profiles.Profile{ID: "chrome-x"}, network: "net-1", enabled: true}
 	silent, silentSaw := startOrigin(t, false)
 	relay, relaySaw := startOrigin(t, true)

@@ -102,6 +102,8 @@ public sealed class ServiceSettings
         get; set;
     }
     public string Failover { get; set; } = "DIRECT"; public string UpdateChannel { get; set; } = "stable";
+    [System.Text.Json.Serialization.JsonPropertyName("youtube_via_relay")]
+    public bool YouTubeViaRelay { get; set; }
 }
 public sealed class HotAttachStatus
 {

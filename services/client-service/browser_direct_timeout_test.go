@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +20,12 @@ func timeoutFixture(t *testing.T) (*Controller, profilesResult) {
 	c := New(context.Background())
 	t.Cleanup(c.Close)
 	return c, profilesResult{profile: profiles.Profile{ID: "chrome-x"}, network: "net-1", enabled: true}
+}
+
+func enableYouTubeRelay(c *Controller) {
+	c.mu.Lock()
+	c.settings.YouTubeViaRelay = true
+	c.mu.Unlock()
 }
 
 var directPlan = browserproxy.Plan{Policy: flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailOpen}}
@@ -147,6 +154,7 @@ func TestBackgroundRecheckKeepsRelayWhenInconclusiveAndRetries(t *testing.T) {
 
 func TestTwoStallsMakeYouTubeAndItsVideoHostsRelayFirstWithoutLeakingToDirect(t *testing.T) {
 	c, cur := timeoutFixture(t)
+	enableYouTubeRelay(c)
 	now := time.Now()
 	key := func(host string) flowpolicy.DirectTimeoutKey {
 		return c.directTimeoutKey(cur, browserproxy.Request{Host: host, Port: 443, Secure: true})
@@ -181,6 +189,7 @@ func TestTwoStallsMakeYouTubeAndItsVideoHostsRelayFirstWithoutLeakingToDirect(t 
 // A stalled path still completes the TCP connect. Only the origin's first byte proves DIRECT works.
 func TestConnectSuccessOnHTTPSDoesNotClearStallsButFirstByteDoes(t *testing.T) {
 	c, cur := timeoutFixture(t)
+	enableYouTubeRelay(c)
 	q := browserproxy.Request{Host: "www.youtube.com", Port: 443, Secure: true}
 	now := time.Now()
 	c.browser.directTimeouts.RecordStall(c.directTimeoutKey(cur, q), now)
@@ -206,5 +215,48 @@ func TestStallRetryPlanIsRelayRequiredFailClosedAndNeverDirect(t *testing.T) {
 		if directTimeoutEligible(browserproxy.Request{Host: host, Port: 443}, directPlan) {
 			t.Fatalf("%s is protected and relay-required from the start; the stall path must not touch it", host)
 		}
+	}
+}
+
+// Without youtube_via_relay YouTube is never moved to the relay, but stalls are still counted.
+func TestYouTubeRelayIsOffByDefaultButStallsAreStillCounted(t *testing.T) {
+	c, cur := timeoutFixture(t)
+	now := time.Now()
+	yt := browserproxy.Request{Host: "rr3---sn-4g5e6nzs.googlevideo.com", Port: 443, Secure: true}
+	other := browserproxy.Request{Host: "example.com", Port: 443, Secure: true}
+	for _, q := range []browserproxy.Request{yt, other} {
+		c.browser.directTimeouts.RecordStall(c.directTimeoutKey(cur, q), now)
+		c.browser.directTimeouts.RecordStall(c.directTimeoutKey(cur, q), now.Add(time.Second))
+	}
+	if _, ok := c.steerTimedOutOrigin(directPlan, cur, yt, now.Add(2*time.Second)); ok {
+		t.Fatal("YouTube was steered to the relay with the flag off")
+	}
+	if _, ok := c.steerTimedOutOrigin(directPlan, cur, other, now.Add(2*time.Second)); !ok {
+		t.Fatal("a non-YouTube origin must not depend on the YouTube flag")
+	}
+	opened := false
+	open := func(context.Context, browserproxy.Request, browserproxy.Plan) (net.Conn, error) {
+		opened = true
+		return nil, errors.New("must not open")
+	}
+	if _, _, err := c.stallRetry(context.Background(), cur, yt, directPlan, open); err == nil || opened {
+		t.Fatalf("stall retry reached the relay with the flag off: err=%v opened=%v", err, opened)
+	}
+	if s := c.browser.directTimeouts.Stats(); s.Stalls != 5 || s.StallRetries != 0 {
+		t.Fatalf("%+v", s)
+	}
+	enableYouTubeRelay(c)
+	if _, ok := c.steerTimedOutOrigin(directPlan, cur, yt, now.Add(2*time.Second)); !ok {
+		t.Fatal("YouTube not steered with the flag on")
+	}
+}
+
+func TestYouTubeViaRelaySettingSurvivesSettingsSetAndPersists(t *testing.T) {
+	var s Settings
+	if err := json.Unmarshal([]byte(`{"automatic":true,"failover":"DIRECT","update_channel":"stable","youtube_via_relay":true}`), &s); err != nil || !s.YouTubeViaRelay {
+		t.Fatalf("%+v %v", s, err)
+	}
+	if b, _ := json.Marshal(Settings{Failover: "DIRECT", UpdateChannel: "stable"}); strings.Contains(string(b), "youtube") {
+		t.Fatalf("default must stay out of settings.json: %s", b)
 	}
 }

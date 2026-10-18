@@ -67,10 +67,21 @@ func (c *Controller) observeDirectOpen(current profilesResult, q browserproxy.Re
 	}
 }
 
+// relayAllowedFor: YouTube goes to the relay only when the user enabled youtube_via_relay.
+// Stalls are still counted and shown in diagnostics either way.
+func (c *Controller) relayAllowedFor(host string) bool {
+	if !youtubeDomain(host) {
+		return true
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.settings.YouTubeViaRelay
+}
+
 // steerTimedOutOrigin moves a cached origin straight to the authenticated relay,
 // fail-closed. It never returns a DIRECT decision.
 func (c *Controller) steerTimedOutOrigin(plan browserproxy.Plan, current profilesResult, q browserproxy.Request, now time.Time) (browserproxy.Plan, bool) {
-	if current.network == "" || !directTimeoutEligible(q, plan) {
+	if current.network == "" || !directTimeoutEligible(q, plan) || !c.relayAllowedFor(q.Host) {
 		return plan, false
 	}
 	key := c.directTimeoutKey(current, q)
@@ -138,6 +149,9 @@ func (c *Controller) stallRetry(ctx context.Context, current profilesResult, q b
 	}
 	if current.network != "" {
 		c.browser.directTimeouts.RecordStall(c.directTimeoutKey(current, q), time.Now())
+	}
+	if !c.relayAllowedFor(q.Host) {
+		return nil, plan, errors.New("youtube relay retry disabled (youtube_via_relay=false)")
 	}
 	next := stallRetryPlan(current, plan)
 	conn, err := open(ctx, q, next)
