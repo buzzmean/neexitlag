@@ -336,6 +336,7 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (any, error)
 		if !e.server.AuthorizeProfile(p.ID, q.Health) {
 			return nil, errors.New("Edge activation proof expired/changed")
 		}
+		e.lastError = "" // A fresh actual Edge policy/nonce proof supersedes restore errors.
 		if err := c.saveEdge(e); err != nil {
 			return nil, err
 		}

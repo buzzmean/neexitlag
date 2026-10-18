@@ -16,7 +16,7 @@ Telegram, Claude, ChatGPT, Chrome (профиль Chrome создан вручн
 
 ## (d) Открыто
 - YouTube: DIRECT без ответа (гипотеза: блокировка по SNI; проверяет секция `sni` в diag). Прозрачный повтор через релей реализован, но за флагом `youtube_via_relay` (по умолчанию выключен) до ответа владельца про канал и лимит трафика VPS.
-- Edge без профиля и без политики. B3 сделан только для Chrome (автосоздание профиля). Edge — отдельная задача (своя политика Microsoft\Edge, PAC, recovery-процесс), ждёт «да».
+- Edge-полоса реализована в `codex/work` (коммиты `c017322`, `9d66683`, `91d78c7`, `78dc824`, `a18967c`): отдельные PAC/CONNECT/recovery, owner-SID policy через службу, guarded rollback. Реальная Windows/ISP-проверка и C#/WPF-компиляция пока НЕ подтверждены; см. (j) и `docs/EDGE_SITE_ROUTING.md`.
 - Discord медленно (headless Chrome: 15.4 с до DOM); причина не найдена.
 - DIRECT+ для YouTube выключен по умолчанию; путь привязки к Chrome AUTO не разобран до конца (`ApplyPresetAsync` ставит DIRECT+ на весь профиль).
 - Ложный вердикт 8443 в diag-no-vpn.ps1: исправлен в `578a45f`/`28841f2` (OK только при коде curl 0 и времени TLS > 0), на ПК нужен свежий скрипт.
@@ -26,7 +26,7 @@ Telegram, Claude, ChatGPT, Chrome (профиль Chrome создан вручн
 | Область | Файлы | Агент | Ветка | Статус |
 |---|---|---|---|---|
 | B3 Chrome: каталог браузеров, автосоздание профиля DIRECT | `apps/desktop-core/BrowserCatalog.cs`, `DesktopViewModel.cs`, `Resources/Strings.resx`, `apps/desktop/ChromeRouting.cs`, `tests/desktop/BrowserCoverageTests.cs` | Claude Code | `claude/serene-cori-msra1u` | ГОТОВО (`9473d72`); C#/WPF-слой не компилировался, проверен только тестами core-логики; на ПК не проверен |
-| Edge-полоса | `apps/desktop/EdgeRouting*.cs`, `apps/desktop-core/EdgeRouting.cs`, `BrowserCatalog.cs` (Edge), новые `services/client-service/edge_*.go`, Windows policy и тесты; добавляющие точки в `browser_transport.go`, `controller.go`, `ChromeRouting.cs` | Codex | `codex/work` | 18.10.2026: В РАБОТЕ; владелец разрешил три интеграционных файла одним коммитом; Chrome/stall/YouTube не переписывать |
+| Edge-полоса | `apps/desktop/EdgeRouting*.cs`, `apps/desktop-core/EdgeRouting.cs`, `BrowserCatalog.cs` (Edge), новые `services/client-service/edge_*.go`, Windows policy и тесты; добавляющие точки в `browser_transport.go`, `controller.go`, `ChromeRouting.cs` | Codex | `codex/work` | 18.10.2026: код ГОТОВ, область освобождена; интеграция трёх файлов только `91d78c7` (+28/-0); Go PASS; C#/native Windows CI не подтверждены |
 | Застой YouTube (ноль байт после ClientHello): stallConn, кэш, повтор через релей, счётчики | `core/browserproxy/{proxy,stall}.go`, `core/flowpolicy/direct_timeout.go`, `services/client-service/{browser_direct_timeout,browser_transport,controller}.go` и тесты | Claude Code | `claude/serene-cori-msra1u` | ГОТОВО (`91c9016`, `28841f2`); только тесты, на ПК не проверено |
 | Флаг `youtube_via_relay` (выключен) | `services/client-service/{controller,browser_direct_timeout}.go`, `apps/desktop-core/Models.cs` | Claude Code | `claude/serene-cori-msra1u` | ГОТОВО (`9bb43bd`) |
 | diag-скрипт | `tools/windows/diag-no-vpn.ps1` | Claude Code | `claude/serene-cori-msra1u` | готово (`578a45f`, `28841f2`); дальше только по новым данным владельца |
@@ -57,6 +57,7 @@ Telegram, Claude, ChatGPT, Chrome (профиль Chrome создан вручн
 ## (h) Журнал решений
 | Дата | Решение | Почему |
 |---|---|---|
+| 18.10.2026 | Edge: раздельные listener/PAC/recovery и состояние, запись HKU owner SID только службой; три общих файла изменены только добавлениями в `91d78c7` | Разрешено владельцем после синхронизации с `90d4817`; legacy Edge relay-first не меняется без явного `app_preset=edge-sites`; protected guard сохраняется при отказе/удалении профиля |
 | 18.10.2026 | Codex: DNS-fix не переносить повторно; Edge-полоса разрешена, реализация ждёт согласования минимальных правок занятых файлов | DNS-коммиты уже входят в базу. Синхронизация: merge `221045f`. Служба допускает только Chrome и проверяет один Chrome PAC; запись HKCU сейчас выполняет GUI. Нужны точки интеграции в `browser_transport.go`, `controller.go`, `ChromeRouting.cs`; код не менялся, на ПК пока ничего запускать не нужно |
 | 18.10.2026 | C2 (relay-first claude.ai в браузере) не включать | C1 (кэш таймаутов) покрывает |
 | 18.10.2026 | C3 (запасной транспорт) только дизайн, не реализовывать | решение владельца |
@@ -82,3 +83,31 @@ Telegram, Claude, ChatGPT, Chrome (профиль Chrome создан вручн
 - `e436acf` дефолтные профили Claude/ChatGPT/Telegram.
 - `ac5cf81` автопродление клиентских сертификатов; `673c866`, `f8dbf6b`, `d988b58`, `550a91f`, `df672c3`, `e075960` — надёжность запуска, rate limit, idle TCP, replay/fsync, сетевой снимок.
 Подробности — `docs/STATUS.md`, `docs/BLOCKERS.md`.
+
+
+## (j) Codex — Edge-полоса, 18.10.2026
+
+Синхронизация: `git fetch origin`, merge `221045f` с `90d4817`; конфликт таблицы разрешён по явному решению владельца. DNS-fix повторно не переносился.
+
+- `c017322`: изолированная запись Edge ProxySettings службой в HKU installation owner SID; отказ для чужой политики.
+- `9d66683`: новые Edge GUI/recovery/core файлы, Edge discovery, автосоздание одного DIRECT-профиля, отдельные кнопки/таблица и C#-регрессии.
+- `91d78c7`: служебная Edge-полоса, nonce/PID/SID readiness, IPC и Windows acceptance. **Все изменения трёх совместных файлов находятся только в этом коммите, +28/-0.**
+- `78dc824`, `a18967c`: guard-only restart, честный Edge-статус, защита от удаления профиля до guard; остальные файлы Chrome не тронуты.
+
+Точные добавленные строки **в `91d78c7` и итоговой версии этой сессии**:
+
+| Файл | Строки | Что добавлено |
+|---|---|---|
+| `services/client-service/browser_transport.go` | 28; 64–66; 626; 669–671; 678–680 | отдельный Edge runtime; Edge owner/profile dispatch; независимое восстановление; отдельная readiness/исключение из Chrome-проверки |
+| `services/client-service/controller.go` | 215; 485–496; 512–513 | закрытие Edge; отдельная сериализованная IPC-транзакция и публикация guard; Edge IPC dispatch |
+| `apps/desktop/ChromeRouting.cs` | 33; 77 | вызовы Edge coverage и мониторинга |
+
+Вне этих трёх: новые `edge_*.go`, `EdgeRouting*.cs`, Windows `edge_policy*`, Edge-добавление в BrowserCatalog, кнопки/таблица MainWindow.xaml, добавляющая Edge-ветка browser_policy/recovery_guard/ipc_handlers, тесты и новый workflow `edge-native.yml`. `DesktopViewModel.cs`, `Models.cs`, `proxy.go`, `stall.go`, `direct_timeout.go`, `browser_direct_timeout.go`, `youtube_via_relay` не изменены.
+
+Проверено локально: `go test -race -timeout 120s ./...`, `go vet ./...`, `go build ./...`, Windows amd64 cross-build; после дополнительных Edge-правок — focused race/vet и cross-compile Windows test binary. C#/.NET/Edge в Linux-окружении отсутствуют: C# и WPF **локально не компилировались**, native Windows тест не запускался. Добавлены C# regression tests и actual Edge HTTPS/HTTP2 + mTLS relay + outage/restart test (9 контролируемых сайтов, неполные evidence дают FAIL), foreign policy/SID refusal. Никаких Internet PASS или native Edge DIRECT+ PASS не заявлено.
+
+CI: GitHub connector возвращает пустой список запусков для новых Edge-коммитов; `gh run list` получает `Forbidden`. Поэтому CI PASS не подтверждён. Новый workflow: [Edge policy acceptance](https://github.com/buzzmean/neexitlag/blob/codex/work/.github/workflows/edge-native.yml); [запуски ветки](https://github.com/buzzmean/neexitlag/actions?query=branch%3Acodex%2Fwork). Известный старый Windows Verify failure на `c53a4f7` не исправлялся и не перезапускался через PR #8.
+
+Осталось: получить actual C#/WPF/Windows CI; коротко проверить Edge на ПК владельца без VPN. Существующий Edge MANUAL/DIRECT/старый relay-first профиль не мигрирует автоматически — opt-in через «Сайты Edge AUTO». Edge предупредит «Управляется вашей организацией»; «Отключить PAC Edge» освобождает ordinary DIRECT и сохраняет protected guard. Recovery требует GUI; после утраты per-user recovery-state повторная активация проверяет новый процесс, а не доверяет старому ready-флагу. VPS/credentials/certificates/PR #8 не менялись, ветка `codex/direct-plus-flowseal` сохранена.
+
+На ПК: выполнить [обычную пересборку/обновление службы с SHA256-проверкой](../EDGE_SITE_ROUTING.md), включить Edge в VELIQ, VPN OFF, затем `& .\tools\windows\diag-no-vpn.ps1 -Only browser`; `diag-result.txt` не коммитить. До подтверждения Windows CI не считать этот код готовым production-релизом.

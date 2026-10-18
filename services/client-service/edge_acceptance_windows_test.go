@@ -205,7 +205,11 @@ func TestEdgeActualPolicyHTTPSOutageRestart(t *testing.T) {
 	fixture.ExpectedFailures = map[int][]string{2: {"chatgpt.com", "www.youtube.com", "blocked.example"}}
 	var records []browserproxy.Record
 	output, err := fixture.RunChrome(ctx, edge, args, func() error {
-		records = append(records, c.browser.edge.server.Snapshot().Records...)
+		before := c.browser.edge.server.Snapshot()
+		if before.Lost != 0 || before.Truncated {
+			return errors.New("incomplete Edge evidence before outage")
+		}
+		records = append(records, before.Records...)
 		c.Close()
 		fixture.HealthURL = ""
 		return nil
@@ -221,7 +225,11 @@ func TestEdgeActualPolicyHTTPSOutageRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal("actual Edge policy/site/outage/restart", err, output)
 	}
-	records = append(records, c.browser.edge.server.Snapshot().Records...)
+	after := c.browser.edge.server.Snapshot()
+	if after.Lost != 0 || after.Truncated {
+		t.Fatal("incomplete Edge evidence after restart")
+	}
+	records = append(records, after.Records...)
 	seen := map[string]bool{}
 	for _, record := range records {
 		if record.Sent == 0 || record.Received == 0 {

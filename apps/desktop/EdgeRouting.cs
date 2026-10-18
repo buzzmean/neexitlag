@@ -5,7 +5,7 @@ namespace Neexitlag.Desktop;
 
 public partial class MainWindow {
  readonly EdgeRoutingRecovery edgeRecovery=new();
- bool edgeActivating,edgeMonitoring,edgeLifetimeHook;
+ bool edgeActivating,edgeMonitoring,edgeLifetimeHook,edgeNeedsActivation;
  static bool EdgeSites(Profile p)=>BrowserCatalog.IsEdge(p)&&p.PolicyData is {} data&&data.TryGetValue("app_preset",out var v)&&v.ValueKind==JsonValueKind.String&&v.GetString()=="edge-sites";
  async Task EnsureEdgeCoverageAsync(IReadOnlyList<InstalledBrowser> installed){
   if(!edgeLifetimeHook){Closed+=(_,_)=>edgeRecovery.Dispose();edgeLifetimeHook=true;}
@@ -16,7 +16,8 @@ public partial class MainWindow {
    // AUTO resumes only after its own policy/readiness has been verified.
    foreach(var row in model.Applications.Where(r=>EdgeSites(r.Profile)&&r.Profile.Mode=="AUTO").ToArray()){
     var status=await model.EdgeStatusAsync(lifetime.Token);
-    if(!status.Listening||!status.PolicyReady||!status.ReadyProfiles.Contains(row.Profile.Id))await ActivateEdgeSites(row.Profile.Copy());
+    await edgeRecovery.StartAsync(lifetime.Token);
+    if(!edgeRecovery.Configured||status.RecoveryAddress!=edgeRecovery.Address||!status.Listening||!status.PolicyReady||!status.ReadyProfiles.Contains(row.Profile.Id))await ActivateEdgeSites(row.Profile.Copy());
    }
   }catch(Exception error)when(!lifetime.IsCancellationRequested){model.SetNotice("Edge AUTO не включён: "+error.Message);}
  }
@@ -30,6 +31,7 @@ public partial class MainWindow {
   var profiles=model.Applications.Where(r=>EdgeSites(r.Profile)).Select(r=>r.Profile.Copy()).ToArray();
   if(profiles.Length==0){model.SetNotice("Профиль Edge-полосы не найден; PAC не изменялся.");return;}
   foreach(var p in profiles)await model.RestoreEdgeAsync(p,lifetime.Token);
+  edgeRecovery.Dispose();edgeNeedsActivation=true;
   model.SetNotice("PAC Edge отключён для обычных сайтов. Защищённые домены остаются закрыты; Chrome не изменён. Перезапустите Edge для применения политики.");
  });
  async Task<bool> EdgeRunning(string exe){
@@ -69,21 +71,28 @@ public partial class MainWindow {
    await model.CommitEdgeAsync(original,lifetime.Token);
    var start=new ProcessStartInfo(exe){UseShellExecute=false};foreach(var arg in launch.UserArguments())start.ArgumentList.Add(arg);start.ArgumentList.Add("--restore-last-session");
    using var process=Process.Start(start)??throw new InvalidOperationException("Не удалось запустить Edge");
+   edgeNeedsActivation=false;
    model.SetNotice("Edge AUTO готов: политика и CONNECT подтверждены Edge. Доступность сайтов проверяется отдельно.");
    return true;
   }catch(Exception error){
    try{await model.RestoreEdgeAsync(original,lifetime.Token);}catch(Exception rollback){throw new InvalidOperationException("Не удалось восстановить Edge guard: "+rollback.Message,error);}
+   edgeRecovery.Dispose();edgeNeedsActivation=true;
    if(!await EdgeRunning(exe)){var start=new ProcessStartInfo(exe){UseShellExecute=false};start.ArgumentList.Add("--user-data-dir="+directory);start.ArgumentList.Add("--restore-last-session");using var reopened=Process.Start(start);}
    throw new InvalidOperationException("Edge AUTO не активирован, обычные сайты DIRECT, protected-домены закрыты: "+error.Message,error);
   }
  }
  async Task MonitorEdgeTransportAsync(){
-  if(edgeActivating||edgeMonitoring||!model.Applications.Any(r=>EdgeSites(r.Profile)))return;
+  if(edgeActivating||edgeMonitoring||edgeNeedsActivation||!model.Applications.Any(r=>EdgeSites(r.Profile)&&r.Profile.Mode=="AUTO"))return;
   edgeMonitoring=true;
   try{
    // Recovery remains an owner-user process; it survives service loss and can
    // release only ordinary domains authorized by the service-owned guard file.
    await edgeRecovery.StartAsync(lifetime.Token);
+   if(!edgeRecovery.Configured){
+    edgeRecovery.Dispose();edgeNeedsActivation=true;
+    model.ApplyEdgePolicyState(new(){LastError="Recovery не настроен после сброса локального состояния. Нажмите «Оптимизировать» для повторной проверки Edge."});
+    return;
+   }
    if(!model.Available){model.ApplyEdge(await edgeRecovery.SnapshotAsync(lifetime.Token));return;}
    var status=await model.EdgeStatusAsync(lifetime.Token);var snapshot=status.Snapshot();
    var recovery=await edgeRecovery.SnapshotAsync(lifetime.Token);

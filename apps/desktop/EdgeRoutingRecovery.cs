@@ -14,6 +14,7 @@ internal sealed class EdgeRoutingRecovery : IDisposable {
  readonly SemaphoreSlim startGate=new(1,1),protocolGate=new(1,1);
  public string Address {get;private set;}="";
  public bool Running=>process is {} p&&!p.HasExited;
+ public bool Configured=>Running&&saved is not null;
  static string InstalledProgram=>Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),"neexitlag","neexitlag-service.exe");
  public async Task StartAsync(CancellationToken ct){await startGate.WaitAsync(ct);try{await StartCoreAsync(ct);}finally{startGate.Release();}}
  async Task StartCoreAsync(CancellationToken ct){
