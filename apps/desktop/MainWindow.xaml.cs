@@ -103,7 +103,7 @@ public partial class MainWindow : Window
             await action();
         }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
-        catch (Exception e) { model.SetUnavailable(e); }
+        catch (Exception e) { model.ReportActionFailure(e); }
     }
     bool presetsLoaded,refreshingWindow;
     async Task Refresh()
@@ -112,7 +112,7 @@ public partial class MainWindow : Window
         try{
         var wasOptimizing=model.Optimizing;
         await Execute(() => model.RefreshAsync(lifetime.Token));
-        await Execute(()=>MonitorChromeTransportAsync(wasOptimizing));
+        await Execute(()=>model.ObserveAuxiliaryAsync(()=>MonitorChromeTransportAsync(wasOptimizing),"browser.monitor",lifetime.Token));
         if(!presetsLoaded&&model.Available){try{AppPreset.ItemsSource=await model.GetPresetsAsync(lifetime.Token);AppPreset.SelectedIndex=0;presetsLoaded=true;}catch(ServiceException){}}
         if (!settingsLoaded && model.Snapshot is { } snapshot)
         {

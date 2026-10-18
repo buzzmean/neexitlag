@@ -153,14 +153,22 @@ public sealed partial class DesktopViewModel : Observable
                     executables = status.Profiles.SelectMany(p => p.Executables).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 }, ct);
             }
-            catch (ServiceException) { }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception error) { ReportAuxiliaryFailure(error,"ipc.processes"); }
             try
             {
                 capture = await client.Call<CaptureEvidence>("capture.diagnostics", cancellationToken: ct);
             }
-            catch (ServiceException) { }
-            Apply(status, processes, capture);
-            try { ApplyBrowser(await client.Call<BrowserTransportSnapshot>("browser.status", cancellationToken: ct)); } catch (ServiceException) { BrowserDomains.Clear(); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception error) { ReportAuxiliaryFailure(error,"ipc.capture"); }
+            try { Apply(status, processes, capture); }
+            catch (Exception error) when (processes is not null || capture is not null) {
+                Apply(status); // Validate/display core status independently of malformed auxiliary data.
+                ReportAuxiliaryFailure(error,"diagnostics.apply");
+            }
+            try { ApplyBrowser(await client.Call<BrowserTransportSnapshot>("browser.status", cancellationToken: ct)); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception error) { ApplyBrowser(new()); ReportAuxiliaryFailure(error,"ipc.browser"); }
             Error = "";
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
