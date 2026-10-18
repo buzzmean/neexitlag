@@ -42,7 +42,7 @@ func (c *Controller) browserDNSCachedPlan(q browserproxy.Request, current profil
 	if current.enabled && current.network != "" && q.Secure {
 		if cached, ok := c.browser.dns.Lookup(c.browserDNSKey(q, current), time.Now()); ok && cached.Verified {
 			result := c.browserFlow(current.profile, current.id, wp.Tuple{Protocol: "tcp", Source: q.Source, Destination: cached.Destination}, q.Host, current.network)
-			if result.Action != flowpolicy.Block && result.Source != "rule" && !youtubeDomain(q.Host) {
+			if result.Action != flowpolicy.Block && result.Source != "rule" && result.Action != flowpolicy.DirectPlus {
 				return browserproxy.Plan{Network: current.network, Enabled: current.enabled, Policy: browserDNSPolicy(current), Destination: cached.Destination, Probe: "DNS_RELAY_HTTP_VERIFIED", HTTPStatus: cached.Probe.Status, DNSRecovery: &cached}, true
 			}
 		}
@@ -60,7 +60,7 @@ func (c *Controller) recoverBrowserDNS(ctx context.Context, q browserproxy.Reque
 		policyDestination = netip.AddrPortFrom(netip.IPv4Unspecified(), q.Port)
 	}
 	existing := c.browserFlow(current.profile, current.id, wp.Tuple{Protocol: "tcp", Source: q.Source, Destination: policyDestination}, q.Host, current.network)
-	if existing.Action == flowpolicy.Block || youtubeDomain(q.Host) || existing.Source == "rule" && existing.Action != flowpolicy.RelayRequired {
+	if existing.Action == flowpolicy.Block || existing.Action == flowpolicy.DirectPlus || existing.Source == "rule" && existing.Action != flowpolicy.RelayRequired {
 		return plan, false
 	}
 	plan.Policy = browserDNSPolicy(current)

@@ -241,10 +241,13 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 	stop()
 	if err != nil || len(addresses) == 0 {
 		base := browserproxy.Plan{Network: current.network, Enabled: current.enabled, Policy: browserDNSPolicy(current)}
-		if recovered, ok := c.recoverBrowserDNS(ctx, q, current, base); ok {
+		recovered, ok := c.recoverBrowserDNS(ctx, q, current, base)
+		if ok {
 			return recovered, nil
 		}
-		return base, browserproxy.ErrOriginDNS
+		// Preserve bounded DoH/TLS/HTTP failure evidence instead of hiding it behind
+		// ORIGIN_DNS_FAILED (including negative cooldown hits).
+		return recovered, browserproxy.ErrOriginDNS
 	}
 	// Prefer IPv4 for the existing native DIRECT+ backend. IPv6 relay/direct can
 	// use the existing authenticated transport, not an unsupported native bypass.
