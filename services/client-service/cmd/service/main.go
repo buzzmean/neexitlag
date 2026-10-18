@@ -30,21 +30,11 @@ func runReady(ctx context.Context, path string, ready func()) error {
 	if e = controller.SetCustomPath(manifest.StateDirectory + string(os.PathSeparator) + "profiles.json"); e != nil {
 		return e
 	}
-	if manifest.ControlPlaneURL != "" {
-		if e = controller.ConnectRemote(ctx, manifest); e != nil {
-			slog.Warn("control plane initialization unavailable; capture remains DIRECT", "error", e)
-		}
-	}
-	controller.Start()
-	if e = controller.RestoreBrowserTransport(); e != nil {
-		slog.Warn("Chrome transport not restored; proxy remains fail-closed", "error", e)
-	}
-	if controller.Snapshot().Settings.Automatic {
-		if _, e := controller.Handle(ctx, "optimize", []byte(`{"enabled":true}`)); e != nil {
-			slog.Warn("automatic capture unavailable; networking remains DIRECT", "error", e)
-		}
-	}
-	server, e := ipc.New(strings.TrimSpace(string(token)), controller.Handle)
+	// The pipe opens before the slow stages so SCM does not wait on the network and
+	// the GUI can tell "starting" from "not installed". Methods are rejected until
+	// initialization finishes (see startupGate).
+	var gate startupGate
+	server, e := ipc.New(strings.TrimSpace(string(token)), gate.wrap(controller.Handle))
 	if e != nil {
 		return e
 	}
@@ -53,6 +43,27 @@ func runReady(ctx context.Context, path string, ready func()) error {
 		return e
 	}
 	defer listener.Close()
+	initDone := make(chan struct{})
+	go func() {
+		defer close(initDone)
+		if manifest.ControlPlaneURL != "" {
+			if e := controller.ConnectRemote(ctx, manifest); e != nil {
+				slog.Warn("control plane initialization unavailable; capture remains DIRECT", "error", e)
+			}
+		}
+		controller.Start()
+		if e := controller.RestoreBrowserTransport(); e != nil {
+			slog.Warn("Chrome transport not restored; proxy remains fail-closed", "error", e)
+		}
+		if controller.Snapshot().Settings.Automatic {
+			if _, e := controller.Handle(ctx, "optimize", []byte(`{"enabled":true}`)); e != nil {
+				slog.Warn("automatic capture unavailable; networking remains DIRECT", "error", e)
+			}
+		}
+		gate.ready.Store(true)
+		slog.Info("service initialization complete")
+	}()
+	defer func() { <-initDone }() // cancelled ctx unblocks the stages; Close must not race them
 	if ready != nil {
 		ready()
 	}

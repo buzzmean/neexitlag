@@ -24,7 +24,7 @@ function Read-Exact([IO.Stream]$Stream,[int]$Count,[DateTime]$Deadline) {
  }
  return ,$bytes
 }
-function Invoke-ServiceIPC([string]$Method,$Payload=$null,[string]$TokenFile="$env:ProgramData\neexitlag\ipc.token") {
+function Invoke-ServiceIPCOnce([string]$Method,$Payload=$null,[string]$TokenFile="$env:ProgramData\neexitlag\ipc.token") {
  $id=[Guid]::NewGuid().ToString('N')
  $request=@{version=1;id=$id;sent_at=[DateTimeOffset]::UtcNow.ToString('o');token=[IO.File]::ReadAllText($TokenFile).Trim();method=$Method;payload=$Payload}|ConvertTo-Json -Depth 8 -Compress
  $bytes=[Text.Encoding]::UTF8.GetBytes($request)
@@ -42,6 +42,18 @@ function Invoke-ServiceIPC([string]$Method,$Payload=$null,[string]$TokenFile="$e
   if(!$response.ok){throw $response.error}
   return $response.data
  } finally {$pipe.Dispose()}
+}
+# The service opens its pipe before slow initialization and answers "service is
+# starting" until it finishes; wait for that state instead of failing the caller.
+function Invoke-ServiceIPC([string]$Method,$Payload=$null,[string]$TokenFile="$env:ProgramData\neexitlag\ipc.token") {
+ $deadline=[DateTime]::UtcNow.AddSeconds(30)
+ while($true){
+  try{return Invoke-ServiceIPCOnce $Method $Payload $TokenFile}
+  catch{
+   if("$_" -notlike '*service is starting*' -or [DateTime]::UtcNow -ge $deadline){throw}
+   Start-Sleep -Milliseconds 500
+  }
+ }
 }
 function Invoke-VpsCommand([string]$Address,[string]$User,[int]$Port,[string]$Command) {
  Assert-Ssh $User $Port
