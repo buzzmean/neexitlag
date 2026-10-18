@@ -69,3 +69,63 @@ func TestPersistedProfileSuppressesShadowedBuiltIn(t *testing.T) {
 		}
 	}
 }
+
+// Name resolution and local-network traffic must never be sent to the relay, whatever the
+// profile's fail-closed setting: the relay refuses such destinations (relay_destination_denied)
+// and a fail-closed profile would turn that refusal into a blocked flow and a dead app.
+func TestRelayFirstProfilesKeepDNSAndLocalNetworkDirect(t *testing.T) {
+	c := New(context.Background())
+	t.Cleanup(c.Close)
+	c.enabled = true
+	apps := map[string]string{
+		"claude":   `C:\Program Files\WindowsApps\Claude_1.0.100.0_x64__pzs8sxrjxfjjc\app\claude.exe`,
+		"chatgpt":  `C:\Program Files\WindowsApps\OpenAI.ChatGPT-Desktop_1.2025.1.0_x64__2p2nqsd0c76g0\app\ChatGPT.exe`,
+		"telegram": `C:\Users\u\AppData\Roaming\Telegram Desktop\Telegram.exe`,
+	}
+	type flow struct {
+		proto, addr string
+		port        uint16
+	}
+	local := []flow{
+		{"udp", "192.168.88.1", 53}, {"tcp", "192.168.88.1", 53}, // the router's resolver (observed failure)
+		{"udp", "8.8.8.8", 53}, {"tcp", "1.1.1.1", 53}, // any resolver on port 53
+		{"tcp", "192.168.88.20", 445}, {"tcp", "10.1.2.3", 443}, {"udp", "172.16.0.5", 5353}, {"tcp", "127.0.0.1", 8080},
+		{"udp", "169.254.1.1", 1900}, {"udp", "224.0.0.251", 5353}, {"udp", "255.255.255.255", 67}, {"tcp", "100.64.0.9", 443},
+	}
+	for name, exe := range apps {
+		for i, fl := range local {
+			id := wp.ProcessIdentity{PID: uint32(500 + i), CreationTime: uint64(50 + i), Path: exe}
+			d := c.Classify(id, destTuple(fl.proto, fl.addr, fl.port))
+			if !d.Route.Direct() || d.Block || d.BlockOnFailure || d.ProbeDirect {
+				t.Fatalf("%s %s %s:%d must stay DIRECT and unblocked: %+v", name, fl.proto, fl.addr, fl.port, d)
+			}
+			if d.Flow.PID != id.PID || d.Flow.ApplicationID == "" || d.Flow.PinnedPolicy == nil {
+				t.Fatalf("%s: attribution lost or flow not pinned DIRECT: %+v", name, d.Flow)
+			}
+		}
+		// Public traffic of the same application is still relay-first and fail-closed, TCP and QUIC alike.
+		for _, fl := range []flow{{"tcp", "160.79.104.10", 443}, {"udp", "160.79.104.10", 443}, {"tcp", "149.154.167.51", 80}} {
+			id := wp.ProcessIdentity{PID: 800, CreationTime: 80, Path: exe}
+			d := c.Classify(id, destTuple(fl.proto, fl.addr, fl.port))
+			if d.Route.RelayID != "VPS-01" || !d.BlockOnFailure || d.Block {
+				t.Fatalf("%s %s %s:%d lost relay-first/fail-closed: %+v", name, fl.proto, fl.addr, fl.port, d)
+			}
+		}
+	}
+}
+
+// Codex helpers inherit the ChatGPT group; their DNS and LAN traffic is DIRECT too.
+func TestChatGPTHelperProcessKeepsDNSDirect(t *testing.T) {
+	p := profiles.Profile{ID: "openai", Name: "ChatGPT", Mode: profiles.Auto, Custom: true, Executables: []string{`C:\Apps\ChatGPT.exe`}}
+	prepareAuto(&p)
+	c := policyController(t, p)
+	root := wp.ProcessIdentity{PID: 1, CreationTime: 10, Path: p.Executables[0]}
+	child := wp.ProcessIdentity{PID: 2, CreationTime: 20, ParentPID: 1, ParentCreationTime: 10, Path: `C:\Apps\codex-version-dynamic\codex.exe`}
+	c.discovery = &groupDiscovery{[]wp.ProcessIdentity{root, child}}
+	if d := c.Classify(child, destTuple("udp", "192.168.88.1", 53)); !d.Route.Direct() || d.BlockOnFailure || d.Block {
+		t.Fatalf("helper DNS leaked into the relay path: %+v", d)
+	}
+	if d := c.Classify(child, destTuple("tcp", "160.79.104.10", 443)); d.Route.RelayID != "VPS-01" || !d.BlockOnFailure {
+		t.Fatalf("helper lost fail-closed relay-first: %+v", d)
+	}
+}

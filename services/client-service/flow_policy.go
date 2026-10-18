@@ -355,3 +355,11 @@ func dropShadowedBuiltIns(registry *profiles.Registry, saved []profiles.Profile)
 		}
 	}
 }
+
+// directOnlyFlow is true for traffic that must never reach the relay: DNS to any resolver
+// (TCP or UDP port 53) and anything that is not a public Internet destination (the router,
+// LAN hosts, loopback, link-local, multicast, CGNAT). Protected-domain data flows go to
+// public addresses and are unaffected.
+func directOnlyFlow(t wp.Tuple) bool {
+	return t.Destination.Port() == 53 || routing.LocalDestination(t.Destination.Addr())
+}

@@ -312,6 +312,15 @@ func (c *Controller) Classify(identity windowsplatform.ProcessIdentity, t window
 	f := routing.Flow{Protocol: t.Protocol, Source: t.Source, Destination: t.Destination, PID: identity.PID, ProcessPath: identity.Path, ApplicationID: profile.ID}
 	decision.Flow = f
 	decision.Revision = c.policyRevision(profile)
+	// Name resolution (port 53) and local or non-public destinations are never relayed, even
+	// for fail-closed profiles: the relay refuses them (relay_destination_denied), so relaying
+	// would only block the application. The flow stays attributed to its profile but is
+	// pinned DIRECT so the engine ignores the profile's relay policy for it. Browser AUTO
+	// profiles keep their own, already verified DNS handling (browserFlow).
+	if (profile.Mode == profiles.Auto || profile.Mode == profiles.Manual) && !browserAuto(profile) && directOnlyFlow(t) {
+		decision.Flow.PinnedPolicy = &routing.Policy{}
+		return decision
+	}
 	c.mu.Lock()
 	decision.BlockOnFailure = c.settings.Failover == "BLOCK"
 	c.mu.Unlock()
