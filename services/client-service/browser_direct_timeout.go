@@ -26,7 +26,7 @@ type browserStatusView struct {
 // YouTube is eligible only while its policy is plain DIRECT; once DIRECT+ is configured
 // the plan's action is DirectPlus and this cache stays out of its way.
 func directTimeoutEligible(q browserproxy.Request, plan browserproxy.Plan) bool {
-	if plan.Policy.Action != flowpolicy.Direct || plan.Policy.Source == "rule" || plan.Probe == "PRIVATE_ORIGIN_NO_AUTOPROBE" || protectedBrowserDomain(q.Host) {
+	if plan.Policy.Action != flowpolicy.Direct || plan.Policy.Source == "rule" || plan.Probe == "PRIVATE_ORIGIN_NO_AUTOPROBE" || plan.Destination.IsValid() && plan.Destination.Addr().Is6() || protectedBrowserDomain(q.Host) {
 		return false
 	}
 	_, ipErr := netip.ParseAddr(q.Host)

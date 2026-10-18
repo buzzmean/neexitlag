@@ -281,7 +281,14 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 	}
 	if youtubeDomain(q.Host) {
 		if directTimeoutEligible(q, plan) {
-			plan.DirectCandidates = append([]netip.AddrPort(nil), candidates[:min(2, len(candidates))]...)
+			for _, candidate := range candidates {
+				if candidate.Addr().Is4() {
+					plan.DirectCandidates = append(plan.DirectCandidates, candidate)
+					if len(plan.DirectCandidates) == 2 {
+						break
+					}
+				}
+			}
 			plan.DirectDeadline = started.Add(browserDirectBudget)
 			if c.relayAllowedFor(q.Host) {
 				plan = stallRetryPlan(current, plan)
