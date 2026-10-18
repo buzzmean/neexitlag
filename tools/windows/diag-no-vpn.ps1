@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 <#
 Non-interactive, read-only diagnostics to run with the VPN OFF, as a normal user:
   powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\windows\diag-no-vpn.ps1
@@ -6,7 +6,8 @@ Writes diag-result.txt next to this script (falls back to %TEMP% if that folder 
 writable). Changes nothing on the machine. Reads no token/identity/certificate into the
 report; the whole report is scrubbed of secret-shaped values before the run ends.
 Self-contained: does not need common.ps1. -Only limits the run to some sections:
-  env, service, ipc, tcp, udp, mtu, dns, sites, sni, browser, apps
+  env, service, ipc, tcp, udp, mtu, dns, sites, sni, browser, apps, youtube
+  (youtube = SNI table for www.youtube.com + status flag + stall counters + YouTube records; run: & .\tools\windows\diag-no-vpn.ps1 -Only youtube)
 #>
 param(
  [string]$VpsHost='2.56.177.4',
@@ -31,7 +32,7 @@ try{[IO.File]::WriteAllBytes($result,$bom)}catch{$result=Join-Path ([IO.Path]::G
 $isWin=($PSVersionTable.PSVersion.Major -lt 6) -or $IsWindows
 
 function Say([string]$Text){Write-Host $Text;[IO.File]::AppendAllText($result,$Text+"`r`n",$utf8)}
-function Want([string]$Section){return ($Only.Count -eq 0) -or ($Only -contains $Section)}
+function Want([string]$Section){return ($Only.Count -eq 0) -or ($Only -contains $Section) -or ($Section -eq 'sni' -and $Only -contains 'youtube')}
 function Section([string]$Title){Say '';Say ('=== '+$Title+' ===')}
 function Scrub([string]$Text){
  $Text=[regex]::Replace($Text,'-----BEGIN [A-Z ]+-----[\s\S]*?-----END [A-Z ]+-----','[PEM REMOVED]')
@@ -206,7 +207,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-18.5 (SNI table, 8443 exit-code verdict, build stamps)'
+$ScriptVersion='2026-10-18.6 (-Only youtube, SNI table, 8443 exit-code verdict, build stamps)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -408,6 +409,32 @@ Step 'sni' {
  Say ''
  Say 'Verdict table (OK/ANSWERED = server replied to the ClientHello; NO-ANSWER = silence; RESET = connection reset):'
  foreach($line in ($rows|Format-Table -AutoSize -Wrap|Out-String -Width 220).Split("`n")){if($line.Trim()){Say ("  "+$line.TrimEnd())}}
+}}
+
+if($Only -contains 'youtube'){
+Section 'YouTube: service build, flag, stalls, YouTube/googlevideo records (browser.status)'
+Step 'youtube' {
+ $st=Invoke-IPC 'status'
+ $settings=Prop $st 'settings'
+ Say ("service build: "+(Prop $st 'build' '(none: the running service is OLDER than the build stamp)')+"; optimizing: "+(Prop $st 'optimizing')+"; youtube_via_relay: "+(Prop $settings 'youtube_via_relay' 'false (default; absent = off)'))
+ $b=Invoke-IPC 'browser.status'
+ Say ("listening: "+(Prop $b 'listening')+"; policy_ready: "+(Prop $b 'policy_ready')+"; ready_profiles: "+((@(Prop $b 'ready_profiles' @())) -join ', '))
+ $cache=Prop $b 'direct_timeout_cache'
+ if($null -eq $cache){Say 'direct_timeout_cache: ABSENT (service older than 0fc9f97)'}
+ else{
+  Say ("direct_timeout_cache: stalls_total="+(Prop $cache 'direct_stalls_total' 'ABSENT (older than 91c9016)')+"; stall_retries_via_relay="+(Prop $cache 'stall_retries_via_relay' '-')+"; stall_retries_failed="+(Prop $cache 'stall_retries_failed' '-')+"; active_origins="+(Prop $cache 'active_origins')+"; relay_steered_flows="+(Prop $cache 'relay_steered_flows')+"; origins_cached_total="+(Prop $cache 'origins_cached_total')+"; background_direct_probes="+(Prop $cache 'background_direct_probes')+"; recovered_to_direct="+(Prop $cache 'recovered_to_direct'))
+  $top=@(Prop $cache 'top_origins' @())
+  foreach($o in $top){Say ("  cached origin: "+(Prop $o 'host')+":"+(Prop $o 'port')+" since "+(Prop $o 'since')+" next_direct_probe "+(Prop $o 'next_direct_probe')+" relay_steered_flows "+(Prop $o 'relay_steered_flows'))}
+ }
+ $f=Prop $b 'failures'
+ if($f){foreach($k in $f.PSObject.Properties.Name|Where-Object{$_ -like 'DIRECT_STALL*' -or $_ -like 'UPSTREAM_*'}){Say ("  failures."+$k+" = "+$f.$k)}}
+ $rx='(^|\.)(youtube\.com|googlevideo\.com|ytimg\.com|ggpht\.com|youtu\.be|youtube-nocookie\.com|googleusercontent\.com)$'
+ $recs=@(Prop $b 'records' @())|Where-Object{(Prop $_ 'domain' '') -match $rx}
+ Say ("YouTube/googlevideo records: "+@($recs).Count+" (of "+@(Prop $b 'records' @()).Count+" total)")
+ foreach($r in ($recs|Select-Object -Last 40)){
+  $plan=Prop $r 'plan';$pol=Prop $plan 'policy'
+  Say ("  #"+(Prop $r 'id')+" "+(Prop $r 'domain')+":"+(Prop $r 'port')+" -> "+(Prop $plan 'destination')+" action="+(Prop $pol 'action')+" source="+(Prop $pol 'source')+" probe="+(Prop $plan 'probe')+" result="+(Prop $r 'result')+" open_failure="+(Prop $r 'open_failure')+" sent="+(Prop $r 'sent_bytes')+" recv="+(Prop $r 'received_bytes')+" stall_retried_via_relay="+(Prop $r 'stall_retried_via_relay' $false))
+ }
 }}
 
 if(Want 'browser'){
