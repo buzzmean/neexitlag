@@ -19,18 +19,27 @@ type Ticket struct {
 	IssuedAt  time.Time `json:"issued_at"`
 	ExpiresAt time.Time `json:"expires_at"`
 }
+
+// TicketVerifier locks are split by purpose: mu guards keys and the revocation set
+// (read on every relay flow, never held across I/O); useMu guards the one-shot
+// replay cache and its durable copy, whose fsync must not stall revocation checks.
 type TicketVerifier struct {
-	mu       sync.Mutex
+	mu       sync.RWMutex
 	Keys     map[string]ed25519.PublicKey
 	Audience string
-	used     map[string]time.Time
 	revoked  map[string]bool
+	useMu    sync.Mutex
+	used     map[string]time.Time
+	owner    map[string]string
 	Limit    int
-	path     string
+	// DeviceLimit bounds live one-shot tickets per device so one noisy or broken
+	// client cannot exhaust the shared cache. Zero disables the per-device bound.
+	DeviceLimit int
+	path        string
 }
 
 func NewTicketVerifier(keys map[string]ed25519.PublicKey, audience string) *TicketVerifier {
-	return &TicketVerifier{Keys: copyKeys(keys), Audience: audience, used: make(map[string]time.Time), revoked: make(map[string]bool), Limit: 10000}
+	return &TicketVerifier{Keys: copyKeys(keys), Audience: audience, used: make(map[string]time.Time), owner: make(map[string]string), revoked: make(map[string]bool), Limit: 10000}
 }
 func copyKeys(keys map[string]ed25519.PublicKey) map[string]ed25519.PublicKey {
 	out := make(map[string]ed25519.PublicKey, len(keys))
@@ -40,17 +49,18 @@ func copyKeys(keys map[string]ed25519.PublicKey) map[string]ed25519.PublicKey {
 	return out
 }
 func (v *TicketVerifier) Update(keys map[string]ed25519.PublicKey, revoked []string) {
+	next := make(map[string]bool, len(revoked))
+	for _, id := range revoked {
+		next[id] = true
+	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.Keys = copyKeys(keys)
-	v.revoked = make(map[string]bool)
-	for _, id := range revoked {
-		v.revoked[id] = true
-	}
+	v.revoked = next
 }
 func (v *TicketVerifier) Revoked(id string) bool {
-	v.mu.Lock()
-	defer v.mu.Unlock()
+	v.mu.RLock()
+	defer v.mu.RUnlock()
 	return v.revoked[id]
 }
 func (v *TicketVerifier) Accept(raw []byte, peer ed25519.PublicKey, now time.Time) (Ticket, error) {
@@ -59,18 +69,25 @@ func (v *TicketVerifier) Accept(raw []byte, peer ed25519.PublicKey, now time.Tim
 
 // AcceptForDevice validates the session binding before consuming the one-shot ticket.
 func (v *TicketVerifier) AcceptForDevice(raw []byte, peer ed25519.PublicKey, device string, now time.Time) (Ticket, error) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
+	v.mu.RLock()
+	keys := v.Keys // replaced wholesale by Update, never mutated in place
+	v.mu.RUnlock()
 	var t Ticket
-	if e := Verify("ticket", v.Keys, raw, &t); e != nil {
+	if e := Verify("ticket", keys, raw, &t); e != nil {
 		return t, e
 	}
-	if (device != "" && t.DeviceID != device) || t.ID == "" || len(t.ID) > 128 || t.DeviceID == "" || t.RelayID != v.Audience || t.DeviceKey != Fingerprint(peer) || !t.ExpiresAt.After(now) || t.IssuedAt.After(now.Add(30*time.Second)) || t.ExpiresAt.Sub(t.IssuedAt) > 5*time.Minute || !t.ExpiresAt.After(t.IssuedAt) || v.revoked[t.DeviceID] {
+	if (device != "" && t.DeviceID != device) || t.ID == "" || len(t.ID) > 128 || t.DeviceID == "" || t.RelayID != v.Audience || t.DeviceKey != Fingerprint(peer) || !t.ExpiresAt.After(now) || t.IssuedAt.After(now.Add(30*time.Second)) || t.ExpiresAt.Sub(t.IssuedAt) > 5*time.Minute || !t.ExpiresAt.After(t.IssuedAt) || v.Revoked(t.DeviceID) {
 		return t, errors.New("invalid, revoked or expired relay ticket")
 	}
+	v.useMu.Lock()
+	defer v.useMu.Unlock()
+	perDevice := 0
 	for id, exp := range v.used {
 		if !exp.After(now) {
 			delete(v.used, id)
+			delete(v.owner, id)
+		} else if v.owner[id] == t.DeviceID {
+			perDevice++
 		}
 	}
 	if _, ok := v.used[t.ID]; ok {
@@ -79,9 +96,14 @@ func (v *TicketVerifier) AcceptForDevice(raw []byte, peer ed25519.PublicKey, dev
 	if len(v.used) >= v.Limit {
 		return t, errors.New("replay cache capacity")
 	}
+	if v.DeviceLimit > 0 && perDevice >= v.DeviceLimit {
+		return t, errors.New("replay cache device quota")
+	}
 	v.used[t.ID] = t.ExpiresAt
+	v.owner[t.ID] = t.DeviceID
 	if e := v.persist(); e != nil {
 		delete(v.used, t.ID)
+		delete(v.owner, t.ID)
 		return t, e
 	}
 	return t, nil
@@ -118,7 +140,8 @@ func (p Proof) Verify(key ed25519.PublicKey, now time.Time) error {
 func NewPersistentTicketVerifier(keys map[string]ed25519.PublicKey, audience, path string) (*TicketVerifier, error) {
 	v := NewTicketVerifier(keys, audience)
 	v.path = path
-	v.Limit = 512
+	v.Limit = 2048
+	v.DeviceLimit = 64
 	raw, e := os.ReadFile(path)
 	if os.IsNotExist(e) {
 		return v, nil
