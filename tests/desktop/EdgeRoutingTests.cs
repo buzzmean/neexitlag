@@ -3,14 +3,14 @@ using System.Text.Json;
 using Xunit;
 namespace NeExitLag.Tests;
 public class EdgeRoutingTests {
- [Fact] public async Task EdgeCleanInstallCreatesOneDirectProfileAndLeavesChromeUntouched(){
+ [Fact] public async Task EdgeCleanInstallCreatesOnePendingAutoProfileAndLeavesChromeUntouched(){
   var dir=Path.Combine(Path.GetTempPath(),"veliq-edge-"+Guid.NewGuid());Directory.CreateDirectory(dir);
   var exe=Path.Combine(dir,"msedge.exe");await File.WriteAllBytesAsync(exe,[0]);
   try{
    var service=new PickerService{State=new(){Profiles=[new(){Id="chrome",Mode="AUTO",Executables=[@"C:\Chrome\chrome.exe"],LocalStrategyId="baseline"}]}};
    var vm=new DesktopViewModel(service);
    var list=new[]{new InstalledBrowser("edge","Microsoft Edge",exe,true)};
-   var created=await vm.EnsureEdgeProfileAsync(list);Assert.NotNull(created);Assert.Equal("DIRECT",created!.Mode);
+   var created=await vm.EnsureEdgeProfileAsync(list);Assert.NotNull(created);Assert.Equal("AUTO",created!.Mode);Assert.Equal("edge-sites-pending",created.PolicyData!["app_preset"].GetString());
    Assert.Equal(Path.GetFullPath(exe),Assert.Single(created.Executables));
    Assert.Null(await vm.EnsureEdgeProfileAsync(list));
    Assert.Single(service.Calls,c=>c.Method=="profile.set");
@@ -47,7 +47,7 @@ public class EdgeRoutingTests {
  }
  [Fact]public async Task FailedGuardNeverDisarmsEdgeOrMutatesChrome(){
   var service=new EdgeCalls{RejectGuard=true};var vm=new DesktopViewModel(service);
-  await Assert.ThrowsAsync<ServiceException>(()=>vm.RestoreEdgeAsync(new(){Id="edge",Mode="AUTO",Executables=[@"C:\Edge\msedge.exe"]}));
+  await Assert.ThrowsAsync<EdgeActivationException>(()=>vm.RestoreEdgeAsync(new(){Id="edge",Mode="AUTO",Executables=[@"C:\Edge\msedge.exe"]}));
   Assert.Equal(new[]{"edge.policy"},service.Order);Assert.Empty(service.Base.Calls);
  }
  [Fact]public async Task EdgeCommitUsesExplicitMarkerAndDoesNotStartGlobalCapture(){
@@ -68,6 +68,19 @@ public class EdgeRoutingTests {
  [Fact]public void EdgeOriginResultDoesNotClaimPagePassOrReferToChrome(){
   var row=new EdgeDomainRow(new(){Plan=new(){Probe="DNS_RELAY_HTTP_VERIFIED",HttpStatus=200}});
   Assert.Contains("страница Edge не проверена",row.Outcome);Assert.DoesNotContain("Chrome",row.Outcome);
+ }
+
+ [Fact]public void EdgeButtonFindsUniqueProfileWithoutRowSelectionOrWithChromeSelected(){
+  var chrome=new Profile{Id="chrome",Executables=[@"C:\Chrome\chrome.exe"]};var edge=new Profile{Id="edge",Mode="DIRECT",Executables=[@"C:\Edge\msedge.exe"]};
+  Assert.Equal("edge",EdgeProfileSelection.Select(null,[chrome,edge])!.Id);
+  Assert.Equal("edge",EdgeProfileSelection.Select(chrome,[chrome,edge])!.Id);
+  Assert.Equal("DIRECT",edge.Mode);
+  Assert.Throws<EdgeActivationException>(()=>EdgeProfileSelection.Select(null,[edge,new(){Id="edge-two",Executables=[@"D:\Edge\msedge.exe"]}]));
+ }
+ [Fact]public void EdgeFailureRetainsMethodAndSafeCodeWithoutReflectingSecrets(){
+  var e=EdgeErrors.Wrap("edge.policy",new ServiceException(ServiceFailure.Rejected,"edge.policy: EDGE_POLICY_ACCESS_DENIED token=do-not-print"));
+  Assert.Contains("edge.policy",e.Message);Assert.Contains("EDGE_POLICY_ACCESS_DENIED",e.Message);Assert.DoesNotContain("do-not-print",e.Message);
+  Assert.Equal("EDGE_IPC_UNSUPPORTED",EdgeErrors.Wrap("edge.prepare",new ServiceException(ServiceFailure.Rejected,"unsupported IPC method edge.prepare")).Code);
  }
 
 }

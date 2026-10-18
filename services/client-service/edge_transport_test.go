@@ -236,3 +236,93 @@ func TestEdgeProfileCannotBeDeletedBeforeProtectedGuard(t *testing.T) {
 		t.Fatal("failed guard lost profile")
 	}
 }
+
+func TestEdgeIPCFailureAppearsInStatusWithoutSecrets(t *testing.T) {
+	c := New(context.Background())
+	defer c.Close()
+	c.BrowserOwnerSID = "owner"
+	c.Profiles.Upsert(edgeTestProfile())
+	c.browser.edge = &edgeRuntime{write: func(string, []string, string) error { return os.ErrPermission }}
+	if _, err := edgeCall(c, "edge.policy", map[string]string{"profile_id": "edge", "operation": "guard"}); err == nil || !strings.Contains(err.Error(), "EDGE_POLICY_ACCESS_DENIED") {
+		t.Fatal("missing typed policy error", err)
+	}
+	result, err := edgeCall(c, "edge.status", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(result)
+	if !strings.Contains(string(raw), `edge.policy: EDGE_POLICY_ACCESS_DENIED`) {
+		t.Fatal("last_error missing")
+	}
+	if _, err := edgeCall(c, "edge.failure", map[string]string{"profile_id": "edge", "phase": "edge.recovery", "code": "EDGE_RECOVERY_FAILED"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(c.browser.edge.lastError, "edge.recovery") {
+		t.Fatal("GUI phase not retained")
+	}
+}
+
+func TestEdgeInstallRequiresListenerAndProfileBeforeAnyRegistryWrite(t *testing.T) {
+	c := New(context.Background())
+	defer c.Close()
+	c.BrowserOwnerSID = "owner"
+	c.Profiles.Upsert(edgeTestProfile())
+	writes := 0
+	c.browser.edge = &edgeRuntime{write: func(string, []string, string) error { writes++; return nil }}
+	if _, err := edgeCall(c, "edge.policy", map[string]string{"profile_id": "edge", "operation": "install"}); err == nil {
+		t.Fatal("unprepared dead proxy installed")
+	}
+	if writes != 0 {
+		t.Fatal("registry touched before preparation")
+	}
+	result, _ := edgeCall(c, "edge.status", nil)
+	raw, _ := json.Marshal(result)
+	if !strings.Contains(string(raw), "EDGE_PREPARE_REQUIRED") {
+		t.Fatal("readiness error missing", string(raw))
+	}
+}
+func TestEdgeProfilelessRollbackPreservesProtectedDomainsAndForeignPolicy(t *testing.T) {
+	c := New(context.Background())
+	defer c.Close()
+	c.BrowserOwnerSID = "owner"
+	p := edgeTestProfile()
+	p.Rules = []flowpolicy.Rule{{ID: "custom", Domains: []string{"protected.example"}, Action: flowpolicy.RelayRequired, RelayID: "VPS-01"}}
+	guard := edgeClosedPAC(p)
+	e := c.edgeLocked()
+	e.saved.GuardPAC = guard
+	writes := 0
+	e.write = func(_ string, owned []string, next string) error {
+		writes++
+		if next != edgePolicyValue(guard) {
+			t.Fatal("custom protection lost")
+		}
+		return nil
+	}
+	if _, err := edgeCall(c, "edge.policy", map[string]string{"operation": "guard"}); err != nil {
+		t.Fatal(err)
+	}
+	if writes != 1 || e.server != nil {
+		t.Fatal("rollback depended on running listener/profile")
+	}
+	e.write = func(string, []string, string) error { return errors.New("foreign Edge proxy policy") }
+	if _, err := edgeCall(c, "edge.policy", map[string]string{"operation": "guard"}); err == nil || !strings.Contains(err.Error(), "EDGE_POLICY_MANAGED") {
+		t.Fatal("foreign policy overwritten or hidden", err)
+	}
+}
+func TestEdgePendingAutoNeverPublishesLegacyProcessWideRelayOrDirectLeak(t *testing.T) {
+	c := New(context.Background())
+	defer c.Close()
+	c.enabled = true
+	p := edgeTestProfile()
+	p.Mode = profiles.Auto
+	p.AppPreset = "edge-sites-pending"
+	c.Profiles.Upsert(p)
+	d := c.Classify(wp.ProcessIdentity{PID: 11, CreationTime: 1, Path: p.Executables[0]}, policyTuple("tcp", 443))
+	if !d.Block || d.Policy.Source != "edge_activation_pending" {
+		t.Fatal("unverified AUTO routed traffic", d)
+	}
+	d = c.Classify(wp.ProcessIdentity{PID: 11, CreationTime: 1, Path: p.Executables[0]}, policyTuple("udp", 53))
+	if d.Block || !d.Route.Direct() {
+		t.Fatal("system DNS altered", d)
+	}
+}

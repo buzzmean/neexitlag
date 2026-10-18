@@ -138,6 +138,7 @@ public sealed partial class DesktopViewModel : Observable
         if (!await gate.WaitAsync(0, ct))
             return;
         Busy = true;
+        var phase="ipc.status";
         try
         {
             var status = await client.Call<Snapshot>("status", cancellationToken: ct);
@@ -161,6 +162,7 @@ public sealed partial class DesktopViewModel : Observable
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch (Exception error) { ReportAuxiliaryFailure(error,"ipc.capture"); }
+            phase="status.apply";
             try { Apply(status, processes, capture); }
             catch (Exception error) when (processes is not null || capture is not null) {
                 Apply(status); // Validate/display core status independently of malformed auxiliary data.
@@ -172,7 +174,7 @@ public sealed partial class DesktopViewModel : Observable
             Error = "";
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
-        catch (Exception e) { SetUnavailable(e); }
+        catch (Exception e) { RecordGuiFailure(e,phase); SetUnavailable(e); }
         finally { Busy = false; gate.Release(); }
     }
     public void Apply(Snapshot status, ProcessIdentity[]? processes = null, CaptureEvidence? capture = null)
@@ -287,6 +289,7 @@ public sealed partial class DesktopViewModel : Observable
         }
         path = System.IO.Path.GetFullPath(path);
         var profile = new Profile { Id = "custom-" + Guid.NewGuid().ToString("N"), Name = System.IO.Path.GetFileNameWithoutExtension(path), Executables = [path], Mode = System.IO.Path.GetFileName(path).Equals("chrome.exe",StringComparison.OrdinalIgnoreCase)?"DIRECT":"AUTO", Custom = true };
+        if(BrowserCatalog.IsEdge(profile))profile.PolicyData=new(){["app_preset"]=System.Text.Json.JsonSerializer.SerializeToElement("edge-sites-pending")};
         bool duplicate = false;
         bool ok = await Act(async () =>
         {

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -27,6 +28,7 @@ type edgeSaved struct {
 	Recovery    string   `json:"recovery_address"`
 	Ready       []string `json:"ready_profiles"`
 	Owned       []string `json:"owned_policy"`
+	GuardPAC    string   `json:"guard_pac,omitempty"`
 }
 type edgeRuntime struct {
 	lastError string
@@ -219,10 +221,17 @@ func (c *Controller) writeEdgePolicy(e *edgeRuntime, pac string) error {
 	}
 	return write(c.BrowserOwnerSID, e.saved.Owned, next)
 }
-func (c *Controller) handleEdge(method string, raw json.RawMessage) (any, error) {
+func (c *Controller) handleEdge(method string, raw json.RawMessage) (result any, err error) {
 	c.browser.mu.Lock()
 	defer c.browser.mu.Unlock()
 	e := c.edgeLocked()
+	defer func() {
+		if err != nil {
+			e.lastError = method + ": " + edgeErrorCode(err)
+			slog.Warn("Edge operation failed", "method", method, "code", edgeErrorCode(err))
+			err = errors.New(e.lastError)
+		}
+	}()
 	if method == "edge.status" {
 		snapshot := browserproxy.Snapshot{ReadyProfiles: []string{}, Failures: map[string]uint64{}, Records: []browserproxy.Record{}}
 		if e.server != nil {
@@ -240,7 +249,7 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (any, error)
 		}
 		return struct {
 			browserproxy.Snapshot
-			LastError string `json:"last_error,omitempty"`
+			LastError string `json:"last_error"`
 		}{snapshot, e.lastError}, nil
 	}
 	if c.BrowserOwnerSID == "" {
@@ -252,6 +261,8 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (any, error)
 		Recovery  string `json:"recovery_address"`
 		Health    string `json:"health_url"`
 		Operation string `json:"operation"`
+		Phase     string `json:"phase"`
+		Code      string `json:"code"`
 	}
 	if err := security.Parse(raw, &q); err != nil {
 		return nil, err
@@ -265,10 +276,16 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (any, error)
 			break
 		}
 	}
-	if !found {
+	if !found && !(method == "edge.policy" && q.Operation == "guard") && method != "edge.failure" {
 		return nil, errors.New("Edge profile required")
 	}
 	switch method {
+	case "edge.failure":
+		if !edgeGUIFailureAllowed(q.Phase, q.Code) {
+			return nil, errors.New("invalid Edge failure code")
+		}
+		e.lastError = q.Phase + ": " + q.Code
+		return map[string]bool{"recorded": true}, nil
 	case "edge.prepare":
 		c.mu.Lock()
 		automatic := c.settings.Automatic
@@ -300,6 +317,7 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (any, error)
 			return nil, err
 		}
 		e.saved.ExpectedPAC = strings.TrimPrefix(args[1], "--proxy-pac-url=")
+		e.saved.GuardPAC = edgeClosedPAC(p)
 		e.saved.Recovery = q.Recovery
 		if err = c.saveEdge(e); err != nil {
 			return nil, err
@@ -310,7 +328,15 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (any, error)
 		pac := e.saved.ExpectedPAC
 		switch q.Operation {
 		case "guard":
-			pac = edgeClosedPAC(p)
+			if found {
+				pac = edgeClosedPAC(p)
+				e.saved.GuardPAC = pac
+			} else {
+				pac = e.saved.GuardPAC
+				if pac == "" {
+					pac = edgeClosedPAC(profiles.Profile{})
+				}
+			}
 		case "install":
 			if pac == "" || e.server == nil || e.saved.Recovery == "" {
 				return nil, errors.New("prepare Edge before installing policy")
@@ -403,7 +429,7 @@ func (c *Controller) loadEdgeTransport() error {
 	if err = security.Parse(raw, &saved); err != nil {
 		return err
 	}
-	if len(saved.Ready) > 128 || len(saved.Owned) > 2 || len(saved.ExpectedPAC) > 128*1024 {
+	if len(saved.Ready) > 128 || len(saved.Owned) > 2 || len(saved.ExpectedPAC) > 128*1024 || len(saved.GuardPAC) > 128*1024 {
 		return errors.New("invalid saved Edge state")
 	}
 	if saved.Address != "" {
@@ -442,7 +468,7 @@ func (c *Controller) forgetEdgeProfile(id string) {
 func (c *Controller) restoreEdgeTransport() {
 	if err := c.loadEdgeTransport(); err != nil {
 		c.browser.mu.Lock()
-		c.edgeLocked().lastError = err.Error()
+		c.edgeLocked().lastError = "edge.restore: " + edgeErrorCode(err)
 		c.browser.mu.Unlock()
 	}
 }

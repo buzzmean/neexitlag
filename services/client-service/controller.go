@@ -320,6 +320,11 @@ func (c *Controller) Classify(identity windowsplatform.ProcessIdentity, t window
 	f := routing.Flow{Protocol: t.Protocol, Source: t.Source, Destination: t.Destination, PID: identity.PID, ProcessPath: identity.Path, ApplicationID: profile.ID}
 	decision.Flow = f
 	decision.Revision = c.policyRevision(profile)
+	if edgeProfile(profile) && profile.Mode == profiles.Auto && profile.AppPreset == "edge-sites-pending" && !directOnlyFlow(t) {
+		decision.Block, decision.BlockOnFailure = true, true
+		decision.Policy = flowpolicy.Result{Action: flowpolicy.Block, Source: "edge_activation_pending", Reason: "Edge AUTO awaits CONNECT/PAC activation; no DIRECT authorization"}
+		return decision
+	}
 	// Name resolution (port 53) and local or non-public destinations are never relayed, even
 	// for fail-closed profiles: the relay refuses them (relay_destination_denied), so relaying
 	// would only block the application. The flow stays attributed to its profile but is
@@ -509,7 +514,7 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		}()
 	}
 	switch method {
-	case "edge.prepare", "edge.confirm", "edge.policy", "edge.status":
+	case "edge.prepare", "edge.confirm", "edge.policy", "edge.status", "edge.failure":
 		return c.handleEdge(method, raw)
 	case "browser.origin.check":
 		return c.checkBrowserOrigin(ctx, raw)

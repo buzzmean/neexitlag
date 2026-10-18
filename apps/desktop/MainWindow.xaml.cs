@@ -17,6 +17,7 @@ public partial class MainWindow : Window
         this.shutdownOnClose = shutdownOnClose;
         this.preferencesPath = preferencesPath;
         InitializeComponent();
+        InitializeGuiFailureLog();
  LocalPorts.Text="443";LocalSplitPosition.Text="1";
         DataContext = model;
         Launch.IsChecked = LocalPreferences.AutoStart;

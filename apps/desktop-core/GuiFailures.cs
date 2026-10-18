@@ -7,14 +7,19 @@ namespace Neexitlag.Desktop;
 public sealed record GuiFailure(string Phase,string ExceptionType,DateTimeOffset At);
 public sealed partial class DesktopViewModel {
  public GuiFailure? LastGuiFailure {get;private set;}
- public void ReportAuxiliaryFailure(Exception error,string phase){
+ public event Action<GuiFailure>? GuiFailureReported;
+ public void RecordGuiFailure(Exception error,string phase){
   LastGuiFailure=new(phase,error.GetType().Name,DateTimeOffset.UtcNow);
+  GuiFailureReported?.Invoke(LastGuiFailure);Changed(nameof(LastGuiFailure));
+ }
+ public void ReportAuxiliaryFailure(Exception error,string phase){
+  RecordGuiFailure(error,phase);
   Notice=$"Диагностика {phase} недоступна ({error.GetType().Name}). Подтверждённые данные службы сохранены.";
   Changed(nameof(LastGuiFailure));
  }
  public void ReportActionFailure(Exception error){
   if(error is ServiceException ipc&&ipc.Failure!=ServiceFailure.Rejected){SetUnavailable(error);return;}
-  ReportAuxiliaryFailure(error,"ui.action");Error=Text.Failure(error);
+  ReportAuxiliaryFailure(error,error is EdgeActivationException edge?edge.Phase:"ui.action");Error=error is EdgeActivationException?error.Message:Text.Failure(error);
  }
  public async Task ObserveAuxiliaryAsync(Func<Task> action,string phase,CancellationToken ct=default){
   try{await action();}

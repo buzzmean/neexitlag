@@ -156,3 +156,48 @@ Invoke-ServiceIPC 'edge.status' | ConvertTo-Json -Depth 12
 
 В Linux-окружении Codex .NET/Edge отсутствуют: C# локально не компилировался,
 actual Windows acceptance здесь не выполнялся. CI должен подтвердить их отдельно.
+
+## Исправление отказа кнопки (18.10.2026)
+
+Кнопка теперь сама находит единственный профиль Edge; выделение строки Chrome/отсутствие
+выделения не вызывает отказ до IPC. Ошибки Edge/recovery не очищают таблицу приложений
+и не выключают кнопки. GUI выводит этап IPC, безопасный код и русское объяснение;
+`edge.status.last_error` присутствует всегда, в том числе при ошибке до listener.
+Собственные ошибки WPF/recovery передаются в службу как ограниченные phase/code через
+`edge.failure`, без содержимого исключений, токенов и настроек recovery.
+
+Новый профиль создаётся AUTO с `app_preset=edge-sites-pending`. Пока активация не
+подтверждена, его внешние native flows закрыты, DNS/локальный transport не меняются;
+он не получает старую глобальную Edge/OpenAI relay-first политику. После проверки
+маркер меняется на `edge-sites`. Существующий DIRECT не переименовывается молча:
+при нажатии кнопки AUTO публикуется только после readiness. При отказе устанавливается
+guard и возвращается DIRECT; остальные профили сохраняются.
+
+Порядок исправлен: recovery listener → служебный listener/nonce/профиль → recovery
+configuration ACK → guard и штатный выход Edge → live PAC → реальная проверка Edge
+policy → confirm → AUTO. Отказ до live PAC не может оставить обязательный PAC на
+несуществующий proxy. При любом последующем отказе служба заменяет собственный live
+PAC статическим guard: обычные домены DIRECT, защищённые закрыты. `ProxyPacMandatory`
+не выключается: иначе Chromium мог бы обойти PAC напрямую. Guard хранит custom
+protected-домены и работает даже после удаления профиля. Чужая политика отвергается,
+а не удаляется. Сообщение кнопки отката теперь прямо говорит о сохранении guard в
+ProxySettings; оно больше не утверждает, что реестр не менялся.
+
+### Где искать ошибки
+
+Текущая SCM-служба пишет стандартный `slog` в stderr; файловый sink и каталог
+`%ProgramData%\neexitlag\logs` установщиком **не создаются**. Отсутствие каталога
+не доказывает отсутствие ошибки. SCM System log показывает жизненный цикл службы,
+а не подробные ошибки IPC. Не запускайте второй экземпляр capture для получения лога.
+Используйте безопасные диагностические поля:
+
+```powershell
+. .\tools\windows\common.ps1
+Invoke-ServiceIPC 'edge.status' | Select-Object listening,policy_ready,ready_profiles,last_error | ConvertTo-Json -Depth 4
+Get-Content "$env:LOCALAPPDATA\NeExitLag\gui-failure.json" -ErrorAction SilentlyContinue
+Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='Service Control Manager'; StartTime=(Get-Date).AddMinutes(-15)} -MaxEvents 20 | Select-Object TimeCreated,Id,LevelDisplayName
+```
+
+GUI-файл содержит только фазу, тип исключения и время. Полные recovery-state, manifest,
+identity и IPC token передавать не следует. Internet PASS на провайдере этим изменением
+не заявлен; C#/WPF требуют запуска тестов CI/Windows.
