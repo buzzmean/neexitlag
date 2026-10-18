@@ -34,6 +34,11 @@ public sealed partial class DesktopViewModel {
   var proof=await EdgeCall<JsonElement>("edge.confirm",new{profile_id=original.Id,health_url=launch.HealthUrl},ct);
   if(!proof.TryGetProperty("ready",out var ready)||ready.ValueKind!=JsonValueKind.True)throw new InvalidOperationException("Edge PAC не подтверждён");
  }
+ public async Task OptimizeEdgeAsync(CancellationToken ct=default){
+  var status=await EdgeCall<Snapshot>("optimize",new{enabled=true},ct);
+  if(!status.Optimizing)throw new EdgeActivationException("optimize","EDGE_OPERATION_FAILED","Служба не подтвердила включение перехвата.");
+  await RefreshAsync(ct);
+ }
  public async Task CommitEdgeAsync(Profile original,CancellationToken ct=default){
   var copy=original.Copy();copy.Mode="AUTO";
   copy.PolicyData ??= new();copy.PolicyData["app_preset"]=JsonSerializer.SerializeToElement("edge-sites");
@@ -41,10 +46,11 @@ public sealed partial class DesktopViewModel {
   await RefreshAsync(ct);
  }
  public Task<System.Text.Json.JsonElement> GuardEdgeAsync(CancellationToken ct=default)=>EdgeCall<System.Text.Json.JsonElement>("edge.policy",new{operation="guard"},ct);
- public async Task RestoreEdgeAsync(Profile original,CancellationToken ct=default){
+ public async Task<JsonElement> RestoreEdgeAsync(Profile original,CancellationToken ct=default){
   // Privileged guard must succeed BEFORE native interception is disarmed.
-  await EdgePolicyAsync(original,"guard",ct);
+  var applied=await EdgePolicyAsync(original,"guard",ct);
   await RestoreChromeAsync(original,ct); // existing profile-preserving transaction
+  return applied;
  }
  public void ApplyEdgePolicyState(EdgeTransportStatus status){
   EdgeState=status.LastError!=""?"Edge: "+status.LastError:status.Listening&&status.PolicyReady&&status.ReadyProfiles.Length>0?"Edge CONNECT/PAC готовы; доступность сайтов проверяется отдельно":"Edge PAC не подтверждён / guard: protected-домены без DIRECT";

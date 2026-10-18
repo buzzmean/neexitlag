@@ -198,6 +198,13 @@ Get-Content "$env:LOCALAPPDATA\NeExitLag\gui-failure.json" -ErrorAction Silently
 Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='Service Control Manager'; StartTime=(Get-Date).AddMinutes(-15)} -MaxEvents 20 | Select-Object TimeCreated,Id,LevelDisplayName
 ```
 
-GUI-файл содержит только фазу, тип исключения и время. Полные recovery-state, manifest,
+GUI-файл содержит только фазу, безопасный код, тип исключения и время. Полные recovery-state, manifest,
 identity и IPC token передавать не следует. Internet PASS на провайдере этим изменением
 не заявлен; C#/WPF требуют запуска тестов CI/Windows.
+
+При откате служба возвращает `ordinary_direct`: GUI сообщает DIRECT только если
+собственный guard действительно разрешает его. Строгие custom rules и восстановленный
+старый guard не выдаются за ordinary recovery. Политика из старого журнала без профиля
+разбирается только в известном формате VELIQ; повреждённое состояние получает строгий
+guard вместо угадывания защищённых доменов. Кто удалил ProxySettings в первоначальном
+Windows-тесте, не установлено: текущий service writer не содержит удаления значения.

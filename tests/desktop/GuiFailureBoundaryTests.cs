@@ -23,6 +23,7 @@ public class GuiFailureBoundaryTests {
   var vm=new DesktopViewModel(new FakeService());await vm.RefreshAsync();var original=vm.Applications[0];
   vm.ReportActionFailure(EdgeErrors.Wrap("edge.policy",new ServiceException(ServiceFailure.Rejected,"EDGE_POLICY_ACCESS_DENIED secret=private")));
   Assert.True(vm.CanControl);Assert.Same(original,vm.Applications[0]);Assert.Contains("edge.policy",vm.Error);Assert.Contains("EDGE_POLICY_ACCESS_DENIED",vm.Error);Assert.DoesNotContain("private",vm.Error);
+  await vm.RefreshAsync();Assert.Contains("EDGE_POLICY_ACCESS_DENIED",vm.EdgeState);Assert.Single(vm.Applications);Assert.True(vm.CanControl);
  }
  [Fact]public async Task RealStatusFailureStillDisablesControls(){
   var service=new FakeService();var vm=new DesktopViewModel(service);await vm.RefreshAsync();

@@ -163,6 +163,61 @@ func edgeClosedPAC(p profiles.Profile) string {
 	script += `;function FindProxyForURL(url,host){host=host.toLowerCase().replace(/\.$/,'');for(var i=0;i<guarded.length;i++){var d=guarded[i].toLowerCase().replace(/\.$/,'');if(host===d||host.slice(-(d.length+1))==='.'+d)return 'PROXY fail-closed.neexitlag.invalid:9';}return strict?'PROXY fail-closed.neexitlag.invalid:9':'DIRECT';}`
 	return "data:application/x-ns-proxy-autoconfig;base64," + base64.StdEncoding.EncodeToString([]byte(script))
 }
+
+// Recover only our known PAC framing when upgrading an old journal without a
+// profile/guard field. Never guess away custom protected domains; corrupt state
+// yields a strict guard, not a silent DIRECT authorization.
+func edgeLegacyGuard(saved edgeSaved) string {
+	candidates := []string{saved.ExpectedPAC}
+	for _, owned := range saved.Owned {
+		var value struct {
+			PAC string `json:"ProxyPacUrl"`
+		}
+		if json.Unmarshal([]byte(owned), &value) == nil {
+			candidates = append(candidates, value.PAC)
+		}
+	}
+	for _, pac := range candidates {
+		script, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(pac, "data:application/x-ns-proxy-autoconfig;base64,"))
+		if err != nil {
+			continue
+		}
+		for _, prefix := range []string{"var protectedSuffixes=", "var guarded="} {
+			text := string(script)
+			if !strings.HasPrefix(text, prefix) {
+				continue
+			}
+			var domains []string
+			if json.NewDecoder(strings.NewReader(strings.TrimPrefix(text, prefix))).Decode(&domains) != nil || len(domains) > 2048 {
+				continue
+			}
+			valid := true
+			for _, domain := range domains {
+				if _, err := browserproxy.CanonicalHost(domain); err != nil {
+					valid = false
+					break
+				}
+			}
+			if !valid {
+				continue
+			}
+			strict := strings.Contains(text, "var strictProxy=true;") || strings.Contains(text, "var strict=true;")
+			if !strict && !strings.Contains(text, "var strictProxy=false;") && !strings.Contains(text, "var strict=false;") {
+				continue
+			}
+			profile := profiles.Profile{Rules: []flowpolicy.Rule{{Domains: domains, Action: flowpolicy.RelayRequired}}}
+			if strict {
+				profile.Rules = append(profile.Rules, flowpolicy.Rule{Action: flowpolicy.RelayRequired})
+			}
+			return edgeClosedPAC(profile)
+		}
+	}
+	if len(saved.Owned) > 0 || saved.ExpectedPAC != "" {
+		return edgeClosedPAC(profiles.Profile{Rules: []flowpolicy.Rule{{Action: flowpolicy.RelayRequired}}})
+	}
+	return edgeClosedPAC(profiles.Profile{})
+}
+
 func edgePolicyValue(pac string) string {
 	raw, _ := json.Marshal(map[string]any{"ProxyMode": "pac_script", "ProxyPacUrl": pac, "ProxyPacMandatory": true})
 	return string(raw)
@@ -213,6 +268,7 @@ func (c *Controller) writeEdgePolicy(e *edgeRuntime, pac string) error {
 	}
 	e.saved.Owned = append(old, next)
 	if err := c.saveEdge(e); err != nil {
+		e.saved.Owned = old
 		return err
 	}
 	write := e.write
@@ -333,7 +389,7 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (result any,
 			} else {
 				pac = e.saved.GuardPAC
 				if pac == "" {
-					pac = edgeClosedPAC(profiles.Profile{})
+					pac = edgeLegacyGuard(e.saved)
 				}
 			}
 		case "install":
@@ -353,7 +409,12 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (result any,
 				return nil, err
 			}
 		}
-		return map[string]bool{"applied": true}, nil
+		ordinaryDirect := false
+		if q.Operation == "guard" {
+			script, _ := base64.StdEncoding.DecodeString(strings.TrimPrefix(pac, "data:application/x-ns-proxy-autoconfig;base64,"))
+			ordinaryDirect = strings.Contains(string(script), "var strict=false;")
+		}
+		return map[string]bool{"applied": true, "guard": q.Operation == "guard", "ordinary_direct": ordinaryDirect}, nil
 	case "edge.confirm":
 		if e.server == nil || e.saved.Recovery == "" || !e.policyActive(c.BrowserOwnerSID) || !e.server.HealthVerified(p.ID, q.Health) {
 			return nil, errors.New("Edge PAC readiness not observed: policy, owner/SID or nonce")

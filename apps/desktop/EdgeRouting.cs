@@ -28,15 +28,16 @@ public partial class MainWindow {
   if(profile is null)throw new EdgeActivationException("edge.prepare","EDGE_PROFILE_NOT_FOUND","Установленный Microsoft Edge не найден.");
   if(!await ActivateEdgeSites(profile))return;
   // The regular optimization transaction still validates BOTH browser lanes.
-  await model.OptimizeAsync(true,lifetime.Token);
+  try{await model.OptimizeEdgeAsync(lifetime.Token);}catch(Exception error){var failure=EdgeErrors.Wrap("optimize",error);await model.RecordEdgeFailureAsync(profile,failure,lifetime.Token);throw failure;}
  });
  async void DisableEdgeSites(object sender,RoutedEventArgs args)=>await Execute(async()=>{
   var profiles=model.Applications.Where(r=>EdgeSites(r.Profile)||EdgePending(r.Profile)).Select(r=>r.Profile.Copy()).ToArray();
   // The service owns its journal even if the application profile was deleted.
-  await model.GuardEdgeAsync(lifetime.Token);
-  foreach(var p in profiles)await model.RestoreEdgeAsync(p,lifetime.Token);
-  edgeRecovery.Dispose();edgeNeedsActivation=true;
-  model.SetNotice("Активный PAC Edge заменён службой на защитный PAC: обычные сайты DIRECT, protected-домены закрыты. Ключ ProxySettings сохранён намеренно; чужая политика и Chrome не изменены. Перезапустите Edge.");
+  var applied=await model.GuardEdgeAsync(lifetime.Token);
+  foreach(var p in profiles)applied=await model.RestoreEdgeAsync(p,lifetime.Token);
+  edgeRecovery.Dispose();edgeNeedsActivation=true;model.ApplyEdgePolicyState(new());
+  var ordinary=applied.TryGetProperty("ordinary_direct",out var allowed)&&allowed.ValueKind==JsonValueKind.True;
+  model.SetNotice("Служба установила защитный PAC Edge: "+(ordinary?"обычные сайты DIRECT, protected-домены закрыты.":"строгие/custom ограничения сохранены; DIRECT для обычных сайтов не подтверждён.")+" Ключ ProxySettings сохранён намеренно; чужая политика и Chrome не изменены. Перезапустите Edge.");
  });
  async Task<bool> EdgeRunning(string exe){
   foreach(var id in await model.ChromeProcessesAsync(exe,lifetime.Token)){

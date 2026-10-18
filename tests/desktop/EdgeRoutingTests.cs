@@ -83,4 +83,9 @@ public class EdgeRoutingTests {
   Assert.Equal("EDGE_IPC_UNSUPPORTED",EdgeErrors.Wrap("edge.prepare",new ServiceException(ServiceFailure.Rejected,"unsupported IPC method edge.prepare")).Code);
  }
 
+ [Fact]public async Task GuardRollbackCallsServiceWithoutAnyExistingProfile(){
+  var service=new EdgeCalls();var vm=new DesktopViewModel(service);await vm.GuardEdgeAsync();
+  Assert.Equal(new[]{"edge.policy"},service.Order);Assert.Empty(service.Base.Calls);
+ }
+
 }

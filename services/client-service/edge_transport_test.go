@@ -349,3 +349,39 @@ func TestFailedEdgePolicyWriteDoesNotLosePreviousOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestEdgePendingAutoCreationViaIPCRetainsExplicitPendingMarker(t *testing.T) {
+	c := New(context.Background())
+	defer c.Close()
+	c.BrowserOwnerSID = "owner"
+	p := edgeTestProfile()
+	p.Mode = profiles.Auto
+	p.AppPreset = "edge-sites-pending"
+	if _, err := edgeCall(c, "profile.set", p); err != nil {
+		t.Fatal("new pending AUTO cannot be persisted", err)
+	}
+	for _, saved := range c.Profiles.List() {
+		if saved.ID == p.ID && saved.AppPreset == p.AppPreset && saved.Mode == profiles.Auto {
+			return
+		}
+	}
+	t.Fatal("AUTO marker rewritten into legacy Edge preset")
+}
+
+func TestLegacyEdgeRollbackWithoutProfilePreservesCustomProtectedDomains(t *testing.T) {
+	args, err := browserproxy.ChromeArgumentsWithRecovery("127.0.0.1:17776", "user-dir", []string{"private.example"}, false, "127.0.0.1:17777")
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := edgeSaved{ExpectedPAC: strings.TrimPrefix(args[1], "--proxy-pac-url=")}
+	guard := edgeLegacyGuard(legacy)
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(guard, "data:application/x-ns-proxy-autoconfig;base64,"))
+	if err != nil || !strings.Contains(string(raw), "private.example") {
+		t.Fatal("legacy custom protection lost", err)
+	}
+	strict := edgeLegacyGuard(edgeSaved{Owned: []string{"invalid owned state"}})
+	raw, _ = base64.StdEncoding.DecodeString(strings.TrimPrefix(strict, "data:application/x-ns-proxy-autoconfig;base64,"))
+	if !strings.Contains(string(raw), "var strict=true") {
+		t.Fatal("corrupt legacy state granted ordinary DIRECT")
+	}
+}
