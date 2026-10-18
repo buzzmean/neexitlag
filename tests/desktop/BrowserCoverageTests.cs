@@ -25,8 +25,9 @@ public class BrowserCoverageTests
         Assert.Equal(new[] { "chrome", "edge", "firefox" }, found.Select(b => b.Id));
         Assert.Equal(@"C:\Users\u\AppData\Local\Google\Chrome\Application\chrome.exe", found[0].ExePath);
         Assert.True(found[0].AutoSupported);
-        Assert.All(found.Skip(1), b => Assert.False(b.AutoSupported));
-        Assert.Equal(new[] { "Microsoft Edge", "Mozilla Firefox" }, BrowserCatalog.NotCovered(found));
+        Assert.True(found[1].AutoSupported);
+        Assert.False(found[2].AutoSupported);
+        Assert.Equal(new[] { "Mozilla Firefox" }, BrowserCatalog.NotCovered(found));
     }
 
     [Fact]

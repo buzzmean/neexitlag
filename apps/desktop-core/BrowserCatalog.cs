@@ -3,7 +3,7 @@ namespace Neexitlag.Desktop;
 public sealed record InstalledBrowser(string Id, string Name, string ExePath, bool AutoSupported);
 
 // Which browsers exist on this PC and which of them VELIQ can route on its own.
-// Only Chrome has the complete automatic lane (owned policy, PAC, recovery listener,
+// Chrome and Edge have independent automatic lanes (owned policy, PAC, recovery listener,
 // readiness proof). A browser must never get a profile before its lane exists: an
 // AUTO profile without a live PAC sends opaque flows through the relay with no DIRECT
 // fallback, and the generic Edge profile would relay everything it opens.
@@ -15,7 +15,7 @@ public static class BrowserCatalog
     [
         new("chrome", "Google Chrome", true,
             [@"%ProgramFiles%\Google\Chrome\Application\chrome.exe", @"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe", @"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"]),
-        new("edge", "Microsoft Edge", false,
+        new("edge", "Microsoft Edge", true,
             [@"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe", @"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"]),
         new("firefox", "Mozilla Firefox", false,
             [@"%ProgramFiles%\Mozilla Firefox\firefox.exe", @"%ProgramFiles(x86)%\Mozilla Firefox\firefox.exe"]),
@@ -63,6 +63,9 @@ public static class BrowserCatalog
 
     public static bool IsChrome(Profile profile) =>
         profile.Executables.Any(p => p.Replace('\\', '/').Split('/').Last().Equals("chrome.exe", StringComparison.OrdinalIgnoreCase));
+
+    public static bool IsEdge(Profile profile) =>
+        profile.Executables.Any(p => p.Replace('\\', '/').Split('/').Last().Equals("msedge.exe", StringComparison.OrdinalIgnoreCase));
 
     // Installed browsers that VELIQ does not route automatically, by display name.
     public static string[] NotCovered(IEnumerable<InstalledBrowser> installed) =>
