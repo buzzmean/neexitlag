@@ -35,10 +35,11 @@ type browserRuntime struct {
 	probes          chan struct{}
 	local           map[string]*localstrategy.LocalStrategyEngine
 	plans           map[flowpolicy.LearnKey]chan struct{}
+	directTimeouts  *flowpolicy.DirectTimeoutCache
 }
 
 func newBrowserRuntime() *browserRuntime {
-	return &browserRuntime{dns: browserproxy.NewDNSRecovery(), learned: flowpolicy.NewBrowserLearning(), probes: make(chan struct{}, 4), local: map[string]*localstrategy.LocalStrategyEngine{}, plans: map[flowpolicy.LearnKey]chan struct{}{}}
+	return &browserRuntime{dns: browserproxy.NewDNSRecovery(), learned: flowpolicy.NewBrowserLearning(), probes: make(chan struct{}, 4), local: map[string]*localstrategy.LocalStrategyEngine{}, plans: map[flowpolicy.LearnKey]chan struct{}{}, directTimeouts: flowpolicy.NewDirectTimeoutCache()}
 }
 func (c *Controller) browserOwner(ctx context.Context, source, local netip.AddrPort) (browserproxy.Owner, error) {
 	id, err := wp.LookupTCPPeer(source, local)
@@ -174,7 +175,9 @@ func (c *Controller) browserOpen(ctx context.Context, q browserproxy.Request, pl
 		}
 		return backend.OpenBrowserLocalTCP(ctx, browserIdentity(q), q.Source, plan.Destination, d)
 	}
-	return c.Engine.OpenTCP(ctx, d.Flow)
+	conn, err := c.Engine.OpenTCP(ctx, d.Flow)
+	c.observeDirectOpen(current, q, plan, err, time.Now())
+	return conn, err
 }
 func (c *Controller) browserTransform(q browserproxy.Request, plan browserproxy.Plan) bool {
 	backend, ok := c.Backend.(interface {
@@ -256,6 +259,13 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 		key.Revision += ":https"
 	} else {
 		key.Revision += ":http"
+	}
+	// An origin whose DIRECT connect timed out twice goes straight to the relay
+	// (fail-closed) unless a verified DIRECT success is already known for it.
+	if known, ok := c.browser.learned.Lookup(key, time.Now()); !ok || !known.Confirmed {
+		if steered, ok := c.steerTimedOutOrigin(plan, current, q, time.Now()); ok {
+			return steered, nil
+		}
 	}
 	if cached, ok := c.browser.learned.Lookup(key, time.Now()); ok && (cached.Confirmed || !cached.RetryAfter.IsZero()) {
 		if cached.Destination != "" {
@@ -429,9 +439,9 @@ func (c *Controller) handleBrowser(method string, raw json.RawMessage) (any, err
 	defer c.browser.mu.Unlock()
 	if method == "browser.status" {
 		if c.browser.server == nil {
-			return browserproxy.Snapshot{ReadyProfiles: []string{}, Failures: map[string]uint64{}, Records: []browserproxy.Record{}}, nil
+			return browserStatusView{Snapshot: browserproxy.Snapshot{ReadyProfiles: []string{}, Failures: map[string]uint64{}, Records: []browserproxy.Record{}}, DirectTimeouts: c.browser.directTimeouts.Stats()}, nil
 		}
-		view := c.browser.server.Snapshot()
+		view := browserStatusView{Snapshot: c.browser.server.Snapshot(), DirectTimeouts: c.browser.directTimeouts.Stats()}
 		view.RecoveryAddress = c.browser.recoveryAddress
 		view.PolicyReady = wp.ChromeProxyPolicyActive(c.BrowserOwnerSID, c.browser.expectedPAC)
 		sort.Slice(view.Records, func(i, j int) bool { return view.Records[i].ID > view.Records[j].ID })
