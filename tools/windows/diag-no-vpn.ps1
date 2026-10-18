@@ -24,8 +24,10 @@ $Only=@($Only|ForEach-Object{$_ -split ','}|Where-Object{$_})   # -File passes '
 $scriptDir=if($PSScriptRoot){$PSScriptRoot}else{(Get-Location).Path}
 if(-not $BuildDirectory){$BuildDirectory=Join-Path (Split-Path $scriptDir -Parent | Split-Path -Parent) 'bin\windows-e2e'}
 $result=if($OutputFile){$OutputFile}else{Join-Path $scriptDir 'diag-result.txt'}
-$utf8=New-Object Text.UTF8Encoding($false)
-try{[IO.File]::WriteAllText($result,'',$utf8)}catch{$result=Join-Path ([IO.Path]::GetTempPath()) 'diag-result.txt';[IO.File]::WriteAllText($result,'',$utf8)}
+$utf8=New-Object Text.UTF8Encoding($false)      # appends: the BOM is written once, below
+$utf8Bom=New-Object Text.UTF8Encoding($true)
+$bom=[byte[]](0xEF,0xBB,0xBF)                    # UTF-8 BOM so Windows tools show Cyrillic correctly
+try{[IO.File]::WriteAllBytes($result,$bom)}catch{$result=Join-Path ([IO.Path]::GetTempPath()) 'diag-result.txt';[IO.File]::WriteAllBytes($result,$bom)}
 $isWin=($PSVersionTable.PSVersion.Major -lt 6) -or $IsWindows
 
 function Say([string]$Text){Write-Host $Text;[IO.File]::AppendAllText($result,$Text+"`r`n",$utf8)}
@@ -41,6 +43,29 @@ function Json($Value){Scrub ($Value|ConvertTo-Json -Depth 12)}
 function Step([string]$StepName,[scriptblock]$Body){try{& $Body}catch{Say ("[$StepName] ERROR: "+(Scrub $_.Exception.Message))}}
 function Prop($Object,[string]$PropName,$Default=$null){
  if($null -ne $Object -and $Object.PSObject.Properties.Name -contains $PropName){return $Object.$PropName};return $Default
+}
+
+# Reads a file another process may still hold open (a Chrome child that inherited the
+# redirected handle): shared read access, short retries.
+function Read-SharedText([string]$Path){
+ if(-not (Test-Path -LiteralPath $Path)){return ''}
+ for($try=0;$try -lt 20;$try++){
+  try{
+   $fs=[IO.File]::Open($Path,[IO.FileMode]::Open,[IO.FileAccess]::Read,([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
+   try{$sr=New-Object IO.StreamReader($fs,[Text.Encoding]::UTF8);return $sr.ReadToEnd()}finally{$fs.Dispose()}
+  }catch [IO.IOException]{Start-Sleep -Milliseconds 250}
+ }
+ return ''
+}
+# Ends the browser we started: the tree first, then any leftover process whose command
+# line carries our one-off profile directory (children detach when the parent exits).
+function Stop-OwnBrowser($Process,[string]$Marker){
+ try{if($Process -and -not $Process.HasExited){& taskkill.exe /T /F /PID $Process.Id 2>&1|Out-Null}}catch{}
+ try{
+  Get-CimInstance Win32_Process -Filter "Name='chrome.exe' OR Name='msedge.exe'" -ErrorAction SilentlyContinue|
+   Where-Object{$_.CommandLine -and $_.CommandLine.Contains($Marker)}|
+   ForEach-Object{Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue}
+ }catch{}
 }
 
 # ---------- IPC (same wire format as the GUI: 4-byte big-endian length + JSON) ----------
@@ -202,56 +227,31 @@ Step 'pool' {
 }}
 
 if(Want 'tcp'){
-Section "2a. $VpsHost TCP $ControlPlanePort (control plane, verified against the project CA)"
+Section "2a. $VpsHost TCP $ControlPlanePort (control plane) - INFORMATIONAL"
+Say 'Informational only. The control plane requires TLS 1.3. Windows PowerShell 5.1 (.NET Framework) cannot speak TLS 1.3, so this script does not handshake itself; curl.exe is used with the project CA and normal verification. A failure here is a limit of this probe, NOT a service fault: the service status (IPC, sections 1b/1g) is authoritative for the control plane and relay.'
 Step 'tcp' {
+ $watch=[Diagnostics.Stopwatch]::StartNew()
+ $client=New-Object Net.Sockets.TcpClient
+ try{
+  $task=$client.ConnectAsync($VpsHost,$ControlPlanePort)
+  $ok=$false;try{$ok=$task.Wait(6000) -and $client.Connected}catch{Say ("TCP connect error: "+$_.Exception.GetBaseException().Message)}
+  if($ok){Say "TCP ${ControlPlanePort}: connected in $($watch.ElapsedMilliseconds) ms"}
+  else{Say "TCP ${ControlPlanePort}: NO CONNECTION within 6 s (blocked, dropped or nothing listening)";return}
+ }finally{$client.Close()}
  $caPath=Join-Path $InstallDirectory 'cp-ca.pem'
  if(-not (Test-Path $caPath)){
   $manifest=Join-Path $InstallDirectory 'service.json'
-  if(Test-Path $manifest){$m=Get-Content $manifest -Raw|ConvertFrom-Json;$caPath=[string](Prop $m 'control_plane_ca_file' '')}
+  if(Test-Path $manifest){try{$m=Get-Content $manifest -Raw|ConvertFrom-Json;$caPath=[string](Prop $m 'control_plane_ca_file' '')}catch{}}
  }
- $ca=$null
- if($caPath -and (Test-Path $caPath)){$ca=New-Object Security.Cryptography.X509Certificates.X509Certificate2($caPath);Say "Project control-plane CA: $($ca.Subject), valid until $($ca.NotAfter.ToString('yyyy-MM-dd'))"}
- else{Say "Project control-plane CA file not readable ($caPath): chain check skipped, only reachability and certificate facts are reported"}
- $client=New-Object Net.Sockets.TcpClient
- try{
-  $watch=[Diagnostics.Stopwatch]::StartNew()
-  $task=$client.ConnectAsync($VpsHost,$ControlPlanePort)
-  $ok=$false;try{$ok=$task.Wait(6000) -and $client.Connected}catch{Say ("TCP connect error: "+$_.Exception.GetBaseException().Message)}
-  if(-not $ok){Say "TCP ${ControlPlanePort}: NO CONNECTION within 6 s (blocked, dropped or nothing listening)";return}
-  Say "TCP ${ControlPlanePort}: connected in $($watch.ElapsedMilliseconds) ms"
-  # The callback performs the REAL check (chain must end in the project CA, no other
-  # chain error, host name must match). Its verdict is returned, nothing is bypassed.
-  $global:DiagTls=@{Verdict='not evaluated';Subject='';Issuer='';Window='';San=''}
-  $cb=[Net.Security.RemoteCertificateValidationCallback]{
-   param($sender,$certificate,$chain,$errors)
-   $leaf=New-Object Security.Cryptography.X509Certificates.X509Certificate2($certificate)
-   $global:DiagTls.Subject=$leaf.Subject;$global:DiagTls.Issuer=$leaf.Issuer
-   $global:DiagTls.Window="$($leaf.NotBefore.ToString('yyyy-MM-dd')) .. $($leaf.NotAfter.ToString('yyyy-MM-dd'))"
-   $global:DiagTls.San=(($leaf.Extensions|Where-Object{$_.Oid.Value -eq '2.5.29.17'}|ForEach-Object{$_.Format($false)}) -join '')
-   if($null -eq $ca){$global:DiagTls.Verdict="not verified (no CA file); system-store flags: $errors";return $false}
-   $own=New-Object Security.Cryptography.X509Certificates.X509Chain
-   $own.ChainPolicy.RevocationMode='NoCheck'
-   $own.ChainPolicy.VerificationFlags='AllowUnknownCertificateAuthority'
-   [void]$own.ChainPolicy.ExtraStore.Add($ca)
-   [void]$own.Build($leaf)
-   $top=$own.ChainElements[$own.ChainElements.Count-1].Certificate.Thumbprint
-   $bad=@($own.ChainStatus|Where-Object{$_.Status -ne 'UntrustedRoot'}|ForEach-Object{$_.Status.ToString()})
-   $nameBad=([int]$errors -band ([int][Net.Security.SslPolicyErrors]::RemoteCertificateNameMismatch)) -ne 0
-   $reasons=@()
-   if($top -ne $ca.Thumbprint){$reasons+='chain does not end in the project CA'}
-   if($bad.Count){$reasons+=('chain errors: '+($bad -join ','))}
-   if($nameBad){$reasons+='host name/IP not in certificate SAN'}
-   if($reasons.Count){$global:DiagTls.Verdict='REJECTED: '+($reasons -join '; ');return $false}
-   $global:DiagTls.Verdict='ACCEPTED by project CA (chain, validity and SAN ok)';return $true
-  }
-  $ssl=New-Object Net.Security.SslStream($client.GetStream(),$false,$cb)
-  try{$ssl.AuthenticateAsClient($VpsHost);Say "TLS handshake OK ($($ssl.SslProtocol))"}
-  catch{Say ("TLS handshake FAILED: "+$_.Exception.GetBaseException().Message)}
-  Say "  verdict: $($global:DiagTls.Verdict)"
-  Say "  subject $($global:DiagTls.Subject); issuer $($global:DiagTls.Issuer); valid $($global:DiagTls.Window)"
-  Say "  SAN: $($global:DiagTls.San)"
-  $ssl.Dispose()
- }finally{$client.Close()}
+ $curlExe=(Get-Command curl.exe -ErrorAction SilentlyContinue)
+ if(-not $curlExe){Say 'curl.exe not found: certificate check skipped (informational).';return}
+ if(-not $caPath -or -not (Test-Path $caPath)){Say "Project CA file not readable ($caPath): certificate check skipped (informational). Verification is never disabled."; return}
+ # Normal verification against the project CA. --ssl-no-revoke only skips the
+ # revocation-list download that a private CA cannot answer; it does not weaken the chain,
+ # validity or host checks.
+ $text=(& $curlExe.Source -sS -m 10 --ssl-no-revoke --cacert $caPath -o NUL -w 'HTTP %{http_code} tls_verify=%{ssl_verify_result} connect=%{time_connect}s tls=%{time_appconnect}s' "https://${VpsHost}:${ControlPlanePort}/healthz" 2>&1|Out-String).Trim() -replace '\s+',' '
+ $verdict=if($text -match 'tls_verify=0' -and $text -match 'HTTP 2'){'handshake and certificate OK against the project CA'}elseif($text -match 'tls_verify=0'){'certificate OK against the project CA'}else{'could not confirm (see note above; not a service verdict)'}
+ Say "curl with project CA: $text -> $verdict"
 }}
 
 if(Want 'udp'){
@@ -356,24 +356,28 @@ Step 'headless' {
   if(-not $exe){Say "$label : not installed";continue}
   Say "$label headless (own empty profile, your windows and tabs are untouched): $exe"
   foreach($site in 'claude.ai','chatgpt.com','www.youtube.com','web.telegram.org','discord.com'){
-   $dir=Join-Path ([IO.Path]::GetTempPath()) ('veliq-diag-'+[Guid]::NewGuid().ToString('N'))
+   $marker='veliq-diag-'+[Guid]::NewGuid().ToString('N')
+   $dir=Join-Path ([IO.Path]::GetTempPath()) $marker
    $o="$dir.out";$e="$dir.err";$p=$null
    try{
     New-Item -ItemType Directory -Path $dir -Force|Out-Null
     $w=[Diagnostics.Stopwatch]::StartNew()
-    $args=@('--headless=new','--disable-gpu','--no-first-run','--no-default-browser-check','--timeout=15000','--dump-dom',"--user-data-dir=$dir","https://$site/")
-    $p=Start-Process -FilePath $exe -ArgumentList $args -PassThru -WindowStyle Hidden -RedirectStandardOutput $o -RedirectStandardError $e
+    $browserArgs=@('--headless=new','--disable-gpu','--no-first-run','--no-default-browser-check','--timeout=15000','--dump-dom',"--user-data-dir=$dir","https://$site/")
+    $p=Start-Process -FilePath $exe -ArgumentList $browserArgs -PassThru -WindowStyle Hidden -RedirectStandardOutput $o -RedirectStandardError $e
+    # Wait for the main process, end the whole tree and any detached child that still
+    # holds the redirected files, and only then read them (shared access).
     $finished=$p.WaitForExit(30000)
-    if(-not $finished){& taskkill.exe /T /F /PID $p.Id 2>&1|Out-Null}
-    $dom=if(Test-Path $o){[IO.File]::ReadAllText($o)}else{''}
+    Stop-OwnBrowser $p $marker
+    $dom=Read-SharedText $o
+    $errText=Read-SharedText $e
     $title=[regex]::Match($dom,'(?is)<title[^>]*>(.*?)</title>').Groups[1].Value.Trim()
-    $err=[regex]::Match($dom+(Get-Content $e -Raw -ErrorAction SilentlyContinue),'ERR_[A-Z_]+').Value
+    $err=[regex]::Match($dom+' '+$errText,'ERR_[A-Z_]+').Value
     $verdict=if(-not $finished){'TIMEOUT (30 s)'}elseif($err){"FAILED $err"}elseif($dom.Length -lt 200){'EMPTY PAGE'}else{'PAGE LOADED'}
     Say "  $site [$verdict] $($w.ElapsedMilliseconds) ms, dom $($dom.Length) bytes, title: '$title'"
    }catch{Say "  $site ERROR $($_.Exception.Message)"}
    finally{
-    if($p -and -not $p.HasExited){try{$p.Kill()}catch{}}
-    Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue;Remove-Item $o,$e -Force -ErrorAction SilentlyContinue
+    Stop-OwnBrowser $p $marker
+    Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue;Remove-Item -LiteralPath $o,$e -Force -ErrorAction SilentlyContinue
    }
   }
  }
@@ -395,5 +399,5 @@ Step 'apps' {
 
 Say ''
 Say "Finished $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))."
-try{$all=[IO.File]::ReadAllText($result);[IO.File]::WriteAllText($result,(Scrub $all),$utf8)}catch{}
+try{$all=[IO.File]::ReadAllText($result);[IO.File]::WriteAllText($result,(Scrub $all),$utf8Bom)}catch{}
 Write-Host "`nSaved: $result"
