@@ -160,7 +160,13 @@ func TestSilentDirectOriginIsRetriedViaRelayThenCachedRelayFirst(t *testing.T) {
 		t.Fatalf("relay got %q: every ClientHello must be delivered exactly once", relaySaw.text())
 	}
 	rec := server.Snapshot().Records
-	last := rec[len(rec)-1]
+	// Records come from a map: the newest tunnel is the one with the highest ID.
+	last := rec[0]
+	for _, r := range rec {
+		if r.ID > last.ID {
+			last = r
+		}
+	}
 	for _, r := range rec {
 		if r.Plan.Policy.Action == flowpolicy.Direct && r.Result != "" && r.StallRetried == false && r.Domain == "www.youtube.com" && r.Received == 0 && !r.Active {
 			t.Fatalf("a YouTube tunnel finished DIRECT with zero bytes and no retry: %+v", r)
