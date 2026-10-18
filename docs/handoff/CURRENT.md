@@ -26,6 +26,7 @@ Telegram, Claude, ChatGPT, Chrome (профиль Chrome создан вручн
 | Область | Агент | Ветка | Статус |
 |---|---|---|---|
 | Всё перечисленное в (g)/журнале (служба, browserproxy, diag, профили) | Claude Code | `claude/serene-cori-msra1u` | сессия закончена 18.10.2026 |
+| Сверка DNS-fix Telegram (18.10.2026; без изменений реализации) | Codex | `codex/work` | ждёт решения владельца |
 | Edge-«полоса», Discord, DIRECT+ для YouTube | никто | — | ждёт решения владельца |
 | PR #8, `codex/direct-plus-flowseal` | не трогать | — | только владелец |
 
