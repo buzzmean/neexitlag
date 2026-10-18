@@ -408,3 +408,22 @@ func TestEdgeGuardPublicationFailureBeforeListenerStillAppearsInStatus(t *testin
 		t.Fatal("missing safe pre-listener error", string(raw))
 	}
 }
+
+func TestEdgeCapabilityVersionDoesNotCertifyListenerOrPACReadiness(t *testing.T) {
+	c := New(context.Background())
+	defer c.Close()
+	result, err := edgeCall(c, "edge.status", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(result)
+	var status struct {
+		Version   int      `json:"activation_version"`
+		Listening bool     `json:"listening"`
+		Ready     bool     `json:"policy_ready"`
+		Profiles  []string `json:"ready_profiles"`
+	}
+	if json.Unmarshal(raw, &status) != nil || status.Version != 2 || status.Listening || status.Ready || len(status.Profiles) != 0 {
+		t.Fatal("capability advertised as synthetic readiness", string(raw))
+	}
+}

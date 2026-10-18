@@ -304,8 +304,9 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (result any,
 		view.bound()
 		return struct {
 			browserStatusView
-			LastError string `json:"last_error"`
-		}{view, e.lastError}, nil
+			LastError         string `json:"last_error"`
+			ActivationVersion int    `json:"activation_version"`
+		}{view, e.lastError, 2}, nil
 	}
 	if c.BrowserOwnerSID == "" {
 		return nil, errors.New("Edge requires installation owner SID")

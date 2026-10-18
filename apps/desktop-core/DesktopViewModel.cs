@@ -263,6 +263,7 @@ public sealed partial class DesktopViewModel : Observable
         {
             if (e is ServiceException failure && failure.Failure != ServiceFailure.Rejected)
                 SetUnavailable(e);
+            else if(e is EdgeActivationException)ReportActionFailure(e);
             else
                 Error = Text.Failure(e);
             return false;
@@ -298,6 +299,7 @@ public sealed partial class DesktopViewModel : Observable
             var existing = await client.Call<Profile[]>("profiles", cancellationToken: ct);
             duplicate = existing.Any(p => p.Executables.Any(e => SameExecutable(e, path)));
             if (duplicate) return;
+            if(BrowserCatalog.IsEdge(profile))await RequireEdgeServiceAsync(ct);
             var saved = await client.Call<Profile[]>("profile.set", profile, ct);
             if (Snapshot is { } snapshot) snapshot.Profiles = saved;
             foreach (var p in saved)

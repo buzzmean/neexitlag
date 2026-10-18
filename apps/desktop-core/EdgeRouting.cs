@@ -3,6 +3,7 @@ using System.Text.Json;
 namespace Neexitlag.Desktop;
 
 public sealed class EdgeTransportStatus {
+ public int ActivationVersion {get;set;}
  public bool Listening {get;set;} public bool PolicyReady {get;set;} public bool Truncated {get;set;} public ulong Lost {get;set;}
  public string LastError {get;set;}=""; public string RecoveryAddress {get;set;}=""; public string[] ReadyProfiles {get;set;}=[];
  public BrowserConnection[] Records {get;set;}=[];
@@ -20,8 +21,13 @@ public sealed partial class DesktopViewModel {
   if(edge is null)return null;
   var existing=await client.Call<Profile[]>("profiles",cancellationToken:ct);
   if(existing.Any(BrowserCatalog.IsEdge))return null;
+  await RequireEdgeServiceAsync(ct);
   if(!await AddApplicationAsync(edge.ExePath,ct))return null;
   return Applications.Select(a=>a.Profile).FirstOrDefault(BrowserCatalog.IsEdge);
+ }
+ public async Task RequireEdgeServiceAsync(CancellationToken ct=default){
+  var status=await EdgeStatusAsync(ct);
+  if(status.ActivationVersion<2)throw new EdgeActivationException("edge.status","EDGE_IPC_UNSUPPORTED","Сначала обновите службу вместе с GUI: старая служба не поддерживает безопасный AUTO pending/откат без профиля.");
  }
  public Task<BrowserLaunch> PrepareEdgeAsync(Profile profile,string directory,string recovery,CancellationToken ct=default){
   if(!BrowserCatalog.IsEdge(profile))throw new InvalidOperationException("Выберите профиль Microsoft Edge");

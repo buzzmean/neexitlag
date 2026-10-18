@@ -8,7 +8,7 @@ public class EdgeRoutingTests {
   var exe=Path.Combine(dir,"msedge.exe");await File.WriteAllBytesAsync(exe,[0]);
   try{
    var service=new PickerService{State=new(){Profiles=[new(){Id="chrome",Mode="AUTO",Executables=[@"C:\Chrome\chrome.exe"],LocalStrategyId="baseline"}]}};
-   var vm=new DesktopViewModel(service);
+   var vm=new DesktopViewModel(new VersionedEdgeService(service,2));
    var list=new[]{new InstalledBrowser("edge","Microsoft Edge",exe,true)};
    var created=await vm.EnsureEdgeProfileAsync(list);Assert.NotNull(created);Assert.Equal("AUTO",created!.Mode);Assert.Equal("edge-sites-pending",created.PolicyData!["app_preset"].GetString());
    Assert.Equal(Path.GetFullPath(exe),Assert.Single(created.Executables));
@@ -35,6 +35,14 @@ public class EdgeRoutingTests {
   Assert.True(BrowserCatalog.IsChrome(chrome));Assert.False(BrowserCatalog.IsEdge(chrome));
   Assert.True(BrowserCatalog.IsEdge(edge));Assert.False(BrowserCatalog.IsChrome(edge));
   Assert.Equal(new[]{"--no-first-run"},new BrowserLaunch{Arguments=["--proxy-pac-url=inline","--no-first-run"]}.UserArguments());
+ }
+ sealed class VersionedEdgeService(PickerService inner,int version) : IServiceClient {
+  public Task<T> Call<T>(string method,object? payload=null,CancellationToken cancellationToken=default)=>method=="edge.status"?Task.FromResult((T)(object)new EdgeTransportStatus{ActivationVersion=version}):inner.Call<T>(method,payload,cancellationToken);
+ }
+ [Fact]public async Task OldServiceCannotReceiveUnrecognizedPendingAutoProfile(){
+  var picker=new PickerService();var vm=new DesktopViewModel(new VersionedEdgeService(picker,0));
+  await Assert.ThrowsAsync<EdgeActivationException>(()=>vm.EnsureEdgeProfileAsync([new("edge","Microsoft Edge",@"C:\Edge\msedge.exe",true)]));
+  Assert.DoesNotContain(picker.Calls,c=>c.Method=="profile.set");
  }
  sealed class EdgeCalls : IServiceClient {
   public readonly PickerService Base=new();public readonly List<string> Order=[];public bool RejectGuard,Ready=true;
@@ -87,6 +95,11 @@ public class EdgeRoutingTests {
  [Fact]public async Task GuardRollbackCallsServiceWithoutAnyExistingProfile(){
   var service=new EdgeCalls();var vm=new DesktopViewModel(service);await vm.GuardEdgeAsync();
   Assert.Equal(new[]{"edge.policy"},service.Order);Assert.Empty(service.Base.Calls);
+ }
+
+ [Fact]public async Task ManualMsedgePickerCannotPublishPendingAutoToOldService(){
+  var dir=Path.Combine(Path.GetTempPath(),"veliq-old-edge-"+Guid.NewGuid());Directory.CreateDirectory(dir);var exe=Path.Combine(dir,"msedge.exe");await File.WriteAllBytesAsync(exe,[0]);
+  try{var picker=new PickerService();var vm=new DesktopViewModel(new VersionedEdgeService(picker,0));Assert.False(await vm.AddApplicationAsync(exe));Assert.DoesNotContain(picker.Calls,c=>c.Method=="profile.set");Assert.Contains("EDGE_IPC_UNSUPPORTED",vm.Error);}finally{Directory.Delete(dir,true);}
  }
 
 }

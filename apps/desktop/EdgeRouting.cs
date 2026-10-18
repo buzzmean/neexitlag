@@ -49,6 +49,7 @@ public partial class MainWindow {
   try{var activated=await ActivateEdgeSitesCore(original);if(!activated&&EdgePending(original))await model.RestoreEdgeAsync(original,lifetime.Token);return activated;}finally{edgeActivating=false;}
  }
  async Task<bool> ActivateEdgeSitesCore(Profile original){
+  await model.RequireEdgeServiceAsync(lifetime.Token); // Read-only; before profile/PAC mutations.
   var exe=original.Executables.FirstOrDefault(p=>p.Replace('\\','/').Split('/').Last().Equals("msedge.exe",StringComparison.OrdinalIgnoreCase));
   if(exe is null||!Path.IsPathFullyQualified(exe)||!File.Exists(exe))throw new EdgeActivationException("edge.prepare","EDGE_CONFIGURATION_INVALID","Требуется полный путь установленного msedge.exe.");
   if(original.Mode is not ("DIRECT" or "AUTO"))throw new EdgeActivationException("edge.prepare","EDGE_PROFILE_MODE_INVALID","Выберите DIRECT или AUTO; существующий профиль не изменён.");
