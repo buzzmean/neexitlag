@@ -19,7 +19,8 @@ type DirectTimeoutCache struct {
 	mu      sync.Mutex
 	entries map[DirectTimeoutKey]*directTimeoutEntry
 	// Cumulative counters, visible in diagnostics to judge the load on the relay.
-	hits, created, revalidations, recovered uint64
+	hits, created, revalidations, recovered  uint64
+	stalls, stallRetries, stallRetryFailures uint64
 }
 
 type DirectTimeoutKey struct {
@@ -75,6 +76,26 @@ func (c *DirectTimeoutCache) RecordTimeout(k DirectTimeoutKey, now time.Time) bo
 	e.active, e.since, e.nextProbe = true, now, now.Add(DirectTimeoutTTL)
 	c.created++
 	return true
+}
+
+// RecordStall notes a DIRECT tunnel that got no answer after the ClientHello. It is the
+// same class of failure as a connect timeout and follows the same rules.
+func (c *DirectTimeoutCache) RecordStall(k DirectTimeoutKey, now time.Time) bool {
+	c.mu.Lock()
+	c.stalls++
+	c.mu.Unlock()
+	return c.RecordTimeout(k, now)
+}
+
+// NoteRetry counts the outcome of a transparent retry through the relay.
+func (c *DirectTimeoutCache) NoteRetry(ok bool) {
+	c.mu.Lock()
+	if ok {
+		c.stallRetries++
+	} else {
+		c.stallRetryFailures++
+	}
+	c.mu.Unlock()
 }
 
 // RecordSuccess clears the count: DIRECT connected, so DIRECT works for this origin.
@@ -164,6 +185,9 @@ type DirectTimeoutStats struct {
 	Created         uint64                `json:"origins_cached_total"`
 	Revalidations   uint64                `json:"background_direct_probes"`
 	RecoveredDirect uint64                `json:"recovered_to_direct"`
+	Stalls          uint64                `json:"direct_stalls_total"`
+	StallRetries    uint64                `json:"stall_retries_via_relay"`
+	StallRetryFails uint64                `json:"stall_retries_failed"`
 	Top             []DirectTimeoutOrigin `json:"top_origins"`
 }
 
@@ -171,7 +195,8 @@ type DirectTimeoutStats struct {
 func (c *DirectTimeoutCache) Stats() DirectTimeoutStats {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	s := DirectTimeoutStats{Hits: c.hits, Created: c.created, Revalidations: c.revalidations, RecoveredDirect: c.recovered}
+	s := DirectTimeoutStats{Hits: c.hits, Created: c.created, Revalidations: c.revalidations, RecoveredDirect: c.recovered,
+		Stalls: c.stalls, StallRetries: c.stallRetries, StallRetryFails: c.stallRetryFailures}
 	for k, e := range c.entries {
 		if !e.active {
 			continue

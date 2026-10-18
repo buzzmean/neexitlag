@@ -86,6 +86,9 @@ type Record struct {
 	Result            string    `json:"result"`
 	Sent              uint64    `json:"sent_bytes"`
 	Received          uint64    `json:"received_bytes"`
+	// StallRetried: the DIRECT origin stayed silent after the ClientHello and the tunnel
+	// was transparently moved to the relay (Plan then shows the relay policy).
+	StallRetried bool `json:"stall_retried_via_relay,omitempty"`
 }
 type Snapshot struct {
 	RecoveryAddress string            `json:"recovery_address,omitempty"`
@@ -106,9 +109,19 @@ type Config struct {
 	Address            string // Empty allocates a port; otherwise fixed loopback only.
 	AuthorizeForwarded func(context.Context, netip.AddrPort, netip.AddrPort, netip.AddrPort, netip.AddrPort) (Owner, error)
 	TransformApplied   func(Request, Plan) bool
-	Authorize          func(context.Context, netip.AddrPort, netip.AddrPort) (Owner, error)
-	Plan               func(context.Context, Request) (Plan, error)
-	Open               func(context.Context, Request, Plan) (net.Conn, error)
+	// OnStall, when set, is asked for a relay connection when an ordinary DIRECT port-443
+	// tunnel gets no answer from the origin after the browser's first bytes. It is called at
+	// most once per tunnel; on error the tunnel is closed (never retried over DIRECT).
+	OnStall func(context.Context, Request, Plan) (net.Conn, Plan, error)
+	// OnDirectAnswered is called once when such a DIRECT tunnel receives its first byte
+	// from the origin (a connect alone proves nothing: a blackholing path accepts it).
+	OnDirectAnswered func(Request, Plan)
+	// StallTimeout is the silence after the first client bytes that counts as a stall
+	// (default DefaultStallTimeout).
+	StallTimeout time.Duration
+	Authorize    func(context.Context, netip.AddrPort, netip.AddrPort) (Owner, error)
+	Plan         func(context.Context, Request) (Plan, error)
+	Open         func(context.Context, Request, Plan) (net.Conn, error)
 }
 type Server struct {
 	cfg        Config
@@ -450,6 +463,36 @@ func (s *Server) handle(c net.Conn) {
 		finish("UPSTREAM_OPEN_FAILED", 0, 0)
 		writeError(c, 502)
 		return
+	}
+	if secure && s.cfg.OnStall != nil && port == 443 && plan.Enabled && plan.Policy.Action == flowpolicy.Direct {
+		original := plan
+		upstream = newStallConn(ctx, upstream, s.cfg.StallTimeout, func(ctx context.Context) (net.Conn, error) {
+			stallCtx, stop := context.WithTimeout(ctx, 5*time.Second)
+			defer stop()
+			next, nextPlan, err := s.cfg.OnStall(stallCtx, q, original)
+			if err != nil {
+				return nil, err
+			}
+			s.mu.Lock()
+			r := s.records[id]
+			r.Plan, r.StallRetried = nextPlan, true
+			s.records[id] = r
+			s.mu.Unlock()
+			return next, nil
+		}, func(stalled, retried bool, err error) {
+			switch {
+			case stalled:
+				s.reject("DIRECT_STALL")
+			case retried:
+				s.reject("DIRECT_STALL_RETRIED_VIA_RELAY")
+			case err != nil:
+				s.reject("DIRECT_STALL_RETRY_FAILED")
+			}
+		}, func() {
+			if s.cfg.OnDirectAnswered != nil {
+				s.cfg.OnDirectAnswered(q, original)
+			}
+		})
 	}
 	s.mu.Lock()
 	s.conns[upstream] = true

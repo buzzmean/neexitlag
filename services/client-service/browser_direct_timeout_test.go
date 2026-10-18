@@ -65,9 +65,9 @@ func TestOnlyConnectDeadlinesOnOrdinaryDirectOriginsCount(t *testing.T) {
 	ordinary := browserproxy.Request{Host: "a.example", Port: 443}
 	count(ordinary, directPlan, context.Canceled)
 	count(ordinary, directPlan, errors.New("connection refused"))
-	count(browserproxy.Request{Host: "203.0.113.7", Port: 443}, directPlan, context.DeadlineExceeded) // IP literal
-	count(browserproxy.Request{Host: "chatgpt.com", Port: 443}, directPlan, context.DeadlineExceeded) // protected
-	count(browserproxy.Request{Host: "www.youtube.com", Port: 443}, directPlan, context.DeadlineExceeded)
+	count(browserproxy.Request{Host: "203.0.113.7", Port: 443}, directPlan, context.DeadlineExceeded)                                                                      // IP literal
+	count(browserproxy.Request{Host: "chatgpt.com", Port: 443}, directPlan, context.DeadlineExceeded)                                                                      // protected
+	count(browserproxy.Request{Host: "www.youtube.com", Port: 443}, browserproxy.Plan{Policy: flowpolicy.Result{Action: flowpolicy.DirectPlus}}, context.DeadlineExceeded) // DIRECT+ owns YouTube
 	relayPlan := browserproxy.Plan{Policy: flowpolicy.Result{Action: flowpolicy.RelayRequired, RelayID: "VPS-01", Fallback: flowpolicy.Required}}
 	count(ordinary, relayPlan, context.DeadlineExceeded) // relay timeouts say nothing about DIRECT
 	if s := c.browser.directTimeouts.Stats(); s.ActiveOrigins != 0 || s.Created != 0 {
@@ -142,5 +142,69 @@ func TestBackgroundRecheckKeepsRelayWhenInconclusiveAndRetries(t *testing.T) {
 	}
 	if s := c.browser.directTimeouts.Stats(); s.ActiveOrigins != 1 || s.Revalidations < 2 {
 		t.Fatalf("%+v", s)
+	}
+}
+
+func TestTwoStallsMakeYouTubeAndItsVideoHostsRelayFirstWithoutLeakingToDirect(t *testing.T) {
+	c, cur := timeoutFixture(t)
+	now := time.Now()
+	key := func(host string) flowpolicy.DirectTimeoutKey {
+		return c.directTimeoutKey(cur, browserproxy.Request{Host: host, Port: 443, Secure: true})
+	}
+	// Every googlevideo edge node shares one entry; ordinary YouTube hosts keep their own.
+	if key("rr3---sn-4g5e6nzs.googlevideo.com") != key("rr9---sn-abcd1234.googlevideo.com.") || key("www.youtube.com") == key("www.google.com") {
+		t.Fatal("cache key folding wrong")
+	}
+	node1 := browserproxy.Request{Host: "rr3---sn-4g5e6nzs.googlevideo.com", Port: 443, Secure: true}
+	node2 := browserproxy.Request{Host: "rr9---sn-abcd1234.googlevideo.com", Port: 443, Secure: true}
+	c.browser.directTimeouts.RecordStall(c.directTimeoutKey(cur, node1), now)
+	if _, ok := c.steerTimedOutOrigin(directPlan, cur, node2, now); ok {
+		t.Fatal("a single stall steered traffic")
+	}
+	c.browser.directTimeouts.RecordStall(c.directTimeoutKey(cur, node2), now.Add(20*time.Second))
+	for _, q := range []browserproxy.Request{node1, node2, {Host: "rr1---sn-zzzz.googlevideo.com", Port: 443, Secure: true}} {
+		plan, ok := c.steerTimedOutOrigin(directPlan, cur, q, now.Add(30*time.Second))
+		if !ok || plan.Policy.Action != flowpolicy.RelayRequired || plan.Policy.Fallback != flowpolicy.Required {
+			t.Fatalf("%s not relay-first fail-closed: %+v", q.Host, plan.Policy)
+		}
+	}
+	// YouTube with DIRECT+ configured is not touched by the cache.
+	dp := browserproxy.Plan{Policy: flowpolicy.Result{Action: flowpolicy.DirectPlus, Strategy: "yt"}}
+	if _, ok := c.steerTimedOutOrigin(dp, cur, node1, now.Add(31*time.Second)); ok {
+		t.Fatal("the cache overrode a DIRECT+ plan")
+	}
+	if s := c.browser.directTimeouts.Stats(); s.Stalls != 2 || s.ActiveOrigins != 1 {
+		t.Fatalf("%+v", s)
+	}
+}
+
+// A stalled path still completes the TCP connect. Only the origin's first byte proves DIRECT works.
+func TestConnectSuccessOnHTTPSDoesNotClearStallsButFirstByteDoes(t *testing.T) {
+	c, cur := timeoutFixture(t)
+	q := browserproxy.Request{Host: "www.youtube.com", Port: 443, Secure: true}
+	now := time.Now()
+	c.browser.directTimeouts.RecordStall(c.directTimeoutKey(cur, q), now)
+	c.observeDirectOpen(cur, q, directPlan, nil, now.Add(time.Second)) // connect succeeds on a blackholing path
+	c.browser.directTimeouts.RecordStall(c.directTimeoutKey(cur, q), now.Add(2*time.Second))
+	if _, ok := c.steerTimedOutOrigin(directPlan, cur, q, now.Add(3*time.Second)); !ok {
+		t.Fatal("a successful TCP connect between two stalls must not reset the count")
+	}
+	// The origin answering (first byte) is the real success and returns the origin to DIRECT.
+	c.recordAnswered(cur, q, directPlan)
+	if _, ok := c.steerTimedOutOrigin(directPlan, cur, q, now.Add(4*time.Second)); ok {
+		t.Fatal("an answering DIRECT origin stayed relay-first")
+	}
+}
+
+func TestStallRetryPlanIsRelayRequiredFailClosedAndNeverDirect(t *testing.T) {
+	_, cur := timeoutFixture(t)
+	plan := stallRetryPlan(cur, directPlan)
+	if plan.Policy.Action != flowpolicy.RelayRequired || plan.Policy.Fallback != flowpolicy.Required || plan.Policy.RelayID != "VPS-01" || plan.Policy.Source != "direct_stall_retry" {
+		t.Fatalf("%+v", plan.Policy)
+	}
+	for _, host := range []string{"chatgpt.com", "api.openai.com"} {
+		if directTimeoutEligible(browserproxy.Request{Host: host, Port: 443}, directPlan) {
+			t.Fatalf("%s is protected and relay-required from the start; the stall path must not touch it", host)
+		}
 	}
 }

@@ -147,6 +147,15 @@ func browserIdentity(q browserproxy.Request) wp.ProcessIdentity {
 	return wp.ProcessIdentity{PID: q.Owner.PID, CreationTime: q.Owner.Birth, Path: q.Owner.Exe}
 }
 func (c *Controller) browserOpen(ctx context.Context, q browserproxy.Request, plan browserproxy.Plan) (net.Conn, error) {
+	return c.openBrowser(ctx, q, plan, true)
+}
+
+// browserOpenUnobserved opens like browserOpen but does not feed the DIRECT-timeout cache
+// (the background recheck reports its own, application-level verdict).
+func (c *Controller) browserOpenUnobserved(ctx context.Context, q browserproxy.Request, plan browserproxy.Plan) (net.Conn, error) {
+	return c.openBrowser(ctx, q, plan, false)
+}
+func (c *Controller) openBrowser(ctx context.Context, q browserproxy.Request, plan browserproxy.Plan, observe bool) (net.Conn, error) {
 	current, err := c.browserProfile(q.Owner)
 	if err != nil {
 		return nil, err
@@ -176,7 +185,9 @@ func (c *Controller) browserOpen(ctx context.Context, q browserproxy.Request, pl
 		return backend.OpenBrowserLocalTCP(ctx, browserIdentity(q), q.Source, plan.Destination, d)
 	}
 	conn, err := c.Engine.OpenTCP(ctx, d.Flow)
-	c.observeDirectOpen(current, q, plan, err, time.Now())
+	if observe {
+		c.observeDirectOpen(current, q, plan, err, time.Now())
+	}
 	return conn, err
 }
 func (c *Controller) browserTransform(q browserproxy.Request, plan browserproxy.Plan) bool {
@@ -237,7 +248,16 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 		result = flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailOpen, Source: "optimization_disabled", Reason: "user disabled optimization"}
 	}
 	plan := browserproxy.Plan{Network: current.network, Enabled: current.enabled, Policy: result, Destination: dest, Probe: "NOT_PROBED"}
-	if !current.enabled || protectedBrowserDomain(q.Host) || youtubeDomain(q.Host) || result.Source == "rule" {
+	if !current.enabled || protectedBrowserDomain(q.Host) || result.Source == "rule" {
+		return plan, nil
+	}
+	if youtubeDomain(q.Host) {
+		// YouTube is never probed (its DIRECT+ logic lives in browserFlow). With plain DIRECT
+		// as the policy it still benefits from the cache and the stall retry: otherwise a
+		// blocked YouTube would simply never work. DIRECT+ plans are left untouched.
+		if steered, ok := c.steerTimedOutOrigin(plan, current, q, time.Now()); ok {
+			return steered, nil
+		}
 		return plan, nil
 	}
 	if dest.Addr().IsPrivate() || dest.Addr().IsLoopback() || dest.Addr().IsLinkLocalUnicast() {
@@ -522,7 +542,7 @@ func (c *Controller) handleBrowser(method string, raw json.RawMessage) (any, err
 		return nil, errors.New("selected Chrome AUTO profile and persistent user directory required")
 	}
 	if c.browser.server == nil {
-		server, err := browserproxy.Listen(c.ctx, browserproxy.Config{Address: c.browser.address, Authorize: c.browserOwner, AuthorizeForwarded: c.browserRecoveryOwner, Plan: c.browserPlan, Open: c.browserOpen, TransformApplied: c.browserTransform})
+		server, err := browserproxy.Listen(c.ctx, browserproxy.Config{Address: c.browser.address, Authorize: c.browserOwner, AuthorizeForwarded: c.browserRecoveryOwner, Plan: c.browserPlan, Open: c.browserOpen, TransformApplied: c.browserTransform, OnStall: c.browserStall, OnDirectAnswered: c.browserDirectAnswered})
 		if err != nil {
 			return nil, err
 		}
@@ -631,7 +651,7 @@ func (c *Controller) RestoreBrowserTransport() error {
 	c.browser.address = saved.Address
 	c.browser.expectedPAC = saved.ExpectedPAC
 	c.browser.recoveryAddress = saved.RecoveryAddress
-	server, err := browserproxy.Listen(c.ctx, browserproxy.Config{Address: saved.Address, Authorize: c.browserOwner, AuthorizeForwarded: c.browserRecoveryOwner, Plan: c.browserPlan, Open: c.browserOpen, TransformApplied: c.browserTransform})
+	server, err := browserproxy.Listen(c.ctx, browserproxy.Config{Address: saved.Address, Authorize: c.browserOwner, AuthorizeForwarded: c.browserRecoveryOwner, Plan: c.browserPlan, Open: c.browserOpen, TransformApplied: c.browserTransform, OnStall: c.browserStall, OnDirectAnswered: c.browserDirectAnswered})
 	if err != nil {
 		return err
 	}
