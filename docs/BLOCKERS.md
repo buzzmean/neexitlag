@@ -1,8 +1,9 @@
 # Windows runtime acceptance blockers
 
-This worker is Linux x64 without a Windows runtime/driver runner. WinDivert
-integration and native WPF compile, but live interception is not verified.
-Portable work, PostgreSQL, optimization, crypto and the demo continue independently.
+This matrix was written before real Windows runs. Several items are now exercised
+by native CI tests or were run on a real PC (see `docs/STATUS.md`), but it has not
+been re-reviewed line by line: the owner decides which items are closed. Anything
+not re-run after `6b50bd1` on a real Windows machine stays open here.
 
 On a Windows 10/11 x64 test machine with administrator access and an official
 signed WinDivert v2 distribution, verify:

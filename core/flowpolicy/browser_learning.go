@@ -185,16 +185,6 @@ func (b *BrowserLearning) Observe(k LearnKey, observation BrowserObservation, st
 	b.entries[k] = v
 	return v, nil
 }
-func (b *BrowserLearning) Snapshot(now time.Time) []BrowserAttempt {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.cleanup(now)
-	out := make([]BrowserAttempt, 0, len(b.entries))
-	for _, v := range b.entries {
-		out = append(out, v)
-	}
-	return out
-}
 
 // Invalidate a learned origin if its pinned address disappeared from DNS. An IP
 // chosen on one lookup must never be silently replaced under a confirmed route.

@@ -645,10 +645,6 @@ func (c *Controller) Diagnostics(ctx context.Context) []Check {
 	}
 	return out
 }
-func Tuple(src, dst netip.AddrPort) windowsplatform.Tuple {
-	return windowsplatform.Tuple{Protocol: "udp", Source: src, Destination: dst}
-}
-
 func (c *Controller) RecordTraffic(app string, rx, tx uint64) {
 	c.RX.Add(rx)
 	c.TX.Add(tx)
