@@ -1,0 +1,99 @@
+//go:build windows
+
+package windowsplatform
+
+import (
+	"encoding/json"
+	"errors"
+	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
+)
+
+const edgePolicyPath = `Software\Policies\Microsoft\Edge`
+
+// EdgeProxyPolicyWrite is called only by the installation-owner authenticated
+// service IPC. It touches that owner's Edge policy, never HKCU of SYSTEM or Chrome.
+// Foreign machine/user policy is refused, including split ProxyMode values.
+func EdgeProxyPolicyWrite(sid string, owned []string, next string) error {
+	if _, err := windows.StringToSid(sid); err != nil {
+		return err
+	}
+	if !validEdgeProxyValue(next) {
+		return errors.New("invalid owned Edge PAC")
+	}
+	if err := edgeMachinePolicyAbsent(); err != nil {
+		return err
+	}
+	key, _, err := registry.CreateKey(registry.USERS, sid+`\`+edgePolicyPath, registry.QUERY_VALUE|registry.SET_VALUE)
+	if err != nil {
+		return err
+	}
+	defer key.Close()
+	for _, n := range []string{"ProxyMode", "ProxyPacUrl", "ProxyServer", "ProxyBypassList", "ProxyPacMandatory"} {
+		if _, _, e := key.GetValue(n, nil); !errors.Is(e, registry.ErrNotExist) {
+			return errors.New("foreign Edge proxy policy; no settings changed")
+		}
+	}
+	current, _, err := key.GetStringValue("ProxySettings")
+	if err != nil && !errors.Is(err, registry.ErrNotExist) {
+		return errors.New("unreadable Edge proxy policy")
+	}
+	if err == nil {
+		recognized := false
+		for _, value := range owned {
+			if value != "" && value == current {
+				recognized = true
+			}
+		}
+		if !recognized {
+			return errors.New("Edge proxy policy is managed by another owner; no settings changed")
+		}
+	}
+	return key.SetStringValue("ProxySettings", next)
+}
+func edgeMachinePolicyAbsent() error {
+	key, err := registry.OpenKey(registry.LOCAL_MACHINE, edgePolicyPath, registry.QUERY_VALUE)
+	if errors.Is(err, registry.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer key.Close()
+	for _, n := range []string{"ProxySettings", "ProxyMode", "ProxyPacUrl", "ProxyServer", "ProxyBypassList", "ProxyPacMandatory"} {
+		if _, _, e := key.GetValue(n, nil); !errors.Is(e, registry.ErrNotExist) {
+			return errors.New("machine-managed Edge proxy policy; no settings changed")
+		}
+	}
+	return nil
+}
+func EdgeProxyPolicyActive(sid, expected string) bool {
+	if expected == "" || len(expected) > 128*1024 {
+		return false
+	}
+	if _, err := windows.StringToSid(sid); err != nil {
+		return false
+	}
+	if edgeMachinePolicyAbsent() != nil {
+		return false
+	}
+	key, err := registry.OpenKey(registry.USERS, sid+`\`+edgePolicyPath, registry.QUERY_VALUE)
+	if err != nil {
+		return false
+	}
+	defer key.Close()
+	for _, n := range []string{"ProxyMode", "ProxyPacUrl", "ProxyServer", "ProxyBypassList", "ProxyPacMandatory"} {
+		if _, _, e := key.GetValue(n, nil); !errors.Is(e, registry.ErrNotExist) {
+			return false
+		}
+	}
+	raw, _, err := key.GetStringValue("ProxySettings")
+	if err != nil || !validEdgeProxyValue(raw) {
+		return false
+	}
+	var p struct {
+		URL string `json:"ProxyPacUrl"`
+	}
+	_ = json.Unmarshal([]byte(raw), &p)
+	return p.URL == expected
+}
