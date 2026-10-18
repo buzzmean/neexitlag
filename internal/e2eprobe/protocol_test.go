@@ -87,3 +87,50 @@ func TestAuthenticatedMeasurementUsesRealEcho(t *testing.T) {
 		t.Fatal("authenticated traffic counters", stats.Accepted.Load(), stats.Rejected.Load())
 	}
 }
+
+// A reply that arrives after the next probe was sent belongs to an earlier probe.
+// The adapter must hand it back (not swallow it) so the engine can tell delay from loss.
+func TestProbeFlowReturnsLateReplyOfEarlierProbe(t *testing.T) {
+	key := bytes.Repeat([]byte{7}, 32)
+	fake := &queueFlow{in: make(chan []byte, 8)}
+	flow := &probeFlow{Datagram: fake, key: key}
+	first := bytes.Repeat([]byte{1}, 32)
+	second := bytes.Repeat([]byte{2}, 32)
+	if err := flow.Send(first); err != nil {
+		t.Fatal(err)
+	}
+	if err := flow.Send(second); err != nil {
+		t.Fatal(err)
+	}
+	// Echo replies for both probes arrive after both were sent, older one first.
+	for _, payload := range [][]byte{first, second} {
+		var p Packet
+		copy(p.Run[:], payload[:16])
+		p.Sequence = uint32(payload[16])<<24 | uint32(payload[17])<<16 | uint32(payload[18])<<8 | uint32(payload[19])
+		p.Reply, p.Peer = true, netip.MustParseAddrPort("192.0.2.9:5000")
+		fake.in <- Encode(p, key)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	got1, err := flow.Receive(ctx)
+	if err != nil || !bytes.Equal(got1, first) {
+		t.Fatalf("late reply of the earlier probe was dropped: %v %v", got1, err)
+	}
+	got2, err := flow.Receive(ctx)
+	if err != nil || !bytes.Equal(got2, second) {
+		t.Fatalf("current reply lost: %v %v", got2, err)
+	}
+}
+
+type queueFlow struct{ in chan []byte }
+
+func (q *queueFlow) Send([]byte) error { return nil }
+func (q *queueFlow) Close() error      { return nil }
+func (q *queueFlow) Receive(ctx context.Context) ([]byte, error) {
+	select {
+	case b := <-q.in:
+		return b, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}

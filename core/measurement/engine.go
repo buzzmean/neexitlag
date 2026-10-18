@@ -26,10 +26,14 @@ type Candidate struct {
 type Settings struct {
 	ActiveInterval, IdleInterval, Timeout, Spacing time.Duration
 	Samples, Concurrency                           int
+	// LateWindow is how long after the last probe the engine keeps listening for
+	// replies to probes that already timed out (0 = default 1.5 s, <0 = off). It only
+	// feeds the accounting; the Timeout-based loss used for scoring is unchanged.
+	LateWindow time.Duration
 }
 
 func Defaults() Settings {
-	return Settings{5 * time.Second, 30 * time.Second, 700 * time.Millisecond, 100 * time.Millisecond, 5, 3}
+	return Settings{ActiveInterval: 5 * time.Second, IdleInterval: 30 * time.Second, Timeout: 700 * time.Millisecond, Spacing: 100 * time.Millisecond, Samples: 5, Concurrency: 3}
 }
 
 type Engine struct {
@@ -40,6 +44,8 @@ type Engine struct {
 	wg         sync.WaitGroup
 	slots      chan struct{}
 	OnFailure  func(string, string, time.Time)
+	accountMu  sync.Mutex
+	accounts   map[string]*routeAccount
 }
 
 func New(s Settings) *Engine {
@@ -66,6 +72,9 @@ func New(s Settings) *Engine {
 	}
 	if s.Concurrency > 8 {
 		s.Concurrency = 8
+	}
+	if s.LateWindow == 0 {
+		s.LateWindow = 1500 * time.Millisecond
 	}
 	return &Engine{Settings: s, slots: make(chan struct{}, s.Concurrency)}
 }
@@ -149,6 +158,20 @@ func (e *Engine) Probe(ctx context.Context, c Candidate) optimizer.RouteMeasurem
 		return m
 	}
 	defer flow.Close()
+	acct := e.account(c.Metadata.ID, m.ObservedAt)
+	type pendingProbe struct {
+		id    uint64
+		start time.Time
+	}
+	pending := map[string]pendingProbe{}
+	// A reply that is not for the current probe may answer an earlier one that already
+	// timed out: record it as late, with the real round-trip time.
+	noteLate := func(b []byte) {
+		if p, ok := pending[string(b)]; ok {
+			delete(pending, string(b))
+			acct.late(p.id, time.Since(p.start))
+		}
+	}
 	received, failed := 0, 0
 	var total, jitter, previous time.Duration
 	for i := 0; i < e.Settings.Samples; i++ {
@@ -171,12 +194,19 @@ func (e *Engine) Probe(ctx context.Context, c Candidate) optimizer.RouteMeasurem
 			for {
 				var b []byte
 				b, err = flow.Receive(probe)
-				if err != nil || bytes.Equal(b, payload) {
+				if err != nil {
 					break
 				}
+				if bytes.Equal(b, payload) {
+					break
+				}
+				noteLate(b)
 			}
 		}
 		stop()
+		if !sent {
+			acct.add(start, kindSendError, 0)
+		}
 		if err != nil {
 			if errors.Is(err, telemetry.ErrIsolatedSession) {
 				return optimizer.RouteMeasurement{}
@@ -190,6 +220,7 @@ func (e *Engine) Probe(ctx context.Context, c Candidate) optimizer.RouteMeasurem
 				sample.Outcome = optimizer.LocalFailure
 			case sent && errors.Is(err, context.DeadlineExceeded):
 				sample.Outcome = optimizer.Timeout
+				pending[string(payload)] = pendingProbe{acct.add(start, kindNoReply, 0), start}
 				m.ConsecutiveLoss++
 				m.MaxLossBurst = max(m.MaxLossBurst, m.ConsecutiveLoss)
 			default:
@@ -209,6 +240,7 @@ func (e *Engine) Probe(ctx context.Context, c Candidate) optimizer.RouteMeasurem
 			rtt := time.Since(start)
 			sample.Outcome = optimizer.Reply
 			sample.RTT = rtt
+			acct.add(start, kindOnTime, rtt)
 			m.ConsecutiveLoss = 0
 			total += rtt
 			if received > 0 {
@@ -230,6 +262,17 @@ func (e *Engine) Probe(ctx context.Context, c Candidate) optimizer.RouteMeasurem
 			case <-timer.C:
 			}
 		}
+	}
+	if len(pending) > 0 && e.Settings.LateWindow > 0 && ctx.Err() == nil {
+		linger, stopLinger := context.WithTimeout(ctx, e.Settings.LateWindow)
+		for len(pending) > 0 {
+			b, lerr := flow.Receive(linger)
+			if lerr != nil {
+				break
+			}
+			noteLate(b)
+		}
+		stopLinger()
 	}
 	if m.Samples > 0 {
 		m.Loss = 1 - float64(received)/float64(m.Samples)

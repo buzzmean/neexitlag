@@ -19,6 +19,10 @@ type probeFlow struct {
 	payload  []byte
 	run      [16]byte
 	sequence uint32
+	// Recent probes, so a reply that arrives after the next probe was sent can still
+	// be handed back (the engine decides whether it is late or current).
+	recent map[[20]byte][]byte
+	order  [][20]byte
 }
 
 func ProbeOpener(open func(context.Context, netip.AddrPort) (routing.Datagram, error), key []byte) func(context.Context, netip.AddrPort) (routing.Datagram, error) {
@@ -39,6 +43,17 @@ func (p *probeFlow) Send(b []byte) error {
 	copy(p.run[:], b[:16])
 	p.sequence = binary.BigEndian.Uint32(b[16:20])
 	packet := Packet{Run: p.run, Sequence: p.sequence}
+	var id [20]byte
+	copy(id[:], b[:20])
+	if p.recent == nil {
+		p.recent = make(map[[20]byte][]byte)
+	}
+	if len(p.order) >= 16 {
+		delete(p.recent, p.order[0])
+		p.order = p.order[1:]
+	}
+	p.recent[id] = append([]byte(nil), b...)
+	p.order = append(p.order, id)
 	p.mu.Unlock()
 	return p.Datagram.Send(Encode(packet, p.key))
 }
@@ -52,9 +67,12 @@ func (p *probeFlow) Receive(ctx context.Context) ([]byte, error) {
 		if e != nil || !packet.Reply {
 			continue
 		}
+		var id [20]byte
+		copy(id[:16], packet.Run[:])
+		binary.BigEndian.PutUint32(id[16:], packet.Sequence)
 		p.mu.Lock()
-		valid := packet.Run == p.run && packet.Sequence == p.sequence
-		payload := bytes.Clone(p.payload)
+		payload, valid := p.recent[id]
+		payload = bytes.Clone(payload)
 		p.mu.Unlock()
 		if valid {
 			return payload, nil
