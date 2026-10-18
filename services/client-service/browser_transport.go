@@ -294,6 +294,7 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 				plan = stallRetryPlan(current, plan)
 				plan.Policy.Source = "youtube_relay_first"
 				plan.Probe = "YOUTUBE_RELAY_FIRST"
+				plan.Policy.Reason = "Explicit YouTube relay-first preference; no DIRECT dial"
 				return plan, nil
 			}
 		}

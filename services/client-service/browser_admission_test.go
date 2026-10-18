@@ -32,7 +32,7 @@ func TestDirectOpenRefusedTriesOnlyTwoAddressesThenAuthenticatedRelay(t *testing
 		}
 		return a, nil
 	})
-	if err != nil || conn != a || actual.Policy.Action != flowpolicy.RelayRequired || actual.Policy.Fallback != flowpolicy.Required || len(plans) != 3 {
+	if err != nil || conn != a || actual.Policy.Action != flowpolicy.RelayRequired || actual.Policy.Fallback != flowpolicy.Required || actual.DirectAttempts != 2 || len(plans) != 3 {
 		t.Fatal(actual, len(plans), err)
 	}
 	if plans[0].Destination == plans[1].Destination || plans[1].Destination != p.DirectCandidates[1] {
@@ -97,7 +97,7 @@ func TestKnownBadAddressSkipsToPeerWithoutPoisoningOtherDestination(t *testing.T
 		calls++
 		return a, nil
 	})
-	if e != nil || calls != 1 || actual.Destination != p.DirectCandidates[1] || actual.Policy.Action != flowpolicy.Direct {
+	if e != nil || calls != 1 || actual.Destination != p.DirectCandidates[1] || actual.Policy.Action != flowpolicy.Direct || actual.DirectAttempts != 1 {
 		t.Fatal("failed IP retried or whole domain poisoned", actual, e)
 	}
 }
@@ -130,5 +130,29 @@ func TestGooglevideoRelayCapCanOnlyDowngradeOrdinaryAutomaticFallback(t *testing
 				t.Fatal("protected/explicit route leaked", actual, calls, err)
 			}
 		}
+	}
+}
+
+func TestCachedAddressSelectionReportsZeroFreshDirectDials(t *testing.T) {
+	c, cur := timeoutFixture(t)
+	p := boundedDirectPlan()
+	q := browserproxy.Request{Host: "youtube.com", Port: 443}
+	c.browser.directTimeouts.RecordTimeout(c.directTimeoutKey(cur, q, p), time.Now())
+	peer := p
+	peer.Destination = p.DirectCandidates[1]
+	c.browser.directTimeouts.RecordTimeout(c.directTimeoutKey(cur, q, peer), time.Now())
+	calls := 0
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	_, actual, err := c.openBrowserPlan(context.Background(), cur, q, p, func(_ context.Context, _ browserproxy.Request, p browserproxy.Plan) (net.Conn, error) {
+		calls++
+		if p.Policy.Action != flowpolicy.RelayRequired {
+			t.Fatal("cached dead address dialed DIRECT")
+		}
+		return a, nil
+	})
+	if err != nil || calls != 1 || actual.DirectAttempts != 0 || actual.Probe != "DIRECT_ADDRESS_CACHED_RELAY" {
+		t.Fatal("evidence claimed nonexistent DIRECT dials", actual, calls, err)
 	}
 }

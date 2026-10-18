@@ -149,6 +149,7 @@ func (c *Controller) stallRetry(ctx context.Context, current profilesResult, q b
 	}
 	if next, ok := nextDirectPlan(plan); ok && !c.directAddressFailed(current, q, next) {
 		attempt, stop := directAttemptContext(ctx, next)
+		next.DirectAttempts++
 		conn, err := open(attempt, q, next)
 		stop()
 		if err == nil {

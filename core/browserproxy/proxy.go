@@ -62,6 +62,7 @@ type Trial struct {
 	DurationMS       int64  `json:"duration_ms"`
 }
 type Plan struct {
+	DirectIndex      int                `json:"direct_address_slot,omitempty"`
 	DirectCandidates []netip.AddrPort   `json:"direct_candidates,omitempty"`
 	DirectDeadline   time.Time          `json:"-"`
 	DirectAttempts   int                `json:"direct_attempts,omitempty"`

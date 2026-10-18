@@ -17,7 +17,7 @@ func (s *Server) watchDirect(ctx context.Context, conn net.Conn, q Request, plan
 	}
 	if !plan.DirectDeadline.IsZero() {
 		remaining := time.Until(plan.DirectDeadline)
-		if depth == 0 && plan.DirectAttempts < 2 && len(plan.DirectCandidates) > 1 {
+		if depth == 0 && plan.DirectIndex < 2 && plan.DirectAttempts < 2 && len(plan.DirectCandidates) > 1 {
 			remaining /= 2
 		}
 		if remaining < timeout {

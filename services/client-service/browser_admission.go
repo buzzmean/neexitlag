@@ -23,13 +23,13 @@ func directAttemptContext(ctx context.Context, p browserproxy.Plan) (context.Con
 	return context.WithDeadline(ctx, deadline)
 }
 func nextDirectPlan(p browserproxy.Plan) (browserproxy.Plan, bool) {
-	if p.DirectAttempts >= 2 || (!p.DirectDeadline.IsZero() && !time.Now().Before(p.DirectDeadline)) {
+	if p.DirectIndex >= 2 || p.DirectAttempts >= 2 || (!p.DirectDeadline.IsZero() && !time.Now().Before(p.DirectDeadline)) {
 		return p, false
 	}
 	for _, addr := range p.DirectCandidates {
 		if addr != p.Destination && addr.IsValid() {
 			p.Destination = addr
-			p.DirectAttempts = 2
+			p.DirectIndex = 2
 			p.Probe = "DIRECT_SECOND_ADDRESS"
 			return p, true
 		}
@@ -61,8 +61,8 @@ func (c *Controller) openBrowserPlan(ctx context.Context, current profilesResult
 	if p.DirectDeadline.IsZero() {
 		p.DirectDeadline = time.Now().Add(browserDirectBudget)
 	}
-	if p.DirectAttempts == 0 {
-		p.DirectAttempts = 1
+	if p.DirectIndex == 0 {
+		p.DirectIndex = 1
 	}
 	if c.directAddressFailed(current, q, p) {
 		next, ok := nextDirectPlan(p)
@@ -73,6 +73,7 @@ func (c *Controller) openBrowserPlan(ctx context.Context, current profilesResult
 	}
 
 	attempt, stop := directAttemptContext(ctx, p)
+	p.DirectAttempts++
 	conn, err := open(attempt, q, p)
 	stop()
 	if err == nil || ctx.Err() != nil || !retryableDirectOpen(err) {
@@ -81,6 +82,7 @@ func (c *Controller) openBrowserPlan(ctx context.Context, current profilesResult
 	if next, ok := nextDirectPlan(p); ok {
 		p = next
 		attempt, stop = directAttemptContext(ctx, p)
+		p.DirectAttempts++
 		conn, err = open(attempt, q, p)
 		stop()
 		if err == nil || ctx.Err() != nil || !retryableDirectOpen(err) {
@@ -93,6 +95,12 @@ func (c *Controller) relayAfterDirect(ctx context.Context, current profilesResul
 	p = stallRetryPlan(current, p)
 	p.Policy.Source = "direct_open_retry"
 	p.Probe = "DIRECT_OPEN_FAILED_RELAY"
+	p.Policy.Reason = "Bounded DIRECT connection attempts failed; open this new flow through authenticated relay"
+	if p.DirectAttempts == 0 {
+		p.Policy.Source = "direct_timeout_cache"
+		p.Probe = "DIRECT_ADDRESS_CACHED_RELAY"
+		p.Policy.Reason = "Cached failed destination addresses; no DIRECT dial for this new flow"
+	}
 	conn, err := open(ctx, q, p)
 	if errors.Is(err, errVideoRelayCapacity) {
 		return c.openVideoOverflow(ctx, q, p, open)
@@ -117,10 +125,11 @@ func (c *Controller) openVideoOverflow(ctx context.Context, q browserproxy.Reque
 	p.Policy = flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailOpen, Source: "googlevideo_relay_limit", Reason: "Four googlevideo relay tunnels already active on this PC; this ordinary origin remains DIRECT"}
 	p.Probe = "VIDEO_RELAY_CAPACITY_DIRECT"
 	p.DirectCandidates = nil
-	p.DirectAttempts = 2
+	p.DirectIndex = 2
 	p.DirectDeadline = time.Now().Add(browserDirectAttempt)
 	attempt, stop := directAttemptContext(ctx, p)
 	defer stop()
+	p.DirectAttempts++
 	conn, err := open(attempt, q, p)
 	return conn, p, err
 }
