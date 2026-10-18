@@ -28,6 +28,13 @@ proven where; do not read a Linux or CI result as a real-ISP result.
 - Probe accounting (`quality.diagnostics.probe_accounting`) now separates lost probes from
   late ones per route; the cause of the 37-68% probe loss seen on the PC is not established.
   Server side showed the echo received nearly all probes, local drops were 0.
+- A DIRECT HTTPS tunnel that gets no answer after the ClientHello (or is reset without a
+  byte) is retried transparently through the relay, counted like a connect timeout
+  (`browser.status.direct_timeout_cache`). Not verified on a real network: whether the YouTube
+  block is SNI-based (use the `sni` section of `diag-no-vpn.ps1`), and how much video the
+  relay can carry (needs the VPS plan limits).
+- Relay-first apps (claude, ChatGPT, Telegram, Discord) never send DNS (port 53) or
+  local-network traffic to the relay; the relay refuses it and fail-closed would block the app.
 - Chrome is the only browser routed automatically (profile created on Optimize). Edge,
   Firefox and others stay DIRECT and are listed in a notice; Edge needs its own lane.
 - No benchmark or Internet latency improvement is claimed; see `BENCHMARKS.md`.
