@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/buzzmean/neexitlag/internal/releaseinfo"
 	"net"
 	"net/http"
 	"net/netip"
@@ -53,22 +54,25 @@ type Snapshot struct {
 	HotAttach      *windowsplatform.HotAttachStatus `json:"hot_attach,omitempty"`
 	RelayTransport *RelayTransportReadiness         `json:"relay_transport,omitempty"`
 	Version        string                           `json:"version"`
-	Connected      bool                             `json:"connected"`
-	Optimizing     bool                             `json:"optimizing"`
-	Demo           bool                             `json:"demo"`
-	Backend        windowsplatform.CaptureStatus    `json:"backend"`
-	Primary        string                           `json:"primary"`
-	Secondary      string                           `json:"secondary"`
-	Tertiary       string                           `json:"tertiary"`
-	Routes         []RouteView                      `json:"routes"`
-	Profiles       []profiles.Profile               `json:"profiles"`
-	RXBytes        uint64                           `json:"rx_bytes"`
-	TXBytes        uint64                           `json:"tx_bytes"`
-	History        optimizer.RouteHistory           `json:"history"`
-	Flows          []routing.Flow                   `json:"flows"`
-	Settings       Settings                         `json:"settings"`
-	ControlPlane   string                           `json:"control_plane"`
-	ActiveApps     []string                         `json:"active_apps"`
+	// Build is the git commit this binary was built from (plus "+modified" for a dirty tree),
+	// so a stale service or checkout is visible instead of guessed.
+	Build        string                        `json:"build,omitempty"`
+	Connected    bool                          `json:"connected"`
+	Optimizing   bool                          `json:"optimizing"`
+	Demo         bool                          `json:"demo"`
+	Backend      windowsplatform.CaptureStatus `json:"backend"`
+	Primary      string                        `json:"primary"`
+	Secondary    string                        `json:"secondary"`
+	Tertiary     string                        `json:"tertiary"`
+	Routes       []RouteView                   `json:"routes"`
+	Profiles     []profiles.Profile            `json:"profiles"`
+	RXBytes      uint64                        `json:"rx_bytes"`
+	TXBytes      uint64                        `json:"tx_bytes"`
+	History      optimizer.RouteHistory        `json:"history"`
+	Flows        []routing.Flow                `json:"flows"`
+	Settings     Settings                      `json:"settings"`
+	ControlPlane string                        `json:"control_plane"`
+	ActiveApps   []string                      `json:"active_apps"`
 }
 type Controller struct {
 	selfExecutable  string
@@ -450,7 +454,7 @@ func (c *Controller) Snapshot() Snapshot {
 		rx += brx
 		tx += btx
 	}
-	snapshot := Snapshot{HotAttach: c.hotAttachStatus(), Version: "0.3.0-dev", Connected: c.Demo || backend.Ready, Optimizing: enabled && (c.Demo || backend.Ready), Demo: c.Demo, Backend: backend, Primary: selection.Primary, Secondary: selection.Secondary, Tertiary: selection.Tertiary, Routes: views, Profiles: c.Profiles.List(), RXBytes: rx, TXBytes: tx, History: history, Flows: flows, Settings: settings, ControlPlane: c.ControlPlaneURL, ActiveApps: apps}
+	snapshot := Snapshot{HotAttach: c.hotAttachStatus(), Version: "0.3.0-dev", Build: buildStamp(), Connected: c.Demo || backend.Ready, Optimizing: enabled && (c.Demo || backend.Ready), Demo: c.Demo, Backend: backend, Primary: selection.Primary, Secondary: selection.Secondary, Tertiary: selection.Tertiary, Routes: views, Profiles: c.Profiles.List(), RXBytes: rx, TXBytes: tx, History: history, Flows: flows, Settings: settings, ControlPlane: c.ControlPlaneURL, ActiveApps: apps}
 	// Keep mandatory profile/quality fields; shorten display history to the IPC frame.
 	for {
 		raw, _ := json.Marshal(snapshot)
@@ -693,4 +697,20 @@ func (c *Controller) saveSettings() error {
 		return e
 	}
 	return os.Rename(name, filepath.Join(dir, "settings.json"))
+}
+
+// buildStamp names the commit the running binary was built from.
+func buildStamp() string {
+	info := releaseinfo.Current("client-service", nil, 0, 0)
+	if info.Commit == "" {
+		return "unknown (built outside a git checkout)"
+	}
+	stamp := info.Commit
+	if len(stamp) > 12 {
+		stamp = stamp[:12]
+	}
+	if info.Modified {
+		stamp += "+modified"
+	}
+	return stamp
 }

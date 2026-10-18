@@ -127,6 +127,12 @@ func (c *Controller) browserStall(ctx context.Context, q browserproxy.Request, p
 	if err != nil {
 		return nil, plan, err
 	}
+	return c.stallRetry(ctx, current, q, plan, c.browserOpen)
+}
+
+// stallRetry does the work of browserStall for an already resolved browser profile; open is
+// the upstream opener (browserOpen in production).
+func (c *Controller) stallRetry(ctx context.Context, current profilesResult, q browserproxy.Request, plan browserproxy.Plan, open func(context.Context, browserproxy.Request, browserproxy.Plan) (net.Conn, error)) (net.Conn, browserproxy.Plan, error) {
 	if !directTimeoutEligible(q, plan) {
 		return nil, plan, errors.New("stall retry not allowed for this origin")
 	}
@@ -134,7 +140,7 @@ func (c *Controller) browserStall(ctx context.Context, q browserproxy.Request, p
 		c.browser.directTimeouts.RecordStall(c.directTimeoutKey(current, q), time.Now())
 	}
 	next := stallRetryPlan(current, plan)
-	conn, err := c.browserOpen(ctx, q, next)
+	conn, err := open(ctx, q, next)
 	c.browser.directTimeouts.NoteRetry(err == nil)
 	return conn, next, err
 }

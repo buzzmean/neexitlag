@@ -206,7 +206,19 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
+$ScriptVersion='2026-10-18.5 (SNI table, 8443 exit-code verdict, build stamps)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
+Say "Script version: $ScriptVersion"
+Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
+Step 'repo' {
+ $repo=Split-Path (Split-Path $scriptDir -Parent) -Parent
+ if((Test-Path (Join-Path $repo '.git')) -and (Get-Command git -ErrorAction SilentlyContinue)){
+  $head=(& git -C $repo rev-parse --short=12 HEAD 2>&1|Out-String).Trim()
+  $branch=(& git -C $repo branch --show-current 2>&1|Out-String).Trim()
+  $dirty=(& git -C $repo status --porcelain 2>&1|Out-String).Trim().Length -gt 0
+  Say "Repository: $repo branch $branch commit $head$(if($dirty){' (+local changes)'})  <- compare with the commit you expect"
+ }else{Say "Repository: not a git checkout here ($repo): this script file may be a stray copy"}
+}
 Say "Result file: $result"
 
 if(Want 'env'){
@@ -239,7 +251,7 @@ if(Want 'ipc'){
 Section '1b. IPC status'
 Step 'status' {
  $script:status=Invoke-IPC 'status'
- Say ("optimizing: "+(Prop $script:status 'optimizing'))
+ Say ("optimizing: "+(Prop $script:status 'optimizing')+"; service build: "+(Prop $script:status 'build' '(none: the running service is OLDER than the build stamp)'))
  Say (Json $script:status)
 }
 Section '1c. IPC profiles (what Optimize covers)'
@@ -370,25 +382,32 @@ Step 'sni' {
  }
  $addrs=@($addrs|Select-Object -Unique|Select-Object -First 6)
  if($addrs.Count -eq 0){Say 'No A records for www.youtube.com, SNI test skipped.';return}
- Say ("Addresses tested: "+($addrs -join ', ')+"; SNI sets: www.youtube.com (target), www.google.com (control, works directly), example.com (foreign)")
- $verdicts=@()
+ Say ("Addresses tested: "+($addrs -join ', '))
+ $short={param($x)
+  if($x.Tcp -ne 'OK'){return 'TCP-FAIL'}
+  if($x.Tls -like 'OK*'){return 'OK'}
+  if($x.Tls -like 'SERVER ANSWERED*'){return 'ANSWERED'}
+  if($x.Tls -like 'RESET*'){return 'RESET'}
+  if($x.Tls -like 'NO ANSWER*'){return 'NO-ANSWER'}
+  return 'ERROR'}
+ $answered={param($c) $c -eq 'OK' -or $c -eq 'ANSWERED'}
+ $rows=@()
  foreach($ip in $addrs){
-  $row=@{}
+  $r=@{}
   foreach($sni in 'www.youtube.com','www.google.com','example.com'){
-   $r=Test-TlsSni $ip $sni 443 5000
-   $row[$sni]=$r
-   Say ("  $ip SNI=$sni : tcp $($r.Tcp) ($($r.TcpMs) ms); tls $($r.Tls)")
+   $r[$sni]=Test-TlsSni $ip $sni 443 5000
+   Say ("  $ip SNI=$sni : tcp $($r[$sni].Tcp) ($($r[$sni].TcpMs) ms); tls $($r[$sni].Tls)")
   }
-  $answered={param($x) $x.Tls -like 'OK*' -or $x.Tls -like 'SERVER ANSWERED*'}
-  $yt=$row['www.youtube.com'];$gg=$row['www.google.com'];$ex=$row['example.com']
-  $v=if($yt.Tcp -ne 'OK'){"$ip : TCP connect fails (IP/port level block), not an SNI verdict"}
-     elseif(& $answered $yt){"$ip : server answers for www.youtube.com (no block at this layer)"}
-     elseif((& $answered $gg) -or (& $answered $ex)){"$ip : www.youtube.com gets no answer while another SNI is answered -> SNI-BASED BLOCKING LIKELY"}
-     else{"$ip : TCP opens but no SNI gets an answer -> data after the handshake is dropped for this IP (IP-level), not SNI-specific"}
-  $verdicts+=$v
+  $yt=& $short $r['www.youtube.com'];$gg=& $short $r['www.google.com'];$ex=& $short $r['example.com']
+  $verdict=if($yt -eq 'TCP-FAIL'){'TCP blocked at IP/port level (not an SNI verdict)'}
+           elseif(& $answered $yt){'server answers for www.youtube.com: no block at this layer'}
+           elseif((& $answered $gg) -or (& $answered $ex)){'SNI BLOCKING LIKELY: another SNI is answered, youtube is not'}
+           else{'data after the handshake is dropped for this IP (IP-level), not SNI-specific'}
+  $rows+=[pscustomobject]@{IP=$ip;TCP=$r['www.youtube.com'].Tcp;'SNI youtube'=$yt;'SNI google (control)'=$gg;'SNI example (foreign)'=$ex;Verdict=$verdict}
  }
- Say 'Verdict per address:'
- foreach($v in $verdicts){Say "  $v"}
+ Say ''
+ Say 'Verdict table (OK/ANSWERED = server replied to the ClientHello; NO-ANSWER = silence; RESET = connection reset):'
+ foreach($line in ($rows|Format-Table -AutoSize -Wrap|Out-String -Width 220).Split("`n")){if($line.Trim()){Say ("  "+$line.TrimEnd())}}
 }}
 
 if(Want 'browser'){

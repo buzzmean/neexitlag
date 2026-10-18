@@ -40,3 +40,16 @@ func TestQualityDiagnosticsExposeProbeAccountingPerRoute(t *testing.T) {
 		}
 	}
 }
+
+func TestStatusReportsTheBuildItWasMadeFrom(t *testing.T) {
+	c := New(context.Background())
+	t.Cleanup(c.Close)
+	raw, err := c.Handle(context.Background(), "status", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, _ := json.Marshal(raw)
+	if !strings.Contains(string(text), `"build":"`) {
+		t.Fatalf("status has no build stamp: %s", text)
+	}
+}
