@@ -149,6 +149,12 @@ func (c *Controller) handleProfileDelete(ctx context.Context, raw json.RawMessag
 		return nil, errors.New("only local custom profiles can be removed")
 	}
 	c.mu.Unlock()
+	if edgeSitesProfile(p) {
+		guard, _ := json.Marshal(map[string]string{"profile_id": p.ID, "operation": "guard"})
+		if _, err := c.handleEdge("edge.policy", guard); err != nil {
+			return nil, err
+		}
+	}
 	if e := c.reconfigure(query.ID, func() error {
 		c.mu.Lock()
 		delete(c.localProfiles, query.ID)

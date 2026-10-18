@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -215,5 +216,23 @@ func TestEdgeGuardOnlyJournalSurvivesRestartBeforePrepare(t *testing.T) {
 	c.restoreEdgeTransport()
 	if c.browser.edge == nil || c.browser.edge.lastError != "" || c.browser.edge.server != nil || len(c.browser.edge.saved.Owned) != 1 {
 		t.Fatal("guard-only ownership lost", c.browser.edge)
+	}
+}
+
+func TestEdgeProfileCannotBeDeletedBeforeProtectedGuard(t *testing.T) {
+	c := New(context.Background())
+	defer c.Close()
+	c.BrowserOwnerSID = "owner"
+	p := edgeTestProfile()
+	p.AppPreset = "edge-sites"
+	p.Mode = profiles.Auto
+	c.localProfiles[p.ID] = p
+	c.Profiles.Upsert(p)
+	c.browser.edge = &edgeRuntime{write: func(string, []string, string) error { return errors.New("foreign Edge policy") }}
+	if _, err := edgeCall(c, "profile.delete", map[string]string{"id": p.ID}); err == nil {
+		t.Fatal("profile removed despite failed protected guard")
+	}
+	if _, ok := c.localProfiles[p.ID]; !ok {
+		t.Fatal("failed guard lost profile")
 	}
 }

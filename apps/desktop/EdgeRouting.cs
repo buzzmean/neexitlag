@@ -27,7 +27,9 @@ public partial class MainWindow {
   await model.OptimizeAsync(true,lifetime.Token);
  });
  async void DisableEdgeSites(object sender,RoutedEventArgs args)=>await Execute(async()=>{
-  foreach(var p in model.Applications.Where(r=>EdgeSites(r.Profile)).Select(r=>r.Profile.Copy()).ToArray())await model.RestoreEdgeAsync(p,lifetime.Token);
+  var profiles=model.Applications.Where(r=>EdgeSites(r.Profile)).Select(r=>r.Profile.Copy()).ToArray();
+  if(profiles.Length==0){model.SetNotice("Профиль Edge-полосы не найден; PAC не изменялся.");return;}
+  foreach(var p in profiles)await model.RestoreEdgeAsync(p,lifetime.Token);
   model.SetNotice("PAC Edge отключён для обычных сайтов. Защищённые домены остаются закрыты; Chrome не изменён. Перезапустите Edge для применения политики.");
  });
  async Task<bool> EdgeRunning(string exe){

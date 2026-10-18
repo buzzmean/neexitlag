@@ -270,6 +270,12 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (any, error)
 	}
 	switch method {
 	case "edge.prepare":
+		c.mu.Lock()
+		automatic := c.settings.Automatic
+		c.mu.Unlock()
+		if !automatic {
+			return nil, errors.New("Edge site routing requires Automatic routing enabled")
+		}
 		for _, other := range c.Profiles.List() {
 			if other.ID != p.ID && edgeSitesProfile(other) && other.Mode == profiles.Auto {
 				return nil, errors.New("another Edge site profile is active; keep its PAC intact")
