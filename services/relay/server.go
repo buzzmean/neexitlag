@@ -26,10 +26,14 @@ type Config struct {
 	TLS                   *tls.Config
 	MaxSessions, MaxFlows int
 	IdleTimeout           time.Duration
-	Allow                 []netip.Prefix
-	PacketsPerSecond      int
-	TicketVerifier        *security.TicketVerifier
-	Acceptance            *AcceptanceConfig
+	// TCPIdleTimeout applies to relayed TCP flows (ssh, websockets, game lobbies sit
+	// idle far longer than UDP mappings). Defaults to 10 minutes. A flow holds one of
+	// MaxFlows slots, so this stays bounded.
+	TCPIdleTimeout   time.Duration
+	Allow            []netip.Prefix
+	PacketsPerSecond int
+	TicketVerifier   *security.TicketVerifier
+	Acceptance       *AcceptanceConfig
 }
 
 // AcceptanceConfig is only set by explicit in-process acceptance fixtures. No production CLI/env enables it.
@@ -84,6 +88,12 @@ func Listen(addr string, c Config) (*Server, error) {
 	}
 	if c.IdleTimeout <= 0 {
 		c.IdleTimeout = 60 * time.Second
+		if c.TCPIdleTimeout <= 0 {
+			c.TCPIdleTimeout = 10 * time.Minute
+		}
+	}
+	if c.TCPIdleTimeout <= 0 {
+		c.TCPIdleTimeout = c.IdleTimeout // explicit IdleTimeout keeps one value for both
 	}
 	if c.PacketsPerSecond <= 0 {
 		c.PacketsPerSecond = 2000
@@ -516,7 +526,8 @@ func (x *session) expire() {
 			x.mu.Unlock()
 			x.mu.Lock()
 			for _, f := range x.flows {
-				if (f.udp != nil || f.tcp != nil) && now.Sub(time.Unix(0, f.last.Load())) > x.server.config.IdleTimeout {
+				idle := now.Sub(time.Unix(0, f.last.Load()))
+				if (f.udp != nil && idle > x.server.config.IdleTimeout) || (f.tcp != nil && idle > x.server.config.TCPIdleTimeout) {
 					f.close()
 				}
 			}
