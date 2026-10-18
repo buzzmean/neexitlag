@@ -5,6 +5,8 @@ public sealed class EdgeActivationException(string phase,string code,string expl
 }
 public static class EdgeErrors {
  static readonly Dictionary<string,string> Messages=new(){
+  ["EDGE_IPC_ACCESS_DENIED"]="Named pipe отказал в доступе. Запустите GUI под SID владельца установки без повышения прав.",
+  ["EDGE_GUARD_STATE_WRITE_FAILED"]="Служба не смогла опубликовать защищённый recovery guard. Проверьте ACL/доступность каталога состояния службы.",
   ["EDGE_IPC_UNSUPPORTED"]="Установленная служба не поддерживает Edge IPC; обновите службу и проверьте SHA256.",
   ["EDGE_POLICY_ACCESS_DENIED"]="Служба не смогла записать политику Edge в реестр владельца.",
   ["EDGE_POLICY_MANAGED"]="В Edge уже установлена чужая политика прокси. Она не изменена.",
@@ -29,7 +31,7 @@ public static class EdgeErrors {
   if(error is EdgeActivationException own)return own;
   var code=Messages.Keys.FirstOrDefault(c=>error.Message.Contains(c,StringComparison.Ordinal));
   if(code is null&&error is ServiceException s){
-   code=s.Message.Contains("unsupported IPC",StringComparison.OrdinalIgnoreCase)?"EDGE_IPC_UNSUPPORTED":s.Failure==ServiceFailure.AccessDenied?"EDGE_POLICY_ACCESS_DENIED":s.Failure!=ServiceFailure.Rejected?"EDGE_SERVICE_UNAVAILABLE":"EDGE_OPERATION_FAILED";
+   code=s.Message.Contains("unsupported IPC",StringComparison.OrdinalIgnoreCase)?"EDGE_IPC_UNSUPPORTED":s.Failure==ServiceFailure.AccessDenied?"EDGE_IPC_ACCESS_DENIED":s.Failure!=ServiceFailure.Rejected?"EDGE_SERVICE_UNAVAILABLE":"EDGE_OPERATION_FAILED";
   }
   code ??= phase switch{"edge.recovery"=>"EDGE_RECOVERY_FAILED","edge.browser_probe"=>"EDGE_BROWSER_POLICY_NOT_OBSERVED","edge.launch"=>"EDGE_LAUNCH_FAILED",_=>"EDGE_OPERATION_FAILED"};
   return new(phase,code,Messages[code]);

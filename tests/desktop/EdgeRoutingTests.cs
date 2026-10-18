@@ -80,6 +80,7 @@ public class EdgeRoutingTests {
  [Fact]public void EdgeFailureRetainsMethodAndSafeCodeWithoutReflectingSecrets(){
   var e=EdgeErrors.Wrap("edge.policy",new ServiceException(ServiceFailure.Rejected,"edge.policy: EDGE_POLICY_ACCESS_DENIED token=do-not-print"));
   Assert.Contains("edge.policy",e.Message);Assert.Contains("EDGE_POLICY_ACCESS_DENIED",e.Message);Assert.DoesNotContain("do-not-print",e.Message);
+  Assert.Equal("EDGE_IPC_ACCESS_DENIED",EdgeErrors.Wrap("edge.prepare",new ServiceException(ServiceFailure.AccessDenied)).Code);
   Assert.Equal("EDGE_IPC_UNSUPPORTED",EdgeErrors.Wrap("edge.prepare",new ServiceException(ServiceFailure.Rejected,"unsupported IPC method edge.prepare")).Code);
  }
 

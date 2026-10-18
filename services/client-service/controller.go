@@ -502,11 +502,11 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 			}
 		}()
 		if e := c.publishBrowserGuard(true); e != nil {
-			return nil, e
+			return nil, errors.New("EDGE_GUARD_STATE_WRITE_FAILED")
 		}
 		defer func() {
 			if e := c.publishBrowserGuard(false); e != nil && err == nil {
-				result, err = nil, e
+				result, err = nil, errors.New("EDGE_GUARD_STATE_WRITE_FAILED")
 			}
 		}()
 	}

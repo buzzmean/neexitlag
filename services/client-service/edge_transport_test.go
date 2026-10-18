@@ -404,7 +404,7 @@ func TestEdgeGuardPublicationFailureBeforeListenerStillAppearsInStatus(t *testin
 		t.Fatal(err)
 	}
 	raw, _ := json.Marshal(status)
-	if !strings.Contains(string(raw), "edge.prepare: EDGE_OPERATION_FAILED") || strings.Contains(string(raw), file) {
+	if !strings.Contains(string(raw), "edge.prepare: EDGE_GUARD_STATE_WRITE_FAILED") || strings.Contains(string(raw), file) {
 		t.Fatal("missing safe pre-listener error", string(raw))
 	}
 }
