@@ -205,6 +205,7 @@ func (c *Controller) openBrowser(ctx context.Context, q browserproxy.Request, pl
 		}
 	}
 	conn, err := c.Engine.OpenTCP(ctx, d.Flow)
+	err = browserFlowOpenError(err)
 	if err != nil {
 		release()
 	} else if observe && d.Route.RelayID != "" {

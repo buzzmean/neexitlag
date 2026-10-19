@@ -134,6 +134,8 @@ func TestNativeBrowserDriverHandshake(t *testing.T) {
 		t.Fatal("actual native bidirectional payload", string(got), err)
 	}
 	dump()
+	_ = conn.Close()
+	testNativeColdStallRetry(t, b, id)
 }
 
 // Exercises the actual opt-in production helper against this isolated copied

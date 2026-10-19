@@ -7,6 +7,7 @@ import (
 	"net/netip"
 
 	"github.com/buzzmean/neexitlag/core/browserproxy"
+	"github.com/buzzmean/neexitlag/core/routing"
 	wp "github.com/buzzmean/neexitlag/platform/windows"
 )
 
@@ -108,6 +109,14 @@ func nativePACError(err error) error {
 	switch code {
 	case "NATIVE_PAC_DELEGATION_INVALID", "NATIVE_PAC_DELEGATION_UNAVAILABLE", "NATIVE_CAPTURE_NOT_READY", "NATIVE_PROFILE_CHANGED", "NATIVE_OWNER_SID_MISMATCH", "NATIVE_EVIDENCE_CAPACITY":
 		return &nativePACOpenError{code: code, cause: err}
+	}
+	return err
+}
+
+// A local lifecycle collision is not a relay/QUIC failure or network timeout.
+func browserFlowOpenError(err error) error {
+	if errors.Is(err, routing.ErrFlowExists) {
+		return &nativePACOpenError{code: "LOCAL_FLOW_RESERVATION_IN_USE", cause: err}
 	}
 	return err
 }

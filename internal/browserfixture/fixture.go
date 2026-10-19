@@ -71,7 +71,7 @@ func New() (*Fixture, error) {
 		return nil, e
 	}
 	ca, _ := x509.ParseCertificate(rootDER)
-	leaf := &x509.Certificate{SerialNumber: big.NewInt(2), DNSNames: Domains, IPAddresses: []net.IP{net.IPv4(127, 0, 0, 1)}, Subject: pkix.Name{CommonName: "controlled acceptance target"}, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour)}
+	leaf := &x509.Certificate{SerialNumber: big.NewInt(2), DNSNames: append(append([]string(nil), Domains...), "youtube.com", "rr1---sn-test.googlevideo.com", "play.google.com", "vk.ru"), IPAddresses: []net.IP{net.IPv4(127, 0, 0, 1)}, Subject: pkix.Name{CommonName: "controlled acceptance target"}, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour)}
 	der, e := x509.CreateCertificate(rand.Reader, leaf, ca, pub, key)
 	if e != nil {
 		return nil, e

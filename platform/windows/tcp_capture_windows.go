@@ -361,6 +361,9 @@ func (t *tcpRedirect) processPacket(p []byte, a [80]byte, classify Classifier) {
 		}
 		return
 	}
+	if owned {
+		e.delegationOwner = delegated.owner
+	}
 	e.hotEpoch = t.b.policyEpoch.Load()
 	t.b.evidence.RecordHotAttach(id, tuple, t.b.hot.snapshot().Epoch, "HOT_ATTACH_NEW_FLOW", decision.Revision)
 	e.initialSequence = sequence
@@ -831,7 +834,19 @@ func (t *tcpRedirect) dialDelegatedFrom(ctx context.Context, e *tcpEntry, d Deci
 		t.releaseDelegated(bound, e.identity)
 		return nil, err
 	}
-	return &delegatedConn{Conn: c, release: func() { t.releaseDelegated(bound, e.identity) }}, nil
+	release := func() { t.releaseDelegated(bound, e.identity) }
+	if deferred {
+		release = func() {
+			t.state.closePlannedDelegation(bound, e)
+			t.delegatedMu.Lock()
+			if current, ok := t.delegated[bound]; ok && current.owner == e {
+				delete(t.delegated, bound)
+				t.b.evidence.UnbindUpstream(e.identity, bound)
+			}
+			t.delegatedMu.Unlock()
+		}
+	}
+	return &delegatedConn{Conn: c, release: release}, nil
 }
 
 // A failed frontend handoff has transmitted no application bytes. Close only

@@ -9,6 +9,7 @@ import (
 )
 
 type tcpEntry struct {
+	delegationOwner   *tcpEntry
 	openCancel        context.CancelFunc
 	openDone          chan struct{}
 	openOnce          sync.Once

@@ -3,7 +3,9 @@ package clientservice
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/buzzmean/neexitlag/core/routing"
 	"io"
 	"net"
 	"net/netip"
@@ -440,5 +442,20 @@ func TestNativePACWorkerFailureIsNotMisreportedAsKernelConnectTimeout(t *testing
 	_, err := c.openNativePAC(ctx, q, plan, wp.Decision{})
 	if err == nil || err.Error() != "NATIVE_PROFILE_CHANGED" || ctx.Err() != nil {
 		t.Fatal("real worker error hidden behind timeout", err, ctx.Err())
+	}
+}
+
+func TestBrowserReservationCollisionIsLocalAndDoesNotPoisonNetworkCache(t *testing.T) {
+	err := browserFlowOpenError(fmt.Errorf("wrapped: %w", routing.ErrFlowExists))
+	if !errors.Is(err, routing.ErrFlowExists) || nativeFailureCode(err) != "LOCAL_FLOW_RESERVATION_IN_USE" || retryableDirectOpen(err) {
+		t.Fatal("local collision misclassified as network", err)
+	}
+	c := New(context.Background())
+	defer c.Close()
+	q := browserproxy.Request{Host: "www.youtube.com", Port: 443}
+	p := browserproxy.Plan{Destination: netip.MustParseAddrPort("203.0.113.1:443"), Policy: flowpolicy.Result{Action: flowpolicy.Direct}}
+	c.observeDirectOpen(profilesResult{profile: profiles.Profile{ID: "chrome"}, network: "n"}, q, p, err, time.Now())
+	if c.browser.directTimeouts.Stats().Created != 0 {
+		t.Fatal("local collision polluted route cache")
 	}
 }
