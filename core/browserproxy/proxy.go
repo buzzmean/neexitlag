@@ -43,11 +43,12 @@ type Owner struct {
 	Profile string `json:"profile_id"`
 }
 type Request struct {
-	Owner  Owner
-	Source netip.AddrPort
-	Host   string
-	Port   uint16
-	Secure bool
+	Owner   Owner
+	Source  netip.AddrPort
+	Host    string
+	Port    uint16
+	Secure  bool
+	Ingress string // PAC_CONNECT, PAC_RECOVERY or NATIVE_TCP; never supplied by HTTP headers.
 }
 type Trial struct {
 	Destination      string `json:"destination,omitempty"`
@@ -95,15 +96,20 @@ type Record struct {
 	StallRetried bool `json:"stall_retried_via_relay,omitempty"`
 }
 type Snapshot struct {
-	RecoveryAddress string            `json:"recovery_address,omitempty"`
-	PolicyReady     bool              `json:"policy_ready"`
-	ReadyProfiles   []string          `json:"ready_profiles"`
-	Failures        map[string]uint64 `json:"failures"`
-	Truncated       bool              `json:"truncated"`
-	Listening       bool              `json:"listening"`
-	Address         string            `json:"address"`
-	Lost            uint64            `json:"lost"`
-	Records         []Record          `json:"records"`
+	Path               string            `json:"path"`
+	PathMetrics        []PathMetrics     `json:"path_metrics"`
+	MetricsLost        uint64            `json:"metrics_lost"`
+	FailureDetails     []FailureSummary  `json:"failure_details"`
+	FailureDetailsLost uint64            `json:"failure_details_lost"`
+	RecoveryAddress    string            `json:"recovery_address,omitempty"`
+	PolicyReady        bool              `json:"policy_ready"`
+	ReadyProfiles      []string          `json:"ready_profiles"`
+	Failures           map[string]uint64 `json:"failures"`
+	Truncated          bool              `json:"truncated"`
+	Listening          bool              `json:"listening"`
+	Address            string            `json:"address"`
+	Lost               uint64            `json:"lost"`
+	Records            []Record          `json:"records"`
 }
 type Config struct {
 	// Production enables this: TLS early/application data must never be replayed.
@@ -130,21 +136,26 @@ type Config struct {
 	Open         func(context.Context, Request, Plan) (net.Conn, error)
 }
 type Server struct {
-	cfg        Config
-	l          net.Listener
-	ctx        context.Context
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
-	slots      chan struct{}
-	mu         sync.Mutex
-	next, lost uint64
-	failures   map[string]uint64
-	records    map[uint64]Record
-	conns      map[net.Conn]bool
-	closed     bool
-	challenges map[string]healthChallenge
-	confirmed  map[string]bool
-	verified   map[string]string
+	started            time.Time
+	paths              map[string]PathMetrics
+	metricsLost        uint64
+	failureDetails     map[string]FailureSummary
+	failureDetailsLost uint64
+	cfg                Config
+	l                  net.Listener
+	ctx                context.Context
+	cancel             context.CancelFunc
+	wg                 sync.WaitGroup
+	slots              chan struct{}
+	mu                 sync.Mutex
+	next, lost         uint64
+	failures           map[string]uint64
+	records            map[uint64]Record
+	conns              map[net.Conn]bool
+	closed             bool
+	challenges         map[string]healthChallenge
+	confirmed          map[string]bool
+	verified           map[string]string
 }
 
 func Listen(parent context.Context, cfg Config) (*Server, error) {
@@ -164,7 +175,7 @@ func Listen(parent context.Context, cfg Config) (*Server, error) {
 		return nil, e
 	}
 	ctx, cancel := context.WithCancel(parent)
-	s := &Server{cfg: cfg, l: l, ctx: ctx, cancel: cancel, slots: make(chan struct{}, 256), challenges: map[string]healthChallenge{}, confirmed: map[string]bool{}, verified: map[string]string{}, failures: map[string]uint64{}, records: map[uint64]Record{}, conns: map[net.Conn]bool{}}
+	s := &Server{started: time.Now(), cfg: cfg, l: l, ctx: ctx, cancel: cancel, slots: make(chan struct{}, 256), challenges: map[string]healthChallenge{}, confirmed: map[string]bool{}, verified: map[string]string{}, failures: map[string]uint64{}, records: map[uint64]Record{}, conns: map[net.Conn]bool{}}
 	s.wg.Add(1)
 	go s.serve()
 	return s, nil
@@ -201,7 +212,13 @@ func (s *Server) Snapshot() Snapshot {
 	for profile := range s.confirmed {
 		ready = append(ready, profile)
 	}
-	out := Snapshot{ReadyProfiles: ready, Failures: failures, Listening: !s.closed && s.ctx.Err() == nil, Address: s.Address(), Lost: s.lost, Records: make([]Record, 0, len(s.records))}
+	out := Snapshot{Path: "PAC_CONNECT", PathMetrics: []PathMetrics{}, FailureDetails: []FailureSummary{}, MetricsLost: s.metricsLost, FailureDetailsLost: s.failureDetailsLost, ReadyProfiles: ready, Failures: failures, Listening: !s.closed && s.ctx.Err() == nil, Address: s.Address(), Lost: s.lost, Records: make([]Record, 0, len(s.records))}
+	for _, p := range s.paths {
+		out.PathMetrics = append(out.PathMetrics, p)
+	}
+	for _, f := range s.failureDetails {
+		out.FailureDetails = append(out.FailureDetails, f)
+	}
 	for _, r := range s.records {
 		if r.Plan.Policy.Action == flowpolicy.DirectPlus && !r.DirectPlusApplied && s.cfg.TransformApplied != nil {
 			source, _ := netip.ParseAddrPort(r.Source)
@@ -301,7 +318,7 @@ func (s *Server) reject(reason string) {
 }
 func (s *Server) handle(c net.Conn) {
 	ctx, cancel := context.WithTimeout(s.ctx, 8*time.Second)
-	defer cancel()
+	defer func() { cancel() }()
 	c.SetDeadline(time.Now().Add(8 * time.Second))
 	b := bufio.NewReaderSize(c, 8192)
 	head, e := readHeaders(b)
@@ -397,8 +414,15 @@ func (s *Server) handle(c net.Conn) {
 		s.health(c, owner, request.URL.Path)
 		return
 	}
-	q := Request{Owner: owner, Source: originalSource, Host: host, Port: port, Secure: secure && !plain}
+	q := Request{Ingress: "PAC_CONNECT", Owner: owner, Source: originalSource, Host: host, Port: port, Secure: secure && !plain}
+	if forwarded {
+		q.Ingress = "PAC_RECOVERY"
+	}
+	started := time.Now()
 	plan, planErr := s.cfg.Plan(ctx, q)
+	// Planning may consume its budget; a valid route gets its own bounded OPEN.
+	// Never detach from listener shutdown or reuse an expired planning context.
+	cancel()
 	if planErr != nil {
 		// Keep bounded failure evidence, without recording arbitrary error strings,
 		// URLs or credentials supplied by a transport implementation.
@@ -430,13 +454,30 @@ func (s *Server) handle(c net.Conn) {
 		writeError(c, 503)
 		return
 	}
-	s.records[id] = Record{ID: id, Owner: owner, Domain: host, Port: port, Source: originalSource.String(), Plan: plan, Started: time.Now(), Active: true, Result: "OPEN_PENDING"}
+	s.pathBeginLocked(owner.Profile)
+	s.records[id] = Record{ID: id, Owner: owner, Domain: host, Port: port, Source: originalSource.String(), Plan: plan, EvidenceSource: q.Ingress, Started: started, Active: true, Result: "OPEN_PENDING"}
 	s.mu.Unlock()
 	finish := func(result string, tx, rx uint64) {
 		s.mu.Lock()
 		r := s.records[id]
 		r.Active = false
 		r.Result = result
+		p := s.paths[r.Owner.Profile]
+		if result == "ORIGIN_PLAN_FAILED" || result == "UPSTREAM_OPEN_FAILED" {
+			p.Failed++
+			phase := "OPEN"
+			reason := r.OpenFailure
+			if result == "ORIGIN_PLAN_FAILED" {
+				phase = "PLAN"
+				reason = r.Plan.Probe
+			}
+			s.pathFailureLocked(r, phase, reason)
+		} else if p.Active > 0 {
+			p.Active--
+		}
+		if p.Profile != "" {
+			s.paths[r.Owner.Profile] = p
+		}
 		r.Sent = tx
 		r.Received = rx
 		s.records[id] = r
@@ -448,6 +489,8 @@ func (s *Server) handle(c net.Conn) {
 		writeError(c, 502)
 		return
 	}
+	ctx, cancel = context.WithTimeout(s.ctx, 3*time.Second)
+	c.SetDeadline(time.Now().Add(3 * time.Second))
 	var upstream net.Conn
 	if s.cfg.OpenPlan != nil {
 		upstream, plan, e = s.cfg.OpenPlan(ctx, q, plan)
@@ -465,11 +508,14 @@ func (s *Server) handle(c net.Conn) {
 		r.OpenFailure = openFailure(e)
 		s.records[id] = r
 		s.mu.Unlock()
-		s.reject("UPSTREAM_" + openFailure(e))
+		s.reject(openFailure(e))
 		finish("UPSTREAM_OPEN_FAILED", 0, 0)
 		writeError(c, 502)
 		return
 	}
+	s.mu.Lock()
+	s.pathOpenedLocked(owner.Profile)
+	s.mu.Unlock()
 	if secure && port == 443 && plan.Enabled && plan.Policy.Action == flowpolicy.Direct && s.cfg.OnStall != nil {
 		upstream = s.watchDirect(ctx, upstream, q, plan, id, 0)
 	}
@@ -548,6 +594,7 @@ func (s *Server) account(id, tx, rx uint64) {
 	r := s.records[id]
 	r.Sent += tx
 	r.Received += rx
+	s.pathBytesLocked(r, tx, rx)
 	s.records[id] = r
 }
 

@@ -221,6 +221,10 @@ func (v *browserStatusView) bound() {
 		switch {
 		case len(v.Records) > 0:
 			v.Records = v.Records[:len(v.Records)-1]
+		case len(v.FailureDetails) > 0:
+			v.FailureDetails = v.FailureDetails[:len(v.FailureDetails)-1]
+		case len(v.PathMetrics) > 0:
+			v.PathMetrics = v.PathMetrics[:len(v.PathMetrics)-1]
 		case len(v.RelayUsage.Minutes) > 0:
 			v.RelayUsage.Minutes = v.RelayUsage.Minutes[:len(v.RelayUsage.Minutes)-1]
 			v.RelayUsage.Truncated = true
