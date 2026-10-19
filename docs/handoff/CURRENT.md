@@ -1,6 +1,6 @@
 # CURRENT — состояние проекта (обновляется в конце каждой сессии)
 
-Обновлено: 19.10.2026, Codex; рабочая ветка `codex/work`. Исправление игровых AUTO/DIRECT — `50f750f`, GUI — `060bc19`, диагностика — `2815bd0`; владелец подтвердил CS DIRECT/relay_flows=0, баг игрового пинга закрыт. В работе — раздельные PAC/native evidence и Edge readiness. Этап (а) проверен владельцем; этап (б) native новых TCP с owned PAC crash-guard — runtime `673624a`, Windows burst fixture `f1a0363`, renewal test fixture `b3dcd1c`; передано на короткую проверку ПК владельца. Этап (в) не начат. История передачи Claude сохранена ниже.
+Обновлено: 19.10.2026, Codex; ветка `codex/work`. Игры на ec72beb подтверждены владельцем: CS DIRECT, relay_flows=0. Browser paths/Edge runtime и Windows updater — код `1db6be1`; Linux/Windows Verify, actual Chrome/native, Edge policy, release и isolated upgrade CI PASS. Нового ISP PASS нет; короткий ретест владельца с открытыми браузерами ещё нужен. PAC guard сохранён, этап (в) не начат. Подробности и команды — (p), docs/BROWSER_HOT_ATTACH.md. История Claude сохранена.
 
 ## (a) Цель
 Чистый Windows 10/11: установил, нажал «Оптимизировать» — заблокированные в РФ сервисы работают без VPN: ChatGPT, Claude, YouTube, Discord, Telegram, браузеры Chrome и Edge. Первый заказчик — клуб на 36 ПК с откатом при перезагрузке.
@@ -46,7 +46,7 @@
 | Этап (б): native browser AUTO и автоматическое восстановление Edge | `services/client-service/browser_*.go`, `edge_*.go`, `controller.go`, `ipc_handlers.go`, `flow_policy.go`, `core/profiles/profile.go` (backward-compatible browser_transport), `platform/windows/{boundary,hot_attach,ipv6_guard,deferred_tcp,tcp_capture_windows,browser}*.go`, browser acceptance/тесты, `tools/route-test/upgrade_test.go` (только fresh-ticket/clock фикстура), `apps/desktop{,-core}/Browser*.cs`, `EdgeRouting*.cs`, `ChromeRouting.cs`, `DesktopViewModel.cs`, `MainWindow.xaml{,.cs}`, `tests/desktop/*`, `tools/windows/diag-no-vpn.ps1`, `.github/workflows/*native.yml`, `docs/BROWSER_HOT_ATTACH.md`, `CURRENT.md` | Codex | `codex/work` | ГОТОВО 19.10.2026 (`b3dcd1c`), область освобождена; этап (б) ждёт проверки ПК владельца с открытыми браузерами и existing owned PAC. Этап (в) не начат; VPS, QUIC/IPv6 вне правок |
 | UDP latency / аудит очередей вне выбранных маршрутов | `platform/windows/capture_queue*.go` (новые), `capture_windows.go`, `tcp_capture_windows.go`, `ipv6_guard_windows.go` (только замеры), `boundary.go` (статус), `services/client-service/controller.go` (новый read-only IPC), `capture_queue_test.go` (новый), `tools/windows/diag-no-vpn.ps1`, `.github/workflows/verify.yml` (только новые Windows tests), `docs/UDP_CAPTURE_AUDIT.md` (новый), `CURRENT.md` | Codex | `codex/work` | ПРИОСТАНОВЛЕНО 19.10.2026: владелец подтвердил 28025 UDP packets CS через VPS; причина — маршрут application default RELAY. Код фильтров/очередей не менялся, область освобождена |
 | Игры/неизвестные приложения: безопасный DIRECT по умолчанию и явное RELAY предупреждение | `core/profiles/profile{,_test}.go`, `services/client-service/{controller,flow_policy}.go`, новые `automatic_relay*.go`, `services/client-service/*_test.go` (регрессии routing), `apps/desktop-core/{DesktopViewModel,RelayWarning}.cs`, `apps/desktop/{MainWindow.xaml,RelayWarning}.cs`, `apps/desktop-core/Resources/Strings.resx`, `tests/desktop/*`, `tools/windows/diag-no-vpn.ps1`, `tests/windows-tools/profile-routing-checks.ps1` (новый), `.github/workflows/verify.yml` (PS fixtures), `docs/GAME_DIRECT.md` (новый), `CURRENT.md` | Codex | `codex/work` | ГОТОВО 19.10.2026 (`50f750f`, `060bc19`, `2815bd0`), область освобождена; владелец подтвердил исходный AUTO. Старые игровые AUTO безопасны, новые обычные приложения DIRECT; явный MANUAL и browser/protected presets сохранены. Проверено владельцем на ec72beb: cs2 relay_flows=0, игровой flow DIRECT; баг пинга закрыт |
-| Browser paths: PAC/native, Edge readiness, ошибки origin | `services/client-service/browser_*.go`, `edge_*.go`, `controller.go` (только browser hooks), `core/browserproxy/*` (метрики/ошибки), `apps/desktop{,-core}/BrowserNative*.cs`, `EdgeRouting*.cs`, `Models.cs` (добавочные поля), `tests/desktop/*`, `tests/windows-tools/*`, `tools/windows/diag-no-vpn.ps1`, `tests/desktop/BrowserStartupTests.cs` (только cleanup собственной фикстуры), `.github/workflows/{chrome-native,verify}.yml` (read-only warmup/fixtures), `tools/windows/{native-tcp-firewall,update-service}.ps1` (явная opt-in Windows app-scoped admission и rollback; не VPS), browser Windows acceptance, `platform/windows/{browser_windows,browser_other,tcp_capture_windows,boundary,deferred_tcp}.go` (только exact delegated upstream, без изменения фильтра), `docs/BROWSER_HOT_ATTACH.md`, `CURRENT.md` | Codex | `codex/work` | В РАБОТЕ 19.10.2026: разделить реальный PAC/native, исправить pending/readiness без false PASS; игровой DIRECT/PAC guard сохранить, этап (в) не начинать |
+| Browser paths: PAC/native, Edge readiness, ошибки origin | `services/client-service/browser_*.go`, `edge_*.go`, `controller.go` (только browser hooks), `core/browserproxy/*` (метрики/ошибки), `apps/desktop{,-core}/BrowserNative*.cs`, `EdgeRouting*.cs`, `Models.cs` (добавочные поля), `tests/desktop/*`, `tests/windows-tools/*`, `tools/windows/diag-no-vpn.ps1`, `tests/desktop/BrowserStartupTests.cs` (только cleanup собственной фикстуры), `.github/workflows/{chrome-native,verify}.yml` (read-only warmup/fixtures), `tools/windows/{native-tcp-firewall,update-service}.ps1` (явная opt-in Windows app-scoped admission и rollback; не VPS), browser Windows acceptance, `platform/windows/{browser_windows,browser_other,tcp_capture_windows,boundary,deferred_tcp}.go` (только exact delegated upstream, без изменения фильтра), `docs/BROWSER_HOT_ATTACH.md`, `CURRENT.md` | Codex | `codex/work` | ГОТОВО 19.10.2026, код 1db6be1, область освобождена: PAC/native раздельно, exact WinDivert handoff, Edge readiness и opt-in app-scoped firewall; CI PASS, ISP ретест ещё нужен. Игры/PAC guard сохранены, этап (в) не начат |
 | Discord медленно, DIRECT+ для YouTube | не определены | никто | — | свободно для Codex после диагностики; Go-файлы застоя (выше) не трогать |
 | PR #8, `codex/direct-plus-flowseal` | — | не трогать | — | только владелец |
 
@@ -74,6 +74,8 @@
 ## (h) Журнал решений
 | Дата | Решение | Почему |
 |---|---|---|
+| 19.10.2026 | Windows native TCP reflection требует app-scoped inbound admission; update-service получает явный -NativeTcpFirewall с owned rollback | Driver trace показала SYN без listener SYN/ACK; узкое правило восстановило nonce. Production helper проверен на отдельном EXE. Firewall не отключается, чужие правила/GPO не обходятся; PAC guard сохранён |
+| 19.10.2026 | Edge native OPEN без ответа не считается готовым туннелем; PAC nonce readiness показывать отдельно | Успешный upstream OPEN не доказывает завершённый local handoff или загрузку страницы |
 | 19.10.2026 | Считать PAC ingress и native upstream отдельно; CONNECT authority позволяет открыть известный план в native worker до ACK, без второго ClientHello | Online PAC забирает все browser origins на loopback, внешнего SYN браузера нет. Нельзя выдавать PAC bytes или RefreshPolicy REQUESTED за native uptake; прежняя защита opaque без metadata сохраняется |
 | 19.10.2026 | PLAN, OPEN и pre-response stall retry имеют отдельные bounded budgets | Общий deadline истекал во время DNS/TLS/HTTP planning; новый OPEN/retry получал остаток или уже expired context. Старые 35 ошибок потеряны и не могут быть приписаны одному дефекту |
 | 19.10.2026 | Игры и неизвестные AUTO не получают global/learned relay; новый обычный профиль DIRECT; явный MANUAL требует подтверждения GUI | CS с подтверждённым AUTO шёл через VPS: 28025 UDP packets. Глобальный probe winner не измеряет качество пути к игровому серверу; browser/protected/Discord presets и явные правила сохраняются |
@@ -533,76 +535,101 @@ Steam и остальные игровые профили оставить DIREC
 
 ## (p) PAC/native и Edge readiness, 19.10.2026
 
-### Данные владельца / граница выводов
+### Подтверждённая причина и граница выводов
 
-- Игры на ec72beb: cs2 relay_flows=0, selected_route=DIRECT, пинг-баг закрыт.
-- На 4ba1bfe работа новых вкладок Chrome/Edge без restart подтверждена владельцем,
-  PID Chrome не менялись. Native timing был NOT_OBSERVED, Edge pending/NOT_PREPARED.
-  Из одного успеха вкладки нельзя вывести native PASS: online PAC отправляет все
-  origins в CONNECT/loopback, поэтому внешнего browser SYN может не существовать.
-- Владелец отдельно ответил: записи 35 UPSTREAM_OPEN_TIMEOUT / 3 OPEN_FAILED
-  **не сохранились**. Назвать их домены/причины достоверно нельзя; новая диагностика
-  не восстанавливает прошлую историю и не выдаёт предположение за подтверждение.
+- Игры на ec72beb: владелец подтвердил cs2 relay_flows=0, игровой DIRECT; пинг-баг закрыт.
+- Владелец подтвердил новые вкладки Chrome/Edge без restart на 4ba1bfe, но не native
+  interception. Online PAC направляет все origins в CONNECT/loopback: внешнего SYN
+  браузера нет, поэтому native timing мог оставаться NOT_OBSERVED при работающих сайтах.
+  Исторический GP refresh LIVE_UPTAKE_NOT_OBSERVED не является live evidence.
+- Native Edge сохранял pending preset; GUI заменял PAC snapshot пустым native snapshot.
+  Это отдельные ошибки состояния/отображения, исправлены без выдуманного PAC nonce READY.
+- Записи 35 UPSTREAM_OPEN_TIMEOUT / 3 OPEN_FAILED **не сохранились**, владелец это
+  подтвердил. Достоверно назвать их домены или приписать все одному дефекту невозможно.
+- Найден реальный дефект budget: header/PLAN/OPEN делили deadline, длительный PLAN
+  оставлял OPEN и stall retry истёкший контекст. Теперь бюджеты разделены и ограничены.
 
-### Исправления
+### Runtime и диагностика
 
-- df72208 / 82d0700 / 50237a9: PAC cumulative per-profile counters/clocks, actual
-  bounded failure aggregates domain/profile/PLAN-or-OPEN/route/destination/source,
-  typed relay/ACK/authorization errors, stage durations. PLAN и OPEN разделены;
-  OPEN максимум 3 с, stall retry получает свой bounded budget, связанные с lifetime
-  frontend соединения. Исправлены double UPSTREAM prefix и metadata IPC bounds.
-- 0ef71c3 / 99b7c21 / e41ae43: только native-armed browser profile делегирует exact
-  service-owned reserved upstream в штатный WinDivert OPEN worker. CONNECT metadata
-  уже известны: actual upstream открывается ДО ACK, а не после второго ClientHello.
-  Нет повторных probes/планирования внутри worker; ошибки возвращаются frontend
-  исходными, а не маскируются kernel timeout. Обычный traffic службы не перехватывается.
-  Existing TCP не мигрируют; old PAC-only H2 может оставаться до штатного закрытия.
-- Метки PAC_CONNECT/PAC_RECOVERY, PAC_NATIVE_UPSTREAM и NATIVE_TCP различаются.
-  Один запрос с PAC ingress/native upstream нельзя суммировать как два запроса.
-  natively opaque без CONNECT metadata по-прежнему только REQUIRED relay.
-  Deferred SNI resolver и boundary в итоговой дельте не ослаблены/не изменены.
-- Native enable Edge нормализует edge-sites-pending → edge-sites после подготовки.
-  Native armed / actual native tunnel / PAC-only observation отдельно от legacy
-  pac_nonce_readiness; nonce READY не подделывается. owned guard != static rollback.
-- 530d8ac / b4be6b8 / 1e86b94: GUI не заменяет PAC records пустым native snapshot;
-  native BLOCK отображается как BLOCK. Probe errors обозначены как origin probe,
-  а не результат страницы. mtalk/stats/background могут быть необязательными;
-  это не повод игнорировать реальный failed OPEN или выдавать page PASS по TCP ACK.
-- diag 2026-10-19.5: отдельные PAC/native counters/first OPEN/exchange, NOT_OBSERVED,
-  ingress, Edge state, причины по доменам и loss/truncation. Старые сервисы не
-  получают выдуманные метрики. Historical GP refresh file — не live uptake.
+- df72208 / 82d0700 / 50237a9: cumulative PAC counters/clocks, bounded failure_details
+  domain/profile/PLAN-or-OPEN/route/destination/source/code/count/last_at; stage durations,
+  typed relay/ACK/authorization errors, исправлен двойной UPSTREAM prefix, IPC bounds.
+  OPEN max 3 с; stall retry — собственный bounded budget от lifetime этого соединения.
+  Это не 3-секундный lifetime established socket и не неограниченный retry.
+- 0ef71c3 / 99b7c21 / e41ae43: exact reserved service upstream owner-validated CONNECT
+  делегируется в native WinDivert OPEN worker. Известный план открывается до SYN ACK,
+  без ожидания второго ClientHello и без повторного планирования/probes. Исходные ошибки
+  actual OPEN возвращаются frontend вместо искусственного kernel-connect timeout.
+- ff093e1: отказ frontend handoff закрывает только его exact unaccepted upstream;
+  accepted/foreign/legacy flows не затрагиваются. Нет orphan, удерживающего Engine key.
+- Метки PAC_CONNECT/PAC_RECOVERY, PAC_NATIVE_UPSTREAM, NATIVE_TCP раздельны. Первые
+  две — ingress, третья — native upstream того же запроса. Нельзя суммировать их как
+  два application request или объявлять hybrid native-only без PAC.
+- 530d8ac / b4be6b8 / 1e86b94 / 1322d21: GUI сохраняет PAC records при пустом native,
+  разделяет Chrome/Edge evidence, BLOCK отображается BLOCK; probe error не page FAIL.
+- Native Edge после успешной публикации edge-sites-pending → edge-sites; status
+  transport_mode/native armed/actual observation отдельно от pac_nonce_readiness.
+  1223f25: upstream OPEN без обмена = NATIVE_UPSTREAM_OPENED_NO_EXCHANGE; только
+  actual bidirectional bytes дают NATIVE_TUNNEL_OBSERVED. Page PASS из байтов не выводится.
+  owned_guard_installed отдельно от static rollback_guard_active.
+- diag 2026-10-19.5: отдельные PAC/native counters, first OPEN/exchange и scope часов,
+  ingress, Edge state, failure aggregates по доменам, loss/truncation. Старые сервисы
+  не получают выдуманные метрики. Native -1/отсутствующая дата = NOT_OBSERVED.
+- mtalk/stats/update endpoints могут быть фоновыми/non-HTTP. Ошибка альтернативного
+  origin probe не доказывает отказ реального CONNECT/страницы. Повторяемый actual
+  OPEN/BLOCK нужного ресурса требует проверки; GUI помечает источник, не скрывает отказ.
 
-### Native fixture и проверка
+### Windows Firewall: найденная и проверенная причина handoff timeout
 
-- Новый Chrome test сохраняет PID/creation main process и owned PAC, открывает
-  свежий controlled HTTPS origin на другом порту (без H2 reuse), требует настоящий
-  HTTP nonce, native OPEN и bidirectional bytes. Без evidence тест падает.
-- TEST-NET ingress нужен только в подписанном driver fixture: NETWORK loopback
-  outbound-only не имитирует обычный redirect. Actual HTTPS/TLS/HTTP2/mTLS target
-  реальный и локальный, не Internet. Строгий BindUpstream destination invariant
-  сохранён (70087b5); production destination/фильтры не менялись. 95c724c добавил
-  unit test exact reflected reply и unrelated loopback bypass.
-- Локально: изменённые service/browserproxy/platform пакеты полный race PASS;
-  новые native/error/epoch/game tests race PASS; vet, Linux build, Windows amd64
-  cross-build и native test binary compile PASS. .NET/PowerShell/Windows здесь нет:
-  C#/WPF и реальный WinDivert проверяются CI, не считаются локально выполненными.
-- Полный локальный go test -race -p 1 -timeout 120s ./... НЕ весь зелёный:
-  UDP impairment delivery deadline и прежний demo 25s route-selection timeout.
-  Isolated UDP повтор PASS; isolated demo тоже дал timeout. Ничего в этих путях
-  и их assertions/timeouts не менялось. Linux core CI полный race прошёл.
-- Финальные CI результаты будут записаны после завершения проверок актуального
-  70087b5. Предыдущие отказы включали pre-browser Windows network query timeout
-  (8 с × 2) и Linux CDP port readiness timeout; failed jobs повторяются отдельно,
-  критерии готовности/nonce/native evidence не ослабляются.
+- Реальная driver-трасса: SYN перехвачен, actual upstream открыт, reflection send
+  успешен, но listener SYN/ACK отсутствовал. Узкое TEST-NET/порт правило Windows
+  Firewall восстановило handshake и nonce. После prepare listener меняет порт:
+  fixture admission теперь привязана к текущему порту, не только объекту backend.
+- Первый program-scoped эксперимент из временной Go test-директории был отвергнут
+  API (87), затем удалён; это не доказательство причины. Итоговый production helper
+  проверен отдельно на копии тестового EXE с нормальным полным installed-style путём.
+- 1db6be1: update-service.ps1 -NativeTcpFirewall — явный opt-in. Правило только inbound
+  TCP для полного пути установленного neexitlag-service.exe, edge traversal Block;
+  не общий порт/все программы и не изменение VPS. Порт динамический, scope по EXE.
+  WinDivert по-прежнему отбрасывает физический inbound на listener; accept требует
+  exact native mapping. Никакого открытого proxy endpoint не добавлено.
+- Helper проверяет owned marker/scope и effective ActiveStore; foreign rules и GPO
+  не обходятся. Новый rule удаляется при отказе обновления, старый бинарник/ACL
+  откатывается; уже существующий проверенный rule сохраняется. Без флага updater
+  firewall не меняет. Identity/IPC/owner SID/профили/PAC/сертификаты не меняются.
 
-### Граница и команда владельцу
+### Тесты и CI
 
-Этап (в) НЕ начат: PAC/dialog/legacy quit/recovery сохранены; fresh без owned guard
-автоматически не активируется. Новая Интернет-проверка Chrome/Edge у провайдера
-владельца ещё не выполнена; нельзя объявлять native на обоих браузерах PASS по CI.
-VPS, сертификаты/credentials, game policy, UDP, default route, PR #8 и ветка
-codex/direct-plus-flowseal не менялись.
-Обновлять обе сборки под прежним owner SID, сверять SHA256 службы; закрыть только
-GUI, браузеры оставить открытыми. Новый раздел docs/BROWSER_HOT_ATTACH.md объясняет
-метрики, причины ошибок и clock scope. После открытия новых вкладок, обычный
-PowerShell в C:\neexitlag: `& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube`.
+- Локально: полный race изменённых browserproxy/client-service/platform пакетов PASS;
+  go vet ./..., Linux build, Windows amd64 cross-build, native test binary compile PASS.
+  Локально .NET/PowerShell/Windows нет — C#/WPF/WinDivert выполняются только CI.
+- Полный локальный race ранее дал UDP impairment deadline и demo route-selection
+  timeout. Isolated UDP повтор PASS, demo повтор timeout; эти пути/assertions не менялись.
+  Актуальный Linux CI полный go test -race -timeout 120s ./... PASS.
+- [Chrome policy native на 1db6be1](https://github.com/buzzmean/neexitlag/actions/runs/39301567566): SUCCESS. Same main PID/creation,
+  fresh controlled HTTPS nonce + actual PAC_NATIVE_UPSTREAM OPEN/bidirectional bytes;
+  simultaneous HTTPS/HTTP2 DIRECT, native DIRECT+ disorder, protected REQUIRED relay,
+  blocked unknown relay, outage/recovery/restart. Не localhost как Internet PASS.
+- В том же run TestNativeBrowserDriverHandshake реально проверяет production app-scoped
+  helper на отдельной копии EXE, native TCP handshake/nonce и owned cleanup. Ни SCM,
+  ни реальные credentials не устанавливаются. PS5.1/7 mocks проверяют opt-in, scope,
+  idempotence, foreign/API/policy failure и rollback.
+- [Edge policy acceptance на 0789d5d](https://github.com/buzzmean/neexitlag/actions/runs/39299854054): SUCCESS (actual Edge policy/nonce,
+  HTTPS/outage/restart); status/GUI Edge/native regressions включены в текущий Verify.
+- [Verify 39301567351](https://github.com/buzzmean/neexitlag/actions/runs/39301567351): SUCCESS core + windows. Полный Go race/vet, Linux/Windows builds, PostgreSQL regressions, 130 C# tests, WPF/native GUI smoke, repeated TCP bursts, accelerated lease, actual Chrome/WinDivert и IPC/tool regressions PASS.
+- [Release 39301567455](https://github.com/buzzmean/neexitlag/actions/runs/39301567455) / [isolated upgrade 39301567464](https://github.com/buzzmean/neexitlag/actions/runs/39301567464): SUCCESS.
+  Это изолированные CI, не deployment. VPS не трогался.
+
+### Передача владельцу
+
+Этап (в) НЕ начат: PAC, диалоги и legacy quit/recovery сохранены; fresh без owned
+PAC guard автоматически не активируется. Deferred SNI/boundary/ECH policy в итоговой
+дельте не ослаблены. Existing TCP/H2 не мигрируют и могут штатно переиспользоваться.
+VPS, credentials/сертификаты, game/UDP policy, фильтры, default route, PR #8 и ветка
+codex/direct-plus-flowseal не менялись. Нового ISP PASS Chrome/Edge нет.
+
+Обновлять службу и GUI под прежним owner SID, закрыть только GUI, браузеры оставить
+открытыми. Сборки и полный блок — docs/BROWSER_HOT_ATTACH.md; elevated updater теперь
+вызывать с явным -NativeTcpFirewall. Сверить SHA256 installed/built service и Running.
+Затем обычный owner PowerShell в C:\neexitlag после новых вкладок/обновления страниц:
+`& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube`.

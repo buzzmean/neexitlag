@@ -145,7 +145,7 @@ git pull --ff-only origin codex/work
 if ($LASTEXITCODE) { throw 'git pull failed' }
 & .\tools\windows\build-e2e.ps1
 & .\tools\windows\build-desktop.ps1
-& .\tools\windows\update-service.ps1
+& .\tools\windows\update-service.ps1 -NativeTcpFirewall
 if ((Get-FileHash .\bin\windows-e2e\neexitlag-service.exe).Hash -ne (Get-FileHash "$env:ProgramData\neexitlag\neexitlag-service.exe").Hash) { throw 'Service hash mismatch' }
 Get-Service neexitlag | Select-Object Status
 ```
@@ -158,7 +158,7 @@ Get-Service neexitlag | Select-Object Status
 & .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube
 ```
 
-Скрипт 2026-10-19.3 сохраняет PID/creation time до/после, native decisions/timing,
+Скрипт 2026-10-19.5 сохраняет PID/creation time до/после, native decisions/timing,
 relay usage и отдельно headless controls. Не путать headless успех со старым окном.
 Существующий PAC может обслуживать запросы без native-record: это совместимый PAC путь,
 не native interception PASS. Прислать отчет, **не коммитить diag-result.txt**.
@@ -166,3 +166,138 @@ relay usage и отдельно headless controls. Не путать headless у
 Локально .NET/Windows отсутствуют: C#/WPF, реальный Chrome с owned policy и unchanged
 PID/creation проверяются CI, native deferred TCP — Windows socket/mTLS/race burst.
 Это не Internet PASS и не доказательство живого policy refresh на ПК владельца.
+
+## PAC и native: раздельные доказательства (19.10.2026)
+
+Online PAC намеренно направляет все домены в CONNECT с раздельными proxy origins:
+это защищает attribution/ECH и HTTP/2 coalescing. Пока браузер использует такой
+PAC, у него нет внешнего TCP SYN к сайту: он подключается к loopback. Поэтому
+`first_tunnel_opened_at` native = отсутствует / `enable_to_first_open_ms=-1`
+в старой версии не доказывает неисправность PAC. `LIVE_UPTAKE_NOT_OBSERVED` в файле
+refresh — результат асинхронного запроса GP в прошлом, не текущий статус транспорта.
+
+| Метка | Что действительно наблюдалось |
+|---|---|
+| `PAC_CONNECT` | Browser owner/SID прошёл CONNECT, frontend принял upstream/handoff. Не подтверждает внешний TLS/HTTP |
+| `PAC_RECOVERY` | Запрос пришёл через отдельно авторизованный owner recovery helper |
+| `PAC_NATIVE_UPSTREAM` | Только точный новый service-owned upstream делегирован в WinDivert; native worker действительно открыл выбранный DIRECT/DIRECT+/authenticated RELAY; завершённый handoff подтверждают байты в обе стороны |
+| `NATIVE_TCP` | Внешнее новое TCP-соединение самого браузера принято прозрачным native capture; SNI/Host или opaque relay |
+
+Один запрос может иметь **две связанные части**: PAC ingress и native upstream.
+Их нельзя суммировать как два запроса или выдавать за native без PAC. Соответствие:
+profile, PID/creation time, domain и source/destination в bounded evidence. Старые
+HTTP/2/TCP не переносятся: они могут продолжать PAC-only до штатного закрытия.
+Обновление страницы не гарантирует новое TCP: браузер вправе повторно использовать H2.
+
+Для профиля с `browser_transport=native` новые PAC upstream делегируются через уже
+существующий exact-tuple механизм WinDivert. До SYN регистрируется ограниченная
+alias-запись; actual service socket owner проверяется, обычные sockets службы не
+перехватываются повторно. Сохраняются admission/state bounds. CONNECT authority
+остаётся метаданными **этого** проверенного владельца: ECH outer SNI не заменяет его.
+Без CONNECT metadata прежние неоднозначные native потоки — только REQUIRED relay.
+Не добавлены MITM, TLS exceptions, DIRECT fallback защищённых доменов или replay
+application data. Игры, UDP, фильтры и общий default route не менялись.
+
+`browser.status` / `edge.status`: `path_metrics` — cumulative PAC counters с момента
+старта listener, `listen_to_first_open_ms` и first exchange. Это часы listener,
+**не** момент нажатия Optimize. `browser.native.status.profiles` — native counters и
+`enable_to_first_open_ms` / exchange с момента activation; -1 означает NOT_OBSERVED.
+Нулевые даты не печатаются. Байты в обе стороны — обмен транспортом, не page PASS.
+Counters переживают вытеснение отдельных records, но сбрасываются при соответствующем
+restart/activation; lost/truncated/cardinality overflow всегда видимы.
+
+Edge после успешной native-публикации получает `app_preset=edge-sites` вместо pending.
+`edge.status.transport_mode=NATIVE_ARMED_PAC_GUARD`, readiness отдельно показывает
+capture armed / PAC-only observation / upstream OPEN без обмена / actual native tunnel. `pac_nonce_readiness`
+остаётся отдельной честной проверкой legacy PAC nonce; native не подделывает READY.
+`owned_guard_installed` не равен `rollback_guard_active`: последний означает static
+fail-closed PAC, а не работающий online listener, просто сохранённый как guard.
+Fresh без owned guard по-прежнему не активируется автоматически; этап (в) не начат.
+
+### Ошибки origin и таймауты
+
+Раньше header, owner/PLAN, DNS/TLS/HTTP probes и OPEN делили deadline 8 с. После
+долгого PLAN успешному маршруту могло не остаться времени для OPEN; stall retry
+тоже наследовал этот истёкший бюджет. Теперь bounded PLAN и OPEN разделены,
+OPEN — максимум 3 с, pre-response stall retry — отдельный bounded budget от lifetime
+этого frontend connection. Listener shutdown/client teardown отменяют работу;
+установленному сокету не назначается 3-секундный lifetime. Это не увеличение
+таймаутов вместо диагностики: причина лишнего исчерпания бюджета устранена.
+
+`failure_details`: profile/domain, стадия PLAN или OPEN, выбранный route, destination,
+policy source, стабильный код, count/last_at. Typed relay rejection, upstream dial,
+stream/ACK и authorization errors различаются; произвольные OS/server error strings,
+URL/headers/токены не публикуются. `plan_duration_ms` / `open_duration_ms` в record
+различают длительный поиск и реальный OPEN. Двойной `UPSTREAM_UPSTREAM_` исправлен.
+128 агрегатов и 128 профилей bounded; loss и обрезка IPC явно указаны.
+
+Исторические **35 UPSTREAM_OPEN_TIMEOUT / 3 UPSTREAM_OPEN_FAILED** владелец не
+сохранил, после рестарта восстановить домены невозможно. Общий счётчик не доказывает,
+что все они вызваны одним дефектом. Новая диагностика нужна для следующего короткого
+прогона, без обещания Internet PASS.
+
+`mtalk.google.com`, stats и update endpoints могут быть фоновыми запросами браузера.
+CONNECTION_FAILED/NETWORK_TIMEOUT в **probe** могут относиться к альтернативному
+маршруту и не быть итогом реального CONNECT. Это не «норма DIRECT», не доказательство
+блокировки и не причина автоматически считать страницу failed. Ошибка фактического
+OPEN/BLOCK, повторяемый отказ нужного ресурса и отсутствие ответа требуют проверки.
+GUI пишет «Origin probe; результат страницы не измерен», сохраняет PAC records при
+пустом native snapshot и не превращает native BLOCK в успешный RELAY_REQUIRED.
+
+### Короткий ретест без закрытия браузеров
+
+Обновить службу и GUI штатным блоком выше, сверить SHA256 службы. Chrome/Edge
+оставить открытыми; service update может разорвать принадлежащие службе sockets.
+Открыть новые вкладки ChatGPT/Claude/YouTube и обычного сайта, обновить их, затем
+обычным PowerShell в `C:\neexitlag`:
+
+```powershell
+& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube
+```
+
+Версия diag 2026-10-19.5: отдельные PAC/native clocks, ingress labels, counters,
+Edge state и origin failures. Если есть только PAC OPEN, это PAC evidence, не native
+PASS. Для native нужны запись `PAC_NATIVE_UPSTREAM` или `NATIVE_TCP` и actual OPEN,
+затем обмен. Проверка PID/creation time остаётся; transient renderer может исчезнуть
+без перезапуска browser main process. Не удалять PAC/профили ради теста, не нажимать
+legacy PAC-кнопку, не запускать setup/enroll/VPS scripts и не коммитить diag-result.txt.
+
+### Windows Firewall и native listener
+
+Перехват SYN сам по себе не обходит Windows Firewall. На изолированном Windows CI
+он блокировал отражённый SYN к внутреннему listener: upstream OPEN был успешным,
+но не было SYN/ACK и байтов. Узкая admission TEST-NET/порт восстановила реальный
+handshake; проверка Chrome требует тот же PID/creation, свежий HTTPS nonce и native
+bidirectional bytes. Это отдельная причина от медленных network-provider запросов.
+Первый эксперимент с program-scoped правилом из временной Go test-директории был
+отвергнут Windows API (87), не доказал ничего и заменён контролируемой проверкой.
+
+В обычном обновлении firewall не меняется скрыто. Параметр
+`update-service.ps1 -NativeTcpFirewall` явно создаёт/проверяет локальное правило
+`neexitlag-native-tcp-v1`: inbound TCP **только для полного пути установленного
+neexitlag-service.exe**, все network profiles, edge traversal Block. Порт у
+native listener динамический, поэтому правило привязано к EXE, а не к прежнему
+порту. Оно не меняет outbound, UDP, игры, остальные EXE, настройки firewall или VPS.
+GUI по-прежнему без elevation; обновление выполняет администратор прежнего owner SID.
+
+Служба по-прежнему отбрасывает физический входящий трафик на внутренний listener;
+accept принимает только exact mapping с virtual peer и immutable policy. Правило
+не превращает listener в открытый прокси. После остановки службы listener закрыт.
+Helper не трогает foreign rule/изменённую scope и проверяет effective ActiveStore;
+GPO, запрещающая локальные inbound правила, не обходится. При ошибке обновления
+новое owned правило удаляется, старый бинарник/ACL восстанавливаются. Уже имевшееся
+проверенное правило сохраняется. Identity, IPC, сертификаты, профили и PAC не меняются.
+
+Это opt-in prerequisite текущей native TCP reflection architecture. Fresh без
+owned PAC всё ещё не активируется. Не удалять правило при активном native режиме:
+для отката сначала вернуть прежний PAC-путь и бинарник штатным update workflow.
+Только после такого отката, elevated owner PowerShell в C:\neexitlag:
+
+```powershell
+. .\tools\windows\native-tcp-firewall.ps1
+Remove-NativeTcpFirewallAdmission "$env:ProgramData\neexitlag\neexitlag-service.exe"
+```
+
+Удаление тоже проверяет точный EXE и маркер владения; чужую политику не удаляет.
+Контролируемые CI origins не являются Internet PASS и не заменяют короткий ретест
+у владельца с уже открытыми Chrome/Edge.
