@@ -2,8 +2,10 @@
 
 Изменения относятся к Chrome/Edge site CONNECT, не к правилам Discord, standalone
 ChatGPT/Codex, игровым профилям, mTLS/билетам/lease или VPS. Production не менялась.
-Данные владельца: все восемь A-адресов YouTube не завершили прямой TCP connect;
-VPS отдаёт HTTP 200. Это отчёт владельца, не новый Internet PASS разработчика.
+Новый отчёт владельца 18.10, 23:49 МСК, заменяет прежнюю гипотезу TCP-блокировки:
+все восемь A-адресов принимают TCP, но TLS с SNI www.youtube.com молчит 5 с, а
+контроль www.google.com отвечает. Chrome/YouTube на 3fec1ae работал у владельца;
+это не новый Internet PASS Edge или исправлений этой версии.
 
 ## Решение и границы доказательств
 
@@ -14,6 +16,9 @@ VPS отдаёт HTTP 200. Это отчёт владельца, не новый
 - `youtube_via_relay=true`: обычный YouTube сразу relay-first. Аварийный fallback
   больше не зависит от флага. Configured DIRECT+, explicit domain rules и
   protected RELAY_REQUIRED не перезаписываются этой лестницей.
+- После первого DIRECT_STALL у YouTube/ytimg/googlevideo домен сразу relay-first
+  на 10 минут; дополнительный DIRECT IP при **TLS/SNI** застое не пробуется.
+  Максимум два IP/3 с сохраняется только для отказа TCP OPEN до ClientHello.
 - При TLS-застое допускается только полный ClientHello до первого байта ответа,
   без TLS 1.3 early/application data. Сначала закрывается неответивший сокет:
   иначе `routing.Engine` возвращал `ErrFlowExists` на relay OPEN того же tuple.
@@ -31,6 +36,8 @@ VPS отдаёт HTTP 200. Это отчёт владельца, не новый
 этот отказ. Два разных отказавших IP в окне 60 с дают доменный relay-first TTL
 10 минут. `*.googlevideo.com` сворачивается в семейство `googlevideo.com`, сохраняя
 разделение IP, сети, профиля и порта. Плохой адрес пропускается при выборе следующего.
+Для YouTube-family первый ClientHello stall — самостоятельное подтверждение доменного
+отказа (`DIRECT_ORIGIN_CLIENTHELLO_STALL`), ждать двух разных IP больше не нужно.
 
 После TTL один caller атомарно получает фоновую перепроверку; foreground остаётся
 на relay до подтверждения DIRECT. Сокетов перепроверки не больше четырёх, очередь не
@@ -52,12 +59,21 @@ midstream-деградацией. HTTP/TLS payload не читается и не
 соединения браузер использует обновлённое решение; старый stream на relay не переносится.
 `DIRECT_MIDSTREAM_STALL` виден в browser record/result/failures.
 
-На весь ПК — четыре одновременных CONNECT relay-туннеля `*.googlevideo.com`, общие
-для Chrome и Edge. Permit освобождается при ошибке OPEN и ровно один раз при Close.
-Пятый ordinary AUTO fallback получает DIRECT с причиной `googlevideo_relay_limit`.
-Если ISP не пропускает DIRECT, этот поток всё равно не заработает: ограничитель не
-увеличивает пропускную способность. Explicit/protected required rules никогда не
-понижаются до DIRECT; их отказ остаётся fail-closed.
+На весь ПК — **восемь** одновременных CONNECT relay-туннелей `*.googlevideo.com`,
+общие для Chrome и Edge. Permit освобождается при ошибке OPEN и ровно один раз при Close.
+Сверх лимита до 32 существующих proxy workers ждут слот **не дольше 2 с** (или до
+отмены запроса); отдельные goroutines/бесконтрольная очередь не создаются.
+Если очередь/бюджет исчерпаны, возвращается явная `GOOGLEVIDEO_RELAY_ADMISSION_CAPACITY`.
+DIRECT на неработающий путь не используется; восемь установленных туннелей не закрываются.
+При постоянных >8 video tunnels возможны admission errors/повторы браузера —
+лимитер не обещает дополнительной пропускной способности VPS.
+
+DNS recovery теперь доступен и для googlevideo, если нет явного DIRECT+/DIRECT/BLOCK
+правила: альтернативный DoH через authenticated relay, исходный SNI/сертификат,
+реальный GET, TTL и отрицательный cooldown. Это не изменение DNS Windows и не
+постоянный IP. Несуществующий hostname либо origin без проверенного HTTP результата
+остаётся отказом; подробный `dns_recovery.failure` больше не теряется за ORIGIN_DNS_FAILED.
+Проигрывание signed video URL самим браузером проверяется отдельно.
 
 `relay_usage` — реальные TCP payload bytes активных браузерных relay-сокетов:
 по UTC-минуте, профилю и **реальному** hostname. Probe-трафик, DIRECT и QUIC/mTLS
@@ -96,8 +112,12 @@ if ((Get-Service neexitlag).Status -ne 'Running') { throw 'Служба не Run
 Запустите GUI обычным пользователем, нажмите «Сайты Edge AUTO» (выбор строки больше
 не обязателен при одном Edge-профиле). Проверьте `edge://policy` и `edge.status`.
 Если активация не удалась, таблица должна остаться заполненной, а код/фаза — появиться
-в GUI и `last_error`. «Отключить PAC Edge» заменяет **собственную** политику на guard
-даже без профиля; обычные сайты DIRECT, protected закрыты, ключ не удаляется.
+в GUI и `last_error`/`readiness_state`. При отказе nonce и по «Отключить PAC Edge»
+рабочий PAC автоматически заменяется статическим защитным PAC, обычные сайты DIRECT
+после перезапуска Edge; `rollback_guard_active=true` показывает этот режим. Чужая
+политика не удаляется. Полное удаление ProxySettings не реализовано: URLBlocklist
+не защищает подресурсы, а native capture не даёт equivalent guard при ECH/падении
+службы. Mandatory PAC остаётся true; protected не получают DIRECT fallback.
 
 С VPN OFF и играющим видео выполните в обычном PowerShell:
 

@@ -8,8 +8,8 @@ Chrome PAC, Windows proxy, DNS Windows, SCM, credentials и сертификат
 ## Активация и существующие профили
 
 «Оптимизировать» обнаруживает установленный `msedge.exe`. Если профиля Edge ещё нет,
-создаётся один custom-профиль с полным путём и начальным DIRECT. AUTO публикуется
-только после реальной проверки Edge. Существующий профиль (в том числе старый
+создаётся один custom-профиль с полным путём и AUTO / `edge-sites-pending`.
+Внешние native потоки pending закрыты; рабочий `edge-sites` публикуется только после реальной проверки Edge. Существующий профиль (в том числе старый
 OpenAI relay-first, MANUAL, DIRECT, DIRECT+) автоматически не заменяется.
 Для существующего DIRECT/AUTO выберите его в «Приложения» → «Сайты Edge AUTO».
 Для MANUAL/DIRECT+ сначала явно выберите подходящий режим; эти профили не мигрируют молча.
@@ -19,9 +19,9 @@ OpenAI relay-first, MANUAL, DIRECT, DIRECT+) автоматически не з�
 Одновременно поддерживается один Edge site-профиль владельца; второй не заменяет
 PAC уже активного профиля. Chrome работает независимо, одновременно с Edge.
 
-Последовательность: согласие закрыть Edge → protected guard → штатный `edge://quit`
-(без убийства пользовательского процесса) → recovery ACK → listener/nonce → запись
-PAC службой → headless Edge с пустым временным профилем и **без proxy launch flags**
+Последовательность: согласие закрыть Edge → listener/recovery ACK → protected guard →
+штатный `edge://quit` (до 15 с, без убийства пользовательского процесса) → последний guard →
+**повторный `edge.prepare` со свежим nonce** → recovery ACK → запись PAC службой → headless Edge с пустым временным профилем и **без proxy launch flags**
 → подтверждение nonce/политики/PID/SID → AUTO → открытие пользовательской сессии.
 Фоновые процессы Startup Boost могут помешать штатному выходу: тогда активация
 отказывается продолжать и сообщает причину; чужие процессы не завершаются.
@@ -42,7 +42,7 @@ GUI остаётся обычным пользовательским проце�
 
 В Edge появится стандартное «Управляется вашей организацией» / “Managed by your
 organization”. `edge://policy` должен показывать `ProxySettings` в scope пользователя.
-Это управление только proxy-policy Edge; VELIQ не читает содержимое страниц и не
+Это управление PAC Edge; VELIQ не читает содержимое страниц и не
 подменяет TLS. Машинная политика другой организации не перезаписывается.
 
 ## Маршруты, readiness и диагностика
@@ -61,7 +61,12 @@ Loopback CONNECT исключён штатным WinDivert `!loopback`; внеш
 исключаются существующей проверкой собственного процесса.
 
 `edge.status`: `listening`, `policy_ready`, `ready_profiles`, `address`,
-`recovery_address`, `last_error`, `records`, `failures`, `truncated`, `lost`.
+`recovery_address`, `last_error`, `rollback_guard_active`, `records`, `failures`, `truncated`, `lost`,
+`activation_version=3`, `readiness_state`, `pending_profile`. Состояния nonce:
+`WAITING_FOR_BROWSER_REQUEST`, `NONCE_INVALIDATED`, `NONCE_EXPIRED`,
+`OWNER_NONCE_VERIFIED`; при проблеме политики — `POLICY_NOT_ACTIVE`.
+`failures` отдельно сохраняет OWNER_SID_MISMATCH / OWNER_PROFILE_MISMATCH и другие
+проверки владельца. Сам nonce в status не выводится.
 Записи содержат реальные PID/creation time/exe/profile, домен, policy/route/reason,
 байты, результат открытия. UI отдельно показывает домены и состояние Edge.
 Origin HTTP 200 — только проверка origin, не доказательство работоспособности всей страницы.
@@ -73,11 +78,34 @@ Origin HTTP 200 — только проверка origin, не доказате�
 
 ## Отказ и откат
 
-«Отключить PAC Edge» устанавливает служебный guard, затем снимает AUTO только с
-Edge-профиля. Обычные сайты идут DIRECT, защищённые OpenAI/явные guarded origins и
-YouTube без подтверждённого транспорта закрыты. Для обновления политики перезапустите
-Edge. Guard намеренно остаётся в реестре: стандартная надпись управления останется.
-Полное снятие protected guard не является кнопкой безопасного отката.
+«Отключить PAC Edge» и ошибка подтверждения автоматически заменяют рабочий PAC
+статическим защитным PAC; ошибку до `edge.confirm` обрабатывает GUI, отсутствие
+обращения Edge при confirm — сама служба. Только после успешной записи guard GUI
+снимает native AUTO. Обычные сайты DIRECT без живого CONNECT/VPS, protected/custom
+и YouTube до подтверждённой активации закрыты. В UI это явно названо защитным PAC,
+`edge.status.rollback_guard_active=true`; `policy_ready=false` при этом ожидаем.
+
+**Не выполнено буквально: автоматическое полное удаление ProxySettings.** Снять
+весь PAC и одновременно гарантировать отсутствие protected DIRECT при ECH/DoH и
+падении службы текущая архитектура не позволяет. `ProxyPacMandatory=false` и
+глобальный `PROXY ...; DIRECT` эту защиту ослабляют и не включены.
+Черновик URLBlocklist был отвергнут: Chromium URLBlocklistSubresources специально
+проверяет, что заблокированный URL изображения загружается. Поэтому навигационный
+blocklist не заменяет сетевой guard для всех запросов. См. [исходный тест Chromium](https://github.com/chromium/chromium/blob/main/chrome/browser/policy/test/url_blocklist_policy_browsertest.cc).
+Новая URLBlocklist-политика в реализации НЕ устанавливается. Это открытое ограничение,
+а не утверждение о выполненном удалении ключа. Ручное удаление ключей не требуется
+для исправленной активации и не является безопасной инструкцией отката.
+
+В Edge остаётся «Управляется вашей организацией», пока существует guard.
+Перечитывание политик требует нового процесса Edge; GUI делает штатный перезапуск
+с согласия владельца. Если Startup Boost/фоновые процессы не завершились за 15 с,
+нужно закрыть Edge самостоятельно и повторить кнопку; пользовательские процессы
+принудительно не убиваются.
+
+**Причина отказа 3fec1ae:** GUI запрашивал nonce до `guard`, а `guard` вызывал
+`Server.Forget(profile)` и удалял challenge. Это детерминированная ошибка порядка,
+не доказательство неисправности SID/PID или необходимости увеличить тайм-аут.
+Прежний native fixture пропускал guard; теперь воспроизводит полную последовательность.
 
 При остановке службы recovery-процесс GUI сохраняет ordinary DIRECT только для
 разрешённых профилем доменов. Protected домены не получают DIRECT fallback. После
@@ -174,7 +202,7 @@ actual Windows acceptance здесь не выполнялся. CI должен 
 guard и возвращается DIRECT; остальные профили сохраняются.
 
 Порядок исправлен: recovery listener → служебный listener/nonce/профиль → recovery
-configuration ACK → guard и штатный выход Edge → live PAC → реальная проверка Edge
+configuration ACK → guard и штатный выход Edge → последний guard → свежий prepare/nonce → recovery ACK → live PAC → реальная проверка Edge
 policy → confirm → AUTO. Отказ до live PAC не может оставить обязательный PAC на
 несуществующий proxy. При любом последующем отказе служба заменяет собственный live
 PAC статическим guard: обычные домены DIRECT, защищённые закрыты. `ProxyPacMandatory`
@@ -210,6 +238,17 @@ guard вместо угадывания защищённых доменов. К�
 Windows-тесте, не установлено: текущий service writer не содержит удаления значения.
 
 Новый GUI до создания AUTO pending/записи PAC проверяет read-only
-`edge.status.activation_version >= 2`. Старый backend не получает неизвестный ему
+`edge.status.activation_version >= 3`. Старый backend не получает неизвестный ему
 pending-профиль: GUI требует обновить службу вместе с GUI. Проверка действует и
 при ручном добавлении msedge.exe; существующие профили не изменяются.
+
+## Проверки этой версии
+
+Linux Go race/vet и cross-build не заменяют actual Edge. В `edge-native.yml` добавлены
+полная guard→fresh prepare→policy→nonce транзакция. Отдельная Go-регрессия
+проверяет отсутствие обращения Edge, автоматический guard и отказ ложного READY. C#/WPF и native runtime
+проверяются на Windows; локальная Linux-сессия не имеет .NET/Edge. ISP PASS Edge не заявлен.
+Chrome clean install: `EnsureBrowserCoverageAsync` → `EnsureChromeProfileAsync` создаёт
+DIRECT full-path профиль один раз, затем штатная проверенная Chrome PAC активация
+переводит его в AUTO. Existing Chrome любого режима не перезаписывается;
+`BrowserCoverageTests` проверяет этот контракт. WPF на чистом ПК здесь не запускался.
