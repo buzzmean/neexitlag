@@ -376,7 +376,16 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		if e != nil {
 			return e
 		}
-		snapshot := view.(browserproxy.Snapshot)
+		// Exercise the public IPC JSON contract, not the controller's private Go
+		// wrapper type (status now also contains bounded cache/usage diagnostics).
+		raw, err := json.Marshal(view)
+		if err != nil {
+			return err
+		}
+		var snapshot browserproxy.Snapshot
+		if err := json.Unmarshal(raw, &snapshot); err != nil {
+			return err
+		}
 		if snapshot.Truncated || snapshot.Lost != 0 {
 			return errors.New("incomplete browser evidence before restart")
 		}
@@ -448,7 +457,13 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
-		snap = view.(browserproxy.Snapshot)
+		raw, err := json.Marshal(view)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(raw, &snap); err != nil {
+			t.Fatal(err)
+		}
 		active := false
 		for _, r := range snap.Records {
 			active = active || r.Active

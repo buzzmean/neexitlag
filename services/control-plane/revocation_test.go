@@ -180,7 +180,7 @@ func TestPostgresRevocation5000AtomicPublicationAndRefresh(t *testing.T) {
 	}
 	// Follow normal HTTP serving, bounded download, signature/cache persistence,
 	// and relay verifier update. All three used to have a 64 KiB bottleneck.
-	api := &API{Store: s, Settings: Settings{KeyID: "root", SigningKey: key}}
+	api := &API{Store: s, Settings: Settings{KeyID: "root", SigningKey: key}, limit: newLimiter(time.Now())} // Same limiter as New; fixture serves only signed GET config.
 	server := httptest.NewServer(api.Handler())
 	defer server.Close()
 	cache := security.NewConfigCache(keys, filepath.Join(t.TempDir(), "config.json"))
