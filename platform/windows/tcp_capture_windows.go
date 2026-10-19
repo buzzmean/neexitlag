@@ -776,12 +776,16 @@ func (t *tcpRedirect) dialLocalStrategyFrom(ctx context.Context, e *tcpEntry, d 
 	return t.dialDelegatedFrom(ctx, e, d, bind, false)
 }
 func (t *tcpRedirect) dialDelegatedFrom(ctx context.Context, e *tcpEntry, d Decision, bind netip.Addr, deferred bool) (net.Conn, error) {
+	wireDestination := e.tuple.Destination
+	if deferred {
+		wireDestination = t.b.nativeDelegationDestination(wireDestination)
+	}
 	var bound Tuple
-	c, err := dialBoundIPv4(ctx, bind, e.tuple.Destination, func(source netip.AddrPort) error {
+	c, err := dialBoundIPv4(ctx, bind, wireDestination, func(source netip.AddrPort) error {
 		if bound.Source.IsValid() {
 			t.releaseDelegated(bound, e.identity)
 		}
-		bound = Tuple{Protocol: "tcp", Source: source, Destination: e.tuple.Destination}
+		bound = Tuple{Protocol: "tcp", Source: source, Destination: wireDestination}
 		t.delegatedMu.Lock()
 		defer t.delegatedMu.Unlock()
 		if len(t.delegated) >= t.state.limit || !t.b.evidence.BindUpstream(e.identity, bound, e.tuple) {

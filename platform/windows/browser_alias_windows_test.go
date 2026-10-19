@@ -76,3 +76,19 @@ func TestNativeDelegatedLoopbackReplyUsesExactReflection(t *testing.T) {
 		t.Fatal("unrelated loopback intercepted", written)
 	}
 }
+
+func TestNativeDelegationTestDestinationNeverChangesProduction(t *testing.T) {
+	dest := netip.MustParseAddrPort("127.0.0.1:443")
+	b := &WinDivertBackend{}
+	if b.nativeDelegationDestination(dest) != dest {
+		t.Fatal("production destination changed")
+	}
+	b.testBrowserLoopback = true
+	if b.nativeDelegationDestination(dest).Addr() != netip.MustParseAddr("192.0.2.254") {
+		t.Fatal("fixture still attempts loopback NAT")
+	}
+	public := netip.MustParseAddrPort("203.0.113.9:443")
+	if b.nativeDelegationDestination(public) != public {
+		t.Fatal("fixture changed a real origin")
+	}
+}

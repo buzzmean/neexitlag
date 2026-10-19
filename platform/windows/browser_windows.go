@@ -61,7 +61,7 @@ func (b *WinDivertBackend) OpenBrowserNativeTCP(ctx context.Context, id ProcessI
 	if tcp == nil || !ready {
 		return nil, ErrUnavailable
 	}
-	selector, err := net.DialUDP("udp4", nil, net.UDPAddrFromAddrPort(dest))
+	selector, err := net.DialUDP("udp4", nil, net.UDPAddrFromAddrPort(b.nativeDelegationDestination(dest)))
 	if err != nil {
 		return nil, err
 	}
@@ -145,4 +145,15 @@ func ChromeProxyPolicyActive(sid, expected string) bool {
 		return false
 	}
 	return policy.Mode == "pac_script" && policy.Mandatory && policy.URL == expected
+}
+
+// Windows loopback is outbound-only at WinDivert NETWORK. The isolated driver
+// fixture reserves a TEST-NET destination for the intercepted SYN, while the
+// immutable callback still opens its real local HTTPS origin. No production
+// caller can enable testBrowserLoopback (the setter is in a _test.go file).
+func (b *WinDivertBackend) nativeDelegationDestination(dest netip.AddrPort) netip.AddrPort {
+	if b.testBrowserLoopback && dest.Addr().IsLoopback() {
+		return netip.AddrPortFrom(netip.MustParseAddr("192.0.2.254"), dest.Port())
+	}
+	return dest
 }
