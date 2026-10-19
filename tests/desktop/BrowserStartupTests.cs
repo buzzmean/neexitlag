@@ -148,12 +148,13 @@ public sealed class BrowserStartupTests
         finally
         {
             foreach (var p in processes) { if (!p.Process.HasExited) p.Process.Kill(true); await p.Process.WaitForExitAsync(); p.Process.Dispose(); }
-            // Chromium descendants can hold their temporary profile briefly.
-            for (var attempt = 0; attempt < 20; attempt++)
+            // Chromium descendants/antivirus can hold this owned temporary profile
+            // after parent exit. Bounded cleanup does not weaken PID/birth assertions.
+            for (var attempt = 0; attempt < 50; attempt++)
             {
                 try { Directory.Delete(directory, true); break; }
-                catch (IOException) when (attempt < 19) { await Task.Delay(100); }
-                catch (UnauthorizedAccessException) when (attempt < 19) { await Task.Delay(100); }
+                catch (IOException) when (attempt < 49) { await Task.Delay(100); }
+                catch (UnauthorizedAccessException) when (attempt < 49) { await Task.Delay(100); }
             }
         }
     }

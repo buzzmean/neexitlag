@@ -30,6 +30,9 @@ jobs:
         with: {go-version: '1.25.x'}
       - run: ./tools/windows/fetch-windivert.ps1
         shell: pwsh
+      - name: Read-only initialization of Windows network providers
+        run: ./tests/windows-tools/network-provider-warmup.ps1
+        shell: powershell
       - name: Actual Chrome policy, owner/SID, ECH, native DIRECT+, outage and restart
         shell: pwsh
         run: |

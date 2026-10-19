@@ -145,6 +145,9 @@ jobs:
         shell: powershell
       - run: ./tools/windows/fetch-windivert.ps1
         shell: pwsh
+      - name: Read-only initialization of Windows network providers
+        run: ./tests/windows-tools/network-provider-warmup.ps1
+        shell: powershell
       - run: |
           $env:NEEXITLAG_TEST_DRIVER_DIR=(Resolve-Path .e2e/windivert).Path
           $env:NEEXITLAG_TEST_BROWSER_RECOVERY=(Resolve-Path bin/windows-e2e/browser-recovery-acceptance.exe).Path
