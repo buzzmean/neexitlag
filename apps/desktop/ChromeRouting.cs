@@ -9,7 +9,7 @@ public partial class MainWindow {
  async void DisableChromeSites(object sender,RoutedEventArgs e)=>await Execute(async()=>{
   var profiles=model.Applications.Where(r=>r.Profile.Mode=="AUTO"&&IsChrome(r.Profile)).Select(r=>r.Profile.Copy()).ToArray();
   if(profiles.Length==0)ChromePolicy.Recover();
-  else{ChromePolicy.Guard(profiles[0]);foreach(var profile in profiles)await model.RestoreChromeAsync(profile,lifetime.Token);}
+  else{ChromePolicy.Guard(profiles[0]);foreach(var profile in profiles){if(DesktopViewModel.NativeBrowser(profile))await model.DisableNativeBrowserAsync(profile,lifetime.Token);else await model.RestoreChromeAsync(profile,lifetime.Token);}}
   model.SetNotice(Text.Get("ChromeSitesRemoved"));
  });
  async void OpenChromeSites(object sender,RoutedEventArgs e){

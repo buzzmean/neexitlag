@@ -54,7 +54,20 @@ public sealed partial class DesktopViewModel
         // Endpoint validates an existing owned crash-guard before any mutation.
         // Do not convert a refusal into PAC installation or a browser restart.
         await client.Call<JsonElement>("browser.native.enable", new { profile_id = p.Id }, ct);
+        startupChromeProfiles.Remove(p.Id);
         await RefreshAsync(ct);
+    }
+    // Explicit user's Disable PAC action, unlike automatic failure rollback.
+    // Caller keeps the owned guard; there is never an unguarded interval.
+    public async Task<JsonElement> DisableNativeBrowserAsync(Profile original, CancellationToken ct = default)
+    {
+        var copy=original.Copy();copy.Mode="DIRECT";copy.PolicyData ??= new();
+        copy.PolicyData["browser_transport"]=JsonSerializer.SerializeToElement("");
+        if(BrowserCatalog.IsEdge(copy)) copy.PolicyData["app_preset"]=JsonSerializer.SerializeToElement("edge-sites");
+        await client.Call<Profile[]>("profile.set",copy,ct);
+        startupChromeProfiles.Remove(copy.Id);
+        var applied=BrowserCatalog.IsEdge(copy)?await EdgePolicyAsync(copy,"guard",ct):JsonSerializer.SerializeToElement(new{applied=true,guard=true});
+        await RefreshAsync(ct);return applied;
     }
     public async Task ObserveNativeBrowsersAsync(CancellationToken ct = default)
     {

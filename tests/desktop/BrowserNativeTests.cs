@@ -43,6 +43,16 @@ public sealed class BrowserNativeTests
         Assert.DoesNotContain(service.Inner.Calls, c => c.Method.Contains("policy") || c.Method.Contains("prepare") || c.Method == "profile.set");
     }
     [Fact]
+    public async Task ExplicitDisableClearsNativeFlagInsteadOfReenablingNative()
+    {
+        var service=new NativeService();var p=new Profile{Id="chrome",Executables=["chrome.exe"],Mode="AUTO",PolicyData=new(){["browser_transport"]=JsonSerializer.SerializeToElement("native")}};
+        service.Inner.State.Profiles=[p];var vm=new DesktopViewModel(service);await vm.RefreshAsync();
+        await vm.DisableNativeBrowserAsync(p);
+        var saved=Assert.Single(service.Inner.State.Profiles);
+        Assert.Equal("DIRECT",saved.Mode);Assert.False(DesktopViewModel.NativeBrowser(saved));Assert.Equal(0,service.NativeCalls);
+        Assert.False(vm.NativeBrowserCandidate(saved));
+    }
+    [Fact]
     public void NativeErrorsShowOnlyKnownCodeWithoutPayloadOrSecrets()
     {
         Assert.Equal("NATIVE_OWNED_PAC_GUARD_REQUIRED", DesktopViewModel.NativeBrowserErrorCode(new Exception("NATIVE_OWNED_PAC_GUARD_REQUIRED token=private")));

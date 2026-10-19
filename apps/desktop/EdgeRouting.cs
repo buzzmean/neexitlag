@@ -34,7 +34,7 @@ public partial class MainWindow {
   var profiles=model.Applications.Where(r=>EdgeSites(r.Profile)||EdgePending(r.Profile)).Select(r=>r.Profile.Copy()).ToArray();
   // The service owns its journal even if the application profile was deleted.
   var applied=await model.GuardEdgeAsync(lifetime.Token);
-  foreach(var p in profiles)applied=await model.RestoreEdgeAsync(p,lifetime.Token);
+  foreach(var p in profiles)applied=DesktopViewModel.NativeBrowser(p)?await model.DisableNativeBrowserAsync(p,lifetime.Token):await model.RestoreEdgeAsync(p,lifetime.Token);
   edgeRecovery.Dispose();edgeNeedsActivation=true;model.ApplyEdgePolicyState(new());
   var ordinary=applied.TryGetProperty("ordinary_direct",out var allowed)&&allowed.ValueKind==JsonValueKind.True;
   model.SetNotice("Рабочий PAC Edge заменён защитным: "+(ordinary?"обычные сайты DIRECT; защищённые домены закрыты до успешной активации.":"строгие/custom ограничения сохранены.")+" ProxySettings остаётся ради защиты всех запросов, включая подресурсы. Чужая политика и Chrome не изменены. Перезапустите Edge.");
