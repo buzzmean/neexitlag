@@ -95,6 +95,15 @@ public sealed class BrowserPathDisplayTests
   Assert.Contains(combined.Records,r=>r.EvidenceSource=="PAC_NATIVE_UPSTREAM");
  }
  [Fact]
+ public void NativeRecordsStayInTheirOwningBrowserLane()
+ {
+  var records=new BrowserConnection[]{new(){Domain="chrome.example",Owner=new(){ProfileId="chrome"}},new(){Domain="edge.example",Owner=new(){ProfileId="edge"}}};
+  var chrome=DesktopViewModel.CombineBrowserPaths(new(),records,new(),new HashSet<string>{"chrome"});
+  Assert.Equal("chrome.example",Assert.Single(chrome.Records).Domain);
+  var edge=DesktopViewModel.CombineBrowserPaths(new(),records,new(),new HashSet<string>{"edge"});
+  Assert.Equal("edge.example",Assert.Single(edge.Records).Domain);
+ }
+ [Fact]
  public void EdgeNativeReadinessDoesNotClaimPACNonceOrPages()
  {
   var vm=new DesktopViewModel(new PickerService());

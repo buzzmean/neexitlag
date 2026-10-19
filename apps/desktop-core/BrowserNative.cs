@@ -73,10 +73,10 @@ public sealed partial class DesktopViewModel
         var applied=BrowserCatalog.IsEdge(copy)?await EdgePolicyAsync(copy,"guard",ct):JsonSerializer.SerializeToElement(new{applied=true,guard=true});
         await RefreshAsync(ct);return applied;
     }
-    public static BrowserTransportSnapshot CombineBrowserPaths(BrowserTransportSnapshot pac, BrowserConnection[] native, NativeBrowserStatus status) => new()
+    public static BrowserTransportSnapshot CombineBrowserPaths(BrowserTransportSnapshot pac, BrowserConnection[] native, NativeBrowserStatus status, IReadOnlySet<string>? profiles = null) => new()
     {
         Listening = pac.Listening || status.CaptureReady,
-        Records = pac.Records.Concat(native).ToArray(),
+        Records = pac.Records.Concat(native.Where(r => profiles is null || profiles.Contains(r.Owner.ProfileId))).ToArray(),
         Truncated = pac.Truncated || status.Truncated, Lost = pac.Lost + status.Lost,
         ReadyProfiles = pac.ReadyProfiles, RecoveryAddress = pac.RecoveryAddress
     };
@@ -91,12 +91,12 @@ public sealed partial class DesktopViewModel
         if (Applications.Any(a => BrowserCatalog.IsChrome(a.Profile) && NativeBrowser(a.Profile)))
         {
             var pac = await ChromeStatusAsync(ct);
-            ApplyBrowser(CombineBrowserPaths(pac, records, status));
+            ApplyBrowser(CombineBrowserPaths(pac, records, status, Applications.Where(a => BrowserCatalog.IsChrome(a.Profile)).Select(a => a.Profile.Id).ToHashSet(StringComparer.Ordinal)));
         }
         if (Applications.Any(a => BrowserCatalog.IsEdge(a.Profile) && NativeBrowser(a.Profile)))
         {
             var pac = await EdgeStatusAsync(ct);
-            ApplyEdge(CombineBrowserPaths(pac.Snapshot(), records, status));
+            ApplyEdge(CombineBrowserPaths(pac.Snapshot(), records, status, Applications.Where(a => BrowserCatalog.IsEdge(a.Profile)).Select(a => a.Profile.Id).ToHashSet(StringComparer.Ordinal)));
             ApplyEdgePolicyState(pac);
         }
     }
