@@ -5,6 +5,7 @@ package windowsplatform
 import (
 	"net/netip"
 	"testing"
+	"time"
 )
 
 func TestBrowserAliasCleanupBeforeFirstCapturedSYN(t *testing.T) {
@@ -46,5 +47,32 @@ func TestBrowserAliasCleanupBeforeFirstCapturedSYN(t *testing.T) {
 	}
 	if len(ledger.aliases) != 0 {
 		t.Fatal("released aliases retained")
+	}
+}
+
+func TestNativeDelegatedLoopbackReplyUsesExactReflection(t *testing.T) {
+	b, _ := captureFixture(t)
+	b.testBrowserLoopback = true
+	redirect := &tcpRedirect{b: b, port: 19000, state: newTCPState(16), delegated: map[Tuple]delegatedTCP{}}
+	tuple := Tuple{Protocol: "tcp", Source: netip.MustParseAddrPort("127.0.0.1:12000"), Destination: netip.MustParseAddrPort("127.0.0.1:443")}
+	entry := redirect.state.add(tuple, ProcessIdentity{PID: 42}, Decision{Deferred: true}, "opening", time.Now())
+	entry.mode = "relay"
+	reply := Tuple{Protocol: "tcp", Source: netip.AddrPortFrom(tuple.Source.Addr(), redirect.port), Destination: netip.AddrPortFrom(tuple.Destination.Addr(), entry.virtual)}
+	var written Tuple
+	b.packetWriter = func(p []byte, _ [80]byte) error { written, _, _, _ = ParseTCP(p); return nil }
+	packet := tcpPacket(t, reply)
+	packet[33] = 0x12
+	var addr [80]byte
+	addr[10] = 6
+	redirect.processPacket(packet, addr, func(ProcessIdentity, Tuple) Decision { t.Fatal("classified exact listener reply"); return Decision{} })
+	if written.Source != tuple.Destination || written.Destination != tuple.Source {
+		t.Fatal("listener reply bypassed native reflection", written)
+	}
+	// A different local port/address must still be passed unchanged.
+	other := reply
+	other.Destination = netip.MustParseAddrPort("127.0.0.1:15000")
+	redirect.processPacket(tcpPacket(t, other), addr, func(ProcessIdentity, Tuple) Decision { t.Fatal("captured unrelated loopback"); return Decision{} })
+	if written != other {
+		t.Fatal("unrelated loopback intercepted", written)
 	}
 }

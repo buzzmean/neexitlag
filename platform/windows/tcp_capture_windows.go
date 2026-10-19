@@ -174,7 +174,14 @@ func (t *tcpRedirect) processPacket(p []byte, a [80]byte, classify Classifier) {
 		_, forward := t.delegated[tuple]
 		_, reverse := t.delegated[Tuple{Protocol: "tcp", Source: tuple.Destination, Destination: tuple.Source}]
 		t.delegatedMu.Unlock()
-		if !forward {
+		// The native fixture also redirects a delegated socket into this
+		// listener. Its exact virtual reply must reach reflect(), not be
+		// reinjected with the listener source port. Unrelated loopback stays out.
+		t.state.mu.Lock()
+		entry := t.state.ports[tuple.Destination.Port()]
+		reflectedReply := entry != nil && tuple.Source.Port() == t.port && tuple.Source.Addr() == entry.tuple.Source.Addr() && tuple.Destination.Addr() == entry.tuple.Destination.Addr()
+		t.state.mu.Unlock()
+		if !forward && !reflectedReply {
 			if reverse && flags&0x3f == 0x12 {
 				t.state.mu.Lock()
 				if entry := t.state.entries[Tuple{Protocol: "tcp", Source: tuple.Destination, Destination: tuple.Source}]; entry != nil {
