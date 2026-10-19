@@ -10,7 +10,9 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -24,6 +26,52 @@ func TestNativeBrowserDriverHandshake(t *testing.T) {
 	dir := os.Getenv("NEEXITLAG_TEST_DRIVER_DIR")
 	if dir == "" {
 		t.Skip("signed driver directory not configured")
+	}
+	if os.Getenv("NEEXITLAG_NATIVE_APP_FIREWALL_CHILD") != "1" {
+		root, err := filepath.Abs(filepath.Join("..", "..", ".e2e"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = os.MkdirAll(root, 0700); err != nil {
+			t.Fatal(err)
+		}
+		stage, err := os.MkdirTemp(root, "native-app-firewall-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			var err error
+			for i := 0; i < 20; i++ {
+				err = os.RemoveAll(stage)
+				if err == nil {
+					return
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+			t.Error("fixture executable cleanup", err)
+		}()
+		own, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		binary, err := os.ReadFile(own)
+		if err != nil {
+			t.Fatal(err)
+		}
+		child := filepath.Join(stage, "neexitlag-service.exe")
+		if err = os.WriteFile(child, binary, 0700); err != nil {
+			t.Fatal(err)
+		}
+		run, stop := context.WithTimeout(context.Background(), 60*time.Second)
+		defer stop()
+		command := exec.CommandContext(run, child, "-test.run", "^TestNativeBrowserDriverHandshake$", "-test.v")
+		command.Env = append(os.Environ(), "NEEXITLAG_NATIVE_APP_FIREWALL_CHILD=1")
+		output, err := command.CombinedOutput()
+		t.Log(string(output))
+		if err != nil {
+			t.Fatal("production app-scoped firewall/native driver fixture", err)
+		}
+		return
 	}
 	raw, err := os.ReadFile(filepath.Join(dir, "pins.json"))
 	if err != nil {
@@ -41,7 +89,7 @@ func TestNativeBrowserDriverHandshake(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer b.Stop()
-	b.AdmitNativeFixtureListener(t)
+	admitNativeApplicationFixture(t)
 	id, err := NewDiscovery().Lookup(uint32(os.Getpid()))
 	if err != nil {
 		t.Fatal(err)
@@ -86,4 +134,38 @@ func TestNativeBrowserDriverHandshake(t *testing.T) {
 		t.Fatal("actual native bidirectional payload", string(got), err)
 	}
 	dump()
+}
+
+// Exercises the actual opt-in production helper against this isolated copied
+// test executable. Never installs SCM or reads real identity/credentials.
+func admitNativeApplicationFixture(t *testing.T) {
+	t.Helper()
+	helper, err := filepath.Abs(filepath.Join("..", "..", "tools", "windows", "native-tcp-firewall.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+	run := func(operation string) ([]byte, error) {
+		ctx, stop := context.WithTimeout(context.Background(), 15*time.Second)
+		defer stop()
+		script := "$ErrorActionPreference='Stop';. " + quote(helper) + ";" + operation + " " + quote(exe)
+		return exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script).CombinedOutput()
+	}
+	output, err := run("Add-NativeTcpFirewallAdmission")
+	if err != nil {
+		t.Fatal("actual application-scoped firewall admission", err, string(output))
+	}
+	if strings.TrimSpace(string(output)) != "True" {
+		t.Fatal("expected fresh isolated app rule", string(output))
+	}
+	t.Cleanup(func() {
+		output, err := run("Remove-NativeTcpFirewallAdmission")
+		if err != nil {
+			t.Error("remove isolated app rule", err, string(output))
+		}
+	})
 }

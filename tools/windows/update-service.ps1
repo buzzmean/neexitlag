@@ -1,11 +1,13 @@
 [CmdletBinding()]
 param(
  [string]$ServiceExecutable=(Join-Path $PSScriptRoot '..\..\bin\windows-e2e\neexitlag-service.exe'),
- [string]$InstallDirectory="$env:ProgramData\neexitlag"
+ [string]$InstallDirectory="$env:ProgramData\neexitlag",
+ [switch]$NativeTcpFirewall
 )
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 Assert-Administrator
+. (Join-Path $PSScriptRoot 'native-tcp-firewall.ps1')
 function Assert-ServiceUpdateScmTarget([string]$CommandLine,[string]$ExpectedPath){
  $match=[regex]::Match($CommandLine,'^\s*"([^"]+)"(?:\s|$)')
  if(!$match.Success -or [IO.Path]::GetFullPath($match.Groups[1].Value) -ine [IO.Path]::GetFullPath($ExpectedPath)){throw 'SCM executable does not match the requested installation; update refused'}
@@ -44,7 +46,7 @@ function Set-BinaryOwnerReadExecute([string]$Path,[string]$OwnerSid){
  Set-Acl -LiteralPath $Path -AclObject $acl
 }
 $pending=Join-Path $root ('.service-update-'+[Guid]::NewGuid().ToString('N')+'.exe')
-$stopped=$false;$replaced=$false
+$stopped=$false;$replaced=$false;$nativeFirewallCreated=$false
 try{
  Copy-Item -LiteralPath $source -Destination $pending
  Set-BinaryOwnerReadExecute $pending $owner.Value
@@ -56,6 +58,7 @@ try{
  $replaced=$true
  Set-BinaryOwnerReadExecute $target $owner.Value
  if((Get-FileHash -LiteralPath $target).Hash -ne (Get-FileHash -LiteralPath $source).Hash){throw 'Installed binary hash mismatch'}
+ if($NativeTcpFirewall){$nativeFirewallCreated=Add-NativeTcpFirewallAdmission $target}
  Start-Service neexitlag
  $service.WaitForStatus('Running',[TimeSpan]::FromSeconds(30))
  $deadline=[DateTime]::UtcNow.AddSeconds(30);$ready=$false
@@ -65,10 +68,13 @@ try{
  }while(!$ready -and [DateTime]::UtcNow -lt $deadline)
  if(!$ready){throw 'Updated service IPC readiness failed'}
  Set-Service -Name neexitlag -DisplayName 'VELIQ Routing Service'
+ if($NativeTcpFirewall){Write-Host 'Native TCP firewall admission verified: this service executable only; no global firewall or VPS changes.'}
  Write-Host "VELIQ Windows service updated. Backup: $backup"
  Write-Host 'Only service executable ACL changed: owner RX, SYSTEM/admins F. Identity, credentials, driver and state ACLs preserved.'
 }catch{
  $failure=$_.Exception.Message
+ $firewallRollbackError=$false
+ if($nativeFirewallCreated){try{Remove-NativeTcpFirewallAdmission $target}catch{$firewallRollbackError=$true}}
  if(!$replaced){
   if($stopped){try{Start-Service neexitlag;$service.WaitForStatus('Running',[TimeSpan]::FromSeconds(30))}catch{throw "Executable was not replaced; previous service could not restart. Backup: $backup"}}
   throw "Windows update refused before replacement; previous binary/ACL retained: $failure. Backup: $backup"
@@ -84,5 +90,6 @@ try{
   Start-Service neexitlag
   $service.WaitForStatus('Running',[TimeSpan]::FromSeconds(30))
  }catch{throw "Windows update failed ($failure); automatic binary rollback failed. Backup retained: $backup"}
+ if($firewallRollbackError){throw "Windows update failed; previous binary/ACL restored, but owned native firewall rule cleanup failed. Backup: $backup"}
  throw "Windows update failed; previous binary/ACL restored: $failure. Backup: $backup"
 }finally{if(Test-Path -LiteralPath $pending){Remove-Item -LiteralPath $pending -Force}}
