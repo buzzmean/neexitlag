@@ -825,10 +825,30 @@ func (t *tcpRedirect) dialDelegatedFrom(ctx context.Context, e *tcpEntry, d Deci
 		return nil
 	})
 	if err != nil {
+		if deferred {
+			t.abortUnacceptedDelegated(bound, e.identity)
+		}
 		t.releaseDelegated(bound, e.identity)
 		return nil, err
 	}
 	return &delegatedConn{Conn: c, release: func() { t.releaseDelegated(bound, e.identity) }}, nil
+}
+
+// A failed frontend handoff has transmitted no application bytes. Close only
+// its exact unaccepted reservation before releasing the alias, so a retry does
+// not collide with an orphaned authenticated upstream or affect an active pipe.
+func (t *tcpRedirect) abortUnacceptedDelegated(bound Tuple, id ProcessIdentity) {
+	t.state.mu.Lock()
+	defer t.state.mu.Unlock()
+	e := t.state.entries[bound]
+	if e == nil || !sameHotOwner(e.identity, id) || e.decision.OpenDeferred == nil || e.local != nil || (e.mode != "opening" && e.mode != "relay") {
+		return
+	}
+	if e.openCancel != nil {
+		e.openCancel()
+	}
+	t.b.evidence.RecordFailure(e.identity, e.tuple, "NATIVE_CLIENT_HANDOFF_FAILED", true)
+	t.state.retire(e, time.Now())
 }
 
 // Closing a delegated upstream can happen while state.mu is held. Its release

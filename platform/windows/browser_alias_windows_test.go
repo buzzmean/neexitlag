@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/buzzmean/neexitlag/core/flowpolicy"
+	"io"
 	"net"
 	"net/netip"
 	"testing"
@@ -140,6 +141,50 @@ func TestNativePlannedOpenAcknowledgesOnlyRealUpstreamAndNeverSendsOriginalSYN(t
 			} else {
 				if entry.mode != "relay" || sent != 1 || entry.upstream == nil || !entry.decision.Route.Direct() {
 					t.Fatal("successful DIRECT upstream was treated as fallback", entry.mode, sent)
+				}
+			}
+		})
+	}
+}
+
+func TestNativeFailedHandoffRetiresOnlyItsUnacceptedUpstream(t *testing.T) {
+	for _, kind := range []string{"opening", "relay", "accepted", "foreign", "legacy"} {
+		t.Run(kind, func(t *testing.T) {
+			b, _ := captureFixture(t)
+			r := &tcpRedirect{b: b, state: newTCPState(16)}
+			id := ProcessIdentity{PID: 42, CreationTime: 17, Path: `C:\Apps\chrome.exe`}
+			tuple := Tuple{Protocol: "tcp", Source: netip.MustParseAddrPort("192.0.2.1:12345"), Destination: netip.MustParseAddrPort("203.0.113.1:443")}
+			d := Decision{OpenDeferred: func(context.Context, Decision, string) (net.Conn, Decision, error) { return nil, Decision{}, nil }}
+			e := r.state.add(tuple, id, d, "opening", time.Now())
+			up, peer := net.Pipe()
+			defer up.Close()
+			defer peer.Close()
+			e.upstream = up
+			if kind != "opening" {
+				e.mode = "relay"
+			}
+			if kind == "accepted" {
+				local, other := net.Pipe()
+				defer local.Close()
+				defer other.Close()
+				e.local = local
+			}
+			if kind == "foreign" {
+				id.CreationTime++
+			}
+			if kind == "legacy" {
+				e.decision.OpenDeferred = nil
+			}
+			r.abortUnacceptedDelegated(tuple, id)
+			shouldClose := kind == "opening" || kind == "relay"
+			if (e.mode == "closed") != shouldClose || (e.upstream == nil) != shouldClose {
+				t.Fatal("incorrect handoff cleanup", kind, e.mode)
+			}
+			if shouldClose {
+				_ = peer.SetReadDeadline(time.Now().Add(time.Second))
+				var one [1]byte
+				if _, err := peer.Read(one[:]); err != io.EOF {
+					t.Fatal("orphan upstream not closed", err)
 				}
 			}
 		})
