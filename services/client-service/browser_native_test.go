@@ -379,14 +379,20 @@ func TestNativeEdgeStatusSeparatesCaptureFromPACNonceReadiness(t *testing.T) {
 
 type nativePACAdmissionSpy struct {
 	nativeBackendFixture
-	decision wp.Decision
-	calls    int
-	err      error
+	decision     wp.Decision
+	calls        int
+	err          error
+	invokeWorker bool
 }
 
-func (b *nativePACAdmissionSpy) OpenBrowserNativeTCP(_ context.Context, _ wp.ProcessIdentity, _, _ netip.AddrPort, d wp.Decision) (net.Conn, error) {
+func (b *nativePACAdmissionSpy) OpenBrowserNativeTCP(ctx context.Context, _ wp.ProcessIdentity, _, _ netip.AddrPort, d wp.Decision) (net.Conn, error) {
 	b.calls++
 	b.decision = d
+	if b.invokeWorker {
+		_, _, _ = d.OpenDeferred(ctx, d, "CONNECT_AUTHORITY")
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	return nil, b.err
 }
 func TestNativePACExactDelegationIsBoundedFailClosedAndNotAFalseOpen(t *testing.T) {
@@ -410,5 +416,20 @@ func TestNativePACExactDelegationIsBoundedFailClosedAndNotAFalseOpen(t *testing.
 	b.ready = false
 	if _, err = c.openNativePAC(context.Background(), q, plan, d); err == nil || b.calls != 1 {
 		t.Fatal("unready capture admitted a SYN", err, b.calls)
+	}
+}
+
+func TestNativePACWorkerFailureIsNotMisreportedAsKernelConnectTimeout(t *testing.T) {
+	c, p, _ := nativeEdgeFixture(t)
+	b := &nativePACAdmissionSpy{invokeWorker: true}
+	b.ready = true
+	c.Backend = b
+	q := browserproxy.Request{Host: "chatgpt.com", Owner: browserproxy.Owner{Profile: p.ID}}
+	plan := browserproxy.Plan{Destination: netip.MustParseAddrPort("203.0.113.2:443")}
+	ctx, stop := context.WithTimeout(context.Background(), time.Second)
+	defer stop()
+	_, err := c.openNativePAC(ctx, q, plan, wp.Decision{})
+	if err == nil || err.Error() != "NATIVE_PROFILE_CHANGED" || ctx.Err() != nil {
+		t.Fatal("real worker error hidden behind timeout", err, ctx.Err())
 	}
 }

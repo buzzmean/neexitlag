@@ -24,13 +24,25 @@ func (c *Controller) openNativePAC(ctx context.Context, q browserproxy.Request, 
 	if !c.nativeBackendReady() {
 		return nil, errors.New("NATIVE_CAPTURE_NOT_READY")
 	}
+	gate, stopGate := context.WithCancel(ctx)
+	defer stopGate()
+	failures := make(chan error, 1)
 	d.OriginDomain = q.Host
 	d.NewConnectionsOnly = true
 	d.BlockOnFailure = true
 	d.Deferred = false
 	d.ResolveDomain = nil
 	requestContext := ctx
-	d.OpenDeferred = func(ctx context.Context, decision wp.Decision, _ string) (net.Conn, wp.Decision, error) {
+	d.OpenDeferred = func(ctx context.Context, decision wp.Decision, _ string) (retConn net.Conn, retDecision wp.Decision, retErr error) {
+		defer func() {
+			if retErr != nil {
+				select {
+				case failures <- retErr:
+				default:
+				}
+				stopGate()
+			}
+		}()
 		// The exact plan is known from CONNECT: open it before acknowledging
 		// the reserved SYN, so PAC never reports OPEN before the actual route.
 		work, stop := context.WithCancel(ctx)
@@ -66,5 +78,36 @@ func (c *Controller) openNativePAC(ctx context.Context, q browserproxy.Request, 
 		}
 		return &nativeBrowserConn{Conn: conn, runtime: n, record: record}, decision, nil
 	}
-	return backend.OpenBrowserNativeTCP(ctx, browserIdentity(q), q.Source, plan.Destination, d)
+	conn, err := backend.OpenBrowserNativeTCP(gate, browserIdentity(q), q.Source, plan.Destination, d)
+	if err != nil {
+		select {
+		case actual := <-failures:
+			return nil, nativePACError(actual)
+		default:
+		}
+	}
+	return conn, nativePACError(err)
+}
+
+type nativePACOpenError struct {
+	code  string
+	cause error
+}
+
+func (e *nativePACOpenError) Error() string         { return e.code }
+func (e *nativePACOpenError) Unwrap() error         { return e.cause }
+func (e *nativePACOpenError) FailureReason() string { return e.code }
+func nativePACError(err error) error {
+	if err == nil {
+		return nil
+	}
+	code := err.Error()
+	if errors.Is(err, wp.ErrUnavailable) {
+		code = "NATIVE_CAPTURE_NOT_READY"
+	}
+	switch code {
+	case "NATIVE_PAC_DELEGATION_INVALID", "NATIVE_PAC_DELEGATION_UNAVAILABLE", "NATIVE_CAPTURE_NOT_READY", "NATIVE_PROFILE_CHANGED", "NATIVE_OWNER_SID_MISMATCH", "NATIVE_EVIDENCE_CAPACITY":
+		return &nativePACOpenError{code: code, cause: err}
+	}
+	return err
 }

@@ -540,7 +540,9 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		view, _ := c.Handle(ctx, "browser.status", nil)
 		captured, _ := backend.DiagnosticsScoped(wp.EvidenceQuery{Destination: f.Destination().String(), Domain: "www.youtube.com"})
 		trace, _ := json.Marshal(captured)
-		t.Fatal("controlled Chrome HTTP(S) failed", err, out, view, "YouTube capture", string(trace))
+		native, _ := c.Handle(ctx, "browser.native.status", nil)
+		nativeRaw, _ := json.Marshal(native)
+		t.Fatal("controlled Chrome HTTP(S) failed", err, out, view, "native status", string(nativeRaw), "YouTube capture", string(trace))
 	}
 	// Wait for actual Chrome sockets to close so forwarded byte counters are final.
 	var snap browserproxy.Snapshot
