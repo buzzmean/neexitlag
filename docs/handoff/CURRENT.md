@@ -1,6 +1,6 @@
 # CURRENT — состояние проекта (обновляется в конце каждой сессии)
 
-Обновлено: 19.10.2026, Codex; рабочая ветка `codex/work`. Этап (а) проверен владельцем; этап (б) native новых TCP с owned PAC crash-guard — runtime `673624a`, Windows burst fixture `f1a0363`, renewal test fixture `b3dcd1c`; передано на короткую проверку ПК владельца. Этап (в) не начат. История передачи Claude сохранена ниже.
+Обновлено: 19.10.2026, Codex; рабочая ветка `codex/work`. Исправление игровых AUTO/DIRECT — `50f750f`, GUI — `060bc19`, диагностика — `2815bd0`; ожидается короткая проверка CS владельцем. Этап (а) проверен владельцем; этап (б) native новых TCP с owned PAC crash-guard — runtime `673624a`, Windows burst fixture `f1a0363`, renewal test fixture `b3dcd1c`; передано на короткую проверку ПК владельца. Этап (в) не начат. История передачи Claude сохранена ниже.
 
 ## (a) Цель
 Чистый Windows 10/11: установил, нажал «Оптимизировать» — заблокированные в РФ сервисы работают без VPN: ChatGPT, Claude, YouTube, Discord, Telegram, браузеры Chrome и Edge. Первый заказчик — клуб на 36 ПК с откатом при перезагрузке.
@@ -45,7 +45,7 @@
 | Этап (а): профили Chrome/Edge при запуске GUI и диагностика; PAC/restart без изменений | `apps/desktop/BrowserStartup*.cs`, `apps/desktop/MainWindow.xaml.cs`, `apps/desktop/ChromeRouting.cs` (только сохранение старого activation path), `apps/desktop-core/BrowserStartup*.cs`, `apps/desktop-core/BrowserCatalog.cs`, `apps/desktop-core/DesktopViewModel.cs` (создание/диагностика), `apps/desktop/MainWindow.xaml`, `tests/desktop/*`, `tests/desktop-bindings/*`, `tools/windows/diag-no-vpn.ps1`, `docs/BROWSER_HOT_ATTACH.md`, `docs/handoff/CURRENT.md` | Codex | `codex/work` | Этап (а) ГОТОВ 19.10.2026 (`c556ac6`), область освобождена, проверка ПК PASS (4 мс, PID/start time Chrome неизменны); локальные Go/Python PASS, C#/WPF, Edge policy и полный Linux/Windows Verify CI PASS. Этап (б) отдельно, (в) только после проверки владельца; VPS/QUIC/IPv6 не менять |
 | Этап (б): native browser AUTO и автоматическое восстановление Edge | `services/client-service/browser_*.go`, `edge_*.go`, `controller.go`, `ipc_handlers.go`, `flow_policy.go`, `core/profiles/profile.go` (backward-compatible browser_transport), `platform/windows/{boundary,hot_attach,ipv6_guard,deferred_tcp,tcp_capture_windows,browser}*.go`, browser acceptance/тесты, `tools/route-test/upgrade_test.go` (только fresh-ticket/clock фикстура), `apps/desktop{,-core}/Browser*.cs`, `EdgeRouting*.cs`, `ChromeRouting.cs`, `DesktopViewModel.cs`, `MainWindow.xaml{,.cs}`, `tests/desktop/*`, `tools/windows/diag-no-vpn.ps1`, `.github/workflows/*native.yml`, `docs/BROWSER_HOT_ATTACH.md`, `CURRENT.md` | Codex | `codex/work` | ГОТОВО 19.10.2026 (`b3dcd1c`), область освобождена; этап (б) ждёт проверки ПК владельца с открытыми браузерами и existing owned PAC. Этап (в) не начат; VPS, QUIC/IPv6 вне правок |
 | UDP latency / аудит очередей вне выбранных маршрутов | `platform/windows/capture_queue*.go` (новые), `capture_windows.go`, `tcp_capture_windows.go`, `ipv6_guard_windows.go` (только замеры), `boundary.go` (статус), `services/client-service/controller.go` (новый read-only IPC), `capture_queue_test.go` (новый), `tools/windows/diag-no-vpn.ps1`, `.github/workflows/verify.yml` (только новые Windows tests), `docs/UDP_CAPTURE_AUDIT.md` (новый), `CURRENT.md` | Codex | `codex/work` | ПРИОСТАНОВЛЕНО 19.10.2026: владелец подтвердил 28025 UDP packets CS через VPS; причина — маршрут application default RELAY. Код фильтров/очередей не менялся, область освобождена |
-| Игры/неизвестные приложения: безопасный DIRECT по умолчанию и явное RELAY предупреждение | `core/profiles/profile{,_test}.go`, `services/client-service/{controller,flow_policy}.go`, новые `automatic_relay*.go`, `services/client-service/*_test.go` (регрессии routing), `apps/desktop-core/{DesktopViewModel,RelayWarning}.cs`, `apps/desktop/{MainWindow.xaml,RelayWarning}.cs`, `apps/desktop-core/Resources/Strings.resx`, `tests/desktop/*`, `tools/windows/diag-no-vpn.ps1`, `tests/windows-tools/profile-routing-checks.ps1` (новый), `.github/workflows/verify.yml` (PS fixtures), `docs/GAME_DIRECT.md` (новый), `CURRENT.md` | Codex | `codex/work` | В РАБОТЕ 19.10.2026: новый запрос владельца заменяет гипотезу WinDivert; профиль cs2 AUTO и global optimizer — подтверждённый путь в relay; сохраняем browser/protected presets и явный MANUAL |
+| Игры/неизвестные приложения: безопасный DIRECT по умолчанию и явное RELAY предупреждение | `core/profiles/profile{,_test}.go`, `services/client-service/{controller,flow_policy}.go`, новые `automatic_relay*.go`, `services/client-service/*_test.go` (регрессии routing), `apps/desktop-core/{DesktopViewModel,RelayWarning}.cs`, `apps/desktop/{MainWindow.xaml,RelayWarning}.cs`, `apps/desktop-core/Resources/Strings.resx`, `tests/desktop/*`, `tools/windows/diag-no-vpn.ps1`, `tests/windows-tools/profile-routing-checks.ps1` (новый), `.github/workflows/verify.yml` (PS fixtures), `docs/GAME_DIRECT.md` (новый), `CURRENT.md` | Codex | `codex/work` | ГОТОВО 19.10.2026 (`50f750f`, `060bc19`, `2815bd0`), область освобождена; владелец подтвердил исходный AUTO. Старые игровые AUTO безопасны, новые обычные приложения DIRECT; явный MANUAL и browser/protected presets сохранены. Ждёт короткой проверки CS на ПК, не заявления о снижении пинга |
 | Discord медленно, DIRECT+ для YouTube | не определены | никто | — | свободно для Codex после диагностики; Go-файлы застоя (выше) не трогать |
 | PR #8, `codex/direct-plus-flowseal` | — | не трогать | — | только владелец |
 
@@ -73,6 +73,8 @@
 ## (h) Журнал решений
 | Дата | Решение | Почему |
 |---|---|---|
+| 19.10.2026 | Игры и неизвестные AUTO не получают global/learned relay; новый обычный профиль DIRECT; явный MANUAL требует подтверждения GUI | CS с подтверждённым AUTO шёл через VPS: 28025 UDP packets. Глобальный probe winner не измеряет качество пути к игровому серверу; browser/protected/Discord presets и явные правила сохраняются |
+| 19.10.2026 | Диагностика различает configured default и фактические flow counters с PID/creation time | Browser usage не показывает игровой UDP; source=profile не определяет автора профиля. Старые файлы не хранят автора/время override; отсутствие flow в bounded snapshot не доказывает отсутствие relay |
 | 19.10.2026 | Immediate-renewal test использует уникальные ID и короткое разнесение test ticket issues | Loopback issuer с нулевой задержкой и coarse Windows clock давал ложный deadline-extension FAIL; production lease/security и assertions не меняются |
 | 19.10.2026 | Native activation отделена logical flow ID; публикация нового профиля fences UDP, сохраняет все TCP | Windows timestamps могут совпасть; старый поток не должен давать ложный activation PASS, старый DIRECT UDP/443 не должен переживать AUTO |
 | 19.10.2026 | Windows burst echo target вынесен в отдельный процесс | Independent dial подтвердил loopback refusal вне admission/pool; не снижены 160/256 concurrency и строгие assertions, production параметры не меняются |
@@ -465,3 +467,62 @@ Read-only команды Windows/VPS и риски 1 vCPU описаны в BROW
 `install-desktop.ps1`, открыть VELIQ, Optimize, обновить страницы в уже открытых окнах.
 Проверка: `& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube` (версия 2026-10-19.3).
 VPS/credentials/certificates/PR #8/ветка direct-plus-flowseal не менялись.
+
+
+## (o) Игровой AUTO → DIRECT, 19.10.2026
+
+- Данные владельца: CS 120 мс с Optimize / 25 мс без; scoped capture показал
+  28025 UDP packets через VPS-01, source=profile. Владелец подтвердил **mode=AUTO**.
+  Встроенный cs2 AUTO введён в `fa7cdc1`; global optimizer выбирал релей по probe
+  target, не игровому серверу. Это подтверждённый путь ошибочного relay, а не
+  доказанная задержка WinDivert. Создателя возможного local override старые данные
+  не хранят: нельзя приписывать его ручному действию GUI только по source=profile.
+- `50f750f`: свежий cs2 DIRECT (Steam уже DIRECT); старые игровые/неизвестные AUTO
+  игнорируют global relay/backups и generic learned relay, включая защиту в engine
+  selector. Профили/кэш не удалены. MANUAL и явные rules остаются opt-in;
+  browser per-domain, OpenAI/Anthropic/Telegram/Discord protected политики сохранены.
+- `060bc19`: обычное добавление из процессов/файла создаёт DIRECT с полным путём.
+  GUI подтверждает MANUAL предупреждением о возможном росте пинга; «Нет» не меняет
+  профиль и не вызывает IPC. Browser startup — отдельный согласованный путь.
+- `2815bd0`: optional read-only IPC profiles.routing (built_in/local_override/custom,
+  policy defaults, bounded 64); diagnostics 2026-10-19.4 раздел «Процессы с профилем
+  RELAY», реальный scoped flow PID/birth/group, explicit truncation/lost. Старый
+  сервис помечает AUTO UNKNOWN_LEGACY_AUTO, не выдаёт ложный DIRECT/PASS.
+  PS5.1/7 StrictMode fixtures, C# регрессии и исправленные expected DIRECT включены.
+- Файлы: core/profiles/profile.go; services/client-service/{automatic_relay*,controller,
+  flow_policy,local_strategy_test,controller_test}.go; desktop-core DesktopViewModel,
+  RelayWarning и ресурсы; desktop MainWindow.xaml.cs/RelayWarning; tests/desktop;
+  diag-no-vpn.ps1, tests/windows-tools/profile-routing-checks.ps1, verify.yml,
+  docs/GAME_DIRECT.md. WinDivert/queues/relay runtime не менялись.
+
+### Проверки
+
+- Локально: targeted Go race service/profiles PASS, go vet, Linux build и Windows
+  amd64 cross-build PASS; отдельные route-test/demo race PASS. Полный локальный
+  race в нескольких прогонах упирался в существующий demo 25-second route-selection
+  timeout под нагрузкой; чистый полный локальный PASS не заявляется. Таймауты и
+  assertions не ослаблялись. В Linux CI полный race прошёл.
+- .NET/PowerShell/Windows локально отсутствуют; C#/WPF локально НЕ компилировались.
+  Проверки выполняются Windows CI, а не выдаются за тест на ISP владельца.
+- Проверенный код: `2815bd04ad46669f8504780039cfce530094fadf`.
+- [Verify](https://github.com/buzzmean/neexitlag/actions/runs/39266607496):
+  Linux core и Windows PASS: полный race/vet/build/cross-build, C#/WPF,
+  PS5.1/7, native driver/Chrome, 160/256 bursts, ускоренный lease, IPC/CLI checks.
+- [Edge policy/C#/WPF](https://github.com/buzzmean/neexitlag/actions/runs/39266607404),
+  [relay release](https://github.com/buzzmean/neexitlag/actions/runs/39266607426),
+  [isolated upgrade](https://github.com/buzzmean/neexitlag/actions/runs/39266607408) PASS.
+- Финальный handoff меняет только документы; следующий checkout обновлять без
+  rebase/force. VPS, credentials, сертификаты, PR #8 и direct-plus-flowseal не менялись.
+
+### ПК владельца
+
+Сразу на установленной версии: «Приложения» → Counter-Strike 2 → DIRECT → «Применить»;
+Steam и остальные игровые профили оставить DIRECT. Встроенный профиль не удалять.
+Не менять Optimize/браузеры/защищённые приложения. Смена UDP egress может требовать
+переподключения к игровому серверу, не перезапуска остальных приложений.
+Обновлять службу и GUI штатными build-e2e/build-desktop/update-service/install-desktop
+под прежним owner SID, проверять SHA256 службы; Chrome/Edge закрывать не требуется.
+Обычный PowerShell, C:\neexitlag во время матча:
+`& .\tools\windows\diag-no-vpn.ps1 -Only apps,ipc`.
+Сравнить mode/default и фактический игровой flow DIRECT, затем пинг с Optimize on/off.
+Новый реальный пинг и отсутствие задержки WinDivert пока не измерены.
