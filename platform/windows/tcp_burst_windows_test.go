@@ -7,6 +7,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -62,7 +63,7 @@ func testTCPNativeBurst(t *testing.T, count int, deferred bool) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { pool.Close() })
-	addr, closeEcho, err := burstTCPEcho()
+	addr, closeEcho, echoStatus, err := burstTCPEcho()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +222,7 @@ func testTCPNativeBurst(t *testing.T, count int, deferred bool) {
 			redirect.state.mu.Unlock()
 			evidence, _ := b.evidence.SnapshotQuery(EvidenceQuery{PID: e.identity.PID, CreationTime: e.identity.CreationTime, Source: e.tuple.Source.String(), Destination: e.tuple.Destination.String()}, nil)
 			raw, _ := json.Marshal(evidence)
-			t.Fatalf("protected open failed %d mode=%s capture=%s pool=%+v upstream=%+v context=%v", i, mode, raw, pool.Snapshot(), server.Metrics.LastUpstreamDialFailure.Load(), b.ctx.Err())
+			t.Fatalf("protected open failed %d mode=%s capture=%s pool=%+v upstream=%+v context=%v echo=%v", i, mode, raw, pool.Snapshot(), server.Metrics.LastUpstreamDialFailure.Load(), b.ctx.Err(), echoStatus())
 		}
 		if !deferred {
 			redirect.wg.Add(1)
@@ -375,15 +376,15 @@ func TestTCPNativeInitialWriteReleasesAdmission(t *testing.T) {
 // chooses a dynamic backlog, which can reject a fast 256-open local burst even
 // while the client pool has spare capacity. Set a bounded explicit backlog on
 // THIS test socket only; production admission/relay/timeouts remain unchanged.
-func burstTCPEcho() (net.Addr, func(), error) {
+func burstTCPEcho() (net.Addr, func(), func() string, error) {
 	listener, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	raw, err := listener.SyscallConn()
 	if err != nil {
 		listener.Close()
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	var listenErr error
 	err = raw.Control(func(fd uintptr) { listenErr = syscall.Listen(syscall.Handle(fd), -4096) }) // SOMAXCONN_HINT(4096)
@@ -392,8 +393,10 @@ func burstTCPEcho() (net.Addr, func(), error) {
 	}
 	if err != nil {
 		listener.Close()
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
+	var accepted atomic.Int32
+	var acceptFailure atomic.Pointer[string]
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	conns := map[net.Conn]bool{}
@@ -404,8 +407,13 @@ func burstTCPEcho() (net.Addr, func(), error) {
 		for {
 			conn, err := listener.AcceptTCP()
 			if err != nil {
+				if !errors.Is(err, net.ErrClosed) {
+					message := err.Error()
+					acceptFailure.Store(&message)
+				}
 				return
 			}
+			accepted.Add(1)
 			mu.Lock()
 			if closed {
 				mu.Unlock()
@@ -423,13 +431,23 @@ func burstTCPEcho() (net.Addr, func(), error) {
 		}
 	}()
 	return listener.Addr(), func() {
-		listener.Close()
-		mu.Lock()
-		closed = true
-		for c := range conns {
-			c.Close()
-		}
-		mu.Unlock()
-		wg.Wait()
-	}, nil
+			listener.Close()
+			mu.Lock()
+			closed = true
+			for c := range conns {
+				c.Close()
+			}
+			mu.Unlock()
+			wg.Wait()
+		}, func() string {
+			failure := ""
+			if v := acceptFailure.Load(); v != nil {
+				failure = *v
+			}
+			health, err := net.DialTimeout("tcp4", listener.Addr().String(), 500*time.Millisecond)
+			if health != nil {
+				health.Close()
+			}
+			return fmt.Sprintf("accepted=%d accept_error=%q probe_error=%v", accepted.Load(), failure, err)
+		}, nil
 }
