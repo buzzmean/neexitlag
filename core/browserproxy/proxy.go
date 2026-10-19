@@ -322,7 +322,7 @@ func (s *Server) handle(c net.Conn) {
 	lifetime, stopLifetime := context.WithCancel(s.ctx)
 	defer stopLifetime()
 	ctx, cancel := context.WithTimeout(lifetime, 8*time.Second)
-	defer func() { cancel() }()
+	defer cancel()
 	c.SetDeadline(time.Now().Add(8 * time.Second))
 	b := bufio.NewReaderSize(c, 8192)
 	head, e := readHeaders(b)
@@ -368,9 +368,16 @@ func (s *Server) handle(c net.Conn) {
 		}
 		snapshot := s.cfg.Metadata()
 		raw, err := json.Marshal(snapshot)
-		for err == nil && len(raw) > 58000 && len(snapshot.Records) > 0 {
+		for err == nil && len(raw) > 58000 && (len(snapshot.Records) > 0 || len(snapshot.FailureDetails) > 0 || len(snapshot.PathMetrics) > 0) {
 			snapshot.Truncated = true
-			snapshot.Records = snapshot.Records[:len(snapshot.Records)-1]
+			switch {
+			case len(snapshot.Records) > 0:
+				snapshot.Records = snapshot.Records[:len(snapshot.Records)-1]
+			case len(snapshot.FailureDetails) > 0:
+				snapshot.FailureDetails = snapshot.FailureDetails[:len(snapshot.FailureDetails)-1]
+			case len(snapshot.PathMetrics) > 0:
+				snapshot.PathMetrics = snapshot.PathMetrics[:len(snapshot.PathMetrics)-1]
+			}
 			raw, err = json.Marshal(snapshot)
 		}
 		if err != nil || len(raw) > 58000 {
@@ -493,19 +500,20 @@ func (s *Server) handle(c net.Conn) {
 		writeError(c, 502)
 		return
 	}
-	ctx, cancel = context.WithTimeout(lifetime, 3*time.Second)
+	openCtx, stopOpen := context.WithTimeout(lifetime, 3*time.Second)
+	defer stopOpen()
 	c.SetDeadline(time.Now().Add(3 * time.Second))
 	openStarted := time.Now()
 	var upstream net.Conn
 	if s.cfg.OpenPlan != nil {
-		upstream, plan, e = s.cfg.OpenPlan(ctx, q, plan)
+		upstream, plan, e = s.cfg.OpenPlan(openCtx, q, plan)
 		s.mu.Lock()
 		r := s.records[id]
 		r.Plan = plan
 		s.records[id] = r
 		s.mu.Unlock()
 	} else {
-		upstream, e = s.cfg.Open(ctx, q, plan)
+		upstream, e = s.cfg.Open(openCtx, q, plan)
 	}
 	s.mu.Lock()
 	openedRecord := s.records[id]
