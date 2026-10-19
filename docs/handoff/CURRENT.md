@@ -1,6 +1,6 @@
 # CURRENT — состояние проекта (обновляется в конце каждой сессии)
 
-Обновлено: 19.10.2026, Codex; рабочая ветка `codex/work`. Этап (а) проверен владельцем; этап (б) native новых TCP с owned PAC crash-guard — код `673624a` / `c2455a4` (burst diagnostics), завершается Windows Verify. История передачи Claude сохранена ниже.
+Обновлено: 19.10.2026, Codex; рабочая ветка `codex/work`. Этап (а) проверен владельцем; этап (б) native новых TCP с owned PAC crash-guard — runtime `673624a`, Windows burst fixture `f1a0363`, renewal test fixture `b3dcd1c`; передано на короткую проверку ПК владельца. Этап (в) не начат. История передачи Claude сохранена ниже.
 
 ## (a) Цель
 Чистый Windows 10/11: установил, нажал «Оптимизировать» — заблокированные в РФ сервисы работают без VPN: ChatGPT, Claude, YouTube, Discord, Telegram, браузеры Chrome и Edge. Первый заказчик — клуб на 36 ПК с откатом при перезагрузке.
@@ -43,7 +43,7 @@
 | `diag-no-vpn.ps1 -Only youtube`: расширение (адреса googlevideo, столбец «процесс») | `tools/windows/diag-no-vpn.ps1` | Claude Code | — | передано Codex; базовая версия `ea4792a` готова |
 | GUI A и YouTube/браузерный proxy B, Edge | `core/browserproxy/*`, `core/flowpolicy/direct_timeout.go`, `services/client-service/browser_*.go`, `controller.go`, `tools/windows/diag-no-vpn.ps1`, Edge-файлы, `apps/desktop-core/DesktopViewModel.cs`, `apps/desktop/MainWindow.xaml.cs`, новые GUI error-boundary файлы и тесты, `.github/workflows/edge-native.yml`, `tests/desktop/*`, `docs/BROWSER_DIRECT_FALLBACK.md`, `docs/EDGE_SITE_ROUTING.md`, `apps/desktop/MainWindow.xaml`, `apps/desktop-core/Resources/Strings.resx`, `platform/windows/browser_acceptance_windows_test.go`, `services/control-plane/{api,revocation}_test.go` (только фикстуры) | Codex | `codex/work` | ЗАВЕРШЕНО 19.10.2026: исправления закоммичены/запушены, файлы освобождены. Native Chrome/Edge, C#/WPF, Go race с PostgreSQL PASS. Полное снятие PAC остаётся открытым security blocker (см. (d)/(l)); QUIC/IPv6 без изменений |
 | Этап (а): профили Chrome/Edge при запуске GUI и диагностика; PAC/restart без изменений | `apps/desktop/BrowserStartup*.cs`, `apps/desktop/MainWindow.xaml.cs`, `apps/desktop/ChromeRouting.cs` (только сохранение старого activation path), `apps/desktop-core/BrowserStartup*.cs`, `apps/desktop-core/BrowserCatalog.cs`, `apps/desktop-core/DesktopViewModel.cs` (создание/диагностика), `apps/desktop/MainWindow.xaml`, `tests/desktop/*`, `tests/desktop-bindings/*`, `tools/windows/diag-no-vpn.ps1`, `docs/BROWSER_HOT_ATTACH.md`, `docs/handoff/CURRENT.md` | Codex | `codex/work` | Этап (а) ГОТОВ 19.10.2026 (`c556ac6`), область освобождена, проверка ПК PASS (4 мс, PID/start time Chrome неизменны); локальные Go/Python PASS, C#/WPF, Edge policy и полный Linux/Windows Verify CI PASS. Этап (б) отдельно, (в) только после проверки владельца; VPS/QUIC/IPv6 не менять |
-| Этап (б): native browser AUTO и автоматическое восстановление Edge | `services/client-service/browser_*.go`, `edge_*.go`, `controller.go`, `ipc_handlers.go`, `flow_policy.go`, `core/profiles/profile.go` (backward-compatible browser_transport), `platform/windows/{boundary,hot_attach,ipv6_guard,deferred_tcp,tcp_capture_windows,browser}*.go`, browser acceptance/тесты, `tools/route-test/upgrade_test.go` (только fresh-ticket/clock фикстура), `apps/desktop{,-core}/Browser*.cs`, `EdgeRouting*.cs`, `ChromeRouting.cs`, `DesktopViewModel.cs`, `MainWindow.xaml{,.cs}`, `tests/desktop/*`, `tools/windows/diag-no-vpn.ps1`, `.github/workflows/*native.yml`, `docs/BROWSER_HOT_ATTACH.md`, `CURRENT.md` | Codex | `codex/work` | В РАБОТЕ 19.10.2026; разрешено владельцем после Windows PASS этапа (а): 4 мс, PID/start time 21 Chrome неизменны. Этап (в), VPS, QUIC/IPv6 вне текущих правок |
+| Этап (б): native browser AUTO и автоматическое восстановление Edge | `services/client-service/browser_*.go`, `edge_*.go`, `controller.go`, `ipc_handlers.go`, `flow_policy.go`, `core/profiles/profile.go` (backward-compatible browser_transport), `platform/windows/{boundary,hot_attach,ipv6_guard,deferred_tcp,tcp_capture_windows,browser}*.go`, browser acceptance/тесты, `tools/route-test/upgrade_test.go` (только fresh-ticket/clock фикстура), `apps/desktop{,-core}/Browser*.cs`, `EdgeRouting*.cs`, `ChromeRouting.cs`, `DesktopViewModel.cs`, `MainWindow.xaml{,.cs}`, `tests/desktop/*`, `tools/windows/diag-no-vpn.ps1`, `.github/workflows/*native.yml`, `docs/BROWSER_HOT_ATTACH.md`, `CURRENT.md` | Codex | `codex/work` | ГОТОВО 19.10.2026 (`b3dcd1c`), область освобождена; этап (б) ждёт проверки ПК владельца с открытыми браузерами и existing owned PAC. Этап (в) не начат; VPS, QUIC/IPv6 вне правок |
 | Discord медленно, DIRECT+ для YouTube | не определены | никто | — | свободно для Codex после диагностики; Go-файлы застоя (выше) не трогать |
 | PR #8, `codex/direct-plus-flowseal` | — | не трогать | — | только владелец |
 
@@ -71,6 +71,9 @@
 ## (h) Журнал решений
 | Дата | Решение | Почему |
 |---|---|---|
+| 19.10.2026 | Immediate-renewal test использует уникальные ID и короткое разнесение test ticket issues | Loopback issuer с нулевой задержкой и coarse Windows clock давал ложный deadline-extension FAIL; production lease/security и assertions не меняются |
+| 19.10.2026 | Native activation отделена logical flow ID; публикация нового профиля fences UDP, сохраняет все TCP | Windows timestamps могут совпасть; старый поток не должен давать ложный activation PASS, старый DIRECT UDP/443 не должен переживать AUTO |
+| 19.10.2026 | Windows burst echo target вынесен в отдельный процесс | Independent dial подтвердил loopback refusal вне admission/pool; не снижены 160/256 concurrency и строгие assertions, production параметры не меняются |
 | 19.10.2026 | Этап (б): owned PAC сохраняется как независимый crash-guard; fresh без него автоматически не активировать | Владелец подтвердил: WinDivert снимает фильтры при crash службы; native-only не обеспечивает fail-closed после crash. Удаление зависимости — отдельный этап |
 | 19.10.2026 | Разрешены этапы (а) регистрация профилей при запуске, (б) native новых соединений; удаление диалога/quit/перезапуска (в) только после проверки владельца | Рабочий PAC остаётся прежним до этапа (в); регистрация не выдаёт readiness/PASS. Existing TCP egress не меняется, ECH/DoH не разрешают guessed DIRECT |
 | 19.10.2026 | Edge: fresh nonce после последнего guard; confirm без запроса не READY и сам ставит inline guard | Предыдущий guard вызывал Forget и детерминированно удалял challenge; старый native fixture этот шаг пропускал |
@@ -407,7 +410,7 @@ Read-only команды Windows/VPS и риски 1 vCPU описаны в BROW
   protected guard, не включает его снова таймером. Старые PAC/dialog/quit кнопки
   работают как opt-in rollback. Этап (в) **не начат**.
 - Метрики: actual origin/opaque, PID/birth, route/reason/error, payload bytes;
-  enable→first open/exchange — **не HTTP/page PASS**. Бounded 512 records / 128 clocks,
+  enable→first open/exchange — **не HTTP/page PASS**. Bounded 512 records / 128 clocks,
   IPC до 60 KiB; truncation/lost видимы. Native+PAC relay usage: active/opened TCP,
   bytes/minute по profile/domain; QUIC overhead/probes не входят. Opaque = `<opaque>`.
 - Known googlevideo: hard 8, очередь 32 / 2 с, затем admission error без DIRECT.
@@ -425,13 +428,28 @@ Read-only команды Windows/VPS и риски 1 vCPU описаны в BROW
   и [Edge/C#/WPF](https://github.com/buzzmean/neexitlag/actions/runs/39238593692) PASS.
   Chrome уже запущен при native IPC enable: PID/creation unchanged, owned PAC сохранён.
   Это real controlled HTTPS/HTTP2/mTLS/driver fixture, не Internet PASS.
-- Windows Verify остаётся в проверке: 256 nondeferred burst иногда получает
-  `upstream_dial_failed / connectex refused` от loopback echo target при свободном
-  relay pool. Assertions не удалялись. Windows clock bug и C# append-only mock
-  исправлены; backlog hint проблему не устранил. `c2455a4` добавляет Accept error,
-  accepted count и independent listener probe для точного класса причины.
-- Последняя проверка: [Verify c2455a4](https://github.com/buzzmean/neexitlag/actions/runs/39239353957).
-  До устранения/проверки FAIL не считать весь CI зелёным.
+- `c2455a4` подтвердил отказ test target: `upstream_dial_failed / connectex refused`,
+  independent dial тоже refused, Accept error отсутствует, relay pool имел свободную
+  ёмкость. `f1a0363` изолирует echo destination в отдельный дочерний процесс; тот же
+  единственный target и все 160/256 одновременно открытые sockets сохранены.
+  Production capacity/timeouts не менялись; assertions no BLOCK/no DIRECT/continuity
+  не ослаблены. Точная внутренняя причина Windows loopback refusal не доказана.
+- Предыдущий [Verify `f1a0363`](https://github.com/buzzmean/neexitlag/actions/runs/39255204947)
+  прошёл browser/driver/race/burst/lease/IPC, но упал на последнем Go-шаге:
+  `TestUpgradeProofRealProductionLeaseImmediateRenewals` требует strictly increasing
+  deadline при двух мгновенных renewals, а fresh ID формировался из часов.
+  `b3dcd1c` меняет только fixture: ID по счётчику и 20 мс между ticket issues
+  (ограничено context). Все assertions сохранены; production 30-min lease,
+  security/replay и upgrade tool runtime не меняются.
+- [Verify `b3dcd1c`](https://github.com/buzzmean/neexitlag/actions/runs/39257168380):
+  Linux полный race/vet/build/cross-build и Windows native Go/race/bursts,
+  C#/WPF, desktop smoke, PowerShell и ускоренная lease-проверка PASS.
+- [Relay release](https://github.com/buzzmean/neexitlag/actions/runs/39257168514) и
+  [isolated upgrade](https://github.com/buzzmean/neexitlag/actions/runs/39257168393) PASS.
+- Финальный handoff — docs-only commit через GitHub API после потери соединения
+  со средой разработки; код совпадает с проверенным `b3dcd1c`. Локальный checkout
+  следующей сессии сначала синхронизировать `git fetch origin` /
+  `git merge --ff-only origin/codex/work` (без rebase/force).
 - Существующий PAC может обслуживать новые запросы без native records: это PAC path,
   **не native interception PASS**. `RefreshPolicy(false)` означает user GP request,
   не live uptake. Cached dead PAC открытого Edge требует проверки на ПК владельца.
@@ -445,14 +463,3 @@ Read-only команды Windows/VPS и риски 1 vCPU описаны в BROW
 `install-desktop.ps1`, открыть VELIQ, Optimize, обновить страницы в уже открытых окнах.
 Проверка: `& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube` (версия 2026-10-19.3).
 VPS/credentials/certificates/PR #8/ветка direct-plus-flowseal не менялись.
-
-### Дополнение к проверке этапа (б)
-
-`f1a0363`: Windows Go/capture race/160–256 bursts, GUI, реальный Chrome, driver,
-короткая lease acceptance и IPC PASS. Финальный Verify упал в
-`TestUpgradeProofRealProductionLeaseImmediateRenewals`: test ticket ID берётся из
-`time.Now().String()`, мгновенные renewals требуют строго растущего deadline.
-Codex резервирует только `tools/route-test/upgrade_test.go`: уникальный test ticket ID
-и короткое разнесение запросов на coarse Windows clock, без изменения assertions,
-production lease/replay/security. Среда разработки offline; тестовую правку и
-handoff выполнить GitHub API, затем проверить в CI. Весь Verify пока не PASS.
