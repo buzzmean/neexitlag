@@ -1,11 +1,16 @@
 package clientservice
 
 import (
+	"bufio"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net"
+	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -423,7 +428,97 @@ func TestEdgeCapabilityVersionDoesNotCertifyListenerOrPACReadiness(t *testing.T)
 		Ready     bool     `json:"policy_ready"`
 		Profiles  []string `json:"ready_profiles"`
 	}
-	if json.Unmarshal(raw, &status) != nil || status.Version != 2 || status.Listening || status.Ready || len(status.Profiles) != 0 {
+	if json.Unmarshal(raw, &status) != nil || status.Version != 3 || status.Listening || status.Ready || len(status.Profiles) != 0 {
 		t.Fatal("capability advertised as synthetic readiness", string(raw))
+	}
+}
+
+// Exercise the GUI order that the native fixture originally omitted: prepare,
+// guard (invalidates challenge), prepare afresh, install, real owner GET, confirm.
+func TestEdgeGuardRequiresFreshNonceAndNoBrowserCannotConfirm(t *testing.T) {
+	c := New(context.Background())
+	defer c.Close()
+	c.BrowserOwnerSID = "owner"
+	p := edgeTestProfile()
+	c.Profiles.Upsert(p)
+	server, err := browserproxy.Listen(context.Background(), browserproxy.Config{
+		Authorize: func(context.Context, netip.AddrPort, netip.AddrPort) (browserproxy.Owner, error) {
+			return browserproxy.Owner{Profile: p.ID}, nil
+		},
+		Plan: func(context.Context, browserproxy.Request) (browserproxy.Plan, error) {
+			t.Error("health must not plan an origin")
+			return browserproxy.Plan{}, errors.New("unexpected")
+		},
+		Open: func(context.Context, browserproxy.Request, browserproxy.Plan) (net.Conn, error) {
+			t.Error("health must not open origin")
+			return nil, errors.New("unexpected")
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := c.edgeLocked()
+	e.server = server
+	e.saved.Address = server.Address()
+	e.write = func(string, []string, string) error { return nil }
+	e.active = func(string, string) bool { return true }
+	guardWrites := 0
+	e.write = func(_ string, _ []string, next string) error {
+		if next == edgePolicyValue(edgeClosedPAC(p)) {
+			guardWrites++
+		}
+		return nil
+	}
+	prepare := func() string {
+		r, err := edgeCall(c, "edge.prepare", map[string]string{"profile_id": p.ID, "directory": t.TempDir(), "recovery_address": "127.0.0.1:17777"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r.(map[string]any)["health_url"].(string)
+	}
+	old := prepare()
+	if _, err := edgeCall(c, "edge.policy", map[string]string{"profile_id": p.ID, "operation": "guard"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := server.ReadinessState(p.ID, old); got != "NONCE_INVALIDATED" {
+		t.Fatal(got)
+	}
+	fresh := prepare()
+	if fresh == old {
+		t.Fatal("challenge reused")
+	}
+	if _, err := edgeCall(c, "edge.policy", map[string]string{"profile_id": p.ID, "operation": "install"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := server.ReadinessState(p.ID, fresh); got != "WAITING_FOR_BROWSER_REQUEST" {
+		t.Fatal(got)
+	}
+	if _, err := edgeCall(c, "edge.confirm", map[string]string{"profile_id": p.ID, "health_url": fresh}); err == nil {
+		t.Fatal("no browser contacted proxy, but ready")
+	}
+	if guardWrites != 2 || server.Confirmed(p.ID) {
+		t.Fatal("missing browser did not roll policy back")
+	}
+	fresh = prepare()
+	if _, err := edgeCall(c, "edge.policy", map[string]string{"profile_id": p.ID, "operation": "install"}); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := net.Dial("tcp", server.Address())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Fprintf(conn, "GET %s HTTP/1.1\r\nHost: neexitlag-health.invalid\r\n\r\n", fresh)
+	response, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.Copy(io.Discard, response.Body)
+	response.Body.Close()
+	conn.Close()
+	if response.StatusCode != 200 {
+		t.Fatal(response.StatusCode)
+	}
+	if _, err := edgeCall(c, "edge.confirm", map[string]string{"profile_id": p.ID, "health_url": fresh}); err != nil {
+		t.Fatal(err)
 	}
 }

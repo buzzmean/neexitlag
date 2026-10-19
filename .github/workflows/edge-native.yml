@@ -14,6 +14,8 @@ on:
       - 'services/client-service/ipc_handlers.go'
       - 'tools/windows/diag-no-vpn.ps1'
       - 'platform/windows/edge_policy*'
+      - 'core/browserproxy/**'
+      - 'core/flowpolicy/direct_timeout*'
   pull_request:
   workflow_dispatch:
 permissions:

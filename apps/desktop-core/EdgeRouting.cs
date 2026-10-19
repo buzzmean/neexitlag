@@ -4,7 +4,9 @@ namespace Neexitlag.Desktop;
 
 public sealed class EdgeTransportStatus {
  public int ActivationVersion {get;set;}
+ public bool RollbackGuardActive {get;set;}
  public bool Listening {get;set;} public bool PolicyReady {get;set;} public bool Truncated {get;set;} public ulong Lost {get;set;}
+ public string ReadinessState {get;set;}=""; public string PendingProfile {get;set;}="";
  public string LastError {get;set;}=""; public string RecoveryAddress {get;set;}=""; public string[] ReadyProfiles {get;set;}=[];
  public BrowserConnection[] Records {get;set;}=[];
  public BrowserTransportSnapshot Snapshot()=>new(){Listening=Listening,RecoveryAddress=RecoveryAddress,ReadyProfiles=ReadyProfiles,Records=Records,Truncated=Truncated,Lost=Lost};
@@ -27,7 +29,7 @@ public sealed partial class DesktopViewModel {
  }
  public async Task RequireEdgeServiceAsync(CancellationToken ct=default){
   var status=await EdgeStatusAsync(ct);
-  if(status.ActivationVersion<2)throw new EdgeActivationException("edge.status","EDGE_IPC_UNSUPPORTED","Сначала обновите службу вместе с GUI: старая служба не поддерживает безопасный AUTO pending/откат без профиля.");
+  if(status.ActivationVersion<3)throw new EdgeActivationException("edge.status","EDGE_IPC_UNSUPPORTED","Сначала обновите службу вместе с GUI: нужна служба с исправленным nonce и автоматическим guarded откатом при отказе (activation_version=3).");
  }
  public Task<BrowserLaunch> PrepareEdgeAsync(Profile profile,string directory,string recovery,CancellationToken ct=default){
   if(!BrowserCatalog.IsEdge(profile))throw new InvalidOperationException("Выберите профиль Microsoft Edge");
@@ -53,13 +55,13 @@ public sealed partial class DesktopViewModel {
  }
  public Task<System.Text.Json.JsonElement> GuardEdgeAsync(CancellationToken ct=default)=>EdgeCall<System.Text.Json.JsonElement>("edge.policy",new{operation="guard"},ct);
  public async Task<JsonElement> RestoreEdgeAsync(Profile original,CancellationToken ct=default){
-  // Privileged guard must succeed BEFORE native interception is disarmed.
+  // Inline guard must protect all requests, including subresources, before native disarm.
   var applied=await EdgePolicyAsync(original,"guard",ct);
   await RestoreChromeAsync(original,ct); // existing profile-preserving transaction
   return applied;
  }
  public void ApplyEdgePolicyState(EdgeTransportStatus status){
-  EdgeState=status.LastError!=""?"Edge: "+status.LastError:status.Listening&&status.PolicyReady&&status.ReadyProfiles.Length>0?"Edge CONNECT/PAC готовы; доступность сайтов проверяется отдельно":"Edge PAC не подтверждён / guard: protected-домены без DIRECT";
+  EdgeState=status.LastError!=""?"Edge: "+status.LastError+" · "+status.ReadinessState+(status.RollbackGuardActive?" · защитный PAC: ordinary DIRECT, protected закрыты":""):status.Listening&&status.PolicyReady&&status.ReadyProfiles.Length>0?"Edge CONNECT/PAC готовы; доступность сайтов проверяется отдельно":"Edge PAC не подтверждён / guard: protected-домены без DIRECT";
   Changed(nameof(EdgeState));
  }
  public void ApplyEdge(BrowserTransportSnapshot status){

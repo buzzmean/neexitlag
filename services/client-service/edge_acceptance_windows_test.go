@@ -180,6 +180,16 @@ func TestEdgeActualPolicyHTTPSOutageRestart(t *testing.T) {
 	if !reader.Scan() || !strings.Contains(reader.Text(), `"ready":true`) {
 		t.Fatal("recovery not ready")
 	}
+	// Reproduce the actual GUI transaction; the previous fixture skipped guard,
+	// hiding its invalidation of prepare's nonce.
+	if _, err = edgeCall(c, "edge.policy", map[string]string{"profile_id": p.ID, "operation": "guard"}); err != nil {
+		t.Fatal(err)
+	}
+	result, err = edgeCall(c, "edge.prepare", map[string]string{"profile_id": p.ID, "directory": t.TempDir(), "recovery_address": greeting.Address})
+	if err != nil {
+		t.Fatal(err)
+	}
+	launch = result.(map[string]any)
 	if _, err = edgeCall(c, "edge.policy", map[string]string{"profile_id": p.ID, "operation": "install"}); err != nil {
 		t.Fatal(err)
 	}

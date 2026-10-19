@@ -37,7 +37,7 @@ public partial class MainWindow {
   foreach(var p in profiles)applied=await model.RestoreEdgeAsync(p,lifetime.Token);
   edgeRecovery.Dispose();edgeNeedsActivation=true;model.ApplyEdgePolicyState(new());
   var ordinary=applied.TryGetProperty("ordinary_direct",out var allowed)&&allowed.ValueKind==JsonValueKind.True;
-  model.SetNotice("Служба установила защитный PAC Edge: "+(ordinary?"обычные сайты DIRECT, protected-домены закрыты.":"строгие/custom ограничения сохранены; DIRECT для обычных сайтов не подтверждён.")+" Ключ ProxySettings сохранён намеренно; чужая политика и Chrome не изменены. Перезапустите Edge.");
+  model.SetNotice("Рабочий PAC Edge заменён защитным: "+(ordinary?"обычные сайты DIRECT; защищённые домены закрыты до успешной активации.":"строгие/custom ограничения сохранены.")+" ProxySettings остаётся ради защиты всех запросов, включая подресурсы. Чужая политика и Chrome не изменены. Перезапустите Edge.");
  });
  async Task<bool> EdgeRunning(string exe){
   foreach(var id in await model.ChromeProcessesAsync(exe,lifetime.Token)){
@@ -72,6 +72,11 @@ public partial class MainWindow {
    if(await EdgeRunning(exe))throw new InvalidOperationException("Edge не закрылся. Закройте Edge и фоновые окна Edge; VELIQ не завершает процесс принудительно.");
   }
   await model.EdgePolicyAsync(original,"guard",lifetime.Token);
+   // Guard invalidates all previous proofs, including prepare's nonce. Obtain a
+   // fresh challenge AFTER the final guard and browser shutdown, never before.
+   phase="edge.prepare";launch=await model.PrepareEdgeAsync(original,directory,edgeRecovery.Address,lifetime.Token);
+   launch.RecoverySettings.Executable=exe;
+   phase="edge.recovery";await edgeRecovery.ConfigureAsync(launch.RecoverySettings,lifetime.Token);
    phase="edge.policy";await model.EdgePolicyAsync(original,"install",lifetime.Token);
    // Empty health profile uses ACTUAL Edge policy, with no --proxy arguments.
    phase="edge.browser_probe";await ProbeChromePolicyAsync(exe,launch.HealthUrl);
@@ -87,6 +92,7 @@ public partial class MainWindow {
    try{await model.RestoreEdgeAsync(original,lifetime.Token);}catch(Exception rollback){await model.RecordEdgeFailureAsync(original,failure,lifetime.Token);throw EdgeErrors.Wrap("edge.policy",rollback);}
    await model.RecordEdgeFailureAsync(original,failure,lifetime.Token);
    edgeRecovery.Dispose();edgeNeedsActivation=true;
+   model.SetNotice("Активация Edge отменена: рабочий PAC заменён защитным. Обычные сайты DIRECT, защищённые закрыты; ProxySettings сохранён намеренно. Причина — в строке Edge.");
    if(!await EdgeRunning(exe)){var start=new ProcessStartInfo(exe){UseShellExecute=false};start.ArgumentList.Add("--user-data-dir="+directory);start.ArgumentList.Add("--restore-last-session");using var reopened=Process.Start(start);}
    throw failure;
   }

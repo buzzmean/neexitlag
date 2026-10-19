@@ -566,6 +566,9 @@ func (w countWriter) Write(p []byte) (int, error) {
 
 // Return only stable error classes/OS codes, never remote messages or secrets.
 func openFailure(err error) string {
+	if errors.Is(err, ErrVideoRelayAdmission) {
+		return "GOOGLEVIDEO_RELAY_ADMISSION_CAPACITY"
+	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return "UPSTREAM_OPEN_TIMEOUT"
 	}
@@ -587,6 +590,9 @@ func openFailure(err error) string {
 
 // A readiness nonce is consumed only by a successfully authorized Chrome TCP
 // owner. IPC reachability or a GUI socket cannot certify Chrome PAC operation.
+// ErrVideoRelayAdmission is bounded local admission, not a VPS health failure.
+var ErrVideoRelayAdmission = errors.New("GOOGLEVIDEO_RELAY_ADMISSION_CAPACITY")
+
 type healthChallenge struct {
 	profile string
 	expires time.Time
@@ -642,6 +648,28 @@ func (s *Server) RestoreConfirmed(profiles []string) {
 			s.confirmed[p] = true
 		}
 	}
+}
+
+// ReadinessState is diagnostic only; it never exports the nonce or grants
+// authorization. Confirmation still requires an owner-authenticated health GET.
+func (s *Server) ReadinessState(profile, url string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed || s.ctx.Err() != nil {
+		return "LISTENER_UNAVAILABLE"
+	}
+	token := strings.TrimPrefix(url, "http://neexitlag-health.invalid/ready/")
+	if token != "" && s.verified[profile] == token {
+		return "OWNER_NONCE_VERIFIED"
+	}
+	challenge, ok := s.challenges[token]
+	if !ok || challenge.profile != profile {
+		return "NONCE_INVALIDATED"
+	}
+	if !time.Now().Before(challenge.expires) {
+		return "NONCE_EXPIRED"
+	}
+	return "WAITING_FOR_BROWSER_REQUEST"
 }
 
 func (s *Server) HealthVerified(profile, url string) bool {

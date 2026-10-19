@@ -31,9 +31,11 @@ type edgeSaved struct {
 	GuardPAC    string   `json:"guard_pac,omitempty"`
 }
 type edgeRuntime struct {
-	lastError string
-	saved     edgeSaved
-	server    *browserproxy.Server
+	lastError                string
+	healthProfile, healthURL string
+	readinessFailure         string
+	saved                    edgeSaved
+	server                   *browserproxy.Server
 	// Test embedders may provide an isolated policy store. Production uses HKU.
 	write  func(string, []string, string) error
 	active func(string, string) bool
@@ -68,6 +70,15 @@ func (e *edgeRuntime) policyActive(sid string) bool {
 		return e.active(sid, e.saved.ExpectedPAC)
 	}
 	return wp.EdgeProxyPolicyActive(sid, e.saved.ExpectedPAC)
+}
+func (e *edgeRuntime) guardActive(sid string) bool {
+	if e.saved.GuardPAC == "" {
+		return false
+	}
+	if e.active != nil {
+		return e.active(sid, e.saved.GuardPAC)
+	}
+	return wp.EdgeProxyPolicyActive(sid, e.saved.GuardPAC)
 }
 func (c *Controller) edgeOwner(ctx context.Context, source, local netip.AddrPort) (browserproxy.Owner, error) {
 	id, err := wp.LookupTCPPeer(source, local)
@@ -302,11 +313,21 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (result any,
 		snapshot.PolicyReady = e.policyActive(c.BrowserOwnerSID)
 		view := browserStatusView{Snapshot: snapshot, DirectTimeouts: c.browser.directTimeouts.Stats(), RelayUsage: c.relayUsageLocked()}
 		view.bound()
+		state := "NOT_PREPARED"
+		if e.server != nil && e.healthProfile != "" {
+			state = e.server.ReadinessState(e.healthProfile, e.healthURL)
+		}
+		if e.readinessFailure != "" {
+			state = e.readinessFailure
+		}
 		return struct {
 			browserStatusView
-			LastError         string `json:"last_error"`
-			ActivationVersion int    `json:"activation_version"`
-		}{view, e.lastError, 2}, nil
+			LastError           string `json:"last_error"`
+			ActivationVersion   int    `json:"activation_version"`
+			ReadinessState      string `json:"readiness_state"`
+			PendingProfile      string `json:"pending_profile"`
+			RollbackGuardActive bool   `json:"rollback_guard_active"`
+		}{view, e.lastError, 3, state, e.healthProfile, e.guardActive(c.BrowserOwnerSID)}, nil
 	}
 	if c.BrowserOwnerSID == "" {
 		return nil, errors.New("Edge requires installation owner SID")
@@ -372,6 +393,8 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (result any,
 		if err != nil {
 			return nil, err
 		}
+		e.healthProfile, e.healthURL = p.ID, health
+		e.readinessFailure = ""
 		e.saved.ExpectedPAC = strings.TrimPrefix(args[1], "--proxy-pac-url=")
 		e.saved.GuardPAC = edgeClosedPAC(p)
 		e.saved.Recovery = q.Recovery
@@ -418,6 +441,28 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (result any,
 		return map[string]bool{"applied": true, "guard": q.Operation == "guard", "ordinary_direct": ordinaryDirect}, nil
 	case "edge.confirm":
 		if e.server == nil || e.saved.Recovery == "" || !e.policyActive(c.BrowserOwnerSID) || !e.server.HealthVerified(p.ID, q.Health) {
+			e.readinessFailure = "LISTENER_UNAVAILABLE"
+			if e.server != nil {
+				e.readinessFailure = e.server.ReadinessState(p.ID, q.Health)
+			}
+			if !e.policyActive(c.BrowserOwnerSID) {
+				e.readinessFailure = "POLICY_NOT_ACTIVE"
+			}
+			// Roll back even if the GUI disappears after confirm or Edge never contacted
+			// the proxy. Keep an inline domain guard: URLBlocklist is navigation-only and
+			// cannot replace a PAC network boundary for protected subresources.
+			e.saved.GuardPAC = edgeClosedPAC(p)
+			if err := c.writeEdgePolicy(e, e.saved.GuardPAC); err != nil {
+				return nil, err
+			}
+			if e.server != nil {
+				e.server.Forget(p.ID)
+				e.server.CloseConnections()
+			}
+			if err := c.saveEdge(e); err != nil {
+				return nil, err
+			}
+
 			return nil, errors.New("Edge PAC readiness not observed: policy, owner/SID or nonce")
 		}
 		if !e.server.AuthorizeProfile(p.ID, q.Health) {
