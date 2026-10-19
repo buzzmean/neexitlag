@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -29,9 +30,19 @@ func TestUpgradeProofRealProductionLeaseImmediateRenewals(t *testing.T) {
 	o.target = udp.LocalAddr().String()
 	o.expectedEgress = "127.0.0.1"
 	var issued int
-	fetch := func(context.Context) ([]byte, error) {
+	fetch := func(ctx context.Context) ([]byte, error) {
 		issued++
-		return testTicket(t, issuer, a.tls, time.Now().String(), time.Now().Add(time.Minute)), nil
+		// A fresh one-shot ticket needs a unique ID even when Windows returns
+		// identical wall-clock readings. Space immediate renewals beyond one
+		// coarse clock tick so strict deadline-extension assertions stay real.
+		if issued > 1 {
+			select {
+			case <-time.After(20 * time.Millisecond):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		return testTicket(t, issuer, a.tls, fmt.Sprintf("upgrade-ticket-%d", issued), time.Now().Add(time.Minute)), nil
 	}
 	started := time.Now()
 	r, err := upgradeProof(ctx, o, a, fetch, key)
