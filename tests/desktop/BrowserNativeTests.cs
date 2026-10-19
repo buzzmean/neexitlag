@@ -101,6 +101,7 @@ public sealed class BrowserPathDisplayTests
   vm.ApplyEdgePolicyState(new(){TransportMode="NATIVE_ARMED_PAC_GUARD",ReadinessState="NATIVE_TUNNEL_OBSERVED",Listening=true,OwnedGuardInstalled=true,PacNonceReadiness="NOT_PREPARED"});
   Assert.Contains("NATIVE_TUNNEL_OBSERVED",vm.EdgeState);Assert.Contains("NOT_PREPARED",vm.EdgeState);
   Assert.DoesNotContain("не настроен",vm.EdgeState);
+  Assert.Equal("BLOCK",new NativeBrowserRecord{Result="BLOCK",Policy=new(){Action="RELAY_REQUIRED"}}.Connection().Route);
   var r=new BrowserConnection{SentBytes=10,ReceivedBytes=20,Plan=new(){Probe="CONNECTION_FAILED"}};
   Assert.Contains("Origin probe",r.Outcome);Assert.Contains("результат страницы не измерен",r.Outcome);
  }
