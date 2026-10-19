@@ -300,3 +300,19 @@ func TestNativeNewEpochDoesNotCountOldTCPAsNewActivationSuccess(t *testing.T) {
 		t.Fatal("old stream certified new activation", s)
 	}
 }
+
+func TestNativeCapturePrepareDoesNotHotResetOldPendingBrowserTCP(t *testing.T) {
+	c, p, b := nativeEdgeFixture(t)
+	ownNativeEdge(c)
+	c.enabled = true
+	p.Mode = profiles.Auto
+	c.Profiles.Upsert(p)
+	b.id = wp.ProcessIdentity{PID: 77, CreationTime: 1, Path: p.Executables[0]}
+	b.tuple = wp.Tuple{Protocol: "tcp", Source: netip.MustParseAddrPort("192.0.2.1:50001"), Destination: netip.MustParseAddrPort("203.0.113.1:443")}
+	if _, err := edgeCall(c, "browser.native.enable", map[string]string{"profile_id": p.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if !b.classified.NewConnectionsOnly {
+		t.Fatal("backend start could reset existing browser TCP before publication")
+	}
+}

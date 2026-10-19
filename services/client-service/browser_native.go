@@ -7,6 +7,7 @@ import (
 	"net"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/buzzmean/neexitlag/core/browserproxy"
@@ -199,7 +200,20 @@ func (c *Controller) handleNativeBrowser(ctx context.Context, method string, raw
 	// Prepare capture before publishing native AUTO. Failure preserves the old
 	// profile/PAC; it must never produce a DIRECT authorization for protected data.
 	if !c.nativeBackendReady() {
-		if err := c.Backend.Start(c.ctx, c.Classify); err != nil {
+		// Backend recovery must not hot-reset this browser while it still has
+		// its legacy/pending profile. Pin only its TCP during prepare; after
+		// publication the profile itself supplies NewConnectionsOnly.
+		var preparing atomic.Bool
+		preparing.Store(true)
+		defer preparing.Store(false)
+		classify := func(id wp.ProcessIdentity, t wp.Tuple) wp.Decision {
+			d := c.Classify(id, t)
+			if preparing.Load() && t.Protocol == "tcp" && d.Flow.ApplicationID == p.ID {
+				d.NewConnectionsOnly = true
+			}
+			return d
+		}
+		if err := c.Backend.Start(c.ctx, classify); err != nil {
 			return nil, errors.New("NATIVE_CAPTURE_START_FAILED")
 		}
 	}
