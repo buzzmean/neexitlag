@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"reflect"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -228,26 +229,43 @@ func (c *Controller) handleNativeBrowser(ctx context.Context, method string, raw
 		return nil, err
 	}
 	c.browser.native.activateAt(p.ID, false, activationStarted)
-	// No Reconfigure/RequestHotAttach: established TCP is intentionally pinned.
-	if err := c.Profiles.Upsert(p); err != nil {
-		return nil, err
-	}
-	c.mu.Lock()
-	previous, had := c.localProfiles[p.ID]
-	c.localProfiles[p.ID] = p
-	c.mu.Unlock()
-	c.syncPolicies()
-	if err := c.saveProfiles(); err != nil {
-		_ = c.Profiles.Upsert(old)
-		c.mu.Lock()
-		if had {
-			c.localProfiles[p.ID] = previous
-		} else {
-			delete(c.localProfiles, p.ID)
+	if !reflect.DeepEqual(old, p) {
+		publish := func() error {
+			// Do not use legacy Reconfigure: it aborts established TCP.
+			if err := c.Profiles.Upsert(p); err != nil {
+				return err
+			}
+			c.mu.Lock()
+			previous, had := c.localProfiles[p.ID]
+			c.localProfiles[p.ID] = p
+			c.mu.Unlock()
+			c.syncPolicies()
+			if err := c.saveProfiles(); err != nil {
+				_ = c.Profiles.Upsert(old)
+				c.mu.Lock()
+				if had {
+					c.localProfiles[p.ID] = previous
+				} else {
+					delete(c.localProfiles, p.ID)
+				}
+				c.mu.Unlock()
+				c.syncPolicies()
+				return errors.New("NATIVE_PROFILE_PERSIST_FAILED")
+			}
+
+			return nil
 		}
-		c.mu.Unlock()
-		c.syncPolicies()
-		return nil, errors.New("NATIVE_PROFILE_PERSIST_FAILED")
+		var err error
+		if backend, ok := c.Backend.(interface {
+			ReconfigureNewConnections(string, func() error) error
+		}); ok {
+			err = backend.ReconfigureNewConnections(p.ID, publish)
+		} else {
+			err = publish()
+		}
+		if err != nil {
+			return nil, err
+		}
 	}
 	c.browser.native.activate(p.ID, false)
 	compat, err := c.nativeBrowserCompatibility(p, q.Compatibility)

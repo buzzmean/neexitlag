@@ -18,7 +18,10 @@ import (
 	wp "github.com/buzzmean/neexitlag/platform/windows"
 )
 
-type nativeBackendFixture struct{ hotBackendFixture }
+type nativeBackendFixture struct {
+	hotBackendFixture
+	publications int
+}
 
 func (b *nativeBackendFixture) Status() wp.CaptureStatus {
 	s := b.hotBackendFixture.Status()
@@ -314,5 +317,22 @@ func TestNativeCapturePrepareDoesNotHotResetOldPendingBrowserTCP(t *testing.T) {
 	}
 	if !b.classified.NewConnectionsOnly {
 		t.Fatal("backend start could reset existing browser TCP before publication")
+	}
+}
+
+func (b *nativeBackendFixture) ReconfigureNewConnections(_ string, publish func() error) error {
+	b.publications++
+	return publish()
+}
+func TestNativeIdempotentEnableDoesNotRetireUDPEveryMonitorTick(t *testing.T) {
+	c, p, b := nativeEdgeFixture(t)
+	ownNativeEdge(c)
+	for i := 0; i < 3; i++ {
+		if _, err := edgeCall(c, "browser.native.enable", map[string]string{"profile_id": p.ID}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if b.publications != 1 || len(b.calls) != 0 {
+		t.Fatal("monitor retired flows", b.publications, b.calls)
 	}
 }

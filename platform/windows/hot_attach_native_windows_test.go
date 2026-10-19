@@ -413,3 +413,60 @@ func TestNativeHotAttachInvalidatesAlreadyRunningUnselectedUDPCache(t *testing.T
 		t.Fatal(f)
 	}
 }
+
+func TestNativeHotAttachBrowserPublicationPinsTCPRetiresOnlySelectedUDP(t *testing.T) {
+	b, _ := captureFixture(t)
+	b.dll = &divertDLL{}
+	dst := netip.MustParseAddrPort("1.1.1.1:53")
+	tuple, selected := startCaptureTestFlow(t, b, 45101, false, dst, "selected")
+	_, control := startCaptureTestFlow(t, b, 45102, false, dst, "control")
+	captureWait(t, func() bool { return b.evidence.Snapshot(selected.identity.PID).Counters.ReplyBytes >= 2 })
+	b.tcp = &tcpRedirect{b: b, state: newTCPState(16)}
+	tcpTuple := Tuple{Protocol: "tcp", Source: netip.MustParseAddrPort("192.0.2.1:51001"), Destination: netip.MustParseAddrPort("203.0.113.1:443")}
+	app, peer := net.Pipe()
+	defer app.Close()
+	defer peer.Close()
+	upstream, origin := net.Pipe()
+	defer upstream.Close()
+	defer origin.Close()
+	d := Decision{Flow: routing.Flow{ApplicationID: "selected"}}
+	e := b.tcp.state.add(tcpTuple, ProcessIdentity{PID: 77, CreationTime: 1, Path: "chrome.exe"}, d, "relay", time.Now())
+	e.local = app
+	e.upstream = upstream
+	epoch := b.policyEpoch.Load()
+	hotEpoch := b.hot.snapshot().Epoch
+	if err := b.ReconfigureNewConnections("selected", func() error {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		if !selected.retired || control.retired {
+			return fmt.Errorf("wrong UDP fence scope")
+		}
+		if e.mode != "relay" || e.local != app || e.upstream != upstream {
+			return fmt.Errorf("existing TCP touched before policy publication")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if b.policyEpoch.Load() != epoch+1 || b.hot.snapshot().Epoch != hotEpoch {
+		t.Fatal("missing UDP epoch or scheduled TCP reconnect")
+	}
+	captureWait(t, func() bool { b.mu.Lock(); defer b.mu.Unlock(); return b.flows[tuple] == nil })
+	if e.mode != "relay" || e.local != app || e.upstream != upstream {
+		t.Fatal("TCP moved/closed")
+	}
+	received := make(chan error, 1)
+	go func() { var p [1]byte; _, err := io.ReadFull(peer, p[:]); received <- err }()
+	app.SetWriteDeadline(time.Now().Add(time.Second))
+	if _, err := app.Write([]byte("x")); err != nil {
+		t.Fatal("existing TCP interrupted", err)
+	}
+	if err := <-received; err != nil {
+		t.Fatal(err)
+	}
+	_, next := startCaptureTestFlow(t, b, 45101, false, dst, "selected")
+	captureWait(t, func() bool { return b.evidence.Snapshot(next.identity.PID).Counters.ReplyBytes >= 2 })
+	if b.evidence.Snapshot(next.identity.PID).Counters.DirectBytes != 0 {
+		t.Fatal("selected UDP DIRECT leak")
+	}
+}

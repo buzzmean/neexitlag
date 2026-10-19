@@ -123,6 +123,15 @@ func (b *WinDivertBackend) Reconfigure(application string, change func() error) 
 	return b.ReconfigureApplications(ids, change)
 }
 func (b *WinDivertBackend) ReconfigureApplications(ids []string, change func() error) error {
+	return b.reconfigureApplications(ids, change, false)
+}
+
+// Publish native browser policy with the same UDP ingress/send fence, retaining
+// ALL established TCP sockets. Do not schedule a TCP-table reconnect sweep.
+func (b *WinDivertBackend) ReconfigureNewConnections(application string, change func() error) error {
+	return b.reconfigureApplications([]string{application}, change, true)
+}
+func (b *WinDivertBackend) reconfigureApplications(ids []string, change func() error, preserveTCP bool) error {
 	b.life.Lock()
 	defer b.life.Unlock()
 	b.mu.Lock()
@@ -141,14 +150,17 @@ func (b *WinDivertBackend) ReconfigureApplications(ids []string, change func() e
 	b.policyMu.Lock()
 	b.transition = affected
 	b.transitionAll = len(ids) == 0
-	epoch := b.hot.begin("policy_activation")
-	b.hot.mu.Lock()
-	b.hot.status.State = "HOT_ATTACH_PREPARING"
-	b.hot.mu.Unlock()
+	epoch := b.hot.snapshot().Epoch
+	if !preserveTCP {
+		epoch = b.hot.begin("policy_activation")
+		b.hot.mu.Lock()
+		b.hot.status.State = "HOT_ATTACH_PREPARING"
+		b.hot.mu.Unlock()
+	}
 	sockets := []net.Conn{}
 	pending := []<-chan struct{}{}
 	datagrams := []routing.Datagram{}
-	if tcp != nil {
+	if tcp != nil && !preserveTCP {
 		tcp.state.mu.Lock()
 		for _, e := range tcp.state.entries {
 			if e.decision.Flow.ApplicationID == "" || (!b.transitionAll && !affected[e.decision.Flow.ApplicationID]) || e.mode == "closed" {
@@ -227,21 +239,27 @@ func (b *WinDivertBackend) ReconfigureApplications(ids []string, change func() e
 	// Phase 3 publishes policy atomically. Fresh SYNs cannot enter obsolete policy
 	// while the application fence is up; the private cache epoch advances here.
 	b.policyMu.Lock()
-	b.snapshotHotTargets()
+	if !preserveTCP {
+		b.snapshotHotTargets()
+	}
 	err := change()
 	b.policyEpoch.Add(1)
 	b.transition = nil
 	b.transitionAll = false
-	b.hot.mu.Lock()
-	b.hot.status.State = "HOT_ATTACH_RECONNECTING"
-	if err != nil {
-		b.hot.targetError = "policy activation: " + err.Error()
+	if !preserveTCP {
+		b.hot.mu.Lock()
+		b.hot.status.State = "HOT_ATTACH_RECONNECTING"
+		if err != nil {
+			b.hot.targetError = "policy activation: " + err.Error()
+		}
+		b.hot.mu.Unlock()
 	}
-	b.hot.mu.Unlock()
 	b.policyMu.Unlock()
-	select {
-	case b.hotRequests <- struct{}{}:
-	default:
+	if !preserveTCP {
+		select {
+		case b.hotRequests <- struct{}{}:
+		default:
+		}
 	}
 	return err
 }
