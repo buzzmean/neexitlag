@@ -33,6 +33,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -325,35 +326,19 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 	freshOrigin.TLS = f.Server.TLS.Clone()
 	freshOrigin.StartTLS()
 	defer freshOrigin.Close()
-	var fixtureRules []string
-	fixturePorts := map[uint16]bool{}
-	quotePS := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
-	defer func() {
-		for _, name := range fixtureRules {
-			cleanup, stop := context.WithTimeout(context.Background(), 10*time.Second)
-			output, err := exec.CommandContext(cleanup, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "Remove-NetFirewallRule -Name "+quotePS(name)+" -ErrorAction Stop").CombinedOutput()
-			stop()
-			if err != nil {
-				t.Errorf("remove owned fixture firewall rule: %v %s", err, output)
-			}
+	var traceMu sync.Mutex
+	trace := []map[string]any{}
+	observer := func(phase string, tuple wp.Tuple, flags, addr byte) {
+		traceMu.Lock()
+		defer traceMu.Unlock()
+		if len(trace) < 256 {
+			trace = append(trace, map[string]any{"phase": phase, "source": tuple.Source.String(), "destination": tuple.Destination.String(), "tcp_flags": flags, "address_flags": addr})
 		}
-	}()
+	}
 	var nativeMain wp.ProcessIdentity
 	f.StageReady = func(stage int, call func(string, any) (json.RawMessage, error)) error {
-		if port := backend.NativeFixtureListenerPort(); stage != 3 && port != 0 && !fixturePorts[port] {
-			exe, err := os.Executable()
-			if err != nil {
-				return err
-			}
-			name := fmt.Sprintf("veliq-native-fixture-%d-%d", os.Getpid(), port)
-			script := "$ErrorActionPreference='Stop';New-NetFirewallRule -Name " + quotePS(name) + " -DisplayName " + quotePS(name) + " -Direction Inbound -Action Allow -Protocol TCP -LocalPort " + fmt.Sprint(port) + " -RemoteAddress 192.0.2.254 -Program " + quotePS(exe) + " -Profile Any | Out-Null"
-			output, err := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script).CombinedOutput()
-			if err != nil {
-				return fmt.Errorf("scoped fixture firewall admission: %w %s", err, output)
-			}
-			fixtureRules = append(fixtureRules, name)
-			fixturePorts[port] = true
-			t.Log("owned fixture rule: this test EXE/listener port/TEST-NET remote only; removed on cleanup")
+		if stage != 3 {
+			backend.TraceNativeFixture(observer)
 		}
 		if stage == 2 {
 			port := freshOrigin.Listener.Addr().(*net.TCPAddr).Port
@@ -567,10 +552,13 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 	if err != nil {
 		view, _ := c.Handle(ctx, "browser.status", nil)
 		captured, _ := backend.DiagnosticsScoped(wp.EvidenceQuery{Destination: f.Destination().String(), Domain: "www.youtube.com"})
-		trace, _ := json.Marshal(captured)
+		captureRaw, _ := json.Marshal(captured)
 		native, _ := c.Handle(ctx, "browser.native.status", nil)
 		nativeRaw, _ := json.Marshal(native)
-		t.Fatal("controlled Chrome HTTP(S) failed", err, out, view, "native status", string(nativeRaw), "YouTube capture", string(trace))
+		traceMu.Lock()
+		traceRaw, _ := json.Marshal(trace)
+		traceMu.Unlock()
+		t.Fatal("controlled Chrome HTTP(S) failed", err, out, view, "native status", string(nativeRaw), "native packet trace", string(traceRaw), "YouTube capture", string(captureRaw))
 	}
 	// Wait for actual Chrome sockets to close so forwarded byte counters are final.
 	var snap browserproxy.Snapshot

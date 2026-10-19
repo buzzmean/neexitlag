@@ -12,15 +12,13 @@ func NewBrowserLoopbackFixture(files DriverFiles, engine *routing.Engine) *WinDi
 	return b
 }
 
-// Exact fixture port only; never exported by a production build.
-func (b *WinDivertBackend) NativeFixtureListenerPort() uint16 {
+func (b *WinDivertBackend) TraceNativeFixture(f func(string, Tuple, byte, byte)) {
 	if !b.testBrowserLoopback {
-		return 0
+		return
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.tcp == nil || !b.status.Ready {
-		return 0
+	if b.tcp != nil {
+		b.tcp.fixtureTrace.Store(&nativeTCPTraceHook{f: f})
 	}
-	return b.tcp.port
 }

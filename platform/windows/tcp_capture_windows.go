@@ -14,6 +14,7 @@ import (
 	"net/netip"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 )
@@ -22,16 +23,20 @@ type delegatedTCP struct {
 	owner    *tcpEntry
 	decision Decision
 }
+type nativeTCPTraceHook struct {
+	f func(string, Tuple, byte, byte)
+}
 type tcpRedirect struct {
-	delegatedMu sync.Mutex
-	delegated   map[Tuple]delegatedTCP
-	b           *WinDivertBackend
-	handle      uintptr
-	listener    *net.TCPListener
-	port        uint16
-	state       *tcpState
-	admission   *tcpAdmission
-	wg          sync.WaitGroup
+	fixtureTrace atomic.Pointer[nativeTCPTraceHook]
+	delegatedMu  sync.Mutex
+	delegated    map[Tuple]delegatedTCP
+	b            *WinDivertBackend
+	handle       uintptr
+	listener     *net.TCPListener
+	port         uint16
+	state        *tcpState
+	admission    *tcpAdmission
+	wg           sync.WaitGroup
 }
 
 func (b *WinDivertBackend) startTCP(d *divertDLL) (*tcpRedirect, error) {
@@ -121,6 +126,10 @@ func (t *tcpRedirect) reflect(e *tcpEntry, p []byte, a [80]byte, reply bool) err
 	a[10] &= ^byte(2) // inbound
 	err = t.send(out, a)
 	if err == nil {
+		tuple, flags, _, _ := ParseTCP(out)
+		t.traceFixture("inject_ok", tuple, flags, a[10])
+	}
+	if err == nil {
 		event := "captured_proxy"
 		if !e.decision.Deferred {
 			event = "relay"
@@ -166,6 +175,7 @@ func (t *tcpRedirect) processPacket(p []byte, a [80]byte, classify Classifier) {
 		}
 		return
 	}
+	t.traceFixture("capture", tuple, flags, a[10])
 	// The isolated Chrome acceptance enables loopback packet observation only.
 	// Pass every unrelated loopback packet unchanged; only exact delegated
 	// upstream tuples enter the production transform path.
@@ -503,6 +513,7 @@ func (t *tcpRedirect) accept() {
 			return
 		}
 		local, remote := c.LocalAddr().(*net.TCPAddr).AddrPort(), c.RemoteAddr().(*net.TCPAddr).AddrPort()
+		t.traceFixture("accept", Tuple{Protocol: "tcp", Source: remote, Destination: local}, 0, 0)
 		t.state.mu.Lock()
 		e := t.state.ports[remote.Port()]
 		if t.b.ctx.Err() != nil || e == nil || e.mode != "relay" || e.local != nil || (e.upstream == nil && !e.decision.Deferred) || local.Addr() != e.tuple.Source.Addr() || remote.Addr() != e.tuple.Destination.Addr() {
@@ -861,4 +872,19 @@ func (t *tcpRedirect) pruneEvidenceAliases() {
 		_, reserved := t.delegated[tuple]
 		return reserved || t.state.entries[tuple] != nil
 	})
+}
+
+func (t *tcpRedirect) traceFixture(phase string, tuple Tuple, flags, addr byte) {
+	if !t.b.testBrowserLoopback {
+		return
+	}
+	hook := t.fixtureTrace.Load()
+	if hook == nil {
+		return
+	}
+	test := netip.MustParseAddr("192.0.2.254")
+	if tuple.Source.Addr() != test && tuple.Destination.Addr() != test && tuple.Source.Port() != t.port && tuple.Destination.Port() != t.port {
+		return
+	}
+	hook.f(phase, tuple, flags, addr)
 }
