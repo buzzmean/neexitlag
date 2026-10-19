@@ -46,6 +46,19 @@ function Prop($Object,[string]$PropName,$Default=$null){
  if($null -ne $Object -and $Object.PSObject.Properties.Name -contains $PropName){return $Object.$PropName};return $Default
 }
 
+# Existing user browsers are observed only; never send them quit/kill or change PAC.
+function Get-LiveBrowserIdentity {
+ if(-not $isWin){return @()}
+ $session=(Get-Process -Id $PID).SessionId
+ @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe' OR Name='msedge.exe'" -ErrorAction Stop|
+  Where-Object{$_.SessionId -eq $session -and $_.ExecutablePath}|
+  ForEach-Object{[pscustomobject]@{name=$_.Name;pid=$_.ProcessId;created=$_.CreationDate.ToUniversalTime().ToString('o');path=$_.ExecutablePath}})
+}
+$script:liveBrowserBefore=@()
+if(Want 'browser'){
+ Step 'existing_browser_before' {$script:liveBrowserBefore=@(Get-LiveBrowserIdentity)}
+}
+
 # Reads a file another process may still hold open (a Chrome child that inherited the
 # redirected handle): shared read access, short retries.
 function Read-SharedText([string]$Path){
@@ -207,7 +220,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-19.1 (Edge fresh nonce + guarded rollback, googlevideo 8/2s, DNS recovery)'
+$ScriptVersion='2026-10-19.2 (startup browser profiles + existing process identity; no restart)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -463,6 +476,26 @@ Step 'youtube' {
 }}
 
 if(Want 'browser'){
+Section 'Existing browser processes and startup profile registration (no browser restart)'
+Step 'startup_profiles' {
+ foreach($process in $script:liveBrowserBefore){Say ("existing: "+(Json $process))}
+ $profiles=@(Invoke-IPC 'profiles')
+ foreach($browserName in 'chrome.exe','msedge.exe'){
+  $matches=@($profiles|Where-Object{@(Prop $_ 'executables' @()|Where-Object{($_ -replace '\\','/').Split('/')[-1] -ieq $browserName}).Count -gt 0})
+  Say ("$browserName profiles: "+$matches.Count)
+  foreach($profile in $matches){Say (Json ([ordered]@{id=(Prop $profile 'id');mode=(Prop $profile 'mode');preset=(Prop $profile 'app_preset');exe=(Prop $profile 'executables')}))}
+ }
+ $report=Join-Path $env:LOCALAPPDATA 'NeExitLag\browser-startup.json'
+ if((Test-Path -LiteralPath $report) -and (Get-Item -LiteralPath $report).Length -le 65536){
+  $data=Get-Content -LiteralPath $report -Raw|ConvertFrom-Json
+  Say ("GUI startup report: started=$(Prop $data 'started') completed=$(Prop $data 'completed') elapsed_ms=$(Prop $data 'elapsed_ms')")
+  foreach($entry in (@(Prop $data 'browsers' @())|Select-Object -First 2)){Say (Json ([ordered]@{browser=(Prop $entry 'browser');state=(Prop $entry 'state');mode=(Prop $entry 'mode');profile_id=(Prop $entry 'profile_id');code=(Prop $entry 'code')}))}
+ }else{Say 'GUI startup report unavailable; GUI may not have been updated/launched under this user.'}
+ Say 'Registration is not routing PASS. Headless checks below use separate profiles, not existing windows.'
+}
+}
+
+if(Want 'browser'){
 Section 'End-to-end through the browser path (the way users really browse)'
 Step 'connect' {
  # Raw CONNECT from PowerShell. The proxy authorizes only Chrome-profile processes, so
@@ -530,6 +563,18 @@ Step 'headless' {
   }
  }
 }}
+
+if(Want 'browser'){
+Section 'Existing browser identity after diagnostics'
+Step 'existing_browser_after' {
+ $after=@(Get-LiveBrowserIdentity)
+ foreach($before in $script:liveBrowserBefore){
+  $same=@($after|Where-Object{$_.pid -eq $before.pid -and $_.created -eq $before.created})
+  Say ("existing $($before.name) PID=$($before.pid) created=$($before.created) unchanged="+($same.Count -eq 1))
+ }
+ Say 'PID continuity covers this diagnostic interval only; it does not prove PAC adoption or route success in an existing window.'
+}
+}
 
 if(Want 'apps'){
 Section 'Installed apps and browser coverage'
