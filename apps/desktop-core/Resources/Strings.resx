@@ -1,5 +1,11 @@
 <?xml version='1.0' encoding='utf-8'?>
 <root>
+  <data name="RelayWarningTitle" xml:space="preserve">
+    <value>Направить приложение через релей?</value>
+  </data>
+  <data name="RelayWarningMessage" xml:space="preserve">
+    <value>Трафик приложения «{0}» пойдёт через выбранный VPS. Для игровых серверов и других сервисов без блокировок это может увеличить пинг. Для Steam и игр рекомендуется DIRECT. Продолжить?</value>
+  </data>
   <data name="Home" xml:space="preserve">
     <value>Главная</value>
   </data>

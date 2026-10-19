@@ -254,7 +254,7 @@ public partial class MainWindow : Window
         }
         if(((string?)Mode.SelectedValue ?? "AUTO")=="AUTO"&&IsChrome(row.Profile)){await Execute(()=>ActivateChromeSites(row));return;}
         var copy=row.Profile.Copy();copy.Fallback=(string?)ProfileFallback.SelectedValue ?? "";
-        await Execute(async () => { await model.SetProfileAsync(copy, (string?)Mode.SelectedValue ?? "AUTO", (string?)RelayChoice.SelectedValue, lifetime.Token); });
+        await Execute(async () => { await model.SetProfileWithRelayWarningAsync(copy, (string?)Mode.SelectedValue ?? "DIRECT", (string?)RelayChoice.SelectedValue, () => ConfirmRelayChoiceAsync(copy), lifetime.Token); });
     }
     async void DeleteApplication(object sender, RoutedEventArgs e)
     {

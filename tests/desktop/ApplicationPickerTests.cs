@@ -78,6 +78,7 @@ public sealed class ApplicationPickerTests
             var saved = Assert.Single(service.State.Profiles);
             Assert.Equal(Path.GetFullPath(path), Assert.Single(saved.Executables));
             Assert.True(saved.Custom);
+            Assert.Equal("DIRECT", saved.Mode);
             Assert.Equal(saved.Id, Assert.Single(desktop.Applications).Profile.Id);
             Assert.Equal(path, Assert.Single(desktop.Applications).Path);
             Assert.Single(service.Calls, c => c.Method == "status");

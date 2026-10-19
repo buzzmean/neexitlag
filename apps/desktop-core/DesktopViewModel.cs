@@ -289,7 +289,7 @@ public sealed partial class DesktopViewModel : Observable
             return false;
         }
         path = System.IO.Path.GetFullPath(path);
-        var profile = new Profile { Id = "custom-" + Guid.NewGuid().ToString("N"), Name = System.IO.Path.GetFileNameWithoutExtension(path), Executables = [path], Mode = System.IO.Path.GetFileName(path).Equals("chrome.exe",StringComparison.OrdinalIgnoreCase)?"DIRECT":"AUTO", Custom = true };
+        var profile = new Profile { Id = "custom-" + Guid.NewGuid().ToString("N"), Name = System.IO.Path.GetFileNameWithoutExtension(path), Executables = [path], Mode = "DIRECT", Custom = true };
         if(BrowserCatalog.IsEdge(profile))profile.PolicyData=new(){["app_preset"]=System.Text.Json.JsonSerializer.SerializeToElement("edge-sites-pending")};
         bool duplicate = false;
         bool ok = await Act(async () =>
