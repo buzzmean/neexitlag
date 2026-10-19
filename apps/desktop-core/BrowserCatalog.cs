@@ -4,9 +4,8 @@ public sealed record InstalledBrowser(string Id, string Name, string ExePath, bo
 
 // Which browsers exist on this PC and which of them VELIQ can route on its own.
 // Chrome and Edge have independent automatic lanes (owned policy, PAC, recovery listener,
-// readiness proof). A browser must never get a profile before its lane exists: an
-// AUTO profile without a live PAC sends opaque flows through the relay with no DIRECT
-// fallback, and the generic Edge profile would relay everything it opens.
+// readiness proof). Registration at GUI startup does not activate these lanes:
+// Chrome starts DIRECT and Edge AUTO is explicitly pending PAC confirmation.
 public static class BrowserCatalog
 {
     sealed record Entry(string Id, string Name, bool AutoSupported, string[] Candidates);

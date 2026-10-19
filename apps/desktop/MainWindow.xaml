@@ -108,7 +108,7 @@
       <DataGridTextColumn Header="{ui:Tr PacketLoss}" Binding="{Binding Loss}" Width="130"/>
      </DataGrid.Columns></DataGrid>
     </DockPanel>
-    <DockPanel x:Name="Diagnostics" Visibility="Collapsed"><StackPanel DockPanel.Dock="Top"><Button Content="{ui:Tr RunDiagnostics}" HorizontalAlignment="Left" Click="RunDiagnostics" IsEnabled="{Binding CanControl}"/><TextBlock Text="{ui:Tr DiagnosticMtu}" Style="{StaticResource Hint}"/></StackPanel>
+    <DockPanel x:Name="Diagnostics" Visibility="Collapsed"><StackPanel DockPanel.Dock="Top"><Button Content="{ui:Tr RunDiagnostics}" HorizontalAlignment="Left" Click="RunDiagnostics" IsEnabled="{Binding CanControl}"/><TextBlock Text="{ui:Tr DiagnosticMtu}" Style="{StaticResource Hint}"/><TextBlock Text="{Binding BrowserStartupSummary}" Style="{StaticResource Hint}"/></StackPanel>
      <DataGrid ItemsSource="{Binding Diagnostics}"><DataGrid.Columns>
       <DataGridTextColumn Header="{ui:Tr Check}" Binding="{Binding Name}" Width="180"/>
       <DataGridTextColumn Header="{ui:Tr Result}" Binding="{Binding Status}" Width="140"/>

@@ -23,8 +23,9 @@ public partial class MainWindow {
   var installed=BrowserCatalog.Discover(File.Exists,Environment.GetEnvironmentVariable);
   try{
    var created=await model.EnsureChromeProfileAsync(installed,lifetime.Token);
-   if(created is not null){
-    var row=model.Applications.FirstOrDefault(r=>r.Profile.Id==created.Id);
+   var pending=created??model.Applications.Select(r=>r.Profile).FirstOrDefault(model.StartupChromeNeedsActivation);
+   if(pending is not null){
+    var row=model.Applications.FirstOrDefault(r=>r.Profile.Id==pending.Id);
     if(row is not null)await ActivateChromeSites(row);
    }
   }catch(Exception error)when(!lifetime.IsCancellationRequested){
