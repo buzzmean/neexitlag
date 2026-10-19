@@ -98,6 +98,7 @@ public partial class MainWindow {
   }
  }
  async Task MonitorEdgeTransportAsync(){
+  if(model.Applications.Any(a=>BrowserCatalog.IsEdge(a.Profile)&&DesktopViewModel.NativeBrowser(a.Profile)))return;
   if(edgeActivating||edgeMonitoring||edgeNeedsActivation||!model.Applications.Any(r=>EdgeSites(r.Profile)&&r.Profile.Mode=="AUTO"))return;
   edgeMonitoring=true;
   try{

@@ -49,7 +49,7 @@ public sealed partial class DesktopViewModel {
  }
  public async Task CommitEdgeAsync(Profile original,CancellationToken ct=default){
   var copy=original.Copy();copy.Mode="AUTO";
-  copy.PolicyData ??= new();copy.PolicyData["app_preset"]=JsonSerializer.SerializeToElement("edge-sites");
+  copy.PolicyData ??= new();copy.PolicyData["browser_transport"]=JsonSerializer.SerializeToElement("");copy.PolicyData["app_preset"]=JsonSerializer.SerializeToElement("edge-sites");
   await EdgeCall<Profile[]>("profile.set",copy,ct);
   await RefreshAsync(ct);
  }

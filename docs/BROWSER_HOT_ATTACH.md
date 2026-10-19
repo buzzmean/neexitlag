@@ -73,20 +73,92 @@ if ($built -ne $running -or (Get-Service neexitlag).Status -ne 'Running') { thro
 открытым окном или полноценной работы сайта. PID дочернего renderer может естественно
 исчезнуть; это отдельно от перезапуска основного browser process. Не коммитить diag-result.txt.
 
-## Этапы (б)/(в): ещё не реализованы этим изменением
+## Этап (б): новые TCP, owned PAC остаётся crash-guard
 
-Native AUTO новых соединений без обязательного PAC и измерение enable-to-first-success
-идут отдельным этапом. Удаление диалога, `://quit` и перезапуска — только после проверки
-владельца. Обычные DIRECT, DIRECT+, protected RELAY_REQUIRED остаются разными решениями.
-ECH/DoH/shared-IP не доказывают истинный домен; неоднозначность не разрешает DIRECT fallback.
-Существующий TCP не меняет egress. Обновление страницы может создать новое соединение,
-но HTTP/2 способен повторно использовать старое: до его пересоздания действует старый маршрут.
-Не обещаем немедленного исправления старого потока или переноса его TLS-состояния.
+`browser.native.enable {profile_id}` готовит IPv4/TCP capture **до** публикации AUTO,
+требует существующий service-owned mandatory PAC того же owner SID. Fresh без guard
+получает `NATIVE_OWNED_PAC_GUARD_REQUIRED`, без изменения профиля/политики/браузера.
+Это решение владельца: после crash службы WinDivert снимает фильтры. Native-only
+не может обещать protected fail-closed при crash; устранение зависимости — отдельный этап.
 
-Googlevideo: текущие 8 relay-туннелей/ПК и bounded ожидание до 2 с сохранены без изменений.
-Переполнение сейчас даёт явный admission error, не DIRECT. Требование о дальнейшем
-relay-admission для подтверждённой блокировки и совмещённые native/PAC relay-счётчики
-будут проверены на этапе (б); безграничные туннели/очереди не допускаются.
+GUI автоматически пробует этот IPC для Chrome AUTO, созданного GUI pending Chrome и
+Edge AUTO / DIRECT `edge-sites-pending`, когда включена оптимизация, и перед Optimize.
+Ручной MANUAL/DIRECT+/не-pending DIRECT не меняется. Если guard есть, Edge pending становится
+AUTO/native без кнопки и browser quit. Неподдерживаемая/старая служба и отказ capture/guard
+не очищают таблицу. Повтор ограничен 30 с. Старые PAC-кнопки, диалоги и quit-путь сохранены;
+это откат, удаление которого ещё не разрешено (этап в).
 
-Локально .NET и Windows отсутствуют. C#-регрессии, WPF и проверка уже запущенных
-Chrome/Edge выполняются Windows CI; Internet PASS требует проверки на ПК провайдера.
+Новый native TCP принимается локально, ClientHello/Host читается bounded worker (32 KiB,
+2 с); до решения нет upstream данных. Видимый достоверный SNI/Host использует существующий
+TLS/certificate/HTTP GET planner, DNS recovery и сетевой/профильный кэш. ECH outer SNI,
+неполный ClientHello и отсутствие имени не считаются доменом: только authenticated
+RELAY_REQUIRED к исходному адресу, **никакого DIRECT fallback**. DNS/53 остаётся прежним.
+Метаданные/IP/shared-IP не заменяют истинное имя. HTTPS не расшифровывается.
+
+Native enable не вызывает reset/reconfigure/hot attach старых TCP. Уже открытый HTTP/2
+может пережить обновление страницы: новый маршрут действует только после появления
+нового соединения. Для initial DIRECT silence после отправки данных: через 2 с закрывается
+только этот flow, в кэш идёт отказ (YouTube-family сразу TTL 10 мин); никакого replay или
+переноса установленного TLS. Браузер может повторить запрос новым соединением. Байт ответа
+не очищает verdict и не означает страницу PASS.
+
+`browser.native.status`: capture/Optimize, actual origin/opaque, PID/creation time, policy,
+ошибки, actual payload bytes, enable→first upstream open и first bidirectional exchange.
+Последние — **не HTTP(S)/page PASS**. Учет максимум 512 flows / 128 activation clocks,
+ответ до 60 KiB, усечения/lost видны. Общий native+PAC relay usage: active/opened TCP
+и минуты по profile/domain, payload bytes без QUIC overhead и origin probes. Opaque
+идёт в `<opaque>`, истинный домен не выдумывается. Googlevideo с известным именем —
+общий hard limit 8, очередь 32 / до 2 с, затем admission error без мёртвого DIRECT;
+разрешение «потом relay» не делает лимит бесконечным. Opaque видео нельзя достоверно
+отнести к googlevideo; оно дополнительно ограничено общим relay pool 8×48. VPS не меняется.
+
+Edge при nonce failure не выдаёт PAC READY: native использует реальный bound listener
+и owned fail-closed PAC, либо статический guard (ordinary DIRECT, protected закрыты),
+если listener не поднимается. Чужая политика не заменяется. Chrome journal/онлайн PAC
+не меняются. Старый owner recovery-процесс восстанавливается из имеющегося состояния.
+GUI запрашивает `RefreshPolicy(false)` под owner user, не SYSTEM/machine: Windows Chromium
+смотрит user GP notifications. API асинхронный; `REQUESTED` **не доказывает** live uptake.
+Отчёт: `%LOCALAPPDATA%\NeExitLag\browser-native-policy-refresh.txt`. Если уже открытый
+Edge держит старый мёртвый PAC, отсутствие actual exchange остаётся видимым отказом;
+не утверждаем автоматическое исправление этого случая до Windows-проверки владельца.
+
+IPv6 data routing и UDP/443 политика не меняются. IPv6 guard сохраняет fail-closed,
+даже когда new-only исключает native TCP из сброса preexisting flows. Не обещаем
+поддержку IPv6/QUIC direct/обход coalescing на уровне домена без достоверного имени.
+
+### Обновление и короткая проверка без закрытия Chrome/Edge
+
+Закройте **только GUI** через «Выход» в трее. Сохраните уже установленные owned PAC,
+не удаляйте профили или реестр. Обновление службы само разрывает принадлежащие ей sockets;
+это отличается от native enable при уже работающей службе и не доказывает continuity.
+Из elevated PowerShell **того же SID владельца установки**, в `C:\neexitlag`:
+
+```powershell
+$ErrorActionPreference='Stop'
+git switch codex/work
+if ($LASTEXITCODE) { throw 'git switch failed' }
+git pull --ff-only origin codex/work
+if ($LASTEXITCODE) { throw 'git pull failed' }
+& .\tools\windows\build-e2e.ps1
+& .\tools\windows\build-desktop.ps1
+& .\tools\windows\update-service.ps1
+if ((Get-FileHash .\bin\windows-e2e\neexitlag-service.exe).Hash -ne (Get-FileHash "$env:ProgramData\neexitlag\neexitlag-service.exe").Hash) { throw 'Service hash mismatch' }
+Get-Service neexitlag | Select-Object Status
+```
+
+Далее обычный owner PowerShell: `& .\tools\windows\install-desktop.ps1`, открыть
+`%LOCALAPPDATA%\Programs\VELIQ\VELIQ.exe`, нажать Optimize без PAC-кнопок/закрытия
+браузеров. В открытом окне обновить обычную страницу, YouTube и ChatGPT; затем:
+
+```powershell
+& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube
+```
+
+Скрипт 2026-10-19.3 сохраняет PID/creation time до/после, native decisions/timing,
+relay usage и отдельно headless controls. Не путать headless успех со старым окном.
+Существующий PAC может обслуживать запросы без native-record: это совместимый PAC путь,
+не native interception PASS. Прислать отчет, **не коммитить diag-result.txt**.
+
+Локально .NET/Windows отсутствуют: C#/WPF, реальный Chrome с owned policy и unchanged
+PID/creation проверяются CI, native deferred TCP — Windows socket/mTLS/race burst.
+Это не Internet PASS и не доказательство живого policy refresh на ПК владельца.

@@ -48,7 +48,7 @@ public sealed partial class DesktopViewModel {
   await RefreshAsync(ct);
  }
  public async Task CommitChromeAsync(Profile original,CancellationToken ct=default){
-  var copy=original.Copy();copy.Mode="AUTO";
+  var copy=original.Copy();copy.Mode="AUTO";copy.PolicyData ??= new();copy.PolicyData["browser_transport"]=System.Text.Json.JsonSerializer.SerializeToElement("");
   await client.Call<Profile[]>("profile.set",copy,ct);
   var status=await client.Call<Snapshot>("optimize",new{enabled=true},ct);
   if(!status.Optimizing)throw new ChromeActivationException(Text.Get("ChromeActivationFailed"));
@@ -56,6 +56,7 @@ public sealed partial class DesktopViewModel {
   await RefreshAsync(ct);
  }
  public async Task RestoreChromeAsync(Profile original,CancellationToken ct=default){
+  if(NativeBrowser(original)){await EnableNativeBrowserAsync(original,ct);return;}
   var copy=original.Copy();if(copy.Mode=="AUTO"){
    copy.Mode="DIRECT";
    if(copy.PolicyData is {} data && data.TryGetValue("rules",out var rules) && rules.ValueKind==System.Text.Json.JsonValueKind.Array && rules.GetArrayLength()>0){

@@ -1,6 +1,6 @@
 # CURRENT — состояние проекта (обновляется в конце каждой сессии)
 
-Обновлено: 19.10.2026, Codex; рабочая ветка `codex/work`. Этап (а) регистрации браузеров, код `c556ac6`; native AUTO без PAC ещё не включён. История передачи Claude сохранена ниже.
+Обновлено: 19.10.2026, Codex; рабочая ветка `codex/work`. Этап (а) проверен владельцем; этап (б) native новых TCP с owned PAC crash-guard — код `0e89144`, локальные проверки и CI в работе. История передачи Claude сохранена ниже.
 
 ## (a) Цель
 Чистый Windows 10/11: установил, нажал «Оптимизировать» — заблокированные в РФ сервисы работают без VPN: ChatGPT, Claude, YouTube, Discord, Telegram, браузеры Chrome и Edge. Первый заказчик — клуб на 36 ПК с откатом при перезагрузке.
@@ -382,3 +382,21 @@ Read-only команды Windows/VPS и риски 1 vCPU описаны в BROW
 - Инструкция учитывает старую службу: если capability Edge <3, сначала обновить только
   локальную Windows-службу через build-e2e/update-service с SHA256-проверкой, затем GUI.
   Browser процессы закрывать не надо; соединения при service update могут прерваться.
+
+
+## (n) Этап (б), 19.10.2026 — checkpoint для проверки
+
+- `0e89144`: native AUTO новых IPv4 TCP; нет reset/replay/migration существующих TCP,
+  opaque/ECH только RELAY_REQUIRED; тот же TLS/HTTP planner, DNS recovery, cache.
+- Решение владельца: существующий owned PAC остаётся независимым crash-guard.
+  Fresh без guard автоматически не активировать. Новый IPC проверяет это и при profile.set.
+- Edge pending → AUTO/native при guard/capture ready; failed nonce не даёт ложный READY,
+  сохраняет live bound listener либо статический fail-closed guard. last_error — безопасный code.
+- Native/PAC shared relay payload bytes/minute, active/opened tunnels по profile/domain;
+  known googlevideo hard 8 / очередь 32 / 2 с, overflow admission error без DIRECT.
+- GUI/diagnostics — следующий отдельный коммит. Старые PAC/restart кнопки сохранены, (в) не начат.
+- Targeted Go race PASS; Linux vet, Windows cross-build + compile platform tests PASS;
+  полный race с isolated PostgreSQL и CI ещё выполняются. .NET локально отсутствует.
+- Exact update/check: docs/BROWSER_HOT_ATTACH.md; закрыть только GUI, браузеры не закрывать.
+- Caveat: GP refresh request не равен live uptake; cached dead PAC старого Edge требует
+  проверки владельца. Оpaque domain counters честно `<opaque>`; IPv6/QUIC routing не менялись.

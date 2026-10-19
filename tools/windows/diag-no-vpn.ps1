@@ -220,7 +220,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-19.2 (startup browser profiles + existing process identity; no restart)'
+$ScriptVersion='2026-10-19.3 (native new TCP + owned PAC crash-guard; existing PID proof)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -476,6 +476,23 @@ Step 'youtube' {
 }}
 
 if(Want 'browser'){
+Section 'Native browser new-connection evidence (owned PAC crash-guard retained)'
+Step 'native_browser' {
+ $native=Invoke-IPC 'browser.native.status'
+ Say ("capture_ready="+(Prop $native 'capture_ready')+" optimizing="+(Prop $native 'optimizing')+" existing_tcp="+(Prop $native 'existing_tcp')+" truncated="+(Prop $native 'truncated')+" lost="+(Prop $native 'lost'))
+ foreach($p in @(Prop $native 'profiles' @())){Say ("native timing: "+(Json $p))}
+ foreach($r in @(Prop $native 'records' @())|Select-Object -First 32){
+  $owner=Prop $r 'owner';$policy=Prop $r 'policy'
+  Say ("native #"+(Prop $r 'id')+" pid="+(Prop $owner 'pid')+" birth="+(Prop $owner 'creation_time')+" domain="+(Prop $r 'domain')+" destination="+(Prop $r 'destination')+" route="+(Prop $policy 'action')+" relay="+(Prop $policy 'relay_id')+" source="+(Prop $policy 'source')+" result="+(Prop $r 'result')+" failure="+(Prop $r 'failure_reason')+" tx="+(Prop $r 'sent_bytes')+" rx="+(Prop $r 'received_bytes'))
+ }
+ $usage=Prop $native 'relay_usage'
+ Say ("shared relay TCP: active="+(Prop $usage 'active_tcp_tunnels')+" opened="+(Prop $usage 'tcp_tunnels_opened')+" scope="+(Prop $usage 'scope'))
+ foreach($m in @(Prop $usage 'minutes' @())){Say ("relay minute: "+(Json $m))}
+ foreach($o in @(Prop $usage 'active_origins' @())){Say ("relay active: "+(Json $o))}
+ $refresh=Join-Path $env:LOCALAPPDATA 'NeExitLag\browser-native-policy-refresh.txt'
+ if(Test-Path $refresh){Say ((Get-Content $refresh -TotalCount 1))}
+ Say 'Fresh without owned PAC guard: native is NOT auto-activated. Registry/refresh/tunnel bytes are NOT live-policy/site PASS. Existing HTTP/2 may be reused on reload; no connection egress migration. Opaque ECH uses RELAY only; domain cannot be inferred.'
+}
 Section 'Existing browser processes and startup profile registration (no browser restart)'
 Step 'startup_profiles' {
  foreach($process in $script:liveBrowserBefore){Say ("existing: "+(Json $process))}

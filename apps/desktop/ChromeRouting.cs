@@ -36,9 +36,10 @@ public partial class MainWindow {
   return gaps.Length==0?null:Text.Get("BrowsersNotCovered")+" "+string.Join(", ",gaps)+".";
  }
  async Task EnableOptimizationAsync(){
-  var coverageNotice=await EnsureBrowserCoverageAsync();
-  try{await EnableOptimizationCoreAsync();}
-  finally{if(coverageNotice is not null&&model.Optimizing)model.SetNotice(coverageNotice);}
+  await model.EnsureStartupBrowserProfilesAsync(BrowserCatalog.Discover(File.Exists,Environment.GetEnvironmentVariable),lifetime.Token);
+  await PrepareNativeBrowsersAsync(forOptimize:true);
+  // Legacy PAC buttons remain explicit and unchanged. No quit/dialog on this path.
+  await model.OptimizeAsync(true,lifetime.Token);
  }
  async Task EnableOptimizationCoreAsync(){
   var status=await model.ChromeStatusAsync(lifetime.Token);
@@ -76,6 +77,7 @@ public partial class MainWindow {
  }
  async Task MonitorChromeTransportAsync(bool wasOptimizing){
   await MonitorEdgeTransportAsync();
+  if(model.Applications.Any(a=>IsChrome(a.Profile)&&DesktopViewModel.NativeBrowser(a.Profile)))return;
   if(chromeActivating||chromeMonitoring||!ChromePolicy.Monitored)return;
   chromeMonitoring=true;
   try{
