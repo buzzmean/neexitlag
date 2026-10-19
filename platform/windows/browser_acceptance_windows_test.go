@@ -335,14 +335,14 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 			trace = append(trace, map[string]any{"phase": phase, "source": tuple.Source.String(), "destination": tuple.Destination.String(), "tcp_flags": flags, "address_flags": addr})
 		}
 	}
-	admitted := map[*wp.WinDivertBackend]bool{}
+	admitted := map[uint16]bool{}
 	var nativeMain wp.ProcessIdentity
 	f.StageReady = func(stage int, call func(string, any) (json.RawMessage, error)) error {
 		if stage != 3 {
 			backend.TraceNativeFixture(observer)
-			if !admitted[backend] {
+			if port := backend.NativeFixtureListenerPort(); !admitted[port] {
 				backend.AdmitNativeFixtureListener(t)
-				admitted[backend] = true
+				admitted[port] = true
 			}
 		}
 		if stage == 2 {
