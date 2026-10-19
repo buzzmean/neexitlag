@@ -47,6 +47,34 @@ func (b *WinDivertBackend) OpenBrowserLocalTCP(ctx context.Context, id ProcessId
 	e := &tcpEntry{identity: id, tuple: tuple, decision: d}
 	return tcp.dialLocalStrategyFrom(ctx, e, d, bind)
 }
+
+// OpenBrowserNativeTCP admits only this reserved service socket into native
+// deferred capture. The owner, immutable plan and fail-closed callback are
+// supplied by the authenticated CONNECT front end, never by a packet/DNS guess.
+func (b *WinDivertBackend) OpenBrowserNativeTCP(ctx context.Context, id ProcessIdentity, source, dest netip.AddrPort, d Decision) (net.Conn, error) {
+	if !dest.Addr().Is4() || !d.Deferred || d.ResolveDomain == nil || d.OpenDeferred == nil || !d.BlockOnFailure || !d.NewConnectionsOnly || !IsCurrent(id) {
+		return nil, errors.New("NATIVE_PAC_DELEGATION_INVALID")
+	}
+	b.mu.Lock()
+	tcp, ready := b.tcp, b.status.Ready
+	b.mu.Unlock()
+	if tcp == nil || !ready {
+		return nil, ErrUnavailable
+	}
+	selector, err := net.DialUDP("udp4", nil, net.UDPAddrFromAddrPort(dest))
+	if err != nil {
+		return nil, err
+	}
+	bind := selector.LocalAddr().(*net.UDPAddr).AddrPort().Addr()
+	selector.Close()
+	tuple := Tuple{Protocol: "tcp", Source: source, Destination: dest}
+	b.evidence.BeginFlow(id, tuple)
+	b.evidence.RecordDomain(id, tuple, d.OriginDomain)
+	b.evidence.RecordInitialPolicy(id, tuple, d)
+	e := &tcpEntry{identity: id, tuple: tuple, decision: d}
+	return tcp.dialDelegatedFrom(ctx, e, d, bind, true)
+}
+
 func (b *WinDivertBackend) BrowserTransformApplied(id ProcessIdentity, source, dest netip.AddrPort) bool {
 	ev, err := b.evidence.SnapshotQuery(EvidenceQuery{PID: id.PID, CreationTime: id.CreationTime, Source: source.String(), Destination: dest.String()}, nil)
 	if err != nil || ev.Truncated || ev.EvidenceLost {

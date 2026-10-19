@@ -80,7 +80,7 @@ func TestNativeEdgeEnablePreservesStreamsAndRepairsGuardWithoutNonce(t *testing.
 		t.Fatal("activation reset established connections", b.calls, b.epoch)
 	}
 	saved := findNativeEdge(c)
-	if !nativeBrowserProfile(saved) || saved.AppPreset != p.AppPreset {
+	if !nativeBrowserProfile(saved) || saved.AppPreset != "edge-sites" {
 		t.Fatal(saved)
 	}
 	e := c.browser.edge
@@ -337,5 +337,82 @@ func TestNativeIdempotentEnableDoesNotRetireUDPEveryMonitorTick(t *testing.T) {
 	}
 	if b.publications != 1 || len(b.calls) != 0 {
 		t.Fatal("monitor retired flows", b.publications, b.calls)
+	}
+}
+
+func TestNativeEdgeStatusSeparatesCaptureFromPACNonceReadiness(t *testing.T) {
+	c, p, _ := nativeEdgeFixture(t)
+	ownNativeEdge(c)
+	if _, err := edgeCall(c, "browser.native.enable", map[string]string{"profile_id": p.ID}); err != nil {
+		t.Fatal(err)
+	}
+	read := func() map[string]any {
+		value, err := edgeCall(c, "edge.status", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := json.Marshal(value)
+		var got map[string]any
+		json.Unmarshal(raw, &got)
+		return got
+	}
+	got := read()
+	if findNativeEdge(c).AppPreset != "edge-sites" || got["readiness_state"] != "NATIVE_ARMED_NO_NEW_FLOW" || got["pac_nonce_readiness"] != "NOT_PREPARED" || got["rollback_guard_active"] != false || got["owned_guard_installed"] != true {
+		t.Fatal(got, findNativeEdge(c))
+	}
+	n := &c.browser.native
+	id, err := n.begin(browserproxy.Request{Ingress: "PAC_NATIVE_UPSTREAM", Host: "ordinary.example", Owner: browserproxy.Owner{Profile: p.ID}}, policyTuple("tcp", 443))
+	if err != nil {
+		t.Fatal(err)
+	}
+	n.opened(id, browserproxy.Plan{}, nil)
+	n.bytes(id, 11, 21)
+	got = read()
+	if got["readiness_state"] != "NATIVE_TUNNEL_OBSERVED" || c.browser.edge.server.Confirmed(p.ID) {
+		t.Fatal("native observation forged PAC nonce readiness", got)
+	}
+	timing := c.nativeSnapshot().Profiles[0]
+	if timing.Opened != 1 || timing.Sent != 11 || timing.Received != 21 || timing.FirstOpenMS < 0 {
+		t.Fatal(timing)
+	}
+}
+
+type nativePACAdmissionSpy struct {
+	nativeBackendFixture
+	decision wp.Decision
+	calls    int
+	err      error
+}
+
+func (b *nativePACAdmissionSpy) OpenBrowserNativeTCP(_ context.Context, _ wp.ProcessIdentity, _, _ netip.AddrPort, d wp.Decision) (net.Conn, error) {
+	b.calls++
+	b.decision = d
+	return nil, b.err
+}
+func TestNativePACExactDelegationIsBoundedFailClosedAndNotAFalseOpen(t *testing.T) {
+	c, p, _ := nativeEdgeFixture(t)
+	b := &nativePACAdmissionSpy{err: context.DeadlineExceeded}
+	b.ready = true
+	c.Backend = b
+	q := browserproxy.Request{Ingress: "PAC_CONNECT", Host: "chatgpt.com", Port: 443, Secure: true, Owner: browserproxy.Owner{Profile: p.ID}}
+	plan := browserproxy.Plan{Destination: netip.MustParseAddrPort("203.0.113.2:443"), Policy: flowpolicy.Result{Action: flowpolicy.RelayRequired, RelayID: "VPS-01", Fallback: flowpolicy.Required}}
+	_, err := c.openNativePAC(context.Background(), q, plan, wp.Decision{Policy: plan.Policy})
+	if err != context.DeadlineExceeded || b.calls != 1 {
+		t.Fatal(err, b.calls)
+	}
+	d := b.decision
+	if !d.Deferred || !d.NewConnectionsOnly || !d.BlockOnFailure || d.ResolveDomain == nil || d.OpenDeferred == nil || d.ConnectOrigin != "chatgpt.com" {
+		t.Fatal(d)
+	}
+	resolved := wp.ResolveDeferredDecision(d, "outer.example", "ECH_OUTER_SNI_ONLY")
+	if resolved.Policy.Action != flowpolicy.RelayRequired || !resolved.BlockOnFailure || resolved.ConnectOrigin != "chatgpt.com" {
+		t.Fatal(resolved)
+	}
+	if len(c.nativeSnapshot().Records) != 0 {
+		t.Fatal("failed local delegation manufactured real upstream OPEN")
+	}
+	b.ready = false
+	if _, err = c.openNativePAC(context.Background(), q, plan, d); err == nil || b.calls != 1 {
+		t.Fatal("unready capture admitted a SYN", err, b.calls)
 	}
 }

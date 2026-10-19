@@ -39,15 +39,21 @@ func (c *Controller) nativeBackendConfigured() bool {
 }
 
 type nativeBrowserProfileStatus struct {
+	Accepted        uint64    `json:"accepted"`
+	Opened          uint64    `json:"opened"`
+	Failed          uint64    `json:"failed"`
+	Sent            uint64    `json:"sent_bytes"`
+	Received        uint64    `json:"received_bytes"`
 	AfterFlow       uint64    `json:"-"`
 	Profile         string    `json:"profile_id"`
 	Activated       time.Time `json:"activated_at"`
-	FirstOpened     time.Time `json:"first_tunnel_opened_at,omitempty"`
-	FirstExchange   time.Time `json:"first_bidirectional_exchange_at,omitempty"`
+	FirstOpened     time.Time `json:"first_tunnel_opened_at,omitzero"`
+	FirstExchange   time.Time `json:"first_bidirectional_exchange_at,omitzero"`
 	FirstOpenMS     int64     `json:"enable_to_first_open_ms"`
 	FirstExchangeMS int64     `json:"enable_to_first_exchange_ms"`
 }
 type nativeBrowserRecord struct {
+	Ingress     string             `json:"ingress"`
 	ID          uint64             `json:"id"`
 	Owner       browserproxy.Owner `json:"owner"`
 	Started     time.Time          `json:"started"`
@@ -225,6 +231,9 @@ func (c *Controller) handleNativeBrowser(ctx context.Context, method string, raw
 	old := p
 	p.Mode = profiles.Auto
 	p.BrowserTransport = "native"
+	if edgeProfile(p) && p.AppPreset == "edge-sites-pending" {
+		p.AppPreset = "edge-sites"
+	}
 	prepareAuto(&p)
 	if err := p.Validate(); err != nil {
 		return nil, err
@@ -301,7 +310,12 @@ func (n *nativeBrowserRuntime) begin(q browserproxy.Request, t wp.Tuple) (uint64
 	if domain == "" {
 		domain = "<opaque>"
 	}
-	n.records[n.next] = nativeBrowserRecord{ID: n.next, Owner: q.Owner, Started: time.Now(), Domain: domain, Destination: t.Destination.String(), Result: "PLANNING", Active: true}
+	n.records[n.next] = nativeBrowserRecord{Ingress: q.Ingress, ID: n.next, Owner: q.Owner, Started: time.Now(), Domain: domain, Destination: t.Destination.String(), Result: "PLANNING", Active: true}
+	p := n.profiles[q.Owner.Profile]
+	if p.Profile != "" {
+		p.Accepted++
+		n.profiles[q.Owner.Profile] = p
+	}
 	return n.next, nil
 }
 func (n *nativeBrowserRuntime) opened(id uint64, plan browserproxy.Plan, err error) {
@@ -314,18 +328,22 @@ func (n *nativeBrowserRuntime) opened(id uint64, plan browserproxy.Plan, err err
 	r.Policy = plan.Policy
 	r.Upstream = plan.Destination.String()
 	r.Probe = plan.Probe
+	p := n.profiles[r.Owner.Profile]
 	if err != nil {
 		r.Active = false
 		r.Result = "BLOCK"
 		r.Failure = nativeFailureCode(err)
+		p.Failed++
 	} else {
+		p.Opened++
 		r.Result = "TUNNEL_OPENED"
-		p := n.profiles[r.Owner.Profile]
 		if !p.Activated.IsZero() && id > p.AfterFlow && p.FirstOpened.IsZero() {
 			p.FirstOpened = time.Now()
 			p.FirstOpenMS = p.FirstOpened.Sub(p.Activated).Milliseconds()
-			n.profiles[r.Owner.Profile] = p
 		}
+	}
+	if p.Profile != "" {
+		n.profiles[r.Owner.Profile] = p
 	}
 	n.records[id] = r
 }
@@ -338,6 +356,12 @@ func (n *nativeBrowserRuntime) bytes(id uint64, tx, rx uint64) {
 	}
 	r.Sent += tx
 	r.Received += rx
+	p := n.profiles[r.Owner.Profile]
+	if p.Profile != "" {
+		p.Sent += tx
+		p.Received += rx
+		n.profiles[r.Owner.Profile] = p
+	}
 	if r.Sent > 0 && r.Received > 0 {
 		r.Result = "BIDIRECTIONAL_EXCHANGE"
 		p := n.profiles[r.Owner.Profile]
@@ -375,7 +399,7 @@ func (c *Controller) openNativeBrowser(ctx context.Context, p profiles.Profile, 
 			return nil, d, errors.New("NATIVE_OWNER_SID_MISMATCH")
 		}
 	}
-	q := browserproxy.Request{Owner: browserproxy.Owner{PID: id.PID, Birth: id.CreationTime, Exe: id.Path, Profile: p.ID}, Source: t.Source, Host: d.OriginDomain, Port: t.Destination.Port(), Secure: reason != "HTTP_HOST"}
+	q := browserproxy.Request{Ingress: "NATIVE_TCP", Owner: browserproxy.Owner{PID: id.PID, Birth: id.CreationTime, Exe: id.Path, Profile: p.ID}, Source: t.Source, Host: d.OriginDomain, Port: t.Destination.Port(), Secure: reason != "HTTP_HOST"}
 	current, err := c.browserProfile(q.Owner)
 	if err != nil || !current.enabled || !nativeBrowserProfile(current.profile) || c.policyRevision(p) != c.policyRevision(current.profile) {
 		return nil, d, errors.New("NATIVE_PROFILE_CHANGED")

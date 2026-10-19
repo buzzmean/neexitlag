@@ -110,3 +110,21 @@ func TestDeferredOpaqueAuthenticatedRouteIsNotAnOpenFailure(t *testing.T) {
 		t.Fatal(d)
 	}
 }
+
+// CONNECT authority is metadata of this exact owner-authorized tunnel, unlike
+// an outer SNI/DNS guess. ECH must not block a validated ordinary CONNECT.
+func TestDeferredCONNECTOriginDoesNotUseECHOuterName(t *testing.T) {
+	d := Decision{Deferred: true, ResolveDomain: func(string) Decision {
+		return Decision{ConnectOrigin: "ordinary.example", BlockOnFailure: true, Policy: flowpolicy.Result{Action: flowpolicy.Direct}}
+	}}
+	got := ResolveDeferredDecision(d, "public-outer.example", "ECH_OUTER_SNI_ONLY")
+	if got.Block || got.ConnectOrigin != "ordinary.example" {
+		t.Fatal(got)
+	}
+	d.ResolveDomain = func(string) Decision {
+		return Decision{BlockOnFailure: true, Policy: flowpolicy.Result{Action: flowpolicy.Direct}}
+	}
+	if got = ResolveDeferredDecision(d, "public-outer.example", "ECH_OUTER_SNI_ONLY"); !got.Block {
+		t.Fatal("untrusted opaque DIRECT authorized", got)
+	}
+}

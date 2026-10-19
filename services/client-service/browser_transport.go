@@ -178,6 +178,9 @@ func (c *Controller) openBrowser(ctx context.Context, q browserproxy.Request, pl
 	if d.Block {
 		return nil, errors.New("browser route blocked")
 	}
+	if observe && nativeBrowserProfile(current.profile) && (q.Ingress == "PAC_CONNECT" || q.Ingress == "PAC_RECOVERY") && plan.Destination.Addr().Is4() && (c.BrowserResolver != nil || !directOnlyFlow(wp.Tuple{Protocol: "tcp", Destination: plan.Destination})) {
+		return c.openNativePAC(ctx, q, plan, d)
+	}
 	if d.Route.Local() {
 		if !c.browserLocalAllowed(current.network) {
 			return nil, errors.New("native local strategy unavailable on current network")

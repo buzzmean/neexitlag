@@ -320,14 +320,48 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (result any,
 		if e.readinessFailure != "" {
 			state = e.readinessFailure
 		}
+		nonceState := state
+		transportMode := "PAC_LEGACY"
+		for _, p := range c.Profiles.List() {
+			if !edgeProfile(p) || !nativeBrowserProfile(p) {
+				continue
+			}
+			transportMode = "NATIVE_ARMED_PAC_GUARD"
+			state = "NATIVE_CAPTURE_NOT_READY"
+			if c.nativeBackendReady() && e.server != nil && (e.policyActive(c.BrowserOwnerSID) || e.guardActive(c.BrowserOwnerSID)) {
+				state = "NATIVE_ARMED_NO_NEW_FLOW"
+				c.browser.native.mu.Lock()
+				timing := c.browser.native.profiles[p.ID]
+				c.browser.native.mu.Unlock()
+				if timing.Opened > 0 {
+					state = "NATIVE_TUNNEL_OBSERVED"
+				} else {
+					for _, m := range snapshot.PathMetrics {
+						if m.Profile == p.ID && m.Opened > 0 {
+							state = "PAC_TUNNEL_OBSERVED_NATIVE_IDLE"
+						}
+					}
+				}
+			}
+			break
+		}
+		pendingProfile := e.healthProfile
+		if transportMode == "NATIVE_ARMED_PAC_GUARD" {
+			pendingProfile = ""
+		}
+		guardRaw, _ := base64.StdEncoding.DecodeString(strings.TrimPrefix(e.saved.GuardPAC, "data:application/x-ns-proxy-autoconfig;base64,"))
+		rollback := e.guardActive(c.BrowserOwnerSID) && strings.Contains(string(guardRaw), "fail-closed.neexitlag.invalid")
 		return struct {
+			TransportMode       string `json:"transport_mode"`
+			PACNonceReadiness   string `json:"pac_nonce_readiness"`
+			OwnedGuardInstalled bool   `json:"owned_guard_installed"`
 			browserStatusView
 			LastError           string `json:"last_error"`
 			ActivationVersion   int    `json:"activation_version"`
 			ReadinessState      string `json:"readiness_state"`
 			PendingProfile      string `json:"pending_profile"`
 			RollbackGuardActive bool   `json:"rollback_guard_active"`
-		}{view, e.lastError, 3, state, e.healthProfile, e.guardActive(c.BrowserOwnerSID)}, nil
+		}{transportMode, nonceState, e.policyActive(c.BrowserOwnerSID) || e.guardActive(c.BrowserOwnerSID), view, e.lastError, 3, state, pendingProfile, rollback}, nil
 	}
 	if c.BrowserOwnerSID == "" {
 		return nil, errors.New("Edge requires installation owner SID")

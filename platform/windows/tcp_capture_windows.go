@@ -295,6 +295,12 @@ func (t *tcpRedirect) processPacket(p []byte, a [80]byte, classify Classifier) {
 		// socket may consume an internal delegation, never another process using
 		// the same tuple during the bounded reservation/bind interval.
 		pid, ownerErr := resolveTCPOwner(tuple)
+		if delegated.decision.OpenDeferred != nil && (ownerErr != nil || pid != uint32(os.Getpid())) {
+			// A protected reserved socket cannot become self/DIRECT when ownership
+			// lookup races its first SYN. Drop this packet; a retransmit can retry.
+			t.b.drop(delegated.owner.identity, tuple)
+			return
+		}
 		owned = ownerErr == nil && pid == uint32(os.Getpid())
 	}
 	if owned {
@@ -760,6 +766,9 @@ func (t *tcpRedirect) dialLocalStrategy(ctx context.Context, e *tcpEntry, d Deci
 	return t.dialLocalStrategyFrom(ctx, e, d, e.tuple.Source.Addr())
 }
 func (t *tcpRedirect) dialLocalStrategyFrom(ctx context.Context, e *tcpEntry, d Decision, bind netip.Addr) (net.Conn, error) {
+	return t.dialDelegatedFrom(ctx, e, d, bind, false)
+}
+func (t *tcpRedirect) dialDelegatedFrom(ctx context.Context, e *tcpEntry, d Decision, bind netip.Addr, deferred bool) (net.Conn, error) {
 	var bound Tuple
 	c, err := dialBoundIPv4(ctx, bind, e.tuple.Destination, func(source netip.AddrPort) error {
 		if bound.Source.IsValid() {
@@ -772,8 +781,10 @@ func (t *tcpRedirect) dialLocalStrategyFrom(ctx context.Context, e *tcpEntry, d 
 			return fmt.Errorf("delegated TCP limit")
 		}
 		d.Flow = routing.Flow{}
-		d.Deferred = false
-		d.ResolveDomain = nil
+		if !deferred {
+			d.Deferred = false
+			d.ResolveDomain = nil
+		}
 		t.delegated[bound] = delegatedTCP{owner: e, decision: d}
 		return nil
 	})

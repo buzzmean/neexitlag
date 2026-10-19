@@ -26,6 +26,8 @@ import (
 	"golang.org/x/sys/windows/registry"
 	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"net/netip"
 	"os"
 	"os/exec"
@@ -313,7 +315,66 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		sid, e := wp.ProcessUserSID(id)
 		return e == nil && sid == c.BrowserOwnerSID
 	}
+	// A distinct controlled port forces a genuinely NEW connection without
+	// restarting Chrome, clearing user sockets or pretending H2 reuse is native.
+	freshOrigin := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		f.Server.Config.Handler.ServeHTTP(w, r)
+	}))
+	freshOrigin.EnableHTTP2 = true
+	freshOrigin.TLS = f.Server.TLS.Clone()
+	freshOrigin.StartTLS()
+	defer freshOrigin.Close()
+	var nativeMain wp.ProcessIdentity
 	f.StageReady = func(stage int, call func(string, any) (json.RawMessage, error)) error {
+		if stage == 2 {
+			port := freshOrigin.Listener.Addr().(*net.TCPAddr).Port
+			url := fmt.Sprintf("https://ordinary.example:%d/policy-probe?nonce=%s", port, f.Nonce)
+			quoted, _ := json.Marshal(url)
+			raw, err := call("Runtime.evaluate", map[string]any{"expression": "fetch(" + string(quoted) + ",{cache:'no-store'}).then(r=>r.text())", "awaitPromise": true, "returnByValue": true})
+			if err != nil {
+				return err
+			}
+			var result struct {
+				Result struct {
+					Value string `json:"value"`
+				} `json:"result"`
+			}
+			json.Unmarshal(raw, &result)
+			if result.Result.Value != f.Nonce+":PROXY" {
+				return fmt.Errorf("native PAC fresh HTTPS failed: %s", raw)
+			}
+			value, err := c.Handle(ctx, "browser.native.status", nil)
+			if err != nil {
+				return err
+			}
+			encoded, _ := json.Marshal(value)
+			var native struct {
+				Profiles []struct {
+					Opened uint64 `json:"opened"`
+					First  int64  `json:"enable_to_first_open_ms"`
+				} `json:"profiles"`
+				Records []struct {
+					Ingress  string `json:"ingress"`
+					Sent     uint64 `json:"sent_bytes"`
+					Received uint64 `json:"received_bytes"`
+				} `json:"records"`
+			}
+			json.Unmarshal(encoded, &native)
+			found := false
+			for _, r := range native.Records {
+				if r.Ingress == "PAC_NATIVE_UPSTREAM" && r.Sent > 0 && r.Received > 0 {
+					found = true
+				}
+			}
+			if !found || len(native.Profiles) != 1 || native.Profiles[0].Opened == 0 || native.Profiles[0].First < 0 {
+				return fmt.Errorf("HTTPS succeeded without native WinDivert upstream evidence: %s", encoded)
+			}
+			if nativeMain.PID == 0 || !wp.IsCurrent(nativeMain) {
+				return errors.New("running Chrome main PID/creation changed before native HTTPS proof")
+			}
+			t.Log("PAC_NATIVE_UPSTREAM: same running Chrome, new controlled HTTPS connection, actual native OPEN+bidirectional bytes; PAC guard unchanged")
+		}
 		if stage != 3 {
 			return nil
 		}
@@ -407,6 +468,11 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		for _, id := range live {
 			if strings.EqualFold(id.Path, chrome) {
 				before = append(before, id)
+			}
+		}
+		for _, id := range before {
+			if nativeMain.PID == 0 || id.CreationTime < nativeMain.CreationTime {
+				nativeMain = id
 			}
 		}
 		if len(before) == 0 {
