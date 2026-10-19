@@ -63,7 +63,7 @@ func TestLocalIPCAndAutoTargetIsolation(t *testing.T) {
 	}
 }
 
-func TestTargetFailureSelectsActualRelayInsteadOfGlobalDirect(t *testing.T) {
+func TestTargetFailureDoesNotAuthorizeAutomaticRelayForUnknownApplication(t *testing.T) {
 	c := New(context.Background())
 	defer c.Close()
 	c.enabled = true
@@ -77,8 +77,8 @@ func TestTargetFailureSelectsActualRelayInsteadOfGlobalDirect(t *testing.T) {
 	relay := optimizer.RouteMeasurement{RouteID: "VPS-01", Available: true, Samples: 10, ObservedAt: now, RTT: 20 * time.Millisecond, Stability: 1}
 	c.Learned.Record(k, "DIRECT", bad, false, now)
 	c.Learned.Record(k, "RELAY", relay, true, now)
-	if got := c.Classify(id, tuple).Route.RelayID; got != "VPS-01" {
-		t.Fatal("global direct overrode target evidence", got)
+	if got := c.Classify(id, tuple).Route; !got.Direct() || got.Local() {
+		t.Fatal("target evidence silently opted unknown application into relay", got)
 	}
 }
 

@@ -144,7 +144,7 @@ func New(ctx context.Context) *Controller {
 		c.mu.Lock()
 		automatic := c.settings.Automatic
 		c.mu.Unlock()
-		if !automatic {
+		if !automatic || !c.applicationAutomaticRelayAllowed(f.ApplicationID) {
 			return routing.Policy{}
 		}
 		selection := c.Selector.Select(time.Now())
@@ -175,7 +175,7 @@ func (c *Controller) syncPolicies() {
 		policy := routing.Policy{}
 		switch p.Mode {
 		case profiles.Auto:
-			policy.Auto = true
+			policy.Auto = automaticRelayAllowed(p)
 		case profiles.DirectPlus:
 			policy.Route = routing.Route{Kind: routing.DirectPlusRoute}
 		case profiles.Manual:
@@ -360,9 +360,11 @@ func (c *Controller) Classify(identity windowsplatform.ProcessIdentity, t window
 			}
 			return decision
 		}
-		primary := c.Selector.Select(time.Now()).Primary
-		if primary != optimizer.Direct {
-			decision.Route = routing.Route{RelayID: primary}
+		if automaticRelayAllowed(profile) {
+			primary := c.Selector.Select(time.Now()).Primary
+			if primary != optimizer.Direct {
+				decision.Route = routing.Route{RelayID: primary}
+			}
 		}
 	}
 	if profile.Mode == profiles.Auto && c.Local.HasApplication(identity.Path) {
@@ -370,6 +372,9 @@ func (c *Controller) Classify(identity windowsplatform.ProcessIdentity, t window
 	}
 	if profile.Mode == profiles.Auto {
 		c.applyLocalAuto(identity, t, &decision)
+		if !automaticRelayAllowed(profile) && !decision.Route.Direct() && !decision.Route.Local() {
+			decision.Route = routing.Route{}
+		}
 	}
 	decision = c.scopedDecision(profile, identity, t, decision)
 	if n := c.network.Load(); n != nil && len(n.Conflicts) > 0 {
@@ -551,6 +556,8 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		return c.Snapshot(), nil
 	case "profiles":
 		return c.Profiles.List(), nil
+	case "profiles.routing":
+		return c.profileRoutingAudit(), nil
 	case "processes":
 		return listProcesses(raw)
 	case "profile.delete":

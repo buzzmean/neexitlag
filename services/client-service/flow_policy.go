@@ -230,8 +230,10 @@ func (c *Controller) evaluateFlow(p profiles.Profile, id wp.ProcessIdentity, t w
 	if !matched && p.Mode == profiles.Auto && !relayFirstPreset(presetFor(p)) && presetFor(p) != "discord" && domain != "" {
 		target := domain
 		if learned, ok := c.AutoLearned.Lookup(c.learnKey(p, network, t.Protocol, target, t.Destination.Port()), time.Now()); ok {
-			result = learned
-			matched = true
+			if automaticRelayAllowed(p) || learned.Action != flowpolicy.Relay && learned.Action != flowpolicy.RelayRequired {
+				result = learned
+				matched = true
+			}
 		}
 	}
 	if !matched && p.Mode == profiles.Auto && c.hasBaseline(p, network) && p.LocalStrategyID != "" && c.Local.HasApplication(id.Path) {
@@ -290,9 +292,13 @@ func (c *Controller) evaluateFlow(p profiles.Profile, id wp.ProcessIdentity, t w
 		if d.BlockOnFailure {
 			d.Policy.Fallback = flowpolicy.Required
 		}
+		if p.Mode == profiles.Auto && !automaticRelayAllowed(p) {
+			d.Policy.Source = "auto_direct_default"
+			d.Policy.Reason = "games and unregistered applications stay DIRECT; relay requires explicit MANUAL or a flow rule"
+		}
 	}
 	// Only policies with explicit per-flow semantics bypass the legacy selector.
-	if matched || p.Fallback != "" || len(p.Rules) > 0 {
+	if matched || p.Fallback != "" || len(p.Rules) > 0 || p.Mode == profiles.Auto && !automaticRelayAllowed(p) {
 		d.Flow.PinnedPolicy = &routing.Policy{Route: d.Route, Block: d.Block, BlockOnFailure: d.BlockOnFailure}
 	}
 	return d

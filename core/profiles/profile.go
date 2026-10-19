@@ -114,7 +114,7 @@ var BuiltInRelayFirstIDs = []string{"claude-desktop", "chatgpt-desktop", "telegr
 
 func Defaults() []Profile {
 	return []Profile{
-		{ID: "cs2", Name: "Counter-Strike 2", Executables: []string{"cs2.exe"}, Mode: Auto, ProtocolHints: []string{"udp", "tcp"}},
+		{ID: "cs2", Name: "Counter-Strike 2", Executables: []string{"cs2.exe"}, Mode: Direct, ProtocolHints: []string{"udp", "tcp"}},
 		{ID: "discord", Name: "Discord", Executables: []string{"Discord.exe"}, Mode: Auto},
 		{ID: "steam", Name: "Steam", Executables: []string{"steam.exe"}, Mode: Direct},
 		{ID: "claude-desktop", Name: "Claude (desktop)", Executables: []string{"claude.exe"}, Mode: Auto, AppPreset: "anthropic", Fallback: flowpolicy.Required},

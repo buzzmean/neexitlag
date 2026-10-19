@@ -43,7 +43,7 @@ func TestServiceUnavailableProfilesAndAuthenticatedCommandsBoundary(t *testing.T
 	tuple := windowsplatform.Tuple{Protocol: "udp", Source: netip.MustParseAddrPort("10.0.0.1:123"), Destination: netip.MustParseAddrPort("1.1.1.1:456")}
 	identity := windowsplatform.ProcessIdentity{PID: 42, Path: `C:\Games\Game.exe`, CreationTime: 123}
 	decision := c.Classify(identity, tuple)
-	if decision.Route.RelayID != "FRA" || decision.Flow.PID != 42 {
+	if !decision.Route.Direct() || decision.Flow.PID != 42 {
 		t.Fatal("real identity classification", decision)
 	}
 	identity.Path = `C:\Other\Game.exe`
