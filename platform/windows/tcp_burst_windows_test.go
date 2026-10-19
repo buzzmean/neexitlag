@@ -3,6 +3,8 @@
 package windowsplatform
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -12,9 +14,11 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"os"
+	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"testing"
 	"time"
 
@@ -63,7 +67,7 @@ func testTCPNativeBurst(t *testing.T, count int, deferred bool) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { pool.Close() })
-	addr, closeEcho, echoStatus, err := burstTCPEcho()
+	addr, closeEcho, echoStatus, err := burstEchoProcess(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,27 +376,11 @@ func TestTCPNativeInitialWriteReleasesAdmission(t *testing.T) {
 	// socket, rather than exhausting admission for unrelated new connections.
 }
 
-// The destination fixture must accept the entire burst too. Windows SOMAXCONN
-// chooses a dynamic backlog, which can reject a fast 256-open local burst even
-// while the client pool has spare capacity. Set a bounded explicit backlog on
-// THIS test socket only; production admission/relay/timeouts remain unchanged.
+// Isolated destination fixture. Its accept/error counters diagnose target
+// failure separately from client admission and authenticated pool capacity.
 func burstTCPEcho() (net.Addr, func(), func() string, error) {
 	listener, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
-		return nil, nil, nil, err
-	}
-	raw, err := listener.SyscallConn()
-	if err != nil {
-		listener.Close()
-		return nil, nil, nil, err
-	}
-	var listenErr error
-	err = raw.Control(func(fd uintptr) { listenErr = syscall.Listen(syscall.Handle(fd), -4096) }) // SOMAXCONN_HINT(4096)
-	if err == nil {
-		err = listenErr
-	}
-	if err != nil {
-		listener.Close()
 		return nil, nil, nil, err
 	}
 	var accepted atomic.Int32
@@ -450,4 +438,102 @@ func burstTCPEcho() (net.Addr, func(), func() string, error) {
 			}
 			return fmt.Sprintf("accepted=%d accept_error=%q probe_error=%v", accepted.Load(), failure, err)
 		}, nil
+}
+
+// A real external destination does not share the client service's socket table
+// or Go poller. Keep the target in a separate, bounded child process while every
+// 160/256 protected connection still targets ONE listener and stays open.
+func burstEchoProcess(t *testing.T) (net.Addr, func(), func() string, error) {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	cmd := exec.Command(exe, "-test.run=^TestTCPNativeBurstEchoChild$", "-test.v=false")
+	cmd.Env = append(os.Environ(), "NEEXITLAG_BURST_ECHO_CHILD=1")
+	in, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		in.Close()
+		return nil, nil, nil, err
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err = cmd.Start(); err != nil {
+		in.Close()
+		return nil, nil, nil, err
+	}
+	var once sync.Once
+	stop := func() {
+		once.Do(func() {
+			in.Close()
+			done := make(chan error, 1)
+			go func() { done <- cmd.Wait() }()
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Errorf("echo child: %v: %s", err, stderr.String())
+				}
+			case <-time.After(3 * time.Second):
+				cmd.Process.Kill()
+				<-done
+				t.Error("echo child shutdown timed out")
+			}
+			if text := strings.TrimSpace(stderr.String()); text != "" {
+				t.Log("destination child:", text)
+			}
+		})
+	}
+	ready := make(chan string, 1)
+	go func() {
+		scanner := bufio.NewScanner(out)
+		if scanner.Scan() {
+			ready <- scanner.Text()
+		} else {
+			ready <- ""
+		}
+	}()
+	var address string
+	select {
+	case address = <-ready:
+	case <-time.After(5 * time.Second):
+		stop()
+		return nil, nil, nil, fmt.Errorf("echo child readiness timeout")
+	}
+	addr, err := net.ResolveTCPAddr("tcp4", address)
+	if err != nil || addr.Port == 0 {
+		stop()
+		return nil, nil, nil, fmt.Errorf("invalid echo child greeting %q", address)
+	}
+	status := func() string {
+		counts := map[uint32]int{}
+		rows, tableErr := queryOwnedTCP()
+		for _, row := range rows {
+			if row.PID == uint32(cmd.Process.Pid) && row.Tuple.Source.Port() == uint16(addr.Port) {
+				counts[row.State]++
+			}
+		}
+		probe, probeErr := net.DialTimeout("tcp4", addr.String(), 500*time.Millisecond)
+		if probe != nil {
+			probe.Close()
+		}
+		return fmt.Sprintf("child_pid=%d TCP_states=%v table_error=%v probe_error=%v", cmd.Process.Pid, counts, tableErr, probeErr)
+	}
+	return addr, stop, status, nil
+}
+func TestTCPNativeBurstEchoChild(t *testing.T) {
+	if os.Getenv("NEEXITLAG_BURST_ECHO_CHILD") != "1" {
+		t.Skip("dedicated destination child")
+	}
+	addr, stop, status, err := burstTCPEcho()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	fmt.Println(addr.String())
+	io.Copy(io.Discard, os.Stdin)
+	fmt.Fprintln(os.Stderr, status())
 }
