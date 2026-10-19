@@ -33,7 +33,7 @@ jobs:
         run: |
           go test -race -v -count=1 -timeout 90s ./platform/windows -run '^TestPlanned(FullClose|CloseDoesNot)'
           if ($LASTEXITCODE) { throw "Native delegation lifecycle regression failed: $LASTEXITCODE" }
-          go test -race -v -count=1 -timeout 90s ./services/client-service -run '^TestNativeOnly|^TestBrowserReservationCollision'
+          go test -race -v -count=1 -timeout 90s ./services/client-service -run '^TestNativeOnly|^TestBrowserReservationCollision|^TestBrowserGroup|^TestBrowserCachedGroup|^TestSilentDirectOrigin'
           if ($LASTEXITCODE) { throw "Native ingress/local reservation regression failed: $LASTEXITCODE" }
       - run: ./tools/windows/fetch-windivert.ps1
         shell: pwsh
