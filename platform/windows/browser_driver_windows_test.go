@@ -90,6 +90,11 @@ func TestNativeBrowserDriverHandshake(t *testing.T) {
 	}
 	defer b.Stop()
 	admitNativeApplicationFixture(t)
+	firewall := InspectNativeFirewall(ctx)
+	if firewall.State != "APPLIED" || !firewall.Known || !firewall.Effective || !firewall.ProgramMatches {
+		t.Fatal("actual embedded firewall status", firewall)
+	}
+	t.Log("APPLIED: embedded read-only firewall query matches this EXE and effective ActiveStore")
 	id, err := NewDiscovery().Lookup(uint32(os.Getpid()))
 	if err != nil {
 		t.Fatal(err)

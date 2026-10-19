@@ -287,7 +287,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-19.5 (separate PAC/native paths, games DIRECT)'
+$ScriptVersion='2026-10-19.6 (native-only proof, cold retry, actual firewall)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -509,6 +509,28 @@ function Write-BrowserPathEvidence($snapshot,[string]$lane) {
  Say 'PAC OPEN means CONNECT/upstream-handoff accepted; actual native OPEN is separate. One PAC ingress may feed one PAC_NATIVE_UPSTREAM: do not sum them as independent application requests. No bytes/probe result alone proves page load.'
 }
 
+function Write-NativeIngressEvidence($native) {
+ $state=Prop $native 'native_only_state' 'NATIVE_ONLY_UNINSTRUMENTED'
+ $totals=Prop $native 'native_only_totals'
+ if($state -eq 'NATIVE_ONLY_OBSERVED' -and ([long](Prop $totals 'bidirectional_exchanges' 0) -le 0 -or [long](Prop $totals 'sent_bytes' 0) -le 0 -or [long](Prop $totals 'received_bytes' 0) -le 0)){$state='NATIVE_ONLY_INVALID_EVIDENCE'}
+ Say ('native-only ingress: state='+$state+' auto_mode='+(Prop $native 'native_only_auto_mode' 'UNINSTRUMENTED')+' opened='+(Prop $totals 'opened' 0)+' exchanges='+(Prop $totals 'bidirectional_exchanges' 0)+' tx='+(Prop $totals 'sent_bytes' 0)+' rx='+(Prop $totals 'received_bytes' 0))
+ foreach($browserProfile in @(Prop $native 'profiles' @())){
+  foreach($path in @('native_only','pac_native_upstream')){
+   $m=Prop $browserProfile $path
+   if($null -eq $m){Say ('ingress '+$path+': UNINSTRUMENTED');continue}
+   Say ('ingress '+$path+': profile='+(Prop $browserProfile 'profile_id')+' accepted='+(Prop $m 'accepted' 0)+' opened='+(Prop $m 'opened' 0)+' failed='+(Prop $m 'failed' 0)+' exchanges='+(Prop $m 'bidirectional_exchanges' 0)+' active='+(Prop $m 'active' 0)+' tx='+(Prop $m 'sent_bytes' 0)+' rx='+(Prop $m 'received_bytes' 0)+' first_open='+(Prop $m 'first_opened_at' 'NOT_OBSERVED')+' first_exchange='+(Prop $m 'first_exchange_at' 'NOT_OBSERVED')+' enable_to_first_open_ms='+(Prop $m 'enable_to_first_open_ms' -1)+' enable_to_first_exchange_ms='+(Prop $m 'enable_to_first_exchange_ms' -1))
+  }
+ }
+ Say 'PAC_NATIVE_UPSTREAM is not native-only. Current mandatory PAC is the crash guard; returning DIRECT would require independent fail-closed protection. No policy changed by diagnostics.'
+}
+function Write-NativeFirewallEvidence($firewall) {
+ $state=Prop $firewall 'state' 'UNKNOWN'
+ if(!(Prop $firewall 'known' $false)){$state='UNKNOWN: '+$state}
+ elseif($state -eq 'APPLIED' -and (!(Prop $firewall 'effective' $false) -or !(Prop $firewall 'program_matches' $false) -or !(Prop $firewall 'rule_present' $false))){$state='INVALID_FIREWALL_EVIDENCE'}
+ Say ('native firewall: state='+$state+' rule_present='+(Prop $firewall 'rule_present' $false)+' program_matches='+(Prop $firewall 'program_matches' $false)+' effective='+(Prop $firewall 'effective' $false)+' local_rules_permitted='+(Prop $firewall 'local_rules_permitted' $false)+' checked_at='+(Prop $firewall 'checked_at' 'NOT_OBSERVED'))
+ Say 'Firewall admission controls the local SYN/ACK handoff, not remote SNI/TLS or Engine reservation release. DIRECT_STALL after actual forwarded ClientHello is not proof of a missing local allow rule. LOCAL_FLOW_RESERVATION_IN_USE is local lifecycle, not relay transport health.'
+}
+
 if($Only -contains 'youtube'){
 Section 'YouTube: Chrome + Edge, address/domain cache and actual relay payload bytes per minute'
 Step 'youtube' {
@@ -565,6 +587,8 @@ if(Want 'browser'){
 Section 'Native browser new-connection evidence (owned PAC crash-guard retained)'
 Step 'native_browser' {
  $native=Invoke-IPC 'browser.native.status'
+ Write-NativeIngressEvidence $native
+ try{Write-NativeFirewallEvidence (Invoke-IPC 'browser.native.firewall')}catch{Say 'native firewall: UNKNOWN_IPC_UNAVAILABLE; no assumption about the rule'}
  Say ("capture_ready="+(Prop $native 'capture_ready')+" optimizing="+(Prop $native 'optimizing')+" existing_tcp="+(Prop $native 'existing_tcp')+" truncated="+(Prop $native 'truncated')+" lost="+(Prop $native 'lost'))
  foreach($p in @(Prop $native 'profiles' @())){
   $state=if([long](Prop $p 'opened' 0) -gt 0){'NATIVE_UPSTREAM_OPEN_OBSERVED'}else{'NO_NEW_NATIVE_UPSTREAM_OBSERVED'}
@@ -577,7 +601,7 @@ Step 'native_browser' {
  }
  foreach($r in @(Prop $native 'records' @())|Select-Object -First 32){
   $owner=Prop $r 'owner';$policy=Prop $r 'policy'
-  Say ("native ingress="+(Prop $r 'ingress' 'NATIVE_TCP')+" #"+(Prop $r 'id')+" pid="+(Prop $owner 'pid')+" birth="+(Prop $owner 'creation_time')+" domain="+(Prop $r 'domain')+" destination="+(Prop $r 'destination')+" route="+(Prop $policy 'action')+" relay="+(Prop $policy 'relay_id')+" source="+(Prop $policy 'source')+" result="+(Prop $r 'result')+" failure="+(Prop $r 'failure_reason')+" tx="+(Prop $r 'sent_bytes')+" rx="+(Prop $r 'received_bytes'))
+  Say ("native ingress="+(Prop $r 'ingress' 'UNINSTRUMENTED')+" #"+(Prop $r 'id')+" pid="+(Prop $owner 'pid')+" birth="+(Prop $owner 'creation_time')+" domain="+(Prop $r 'domain')+" destination="+(Prop $r 'destination')+" route="+(Prop $policy 'action')+" relay="+(Prop $policy 'relay_id')+" source="+(Prop $policy 'source')+" result="+(Prop $r 'result')+" failure="+(Prop $r 'failure_reason')+" tx="+(Prop $r 'sent_bytes')+" rx="+(Prop $r 'received_bytes'))
  }
  $usage=Prop $native 'relay_usage'
  Say ("shared relay TCP: active="+(Prop $usage 'active_tcp_tunnels')+" opened="+(Prop $usage 'tcp_tunnels_opened')+" scope="+(Prop $usage 'scope'))

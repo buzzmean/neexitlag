@@ -1,6 +1,7 @@
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot '../../tools/windows/native-tcp-firewall.ps1')
+. (Join-Path $PSScriptRoot '../../platform/windows/native_firewall_probe.ps1')
 $script:rule=$null;$script:created=0;$script:removed=0;$script:databaseError=$false;$script:denyLocal=$false
 function Get-NetFirewallRule {param($PolicyStore,$Name,$ErrorAction) if($script:databaseError){throw 'fixture API failure'};if($null -ne $script:rule){$script:rule}}
 function Get-NetFirewallApplicationFilter {param($AssociatedNetFirewallRule,$ErrorAction) [pscustomobject]@{Program=$AssociatedNetFirewallRule.Program}}
@@ -17,14 +18,19 @@ $root=Join-Path ([IO.Path]::GetTempPath()) ('veliq-fw-'+[Guid]::NewGuid().ToStri
 try{
  New-Item -ItemType Directory -Path $root|Out-Null
  $binary=Join-Path $root 'neexitlag-service.exe';[IO.File]::WriteAllText($binary,'fixture, never executed')
+ Assert-Check ((Get-VeliqNativeFirewallSnapshot $binary).state -eq 'MISSING') 'missing rule not observed'
  Assert-Check (Add-NativeTcpFirewallAdmission $binary) 'fresh rule not created'
+ $snapshot=Get-VeliqNativeFirewallSnapshot $binary
+ Assert-Check ($snapshot.state -eq 'APPLIED' -and $snapshot.effective -and $snapshot.program_matches) 'actual effective app scope not observed'
  Assert-Check (!(Add-NativeTcpFirewallAdmission $binary)) 'idempotent setup duplicated rule'
  Assert-Check ($script:created -eq 1) 'more than one rule'
  $script:rule.Program='C:\foreign.exe'
+ Assert-Check ((Get-VeliqNativeFirewallSnapshot $binary).state -eq 'SCOPE_MISMATCH') 'wrong program reported applied'
  Reject-Check {Add-NativeTcpFirewallAdmission $binary} '*SCOPE_CHANGED*'
  Reject-Check {Remove-NativeTcpFirewallAdmission $binary} '*SCOPE_CHANGED*'
  Assert-Check ($script:removed -eq 0) 'foreign scope removed'
  $script:rule.Program=$binary;$script:rule.Description='foreign'
+ Assert-Check ((Get-VeliqNativeFirewallSnapshot $binary).state -eq 'FOREIGN_RULE') 'foreign rule reported applied'
  Reject-Check {Add-NativeTcpFirewallAdmission $binary} '*FOREIGN_RULE*'
  Reject-Check {Remove-NativeTcpFirewallAdmission $binary} '*FOREIGN_RULE*'
  $script:rule.Description='VELIQ_NATIVE_TCP_REFLECTION_V1'
@@ -32,6 +38,7 @@ try{
  Assert-Check ($script:removed -eq 1) 'owned rollback not removed'
  $script:databaseError=$true
  Reject-Check {Add-NativeTcpFirewallAdmission $binary} '*fixture API failure*'
+ Reject-Check {Get-VeliqNativeFirewallSnapshot $binary} '*fixture API failure*'
  Assert-Check ($script:created -eq 1) 'API failure was interpreted as no rule'
  $script:databaseError=$false;$script:denyLocal=$true
  Reject-Check {Add-NativeTcpFirewallAdmission $binary} '*FORBIDDEN_BY_POLICY*'
@@ -39,6 +46,7 @@ try{
  $script:denyLocal=$false
  Assert-Check (Add-NativeTcpFirewallAdmission $binary) 'retry after policy recovery failed'
  $script:denyLocal=$true
+ Assert-Check ((Get-VeliqNativeFirewallSnapshot $binary).state -eq 'LOCAL_RULES_FORBIDDEN_BY_POLICY') 'GPO denial reported applied'
  Reject-Check {Add-NativeTcpFirewallAdmission $binary} '*FORBIDDEN_BY_POLICY*'
  Assert-Check ($null -ne $script:rule -and $script:removed -eq 2) 'existing rule removed on failed idempotent check'
  $script:denyLocal=$false;Remove-NativeTcpFirewallAdmission $binary

@@ -536,6 +536,8 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		}()
 	}
 	switch method {
+	case "browser.native.firewall":
+		return windowsplatform.InspectNativeFirewall(ctx), nil
 	case "browser.native.enable", "browser.native.status":
 		return c.handleNativeBrowser(ctx, method, raw)
 	case "edge.prepare", "edge.confirm", "edge.policy", "edge.status", "edge.failure":
