@@ -1,6 +1,6 @@
 # CURRENT — состояние проекта (обновляется в конце каждой сессии)
 
-Обновлено: 19.10.2026, Codex; ветка `codex/work`. Владелец подтвердил e9e31ac: новые вкладки открытых Chrome/Edge работают, PID Chrome неизменен, игры DIRECT. Исправлен cold-start stall retry (ae4fac1); раздельное native-only/PAC evidence и read-only firewall IPC (f21bf68, bc79d6c), Windows race gate (659c865). Локальные полный race/vet/Linux и Windows builds PASS; actual Windows cold retry/Chrome/Edge и PS5.1/7 тесты PASS. Общие CI блокирует quota upload-artifact; не объявлять их зелёными. PAC guard сохранён, native-only auto не активирован; этап (в) не начат. Подробности — (q).
+Обновлено: 19.10.2026, Codex; ветка `codex/work`. Владелец на ea4afdf: сайты работают, но холодные соединения ждут DIRECT_STALL. Реализован relay-first подтверждённой YouTube/CDN группы (5a3bd24), first-byte диагностика/benchmark (5f16ed5), отдельный timing IPC без вытеснения routing evidence (432899d). Полные локальные race/vet/Linux+Windows builds PASS; actual Windows cold-cache/Chrome и scoped race PASS, общий CI блокирует artifact quota. Новый ISP speed PASS не заявляется. PAC/игры/лимит 8 сохранены; этап (в) не начат. Подробности — (r).
 
 ## (a) Цель
 Чистый Windows 10/11: установил, нажал «Оптимизировать» — заблокированные в РФ сервисы работают без VPN: ChatGPT, Claude, YouTube, Discord, Telegram, браузеры Chrome и Edge. Первый заказчик — клуб на 36 ПК с откатом при перезагрузке.
@@ -48,7 +48,7 @@
 | Игры/неизвестные приложения: безопасный DIRECT по умолчанию и явное RELAY предупреждение | `core/profiles/profile{,_test}.go`, `services/client-service/{controller,flow_policy}.go`, новые `automatic_relay*.go`, `services/client-service/*_test.go` (регрессии routing), `apps/desktop-core/{DesktopViewModel,RelayWarning}.cs`, `apps/desktop/{MainWindow.xaml,RelayWarning}.cs`, `apps/desktop-core/Resources/Strings.resx`, `tests/desktop/*`, `tools/windows/diag-no-vpn.ps1`, `tests/windows-tools/profile-routing-checks.ps1` (новый), `.github/workflows/verify.yml` (PS fixtures), `docs/GAME_DIRECT.md` (новый), `CURRENT.md` | Codex | `codex/work` | ГОТОВО 19.10.2026 (`50f750f`, `060bc19`, `2815bd0`), область освобождена; владелец подтвердил исходный AUTO. Старые игровые AUTO безопасны, новые обычные приложения DIRECT; явный MANUAL и browser/protected presets сохранены. Проверено владельцем на ec72beb: cs2 relay_flows=0, игровой flow DIRECT; баг пинга закрыт |
 | Browser paths: PAC/native, Edge readiness, ошибки origin | `services/client-service/browser_*.go`, `edge_*.go`, `controller.go` (только browser hooks), `core/browserproxy/*` (метрики/ошибки), `apps/desktop{,-core}/BrowserNative*.cs`, `EdgeRouting*.cs`, `Models.cs` (добавочные поля), `tests/desktop/*`, `tests/windows-tools/*`, `tools/windows/diag-no-vpn.ps1`, `tests/desktop/BrowserStartupTests.cs` (только cleanup собственной фикстуры), `.github/workflows/{chrome-native,verify}.yml` (read-only warmup/fixtures), `tools/windows/{native-tcp-firewall,update-service}.ps1` (явная opt-in Windows app-scoped admission и rollback; не VPS), browser Windows acceptance, `platform/windows/{browser_windows,browser_other,tcp_capture_windows,boundary,deferred_tcp}.go` (только exact delegated upstream, без изменения фильтра), `docs/BROWSER_HOT_ATTACH.md`, `CURRENT.md` | Codex | `codex/work` | ГОТОВО 19.10.2026, код 1db6be1, область освобождена: PAC/native раздельно, exact WinDivert handoff, Edge readiness и opt-in app-scoped firewall; CI PASS, ISP ретест ещё нужен. Игры/PAC guard сохранены, этап (в) не начат |
 | Cold-start browser retry / native-only audit | `core/browserproxy/{proxy,stall,path_metrics}*.go`, `core/browserproxy/*_test.go`, `services/client-service/browser_*.go`, `services/client-service/controller.go` (read-only browser IPC), `platform/windows/{tcp_capture_windows,tcp_state,browser*,native_firewall*}.go`, `platform/windows/native_firewall_probe.ps1` (embedded read-only probe), Windows browser tests, `internal/browserfixture/*` (cold-start fixture), `tools/windows/diag-no-vpn.ps1`, `tests/windows-tools/*`, `.github/workflows/{chrome-native,verify}.yml` (tests), `docs/BROWSER_HOT_ATTACH.md`, `CURRENT.md` | Codex | `codex/work` | ГОТОВО 19.10.2026, файлы освобождены: ae4fac1/f21bf68/bc79d6c; race gate 659c865. Cold retry и actual Windows regression PASS, firewall read-only и честные native-only counters; все-site native-only остаётся security blocker при PAC как единственном crash-guard. CI upload quota, подробности (q); этап (в) не начат |
-| Relay-first подтверждённых browser групп / first-byte timing | `core/flowpolicy/direct_timeout*.go`, `core/browserproxy/{proxy,stall,path_metrics}*.go`, новые group/timing файлы и тесты, `services/client-service/browser_*.go`, `services/client-service/controller.go` (только read-only timing IPC), `services/client-service/stall_end_to_end_test.go`, `internal/browserfixture/fixture.go` (только SAN тестовых origins), `tools/windows/diag-no-vpn.ps1`, `tests/windows-tools/browser-path-checks.ps1`, `platform/windows/browser_cold_windows_test.go`, `.github/workflows/chrome-native.yml` (тесты), `docs/BROWSER_HOT_ATTACH.md`, `CURRENT.md` | Codex | `codex/work` | В РАБОТЕ: подтверждённые network/profile группы relay-first, холодный first-byte benchmark; PAC/лимит 8/VPS/game policy без изменений |
+| Relay-first подтверждённых browser групп / first-byte timing | `core/flowpolicy/direct_timeout*.go`, `core/browserproxy/{proxy,stall,path_metrics}*.go`, новые group/timing файлы и тесты, `services/client-service/browser_*.go`, `services/client-service/controller.go` (только read-only timing IPC), `services/client-service/stall_end_to_end_test.go`, `internal/browserfixture/fixture.go` (только SAN тестовых origins), `tools/windows/diag-no-vpn.ps1`, `tests/windows-tools/browser-path-checks.ps1`, `platform/windows/browser_cold_windows_test.go`, `.github/workflows/chrome-native.yml` (тесты), `docs/BROWSER_HOT_ATTACH.md`, `CURRENT.md` | Codex | `codex/work` | ГОТОВО 19.10.2026, область освобождена: 5a3bd24 / 5f16ed5 / 432899d. Group relay-first, scoped timing IPC и actual Windows холодный benchmark PASS. PAC/лимит 8/VPS/game policy без изменений; общие CI упираются в artifact quota, ISP ретест владельца ещё нужен |
 | Discord медленно, DIRECT+ для YouTube | не определены | никто | — | свободно для Codex после диагностики; Go-файлы застоя (выше) не трогать |
 | PR #8, `codex/direct-plus-flowseal` | — | не трогать | — | только владелец |
 
@@ -720,3 +720,96 @@ codex/direct-plus-flowseal не менялись. Нового ISP PASS Chrome/E
 GUI код не менялся; переустановка GUI для этих исправлений не обязательна.
 Обычный PowerShell владельца из C:\neexitlag после новых вкладок/обновления страницы:
 `& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube`.
+
+
+## (r) Первая загрузка подтверждённых browser групп — 19.10.2026
+
+### Причина и изменение
+
+Владелец ea4afdf: сайты открываются, но 21 DIRECT_STALL / 21 relay retry — время
+первого запроса не сократилось. Fix full Close лечил потерю запроса, не ожидание.
+Ключ timeout cache оставался exact hostname (исключение — googlevideo), поэтому
+новые CDN/YouTube имена повторяли DIRECT. Кроме того, learned confirmed DIRECT
+мог обходить timeout cache; pending DIRECT plans не перепроверяли его перед OPEN.
+
+- 5a3bd24: фиксированная `youtube-media` группа с canonical cache host youtube.com
+  (youtube/googlevideo/ytimg/ggpht и явные YouTube aliases); не весь Google/Google APIs.
+  Первый реальный silent ClientHello подтверждает группу только для network/profile/
+  port. Обычные домены exact-host, старый two-distinct-address механизм сохранён.
+  Кэш раньше learned DIRECT + повторная проверка непосредственно перед OPEN.
+- Relay REQUIRED, без DIRECT fallback; если relay недоступен, нет попытки DIRECT.
+  Explicit rules, working configured DIRECT+, DNS/53 и opaque/protected semantics
+  сохранены. Более широкая CDN failure group не расширяет DIRECT+ eligibility.
+- Один background probe на ключ после 10 мин, глобально прежние 4 probes/3 с.
+  В группе хранится фактически отказавший probe_host; новый TLS/HTTP GET recheck
+  проверяет его, а не случайный рабочий sibling. Network/owner/Optimize проверяются
+  до/после I/O. Без verified success cached traffic не возвращается DIRECT.
+- 5f16ed5: bounded first-byte rows и cold TLS/HTTP benchmark. Фикстура содержит
+  только дополнительные SAN в эфемерном тестовом сертификате, не production cert.
+- 432899d: optional timings вынесены в `browser.first-byte` / `edge.first-byte`;
+  `browser.status`/`edge.status` не расходуют routing evidence budget на новую сводку.
+  Первый CI обнаружил truncation из-за смешивания этих данных; assertions не
+  ослаблялись. Новая регрессия проверяет независимый bounded report и полный status.
+- diag 2026-10-19.7: по network/profile/group/port/PAC ingress режимы DIRECT_FIRST,
+  RELAY_FIRST и DIRECT_PLUS; replies/no_reply, avg/min/max/last и observed before/after.
+  Отсутствующие samples = NOT_OBSERVED, старый IPC = UNAVAILABLE/UNINSTRUMENTED.
+  Измеряется frontend TCP accept → первый upstream byte (включая TLS), не HTTP
+  page load/скорость скачивания. PAC native upstream не дублирует frontend sample.
+
+### Ограничения / безопасность
+
+Volatile cache не переносится между запусками службы. Полностью неизвестная сеть
+с пустым кэшем требует первого доказательства; автоматического ISP seed нет.
+Профили Chrome и Edge независимы. Уже открытые до verdict TCP остаются pinned;
+новая группировка применяется к новым OPEN, а не мигрирует существующие потоки.
+Предусмотренный ClientHello-only retry до ответа сервера не расширялся на TLS
+application/early data. PAC/crash-guard остаётся, этап (в) не начат.
+
+Googlevideo 8 active на ПК, 32 waiters, максимум 2 с; затем явная admission error,
+не девятый tunnel и не DIRECT. Session pool, byte/minute/per-domain counters и
+probe reserve без увеличения. Это не глобальное ограничение 36 ПК: реальная
+нагрузка VPS 1 vCPU не измерялась, при массовом видео остаётся риск CPU/трафика.
+Игры/UDP policy, credentials, production сертификаты/VPS, PR #8 и protected-ветка
+не менялись. Код GUI не менялся; обязательной переустановки GUI нет.
+
+### Проверки
+
+- Финальный локальный `go test -race -p 1 -timeout 120s ./...` PASS, `go vet ./...`
+  PASS, Linux build PASS, Windows amd64 cross-build PASS, native test binary
+  compile PASS. Локально нет Windows/PowerShell/.NET; native/PS/C# проверены CI.
+- [Chrome/native/race на 432899d](https://github.com/buzzmean/neexitlag/actions/runs/39313482881):
+  test steps PASS. Actual signed WinDivert, mTLS/tickets/relay, cold-cache TLS+HTTP
+  nonce, unchanged running Chrome PID/creation, protected no DIRECT, HTTP/2,
+  configured DIRECT+ и outage/recovery/restart прошли. Run целиком FAILURE только
+  из-за GitHub upload-artifact storage quota; этот статус не переименовывать PASS.
+- Холодный benchmark в этом run: ровно 1 DIRECT_FIRST reply YouTube группы —
+  207.34 мс до первого byte; 9 RELAY_FIRST replies — среднее 6.29 мс, min 5.41,
+  max 7.04. Все 7 первых имён получили verified TLS/HTTP nonce, 0 failed retry,
+  0 local tuple collisions, protected no DIRECT. Это isolated CI, не ISP speedup.
+- [Verify](https://github.com/buzzmean/neexitlag/actions/runs/39313482957): Windows
+  PS5.1/7 browser-path/first-byte tests PASS, desktop native UI PASS; Windows job
+  остановился на quota до последующих Go/lease steps. Linux full race с PostgreSQL
+  PASS, vet и оба fuzz шага PASS; оба job FAILURE только upload quota.
+  Пропущенные Windows шаги не считать выполненными.
+- [Edge](https://github.com/buzzmean/neexitlag/actions/runs/39313482914): actual
+  Edge policy/HTTPS/relay/recovery, C#/WPF и desktop/owner race PASS; run целиком
+  FAILURE только upload quota.
+- [Isolated upgrade](https://github.com/buzzmean/neexitlag/actions/runs/39313482886): SUCCESS.
+  [Release build](https://github.com/buzzmean/neexitlag/actions/runs/39313483012):
+  full Linux race/vet/builds PASS; run FAILURE только upload quota, публикация
+  artifacts неуспешна.
+
+### Журнал решений / передача
+
+19.10.2026: распространять доказанную сетевую неисправность на фиксированную
+YouTube family, а не начинать ladder каждого hostname; не переносить verdict
+на другую сеть/профиль/порт и не считать все сайты Google заблокированными.
+19.10.2026: time-to-first-byte сводка имеет собственный IPC budget; увеличение
+телеметрии не должно ломать complete evidence и ослаблять acceptance assertions.
+19.10.2026: измеренные CI миллисекунды не являются результатом провайдера владельца.
+Нужно короткое сравнение новых соединений при VPN OFF; VPS для этого не менять.
+
+Обновить службу прежним owner SID по docs/BROWSER_HOT_ATTACH.md с -NativeTcpFirewall,
+закрыв только GUI, Chrome/Edge оставить открытыми. После новых вкладок/видео:
+`& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube` из обычного PowerShell
+в C:\neexitlag. Не удалять кэш/PAC/профили/identity. Scope освобождён.

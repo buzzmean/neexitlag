@@ -363,3 +363,96 @@ PAC или асинхронная запись реестра атомарной
 `& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube`.
 Состояние правила отдельно: `. .\tools\windows\common.ps1; Invoke-ServiceIPC 'browser.native.firewall'`.
 Перезапуск службы прерывает её sockets; это не тест непрерывности во время enable.
+
+## Relay-first подтверждённых групп и первый байт (19.10.2026)
+
+### Что меняется после ea4afdf
+
+Владелец подтвердил: сайты открываются, но 21 DIRECT_STALL на холодных соединениях
+приводит к 21 ожиданию перед успешным relay retry. Исправление full Close убрало
+потерю первого запроса, но само по себе не убирало эти ожидания.
+
+- Подтверждение timeout-кэша раньше было в основном exact hostname; только
+  googlevideo узлы делили запись. Теперь фиксированная группа `youtube-media`
+  включает youtube.com, googlevideo.com, ytimg.com, ggpht.com и явные YouTube
+  API/CDN aliases (youtube-nocookie, youtubei/youtube.googleapis, yt3.googleusercontent,
+  wide-youtube/youtube-ui/ytimg.l.google.com и другие точные preset aliases).
+  Это не wildcard для google.com/googleapis.com/googleusercontent.com вообще.
+- Один фактический silent ClientHello в этой группе подтверждает relay-first для
+  новых соединений её остальных имён на **той же сети, в том же профиле и порту**.
+  Два разных отказавших DIRECT-адреса также сохраняют прежнюю timeout-семантику.
+  У обычных сайтов остаётся собственный точный hostname и прежние критерии.
+- Кэш проверяется до использования старого learned DIRECT и ещё раз непосредственно
+  перед OPEN: устаревший план, подготовленный до stall соседнего имени, не должен
+  снова открывать DIRECT. DNS/53, protected fail-closed, opaque relay-only,
+  explicit rules и проверенный configured DIRECT+ сохраняются. Расширение relay
+  группы не расширяет список доменов локальной DIRECT+ стратегии.
+- Relay-first не делает никаких foreground DIRECT dial/probe. После 10 минут
+  запускается не более одной фоновой перепроверки на ключ; весь пул probes по-прежнему
+  4, собственный бюджет 3 с. Проверяется **отказавшее имя**, а не случайно здоровый
+  член группы: свежий DNS, проверка сертификата/SNI и GET. Перед/после проверки
+  подтверждается та же сеть/owner/Optimize. Неуверенный результат не разрешает DIRECT.
+  Само истечение TTL не снимает verdict: нужен проверенный результат.
+- Старые TCP не переводятся на другой egress. Первая неизвестная сеть с действительно
+  пустым кэшем ещё требует первого доказательства; обещания «ноль первой задержки
+  вообще на любой сети» нет. Автосидирования по ISP/IP и постоянного дискового кэша
+  в этой итерации нет. После перезапуска службы volatile evidence собирается снова.
+
+### Нагрузка и границы
+
+Googlevideo: прежние **8** active tunnels на весь ПК (общие для Chrome/Edge),
+не больше 32 waiters и не больше 2 с ожидания. По исчерпании — явная admission
+ошибка, а не DIRECT bypass или девятый tunnel. Relay bytes/minute, active tunnels,
+limit/admission counters по профилю/домену сохранены; session pool не расширен.
+Групповое правило не создаёт новых неограниченных probes/workers.
+
+8 на ПК не является глобальным лимитом для 36 ПК. Нагрузка/CPU production VPS
+этой работой не измерялась; 1 vCPU остаётся риском при одновременном видео. Байты,
+число туннелей и ошибки admission нужно оценивать вместе с коротким ретестом,
+не объявлять «VPS выдерживает клуб» по локальным fixture результатам.
+
+### Что измеряет diag 2026-10-19.7
+
+Новые read-only IPC: `browser.first-byte` и `edge.first-byte`. Отдельный bounded
+ответ нужен, чтобы optional timing summary не вытеснял routing evidence из
+`browser.status`/`edge.status`. Старый IPC/нет samples не становятся нулевой задержкой.
+
+Группировка: network + profile + family/exact host + port + PAC_CONNECT/PAC_RECOVERY
++ начальный режим DIRECT_FIRST / RELAY_FIRST / DIRECT_PLUS. Измеряется время от
+accept TCP на frontend до первого **доставленного upstream байта**, включая lookup,
+OPEN, admission и возможный начальный stall retry. Это может быть TLS ServerHello;
+это не расшифрованный HTTP TTFB, не page-load PASS и не скорость скачивания в Мбит/с.
+PAC_NATIVE_UPSTREAM не считается вторым запросом. Отдельного native-only ingress
+эта итерация не создаёт; PAC/guard/этап (в) не меняются.
+
+Диагностика показывает число replies, closed_without_reply, avg/min/max/last и
+наблюдаемые before_direct_first_avg_ms / after_relay_first_avg_ms. До появления
+обеих выборок — NOT_OBSERVED; нет данных старой сборки для выдуманного «до».
+Сравнение относится к реально наблюдаемым соединениям, не контролируемому ISP A/B.
+Леджер ограничен 128 сочетаниями; dropped samples и omitted rows видны отдельно.
+Timeout-кэш показывает group, probe_host, network/profile/port и время recheck.
+
+### Проверка с уже открытыми браузерами
+
+Закрыть только GUI. Тем же owner SID обновить службу штатным блоком выше с
+`-NativeTcpFirewall`; GUI в этой итерации не менялся. Chrome/Edge не закрывать,
+PAC/профили/identity не удалять. Открыть/обновить YouTube, затем новое видео, и
+из обычного owner PowerShell в C:\neexitlag выполнить:
+
+```powershell
+& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube
+```
+
+При свежем процессе службы допустим один начальный stall для неизвестной группы
+каждого профиля; следующие новые CDN-имена должны идти `direct_timeout_cache`
+без DIRECT dial. Уже установленные до подтверждения TCP остаются pinned; их
+первоначальные решения нельзя задним числом выдавать за relay-first. Смотреть
+также googlevideo_active_tunnels<=8, admission failures, relay bytes/minute и
+first-byte replies/no_reply. Полностью пустой кэш не означает подтверждённую блокировку.
+
+Автотест с реальным WinDivert/QUIC+mTLS использует пустой кэш и контролируемую
+блокировку DIRECT. Он проверяет verified TLS+HTTP nonce для семи имён; YouTube
+семейство должно иметь ровно 1 DIRECT_FIRST и 9 RELAY_FIRST ответов, без DIRECT
+открытий у новых sibling-имён, без failed retries/локальных коллизий и без утечек
+protected. HTTP headers timing логируется отдельно от первого TLS байта.
+Это автоматическая isolated acceptance, не доказательство ускорения у провайдера.
