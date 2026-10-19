@@ -14,7 +14,7 @@ public sealed class EdgeTransportStatus {
 }
 public sealed class EdgeDomainRow(BrowserConnection connection) {
  public string Domain=>connection.Domain; public string Route=>connection.Route; public string Reason=>connection.Reason;
- public string Outcome=>connection.Outcome;
+ public string Outcome=>connection.Outcome.Replace("страница Chrome", "страница Edge", StringComparison.Ordinal);
 }
 public sealed partial class DesktopViewModel {
  public ObservableCollection<EdgeDomainRow> EdgeDomains {get;}=[];
