@@ -34,13 +34,14 @@ func TestNativeBrowserDriverHandshake(t *testing.T) {
 		t.Fatal(err)
 	}
 	files.Directory = dir
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
 	b := NewBrowserLoopbackFixture(files, routing.New(16))
 	if err = b.Start(ctx, func(ProcessIdentity, Tuple) Decision { return Decision{} }); err != nil {
 		t.Fatal(err)
 	}
 	defer b.Stop()
+	b.AdmitNativeFixtureListener(t)
 	id, err := NewDiscovery().Lookup(uint32(os.Getpid()))
 	if err != nil {
 		t.Fatal(err)

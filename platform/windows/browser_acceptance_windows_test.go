@@ -335,10 +335,15 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 			trace = append(trace, map[string]any{"phase": phase, "source": tuple.Source.String(), "destination": tuple.Destination.String(), "tcp_flags": flags, "address_flags": addr})
 		}
 	}
+	admitted := map[*wp.WinDivertBackend]bool{}
 	var nativeMain wp.ProcessIdentity
 	f.StageReady = func(stage int, call func(string, any) (json.RawMessage, error)) error {
 		if stage != 3 {
 			backend.TraceNativeFixture(observer)
+			if !admitted[backend] {
+				backend.AdmitNativeFixtureListener(t)
+				admitted[backend] = true
+			}
 		}
 		if stage == 2 {
 			port := freshOrigin.Listener.Addr().(*net.TCPAddr).Port
