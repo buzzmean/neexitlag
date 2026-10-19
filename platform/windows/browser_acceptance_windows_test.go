@@ -396,6 +396,33 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		if e := sample(); e != nil {
 			return e
 		}
+		// The REAL Chrome is already serving HTTP/2 here. Arm native new-flow
+		// routing through production IPC with its ACTUAL owned mandatory policy.
+		// Keep PAC/recovery unchanged: this also tests the independent crash guard.
+		live, err := wp.NewDiscovery().List()
+		if err != nil {
+			return err
+		}
+		var before []wp.ProcessIdentity
+		for _, id := range live {
+			if strings.EqualFold(id.Path, chrome) {
+				before = append(before, id)
+			}
+		}
+		if len(before) == 0 {
+			return errors.New("already-running Chrome identity missing")
+		}
+		enable, _ := json.Marshal(map[string]string{"profile_id": p.ID})
+		if _, err = c.Handle(ctx, "browser.native.enable", enable); err != nil {
+			return err
+		}
+		for _, id := range before {
+			if !wp.IsCurrent(id) {
+				return errors.New("Chrome PID/creation changed during native enable")
+			}
+		}
+		t.Log("NATIVE_ENABLE_RUNNING_CHROME: PID/creation unchanged; owned PAC retained; native worker independently covered by TCP burst")
+
 		for _, enabled := range []string{`{"enabled":false}`, `{"enabled":true}`} {
 			if _, e := c.Handle(ctx, "optimize", []byte(enabled)); e != nil {
 				return e

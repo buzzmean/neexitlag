@@ -25,6 +25,7 @@ import (
 )
 
 type browserRuntime struct {
+	native          nativeBrowserRuntime
 	usage           *browserRelayUsage
 	edge            *edgeRuntime // Independent Edge transport; Chrome fields stay unchanged.
 	dns             *browserproxy.DNSRecovery
@@ -204,7 +205,14 @@ func (c *Controller) openBrowser(ctx context.Context, q browserproxy.Request, pl
 	if err != nil {
 		release()
 	} else if observe && d.Route.RelayID != "" {
-		conn = &relayMeterConn{Conn: conn, usage: c.relayUsage(), profile: current.profile.ID, domain: q.Host, release: release}
+		usage := c.relayUsage()
+		domain := q.Host
+		if domain == "" {
+			domain = "<opaque>"
+		}
+		closeCount := usage.openedTunnel(current.profile.ID, domain, time.Now())
+		videoRelease := release
+		conn = &relayMeterConn{Conn: conn, usage: usage, profile: current.profile.ID, domain: domain, release: func() { videoRelease(); closeCount() }}
 	}
 
 	if observe {
@@ -721,6 +729,15 @@ func (c *Controller) requireChromeActivation() error {
 		if edgeSitesProfile(p) {
 			continue
 		} // Edge has its own PAC readiness.
+		if nativeBrowserProfile(p) {
+			if err := c.nativeGuardReadyLocked(p); err != nil {
+				return err
+			}
+			if !c.nativeBackendConfigured() {
+				return errors.New("NATIVE_CAPTURE_NOT_CONFIGURED")
+			}
+			continue
+		}
 		if browserAuto(p) && (c.browser.recoveryAddress == "" || c.browser.server == nil || !c.browser.server.Confirmed(p.ID) || !wp.ChromeProxyPolicyActive(c.BrowserOwnerSID, c.browser.expectedPAC)) {
 			return errors.New("Chrome AUTO requires verified CONNECT/PAC activation in Applications before Optimize; no capture state changed")
 		}

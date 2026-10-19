@@ -143,6 +143,14 @@ func testTCPNativeBurst(t *testing.T, count int, deferred bool) {
 		mode := "opening"
 		if deferred {
 			resolved := decision
+			resolved.NewConnectionsOnly = true
+			resolved.OpenDeferred = func(ctx context.Context, d Decision, reason string) (net.Conn, Decision, error) {
+				if reason != "HTTP_HOST" {
+					return nil, d, fmt.Errorf("unexpected native origin evidence %s", reason)
+				}
+				conn, err := b.Engine.OpenTCP(ctx, d.Flow)
+				return conn, d, err
+			}
 			decision.Deferred = true
 			decision.ResolveDomain = func(string) Decision { return resolved }
 			mode = "relay"

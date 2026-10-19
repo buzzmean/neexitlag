@@ -629,6 +629,9 @@ func (t *tcpRedirect) deferredOpen(e *tcpEntry, c net.Conn, release func()) {
 		return
 	}
 	d := ResolveDeferredDecision(e.decision, domain, reason)
+	if reason == "ECH_OUTER_SNI_ONLY" {
+		domain = ""
+	}
 	t.state.mu.Lock()
 	if t.b.ctx.Err() != nil || (e.mode == "closed" || e.mode == "hot_attach") {
 		t.state.mu.Unlock()
@@ -663,13 +666,16 @@ func (t *tcpRedirect) deferredOpen(e *tcpEntry, c net.Conn, release func()) {
 	var up net.Conn
 	var err error
 	openStarted := time.Now()
-	if d.Route.Local() {
+	if d.OpenDeferred != nil {
+		up, d, err = d.OpenDeferred(ctx, d, reason)
+		requested = d.Route
+	} else if d.Route.Local() {
 		up, err = t.dialLocalStrategy(ctx, e, d)
 	} else {
 		up, err = t.b.Engine.OpenTCP(ctx, d.Flow)
 	}
 	cancel()
-	if err != nil && !d.BlockOnFailure && t.b.ctx.Err() == nil && (!requested.Direct() || requested.Local()) {
+	if err != nil && d.OpenDeferred == nil && !d.BlockOnFailure && t.b.ctx.Err() == nil && (!requested.Direct() || requested.Local()) {
 		// No application bytes have left this proxy yet. An explicitly permitted
 		// native fallback gets its own bounded open budget, not an expired relay ctx.
 		fallback, stop := context.WithTimeout(t.b.ctx, 3*time.Second)
@@ -697,6 +703,9 @@ func (t *tcpRedirect) deferredOpen(e *tcpEntry, c net.Conn, release func()) {
 		return
 	}
 	e.decision = d
+	if d.OpenDeferred != nil {
+		t.b.evidence.RecordPolicy(e.identity, e.tuple, d, reason)
+	}
 	if !requested.Direct() {
 		t.b.evidence.RecordRelayOpen(e.identity, e.tuple, openStarted, err)
 	}

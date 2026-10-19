@@ -8,6 +8,7 @@ import (
 	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"github.com/buzzmean/neexitlag/core/profiles"
 	"github.com/buzzmean/neexitlag/core/routing"
+	"net"
 	"net/netip"
 	"sync"
 	"time"
@@ -34,7 +35,12 @@ type CaptureStatus struct {
 	Capabilities Capabilities `json:"capabilities"`
 }
 type Decision struct {
-	// OriginDomain is supplied only by an owner-validated Chrome CONNECT.
+	// Native browser planning runs only in the bounded deferred worker, never
+	// under the packet-loop lock. Existing streams keep their original decision.
+	NewConnectionsOnly bool
+	OpenDeferred       func(context.Context, Decision, string) (net.Conn, Decision, error)
+	// OriginDomain comes from validated CONNECT or this flow's unambiguous
+	// ClientHello SNI/HTTP Host. ECH outer names never authorize DIRECT.
 	OriginDomain    string
 	Revision        string
 	Policy          flowpolicy.Result

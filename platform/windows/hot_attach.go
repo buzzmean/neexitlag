@@ -50,6 +50,9 @@ func (h *hotAttachState) begin(reason string) uint64 {
 	return h.status.Epoch
 }
 func needsHotAttach(d Decision) bool {
+	return !d.NewConnectionsOnly && requiresInterception(d)
+}
+func requiresInterception(d Decision) bool {
 	return d.Block || d.Route.Local() || !d.Route.Direct() || d.Deferred || d.ProbeDirect
 }
 func (l *EvidenceLedger) RecordHotAttach(id ProcessIdentity, t Tuple, epoch uint64, state, revision string) {

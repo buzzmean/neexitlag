@@ -112,7 +112,7 @@ func (c *Controller) edgeOwnerProfile(owner browserproxy.Owner) (profilesResult,
 		network = n.Fingerprint
 	}
 	c.mu.Lock()
-	enabled := c.enabled && c.settings.Automatic && p.Mode == profiles.Auto && edgeSitesProfile(p)
+	enabled := c.enabled && c.settings.Automatic && p.Mode == profiles.Auto && (edgeSitesProfile(p) || nativeBrowserProfile(p))
 	c.mu.Unlock()
 	return profilesResult{profile: p, id: id, network: network, enabled: enabled}, nil
 }
@@ -408,7 +408,11 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (result any,
 		switch q.Operation {
 		case "guard":
 			if found {
-				pac = edgeClosedPAC(p)
+				var guardErr error
+				pac, guardErr = c.edgeRollbackPAC(e, p)
+				if guardErr != nil {
+					return nil, guardErr
+				}
 				e.saved.GuardPAC = pac
 			} else {
 				pac = e.saved.GuardPAC
@@ -426,7 +430,7 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (result any,
 		if err := c.writeEdgePolicy(e, pac); err != nil {
 			return nil, err
 		}
-		if q.Operation == "guard" && e.server != nil {
+		if q.Operation == "guard" && e.server != nil && !nativeBrowserProfile(p) {
 			e.server.Forget(p.ID)
 			e.server.CloseConnections()
 			if err := c.saveEdge(e); err != nil {
@@ -451,11 +455,15 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (result any,
 			// Roll back even if the GUI disappears after confirm or Edge never contacted
 			// the proxy. Keep an inline domain guard: URLBlocklist is navigation-only and
 			// cannot replace a PAC network boundary for protected subresources.
-			e.saved.GuardPAC = edgeClosedPAC(p)
+			var guardErr error
+			e.saved.GuardPAC, guardErr = c.edgeRollbackPAC(e, p)
+			if guardErr != nil {
+				return nil, guardErr
+			}
 			if err := c.writeEdgePolicy(e, e.saved.GuardPAC); err != nil {
 				return nil, err
 			}
-			if e.server != nil {
+			if e.server != nil && !nativeBrowserProfile(p) {
 				e.server.Forget(p.ID)
 				e.server.CloseConnections()
 			}
@@ -487,6 +495,15 @@ func (c *Controller) requireEdgeActivation() error {
 	c.browser.mu.Lock()
 	defer c.browser.mu.Unlock()
 	for _, p := range c.Profiles.List() {
+		if nativeBrowserProfile(p) {
+			if err := c.nativeGuardReadyLocked(p); err != nil {
+				return err
+			}
+			if !c.nativeBackendConfigured() {
+				return errors.New("NATIVE_CAPTURE_NOT_CONFIGURED")
+			}
+			continue
+		}
 		if edgeSitesProfile(p) && p.Mode == profiles.Auto && p.Trial == nil && !c.edgeReadyLocked(p) {
 			return errors.New("Edge AUTO requires verified Edge CONNECT/PAC; capture unchanged")
 		}

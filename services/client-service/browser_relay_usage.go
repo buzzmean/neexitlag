@@ -23,6 +23,7 @@ type relayMinuteKey struct {
 	profile, domain string
 }
 type relayMinute struct {
+	Opened   uint64    `json:"tunnels_opened"`
 	Minute   time.Time `json:"minute_utc"`
 	Profile  string    `json:"profile_id"`
 	Domain   string    `json:"domain"`
@@ -30,23 +31,88 @@ type relayMinute struct {
 	Received uint64    `json:"received_bytes"`
 }
 type relayUsageSnapshot struct {
-	VideoActive    int           `json:"googlevideo_active_tunnels"`
-	VideoLimit     int           `json:"googlevideo_tunnel_limit"`
-	VideoWaiting   int           `json:"googlevideo_waiters"`
-	VideoTimeouts  uint64        `json:"googlevideo_admission_failures"`
-	VideoLimitHits uint64        `json:"googlevideo_limit_events"`
-	OverflowBytes  uint64        `json:"cardinality_overflow_bytes"`
-	Truncated      bool          `json:"truncated"`
-	Minutes        []relayMinute `json:"minutes"`
+	Active          int                 `json:"active_tcp_tunnels"`
+	Opened          uint64              `json:"tcp_tunnels_opened"`
+	ActiveOrigins   []relayActiveOrigin `json:"active_origins"`
+	OverflowTunnels uint64              `json:"cardinality_overflow_tunnels"`
+	Scope           string              `json:"scope"`
+	VideoActive     int                 `json:"googlevideo_active_tunnels"`
+	VideoLimit      int                 `json:"googlevideo_tunnel_limit"`
+	VideoWaiting    int                 `json:"googlevideo_waiters"`
+	VideoTimeouts   uint64              `json:"googlevideo_admission_failures"`
+	VideoLimitHits  uint64              `json:"googlevideo_limit_events"`
+	OverflowBytes   uint64              `json:"cardinality_overflow_bytes"`
+	Truncated       bool                `json:"truncated"`
+	Minutes         []relayMinute       `json:"minutes"`
 }
 type browserRelayUsage struct {
-	mu                  sync.Mutex
-	minutes             map[relayMinuteKey]relayMinute
-	video               int
-	waiting             int
-	admissionFailures   uint64
-	changed             chan struct{}
-	limitHits, overflow uint64
+	activeOrigins           map[[2]string]int
+	active                  int
+	opened, overflowTunnels uint64
+	mu                      sync.Mutex
+	minutes                 map[relayMinuteKey]relayMinute
+	video                   int
+	waiting                 int
+	admissionFailures       uint64
+	changed                 chan struct{}
+	limitHits, overflow     uint64
+}
+
+type relayActiveOrigin struct {
+	Profile string `json:"profile_id"`
+	Domain  string `json:"domain"`
+	Active  int    `json:"active_tunnels"`
+}
+
+func (u *browserRelayUsage) openedTunnel(profile, domain string, at time.Time) func() {
+	u.mu.Lock()
+	if u.minutes == nil {
+		u.minutes = map[relayMinuteKey]relayMinute{}
+	}
+	if u.activeOrigins == nil {
+		u.activeOrigins = map[[2]string]int{}
+	}
+	key := [2]string{profile, domain}
+	_, exists := u.activeOrigins[key]
+	tracked := exists || len(u.activeOrigins) < relayUsageCapacity
+	u.active++
+	u.opened++
+	if tracked {
+		u.activeOrigins[key]++
+	} else {
+		u.overflowTunnels++
+	}
+	for k := range u.minutes {
+		if at.Sub(k.minute) > relayUsageRetention {
+			delete(u.minutes, k)
+		}
+	}
+	mk := relayMinuteKey{at.UTC().Truncate(time.Minute), profile, domain}
+	m, ok := u.minutes[mk]
+	if ok || len(u.minutes) < relayUsageCapacity {
+		m.Minute = mk.minute
+		m.Profile = profile
+		m.Domain = domain
+		m.Opened++
+		u.minutes[mk] = m
+	} else {
+		u.overflowTunnels++
+	}
+	u.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			u.mu.Lock()
+			defer u.mu.Unlock()
+			u.active--
+			if tracked {
+				u.activeOrigins[key]--
+				if u.activeOrigins[key] == 0 {
+					delete(u.activeOrigins, key)
+				}
+			}
+		})
+	}
 }
 
 func (c *Controller) relayUsage() *browserRelayUsage {
@@ -156,6 +222,28 @@ func (u *browserRelayUsage) snapshot() relayUsageSnapshot {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	s := relayUsageSnapshot{VideoActive: u.video, VideoLimit: videoRelayLimit, VideoLimitHits: u.limitHits, VideoWaiting: u.waiting, VideoTimeouts: u.admissionFailures, OverflowBytes: u.overflow, Minutes: []relayMinute{}}
+	s.Active = u.active
+	s.Opened = u.opened
+	s.OverflowTunnels = u.overflowTunnels
+	s.Scope = "browser TCP application payload; native + PAC; excludes QUIC overhead/origin probes"
+	s.ActiveOrigins = []relayActiveOrigin{}
+	for key, active := range u.activeOrigins {
+		s.ActiveOrigins = append(s.ActiveOrigins, relayActiveOrigin{key[0], key[1], active})
+	}
+	sort.Slice(s.ActiveOrigins, func(i, j int) bool {
+		a, b := s.ActiveOrigins[i], s.ActiveOrigins[j]
+		if a.Active != b.Active {
+			return a.Active > b.Active
+		}
+		if a.Profile != b.Profile {
+			return a.Profile < b.Profile
+		}
+		return a.Domain < b.Domain
+	})
+	if len(s.ActiveOrigins) > 64 {
+		s.ActiveOrigins = s.ActiveOrigins[:64]
+		s.Truncated = true
+	}
 	for _, v := range u.minutes {
 		if time.Since(v.Minute) <= relayUsageRetention {
 			s.Minutes = append(s.Minutes, v)
@@ -175,7 +263,7 @@ func (u *browserRelayUsage) snapshot() relayUsageSnapshot {
 		s.Minutes = s.Minutes[:64]
 		s.Truncated = true
 	}
-	s.Truncated = s.Truncated || u.overflow > 0
+	s.Truncated = s.Truncated || u.overflow > 0 || u.overflowTunnels > 0
 	return s
 }
 

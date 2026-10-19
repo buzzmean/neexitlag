@@ -1,0 +1,288 @@
+package clientservice
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net"
+	"net/netip"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/buzzmean/neexitlag/core/browserproxy"
+	"github.com/buzzmean/neexitlag/core/flowpolicy"
+	"github.com/buzzmean/neexitlag/core/profiles"
+	wp "github.com/buzzmean/neexitlag/platform/windows"
+)
+
+type nativeBackendFixture struct{ hotBackendFixture }
+
+func (b *nativeBackendFixture) Status() wp.CaptureStatus {
+	s := b.hotBackendFixture.Status()
+	s.Capabilities.Transparent = true
+	return s
+}
+
+func nativeEdgeFixture(t *testing.T) (*Controller, profiles.Profile, *nativeBackendFixture) {
+	t.Helper()
+	c := New(context.Background())
+	t.Cleanup(c.Close)
+	c.BrowserOwnerSID = "owner"
+	p := edgeTestProfile()
+	p.AppPreset = "edge-sites-pending"
+	c.Profiles.Upsert(p)
+	b := &nativeBackendFixture{}
+	c.Backend = b
+	return c, p, b
+}
+func ownNativeEdge(c *Controller) {
+	e := c.edgeLocked()
+	e.saved.Owned = []string{"owned-guard"}
+	e.saved.GuardPAC = "owned-guard"
+	e.active = func(_, v string) bool { return v != "" }
+	e.write = func(string, []string, string) error { return nil }
+}
+func TestNativeFreshRequiresOwnedGuardAndCannotBypassViaProfileSet(t *testing.T) {
+	c, p, b := nativeEdgeFixture(t)
+	_, err := edgeCall(c, "browser.native.enable", map[string]string{"profile_id": p.ID})
+	if err == nil || !strings.Contains(err.Error(), "NATIVE_OWNED_PAC_GUARD_REQUIRED") {
+		t.Fatal(err)
+	}
+	if b.ready {
+		t.Fatal("fresh gate started capture")
+	}
+	p.Mode = profiles.Auto
+	p.BrowserTransport = "native"
+	if _, err = edgeCall(c, "profile.set", p); err == nil {
+		t.Fatal("profile.set bypassed guard")
+	}
+	if got := c.Profiles.List(); findNativeEdge(c).Mode != profiles.Direct || findNativeEdge(c).BrowserTransport != "" {
+		t.Fatal(got)
+	}
+}
+func TestNativeEdgeEnablePreservesStreamsAndRepairsGuardWithoutNonce(t *testing.T) {
+	c, p, b := nativeEdgeFixture(t)
+	ownNativeEdge(c)
+	result, err := edgeCall(c, "browser.native.enable", map[string]string{"profile_id": p.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.(map[string]any)["native"].(bool) || !b.ready {
+		t.Fatal(result)
+	}
+	if len(b.calls) != 0 || b.epoch != 0 {
+		t.Fatal("activation reset established connections", b.calls, b.epoch)
+	}
+	saved := findNativeEdge(c)
+	if !nativeBrowserProfile(saved) || saved.AppPreset != p.AppPreset {
+		t.Fatal(saved)
+	}
+	e := c.browser.edge
+	if e.server == nil || e.saved.GuardPAC == "" || e.server.Confirmed(p.ID) {
+		t.Fatal("missing live guard or fabricated nonce")
+	}
+	args, err := nativeCompatibilityArguments(saved, e.server.Address())
+	if err != nil || !strings.Contains(e.saved.GuardPAC, strings.TrimPrefix(args[1], "--proxy-pac-url=")) {
+		t.Fatal("guard did not target live per-origin listener", err)
+	}
+	first := c.nativeSnapshot().Profiles[0].Activated
+	if _, err = edgeCall(c, "browser.native.enable", map[string]string{"profile_id": p.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if c.nativeSnapshot().Profiles[0].Activated != first {
+		t.Fatal("idempotent enable reset timing")
+	}
+	if _, err = edgeCall(c, "edge.confirm", map[string]string{"profile_id": p.ID, "health_url": "http://neexitlag-health.invalid/ready/missing"}); err == nil {
+		t.Fatal("missing nonce accepted")
+	}
+	if e.server == nil || e.saved.GuardPAC == "" || !nativeBrowserProfile(findNativeEdge(c)) {
+		t.Fatal("failed confirmation stranded native profile")
+	}
+}
+func TestNativeBackendFailurePreservesPendingAndOwnedPolicy(t *testing.T) {
+	c, p, b := nativeEdgeFixture(t)
+	ownNativeEdge(c)
+	b.fail = true
+	if _, err := edgeCall(c, "browser.native.enable", map[string]string{"profile_id": p.ID}); err == nil {
+		t.Fatal("capture failure ignored")
+	}
+	if findNativeEdge(c).BrowserTransport != "" || c.browser.edge.saved.GuardPAC != "owned-guard" {
+		t.Fatal("capture failure published native or changed guard")
+	}
+}
+func TestNativeSNIHostOpaqueDNSIPv6AndLegacyIsolation(t *testing.T) {
+	c, p, _ := nativeEdgeFixture(t)
+	p.Mode = profiles.Auto
+	p.BrowserTransport = "native"
+	c.Profiles.Upsert(p)
+	c.enabled = true
+	id := wp.ProcessIdentity{PID: 77, CreationTime: 1, Path: p.Executables[0]}
+	tuple := wp.Tuple{Protocol: "tcp", Source: netip.MustParseAddrPort("192.0.2.1:50001"), Destination: netip.MustParseAddrPort("203.0.113.1:443")}
+	initial := c.Classify(id, tuple)
+	if !initial.Deferred || !initial.NewConnectionsOnly || initial.OpenDeferred == nil {
+		t.Fatalf("%+v", initial)
+	}
+	for _, tt := range []struct {
+		host, reason string
+		want         flowpolicy.Action
+	}{
+		{"ordinary.example", "TLS_SNI", flowpolicy.Direct}, {"chatgpt.com", "TLS_SNI", flowpolicy.RelayRequired},
+		{"www.google.com", "ECH_OUTER_SNI_ONLY", flowpolicy.RelayRequired}, {"", "CLIENTHELLO_INCOMPLETE", flowpolicy.RelayRequired},
+		{"ordinary.example", "HTTP_HOST", flowpolicy.Direct},
+	} {
+		d := wp.ResolveDeferredDecision(initial, tt.host, tt.reason)
+		if d.Policy.Action != tt.want || d.OpenDeferred == nil || !d.NewConnectionsOnly {
+			t.Fatalf("%s/%s: %+v", tt.host, tt.reason, d)
+		}
+		if tt.want == flowpolicy.RelayRequired && (!d.BlockOnFailure || d.Route.RelayID != "VPS-01") {
+			t.Fatal("required fail-open", d)
+		}
+	}
+	tuple.Destination = netip.MustParseAddrPort("192.0.2.53:53")
+	d := c.Classify(id, tuple)
+	if d.Deferred || !d.Route.Direct() || d.OpenDeferred != nil {
+		t.Fatal("DNS changed", d)
+	}
+	tuple.Destination = netip.MustParseAddrPort("[2001:db8::1]:443")
+	d = c.Classify(id, tuple)
+	if !d.Block || d.Deferred {
+		t.Fatal("unsupported IPv6 leaked", d)
+	}
+	tuple.Protocol = "udp"
+	tuple.Destination = netip.MustParseAddrPort("203.0.113.1:443")
+	d = c.Classify(id, tuple)
+	if d.Policy.Action != flowpolicy.RelayRequired || !d.BlockOnFailure {
+		t.Fatal("opaque QUIC leak", d)
+	}
+	id.Path = "unrelated.exe"
+	if d = c.Classify(id, tuple); d.Block || !d.Route.Direct() {
+		t.Fatal("unrelated process touched")
+	}
+	p.BrowserTransport = ""
+	p.AppPreset = ""
+	tuple.Protocol = "tcp"
+	id.Path = p.Executables[0]
+	c.Profiles.Upsert(p)
+	d = c.Classify(id, tuple)
+	if d.NewConnectionsOnly || d.OpenDeferred != nil {
+		t.Fatal("legacy Edge behavior changed")
+	}
+}
+func TestNativeTimingRequiresBidirectionalPayloadAndBoundsEvidence(t *testing.T) {
+	c, _, _ := nativeEdgeFixture(t)
+	n := &c.browser.native
+	n.activate("edge", false)
+	q := browserproxy.Request{Owner: browserproxy.Owner{Profile: "edge"}, Host: "ordinary.example"}
+	id, err := n.begin(q, wp.Tuple{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n.opened(id, browserproxy.Plan{}, nil)
+	if s := c.nativeSnapshot().Profiles[0]; s.FirstOpenMS < 0 || s.FirstExchangeMS != -1 {
+		t.Fatal(s)
+	}
+	n.bytes(id, 100, 0)
+	if c.nativeSnapshot().Profiles[0].FirstExchangeMS != -1 {
+		t.Fatal("one-way traffic certified reply")
+	}
+	n.bytes(id, 0, 25)
+	if c.nativeSnapshot().Profiles[0].FirstExchangeMS < 0 {
+		t.Fatal("missing real exchange")
+	}
+	n.closed(id)
+	for i := 0; i < 600; i++ {
+		id, _ = n.begin(q, wp.Tuple{})
+		n.closed(id)
+	}
+	s := c.nativeSnapshot()
+	raw, _ := json.Marshal(s)
+	if len(n.records) > 512 || len(raw) > 60*1024 || !s.Truncated || s.Lost == 0 {
+		t.Fatal("unbounded/false complete snapshot", len(raw), s.Lost)
+	}
+	first := s.Profiles[0].Activated
+	n.activate("edge", true)
+	if !c.nativeSnapshot().Profiles[0].Activated.After(first) {
+		t.Fatal("new optimization epoch not measured")
+	}
+}
+func TestRelayTunnelMinutesActiveCountsAndReleaseOnce(t *testing.T) {
+	u := &browserRelayUsage{}
+	var wg sync.WaitGroup
+	for i := 0; i < 32; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			release := u.openedTunnel("edge", fmt.Sprintf("%d.example", i%2), time.Now())
+			u.account("edge", fmt.Sprintf("%d.example", i%2), 10, 20, time.Now())
+			release()
+			release()
+		}(i)
+	}
+	wg.Wait()
+	s := u.snapshot()
+	var opened, tx, rx uint64
+	for _, m := range s.Minutes {
+		opened += m.Opened
+		tx += m.Sent
+		rx += m.Received
+	}
+	if s.Active != 0 || s.Opened != 32 || opened != 32 || tx != 320 || rx != 640 || len(s.ActiveOrigins) != 0 {
+		t.Fatal(s)
+	}
+}
+
+func findNativeEdge(c *Controller) profiles.Profile {
+	for _, p := range c.Profiles.List() {
+		if p.ID == "edge" {
+			return p
+		}
+	}
+	return profiles.Profile{}
+}
+
+func TestNativeSilentDIRECTClosesOnlyThatFlowNeverReplays(t *testing.T) {
+	a, b := net.Pipe()
+	defer b.Close()
+	fired := make(chan struct{}, 1)
+	c := &nativeFirstReplyConn{Conn: a, timeout: 25 * time.Millisecond, stalled: func() { fired <- struct{}{} }}
+	defer c.Close()
+	read := make(chan error, 1)
+	go func() { _, err := io.ReadFull(b, make([]byte, 3)); read <- err }()
+	if _, err := c.Write([]byte("TLS")); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-read; err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-fired:
+	case <-time.After(time.Second):
+		t.Fatal("silent flow not closed")
+	}
+	c.fail()
+	select {
+	case <-fired:
+		t.Fatal("failure replayed")
+	default:
+	}
+}
+func TestNativeFirstReplyIsProgressButDoesNotClearFailedDomainVerdict(t *testing.T) {
+	a, b := net.Pipe()
+	defer b.Close()
+	fired := make(chan struct{}, 1)
+	c := &nativeFirstReplyConn{Conn: a, timeout: 25 * time.Millisecond, stalled: func() { fired <- struct{}{} }}
+	defer c.Close()
+	go func() { io.ReadFull(b, make([]byte, 1)); b.Write([]byte("x")) }()
+	c.Write([]byte("x"))
+	if _, err := io.ReadFull(c, make([]byte, 1)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-fired:
+		t.Fatal("working flow closed")
+	case <-time.After(50 * time.Millisecond):
+	}
+}

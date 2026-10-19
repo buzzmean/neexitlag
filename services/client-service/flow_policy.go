@@ -1,10 +1,12 @@
 package clientservice
 
 import (
+	"context"
 	"github.com/buzzmean/neexitlag/core/flowpolicy"
 	"github.com/buzzmean/neexitlag/core/profiles"
 	"github.com/buzzmean/neexitlag/core/routing"
 	wp "github.com/buzzmean/neexitlag/platform/windows"
+	"net"
 	"path"
 	"sort"
 	"strings"
@@ -191,7 +193,15 @@ func (c *Controller) scopedDecision(p profiles.Profile, id wp.ProcessIdentity, t
 				return d
 			}
 		}
-		return c.evaluateFlow(p, id, t, base, domain, network)
+		d := c.evaluateFlow(p, id, t, base, domain, network)
+		if nativeBrowserProfile(p) && t.Protocol == "tcp" && t.Destination.Port() != 53 {
+			d.OriginDomain = domain
+			d.NewConnectionsOnly = true
+			d.OpenDeferred = func(ctx context.Context, decision wp.Decision, reason string) (net.Conn, wp.Decision, error) {
+				return c.openNativeBrowser(ctx, p, id, t, decision, reason)
+			}
+		}
+		return d
 	}
 	out := resolve("")
 	if t.Protocol == "tcp" && out.Policy.Source != "browser_dns" && (browserAuto(p) || flowpolicy.NeedsDomain(p.Rules, "tcp") || p.Mode == profiles.Auto && !c.hasBaseline(p, network) && c.AutoLearned.HasApplication(network, applicationKey(p), "tcp", time.Now())) {

@@ -185,6 +185,9 @@ func (c *Controller) handleProfileSet(ctx context.Context, raw json.RawMessage) 
 	}
 	for _, old := range c.Profiles.List() {
 		if old.ID == p.ID && sameProfileExecutables(old.Executables, p.Executables) {
+			if _, ok := fields["browser_transport"]; !ok {
+				p.BrowserTransport = old.BrowserTransport
+			}
 			if _, ok := fields["rules"]; !ok {
 				p.Rules = old.Rules
 			}
@@ -221,7 +224,7 @@ func (c *Controller) handleProfileSet(ctx context.Context, raw json.RawMessage) 
 		p.Identity.Helpers = []string{p.Identity.Executable}
 	}
 	prepareAuto(&p)
-	if edgeSitesProfile(p) && p.Mode == profiles.Auto && c.BrowserOwnerSID != "" {
+	if edgeSitesProfile(p) && !nativeBrowserProfile(p) && p.Mode == profiles.Auto && c.BrowserOwnerSID != "" {
 		c.browser.mu.Lock()
 		ready := c.edgeReadyLocked(p)
 		c.browser.mu.Unlock()
@@ -229,7 +232,7 @@ func (c *Controller) handleProfileSet(ctx context.Context, raw json.RawMessage) 
 			return nil, errors.New("Edge AUTO requires verified Edge PAC before publishing profile")
 		}
 	}
-	if browserAuto(p) && !edgeSitesProfile(p) && c.BrowserOwnerSID != "" {
+	if browserAuto(p) && !nativeBrowserProfile(p) && !edgeSitesProfile(p) && c.BrowserOwnerSID != "" {
 		c.browser.mu.Lock()
 		ready := c.browser.recoveryAddress != "" && c.browser.server != nil && c.browser.server.Confirmed(p.ID)
 		c.browser.mu.Unlock()
@@ -254,6 +257,14 @@ func (c *Controller) handleProfileSet(ctx context.Context, raw json.RawMessage) 
 	}
 	if err := p.Validate(); err != nil {
 		return nil, err
+	}
+	if nativeBrowserProfile(p) {
+		if err := c.nativeGuardReady(p); err != nil {
+			return nil, err
+		}
+	}
+	if nativeBrowserProfile(p) && !c.nativeBackendReady() {
+		return nil, errors.New("NATIVE_CAPTURE_NOT_READY")
 	}
 	for _, old := range c.Profiles.List() {
 		if old.ID == p.ID {
@@ -356,6 +367,7 @@ func (c *Controller) handleOptimize(ctx context.Context, raw json.RawMessage) (a
 		}
 	}
 	c.Measurements.Active.Store(v.Enabled)
+	c.nativeBrowserActivation(v.Enabled, wasEnabled)
 	return c.Snapshot(), nil
 }
 

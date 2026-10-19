@@ -320,7 +320,7 @@ func (c *Controller) Classify(identity windowsplatform.ProcessIdentity, t window
 	f := routing.Flow{Protocol: t.Protocol, Source: t.Source, Destination: t.Destination, PID: identity.PID, ProcessPath: identity.Path, ApplicationID: profile.ID}
 	decision.Flow = f
 	decision.Revision = c.policyRevision(profile)
-	if edgeProfile(profile) && profile.Mode == profiles.Auto && profile.AppPreset == "edge-sites-pending" && !directOnlyFlow(t) {
+	if edgeProfile(profile) && !nativeBrowserProfile(profile) && profile.Mode == profiles.Auto && profile.AppPreset == "edge-sites-pending" && !directOnlyFlow(t) {
 		decision.Block, decision.BlockOnFailure = true, true
 		decision.Policy = flowpolicy.Result{Action: flowpolicy.Block, Source: "edge_activation_pending", Reason: "Edge AUTO awaits CONNECT/PAC activation; no DIRECT authorization"}
 		return decision
@@ -352,6 +352,12 @@ func (c *Controller) Classify(identity windowsplatform.ProcessIdentity, t window
 		automatic := c.settings.Automatic
 		c.mu.Unlock()
 		if !automatic {
+			if nativeBrowserProfile(profile) {
+				decision.Block = true
+				decision.BlockOnFailure = true
+				decision.NewConnectionsOnly = true
+				decision.Policy = flowpolicy.Result{Action: flowpolicy.Block, Fallback: flowpolicy.Required, Source: "native_automatic_disabled", Reason: "native browser AUTO disabled; no DIRECT authorization"}
+			}
 			return decision
 		}
 		primary := c.Selector.Select(time.Now()).Primary
@@ -511,7 +517,7 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		}()
 	}
 	switch method {
-	case "optimize", "profile.set", "profile.delete", "settings.set", "local.set", "local.preset.apply", "auto.commit", "browser.prepare", "browser.start", "browser.confirm":
+	case "optimize", "profile.set", "profile.delete", "settings.set", "local.set", "local.preset.apply", "auto.commit", "browser.prepare", "browser.start", "browser.confirm", "browser.native.enable":
 		c.activationMu.Lock()
 		defer c.activationMu.Unlock()
 		if e := c.publishBrowserGuard(true); e != nil {
@@ -525,6 +531,8 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		}()
 	}
 	switch method {
+	case "browser.native.enable", "browser.native.status":
+		return c.handleNativeBrowser(ctx, method, raw)
 	case "edge.prepare", "edge.confirm", "edge.policy", "edge.status", "edge.failure":
 		return c.handleEdge(method, raw)
 	case "browser.origin.check":

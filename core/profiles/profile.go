@@ -27,6 +27,7 @@ type TrialScope struct {
 	Expires      time.Time `json:"expires"`
 }
 type Profile struct {
+	BrowserTransport string `json:"browser_transport,omitempty"`
 	// Recovery preserves domain rules while a fail-closed Chrome PAC guards them.
 	BrowserRecoveryRules []flowpolicy.Rule    `json:"browser_recovery_rules,omitempty"`
 	Trial                *TrialScope          `json:"trial_scope,omitempty"`
@@ -50,6 +51,9 @@ type Profile struct {
 }
 
 func (p Profile) Validate() error {
+	if p.BrowserTransport != "" && p.BrowserTransport != "native" {
+		return errors.New("invalid browser transport")
+	}
 	if p.Trial != nil && (p.Trial.PID == 0 || p.Trial.CreationTime == 0 || !strings.HasPrefix(p.ID, "!v2-") || !p.Custom) {
 		return errors.New("invalid trial scope")
 	}

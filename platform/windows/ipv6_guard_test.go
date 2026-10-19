@@ -52,3 +52,18 @@ func TestIPv6NetworkGuardParsingAndIdentityIsolation(t *testing.T) {
 		t.Fatal("IPv6 pins leaked")
 	}
 }
+
+func TestNativeNewConnectionsOnlyDoesNotDisableIPv6FailClosed(t *testing.T) {
+	d := Decision{Block: true, NewConnectionsOnly: true}
+	if needsHotAttach(d) {
+		t.Fatal("native activation must not reset existing TCP")
+	}
+	if !requiresInterception(d) {
+		t.Fatal("new-only erased network guard")
+	}
+	id := ProcessIdentity{PID: 42, CreationTime: 1, Path: "chrome.exe"}
+	tuple := Tuple{Protocol: "tcp", Source: netip.MustParseAddrPort("[2001:db8::1]:50001"), Destination: netip.MustParseAddrPort("[2001:db8::2]:443")}
+	if !(&IPv6Guard{}).Block(id, tuple, 2, d, 1, time.Now()) {
+		t.Fatal("native browser IPv6 leaked")
+	}
+}
