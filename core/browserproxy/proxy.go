@@ -77,6 +77,8 @@ type Plan struct {
 	HTTPStatus       int                `json:"http_status,omitempty"`
 }
 type Record struct {
+	PlanDurationMS    int64     `json:"plan_duration_ms"`
+	OpenDurationMS    int64     `json:"open_duration_ms"`
 	EvidenceSource    string    `json:"evidence_source,omitempty"`
 	OpenFailure       string    `json:"open_failure,omitempty"`
 	DirectPlusApplied bool      `json:"direct_plus_applied"`
@@ -317,7 +319,9 @@ func (s *Server) reject(reason string) {
 	s.mu.Unlock()
 }
 func (s *Server) handle(c net.Conn) {
-	ctx, cancel := context.WithTimeout(s.ctx, 8*time.Second)
+	lifetime, stopLifetime := context.WithCancel(s.ctx)
+	defer stopLifetime()
+	ctx, cancel := context.WithTimeout(lifetime, 8*time.Second)
 	defer func() { cancel() }()
 	c.SetDeadline(time.Now().Add(8 * time.Second))
 	b := bufio.NewReaderSize(c, 8192)
@@ -455,7 +459,7 @@ func (s *Server) handle(c net.Conn) {
 		return
 	}
 	s.pathBeginLocked(owner.Profile)
-	s.records[id] = Record{ID: id, Owner: owner, Domain: host, Port: port, Source: originalSource.String(), Plan: plan, EvidenceSource: q.Ingress, Started: started, Active: true, Result: "OPEN_PENDING"}
+	s.records[id] = Record{ID: id, Owner: owner, Domain: host, Port: port, Source: originalSource.String(), Plan: plan, PlanDurationMS: time.Since(started).Milliseconds(), EvidenceSource: q.Ingress, Started: started, Active: true, Result: "OPEN_PENDING"}
 	s.mu.Unlock()
 	finish := func(result string, tx, rx uint64) {
 		s.mu.Lock()
@@ -489,8 +493,9 @@ func (s *Server) handle(c net.Conn) {
 		writeError(c, 502)
 		return
 	}
-	ctx, cancel = context.WithTimeout(s.ctx, 3*time.Second)
+	ctx, cancel = context.WithTimeout(lifetime, 3*time.Second)
 	c.SetDeadline(time.Now().Add(3 * time.Second))
+	openStarted := time.Now()
 	var upstream net.Conn
 	if s.cfg.OpenPlan != nil {
 		upstream, plan, e = s.cfg.OpenPlan(ctx, q, plan)
@@ -502,6 +507,11 @@ func (s *Server) handle(c net.Conn) {
 	} else {
 		upstream, e = s.cfg.Open(ctx, q, plan)
 	}
+	s.mu.Lock()
+	openedRecord := s.records[id]
+	openedRecord.OpenDurationMS = time.Since(openStarted).Milliseconds()
+	s.records[id] = openedRecord
+	s.mu.Unlock()
 	if e != nil {
 		s.mu.Lock()
 		r := s.records[id]
@@ -517,7 +527,7 @@ func (s *Server) handle(c net.Conn) {
 	s.pathOpenedLocked(owner.Profile)
 	s.mu.Unlock()
 	if secure && port == 443 && plan.Enabled && plan.Policy.Action == flowpolicy.Direct && s.cfg.OnStall != nil {
-		upstream = s.watchDirect(ctx, upstream, q, plan, id, 0)
+		upstream = s.watchDirect(lifetime, upstream, q, plan, id, 0)
 	}
 
 	s.mu.Lock()
@@ -613,6 +623,18 @@ func (w countWriter) Write(p []byte) (int, error) {
 
 // Return only stable error classes/OS codes, never remote messages or secrets.
 func openFailure(err error) string {
+	var typed interface{ FailureReason() string }
+	if errors.As(err, &typed) {
+		switch reason := typed.FailureReason(); reason {
+		case "relay_destination_denied", "relay_flow_capacity", "upstream_dial_timeout", "upstream_connection_refused", "upstream_dial_failed", "authorization_expired_or_revoked", "authorization_lease_expired", "device_revoked", "relay_rejected_unspecified", "stream_capacity", "caller_cancelled", "open_ack_timeout", "open_stream_reset", "open_ack_eof", "open_io_failed", "transport_open_failed", "session_creation_failed":
+			return strings.ToUpper(reason)
+		}
+	}
+	var timed net.Error
+	if errors.As(err, &timed) && timed.Timeout() {
+		return "UPSTREAM_OPEN_TIMEOUT"
+	}
+
 	if errors.Is(err, ErrVideoRelayAdmission) {
 		return "GOOGLEVIDEO_RELAY_ADMISSION_CAPACITY"
 	}

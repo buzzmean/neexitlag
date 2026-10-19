@@ -19,16 +19,19 @@ type PathMetrics struct {
 	Received        uint64    `json:"received_bytes"`
 }
 type FailureSummary struct {
-	Profile string    `json:"profile_id"`
-	Domain  string    `json:"domain"`
-	Phase   string    `json:"phase"`
-	Reason  string    `json:"reason"`
-	Count   uint64    `json:"count"`
-	Last    time.Time `json:"last_at"`
+	Profile      string    `json:"profile_id"`
+	Domain       string    `json:"domain"`
+	Phase        string    `json:"phase"`
+	Reason       string    `json:"reason"`
+	Route        string    `json:"route"`
+	Destination  string    `json:"destination"`
+	PolicySource string    `json:"policy_source"`
+	Count        uint64    `json:"count"`
+	Last         time.Time `json:"last_at"`
 }
 
 func (s *Server) pathFailureLocked(r Record, phase, reason string) {
-	key := r.Owner.Profile + "\x00" + r.Domain + "\x00" + phase + "\x00" + reason
+	key := r.Owner.Profile + "\x00" + r.Domain + "\x00" + phase + "\x00" + reason + "\x00" + string(r.Plan.Policy.Action) + "\x00" + r.Plan.Destination.String() + "\x00" + r.Plan.Policy.Source
 	if s.failureDetails == nil {
 		s.failureDetails = map[string]FailureSummary{}
 	}
@@ -38,6 +41,9 @@ func (s *Server) pathFailureLocked(r Record, phase, reason string) {
 		return
 	}
 	f.Profile, f.Domain, f.Phase, f.Reason = r.Owner.Profile, r.Domain, phase, reason
+	f.Route = string(r.Plan.Policy.Action)
+	f.Destination = r.Plan.Destination.String()
+	f.PolicySource = r.Plan.Policy.Source
 	f.Count++
 	f.Last = time.Now()
 	s.failureDetails[key] = f

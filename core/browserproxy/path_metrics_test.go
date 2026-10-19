@@ -134,3 +134,51 @@ func TestPACSummarySurvivesLedgerEvictionAndStaysBounded(t *testing.T) {
 		t.Fatal(len(s.failureDetails), s.failureDetailsLost)
 	}
 }
+
+func TestPACStallGetsFreshBoundedBudgetNotExpiredOpen(t *testing.T) {
+	s, err := Listen(context.Background(), Config{
+		StallTimeout: 10 * time.Millisecond,
+		Authorize: func(context.Context, netip.AddrPort, netip.AddrPort) (Owner, error) {
+			return Owner{Profile: "chrome"}, nil
+		},
+		Plan: func(context.Context, Request) (Plan, error) {
+			return Plan{Enabled: true, Policy: flowpolicy.Result{Action: flowpolicy.Direct}}, nil
+		},
+		Open: func(context.Context, Request, Plan) (net.Conn, error) {
+			a, b := net.Pipe()
+			go func() { defer b.Close(); io.Copy(io.Discard, b) }()
+			return a, nil
+		},
+		OnStall: func(ctx context.Context, _ Request, p Plan) (net.Conn, Plan, error) {
+			deadline, ok := ctx.Deadline()
+			if !ok || time.Until(deadline) < 4*time.Second || time.Until(deadline) > 5*time.Second {
+				t.Error("stall inherited consumed OPEN budget", deadline)
+			}
+			a, b := net.Pipe()
+			go func() { defer b.Close(); io.Copy(b, b) }()
+			p.Policy.Action = flowpolicy.RelayRequired
+			return a, p, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	c, err := net.Dial("tcp", s.Address())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	c.SetDeadline(time.Now().Add(time.Second))
+	io.WriteString(c, "CONNECT ordinary.example:443 HTTP/1.1\r\nHost: ordinary.example:443\r\n\r\n")
+	b := bufio.NewReader(c)
+	response, err := http.ReadResponse(b, nil)
+	if err != nil || response.StatusCode != 200 {
+		t.Fatal(response, err)
+	}
+	io.WriteString(c, "ping")
+	got := make([]byte, 4)
+	if _, err = io.ReadFull(b, got); err != nil || string(got) != "ping" {
+		t.Fatal(string(got), err)
+	}
+}
