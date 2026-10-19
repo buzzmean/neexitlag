@@ -297,7 +297,7 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 	if !current.enabled || protectedBrowserDomain(q.Host) || result.Source == "rule" {
 		return plan, nil
 	}
-	if youtubeDomain(q.Host) {
+	if youtubeRelayDomain(q.Host) {
 		if directTimeoutEligible(q, plan) {
 			for _, candidate := range candidates {
 				if candidate.Addr().Is4() {

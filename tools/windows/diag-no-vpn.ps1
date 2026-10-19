@@ -497,7 +497,7 @@ Step 'sni' {
 }}
 
 function Write-BrowserPathEvidence($snapshot,[string]$lane) {
- Write-BrowserFirstByteEvidence $snapshot $lane
+ try{$timing=Invoke-IPC ($lane+'.first-byte');Write-BrowserFirstByteEvidence $timing $lane}catch{Say ($lane+' first-byte: UNAVAILABLE (old service or IPC failure); no latency invented')}
  Say ($lane+' path='+(Prop $snapshot 'path' 'PAC_LEGACY_UNINSTRUMENTED')+' metrics_lost='+(Prop $snapshot 'metrics_lost' 0)+' failure_details_lost='+(Prop $snapshot 'failure_details_lost' 0))
  foreach($m in @(Prop $snapshot 'path_metrics' @())) {
   $opened=[long](Prop $m 'opened' 0)
@@ -515,14 +515,14 @@ function Write-BrowserFirstByteEvidence($snapshot,[string]$lane) {
  if($null -eq $property){Say ($lane+' first-byte: UNINSTRUMENTED (old service); no before/after latency invented');return}
  $rows=@($property.Value)
  if($rows.Count -eq 0){Say ($lane+' first-byte: NO_SAMPLES')}
- Say ($lane+' first-byte scope: proxy TCP accept -> first delivered origin byte (including TLS); not HTTP/page load; PAC_NATIVE_UPSTREAM is not a second sample; lost='+(Prop $snapshot 'first_byte_metrics_lost' 0))
+ Say ($lane+' first-byte scope: proxy TCP accept -> first delivered origin byte (including TLS); not HTTP/page load; PAC_NATIVE_UPSTREAM is not a second sample; lost='+(Prop $snapshot 'first_byte_metrics_lost' 0)+' rows_omitted='+(Prop $snapshot 'first_byte_rows_omitted' 0)+' truncated='+(Prop $snapshot 'truncated' $false))
  $pairs=@{}
  foreach($metric in @($rows)){
   $samples=[long](Prop $metric 'replies' 0)
   $avg=if($samples -gt 0){[Math]::Round(([double](Prop $metric 'total_ms' 0)/$samples),2)}else{'NOT_OBSERVED'}
   $mode=[string](Prop $metric 'mode' 'UNINSTRUMENTED')
-  Say ($lane+' first-byte: network='+(Prop $metric 'network')+' profile='+(Prop $metric 'profile_id')+' group='+(Prop $metric 'group')+' path='+(Prop $metric 'path')+' mode='+$mode+' n='+$samples+' no_reply='+(Prop $metric 'closed_without_reply' 0)+' avg_ms='+$avg+' min_ms='+(Prop $metric 'min_ms' -1)+' max_ms='+(Prop $metric 'max_ms' -1)+' last_ms='+(Prop $metric 'last_ms' -1))
-  $key=([string](Prop $metric 'network'))+'|'+(Prop $metric 'profile_id')+'|'+(Prop $metric 'group')+'|'+(Prop $metric 'path')
+  Say ($lane+' first-byte: network='+(Prop $metric 'network')+' profile='+(Prop $metric 'profile_id')+' group='+(Prop $metric 'group')+' port='+(Prop $metric 'port' 0)+' path='+(Prop $metric 'path')+' mode='+$mode+' n='+$samples+' no_reply='+(Prop $metric 'closed_without_reply' 0)+' avg_ms='+$avg+' min_ms='+(Prop $metric 'min_ms' -1)+' max_ms='+(Prop $metric 'max_ms' -1)+' last_ms='+(Prop $metric 'last_ms' -1))
+  $key=([string](Prop $metric 'network'))+'|'+(Prop $metric 'profile_id')+'|'+(Prop $metric 'group')+'|'+(Prop $metric 'path')+'|'+(Prop $metric 'port' 0)
   if(!$pairs.ContainsKey($key)){$pairs[$key]=@{}}
   if($samples -gt 0){$pairs[$key][$mode]=$avg}
  }

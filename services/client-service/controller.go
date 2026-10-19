@@ -544,6 +544,8 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		return c.handleEdge(method, raw)
 	case "browser.origin.check":
 		return c.checkBrowserOrigin(ctx, raw)
+	case "browser.first-byte", "edge.first-byte":
+		return c.browserFirstBytes(method == "edge.first-byte"), nil
 	case "browser.start", "browser.prepare", "browser.confirm", "browser.status":
 		return c.handleBrowser(method, raw)
 	case "local.presets", "local.preset.apply", "local.get", "local.set", "local.metrics", "local.network", "local.record", "local.recommend", "local.compare":

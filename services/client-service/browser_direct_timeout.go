@@ -66,7 +66,7 @@ func (c *Controller) observeDirectOpen(current profilesResult, q browserproxy.Re
 
 // relayAllowedFor now means explicit relay-first preference, never permission for fallback.
 func (c *Controller) relayAllowedFor(host string) bool {
-	if !youtubeDomain(host) {
+	if !youtubeRelayDomain(host) {
 		return true
 	}
 	c.mu.Lock()
@@ -147,7 +147,7 @@ func (c *Controller) stallRetry(ctx context.Context, current profilesResult, q b
 	if current.network != "" {
 		c.recordBrowserStall(current, q, plan)
 	}
-	if next, ok := nextDirectPlan(plan); !youtubeDomain(q.Host) && ok && !c.directAddressFailed(current, q, next) {
+	if next, ok := nextDirectPlan(plan); !youtubeRelayDomain(q.Host) && ok && !c.directAddressFailed(current, q, next) {
 		attempt, stop := directAttemptContext(ctx, next)
 		next.DirectAttempts++
 		conn, err := open(attempt, q, next)
@@ -186,8 +186,8 @@ func (c *Controller) revalidateDirect(current profilesResult, q browserproxy.Req
 		defer cancel()
 		conclusive := false
 		defer func() { c.browser.directTimeouts.ProbeDone(key, time.Now(), conclusive) }()
-		if _, err := c.browserProfile(q.Owner); err != nil {
-			return // the browser is gone: nothing to conclude
+		if actual, err := c.browserProfile(q.Owner); err != nil || actual.network != current.network || !actual.enabled {
+			return // Owner/network/activation changed: no conclusion for this key.
 		}
 		if host := c.browser.directTimeouts.ProbeHost(key); host != "" {
 			q.Host = host
@@ -205,6 +205,9 @@ func (c *Controller) revalidateDirect(current profilesResult, q browserproxy.Req
 		// accepts the connect and then swallows the ClientHello.
 		open := func(ctx context.Context) (net.Conn, error) { return c.browserOpenUnobserved(ctx, q, probePlan) }
 		detail := browserproxy.ProbeOriginDetailed(ctx, q.Host, q.Port, q.Secure, c.BrowserProbeRoots, open)
+		if actual, err := c.browserProfile(q.Owner); err != nil || actual.network != current.network || !actual.enabled {
+			return
+		}
 		switch detail.Failure {
 		case "":
 			c.browser.directTimeouts.RecordSuccess(c.directTimeoutKey(current, q, probePlan)) // Verified TLS + HTTP GET, never bare ACK.
@@ -221,6 +224,8 @@ func (c *Controller) revalidateDirect(current profilesResult, q browserproxy.Req
 // Keep IPC below 64 KiB including all auxiliary diagnostics, not just records.
 // Counters remain exact; omitted detail is explicitly marked as truncated.
 func (v *browserStatusView) bound() {
+	// Optional timings have their own bounded IPC, not routing evidence capacity.
+	v.FirstByteMetrics, v.FirstByteLost = nil, 0
 	for {
 		raw, _ := json.Marshal(v)
 		if len(raw) < 57000 {

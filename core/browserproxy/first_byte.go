@@ -1,6 +1,7 @@
 package browserproxy
 
 import (
+	"encoding/json"
 	"sort"
 	"sync"
 	"time"
@@ -12,6 +13,7 @@ import (
 // One sample per CONNECT, including DNS/OPEN, admission and initial stall retry.
 // NoReply is separate: failures never become zero-latency successes.
 type FirstByteMetric struct {
+	Port    uint16  `json:"port"`
 	Network string  `json:"network"`
 	Profile string  `json:"profile_id"`
 	Group   string  `json:"group"`
@@ -24,7 +26,10 @@ type FirstByteMetric struct {
 	MaxMS   float64 `json:"max_ms"`
 	LastMS  float64 `json:"last_ms"`
 }
-type firstByteKey struct{ network, profile, group, path, mode string }
+type firstByteKey struct {
+	network, profile, group, path, mode string
+	port                                uint16
+}
 type firstByteLedger struct {
 	mu   sync.Mutex
 	rows map[firstByteKey]FirstByteMetric
@@ -48,7 +53,7 @@ func (l *firstByteLedger) observe(r Record, elapsed time.Duration) {
 	if group == "" {
 		group = r.Domain
 	}
-	key := firstByteKey{r.Plan.Network, r.Owner.Profile, group, r.EvidenceSource, r.FirstByteMode}
+	key := firstByteKey{r.Plan.Network, r.Owner.Profile, group, r.EvidenceSource, r.FirstByteMode, r.Port}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.rows == nil {
@@ -60,7 +65,7 @@ func (l *firstByteLedger) observe(r Record, elapsed time.Duration) {
 			l.lost++
 			return
 		}
-		m = FirstByteMetric{Network: key.network, Profile: key.profile, Group: key.group, Path: key.path, Mode: key.mode, MinMS: -1, MaxMS: -1, LastMS: -1}
+		m = FirstByteMetric{Port: key.port, Network: key.network, Profile: key.profile, Group: key.group, Path: key.path, Mode: key.mode, MinMS: -1, MaxMS: -1, LastMS: -1}
 	}
 	if elapsed < 0 {
 		m.NoReply++
@@ -99,7 +104,38 @@ func (l *firstByteLedger) snapshot() ([]FirstByteMetric, uint64) {
 		if a.Path != b.Path {
 			return a.Path < b.Path
 		}
+		if a.Port != b.Port {
+			return a.Port < b.Port
+		}
 		return a.Mode < b.Mode
 	})
 	return out, l.lost
+}
+
+// A separate IPC report prevents optional timing summaries from evicting routing
+// evidence in browser.status. Its own omissions are explicit and independently bounded.
+type FirstByteReport struct {
+	Scope     string            `json:"scope"`
+	Metrics   []FirstByteMetric `json:"first_byte_metrics"`
+	Lost      uint64            `json:"first_byte_metrics_lost"`
+	Omitted   uint64            `json:"first_byte_rows_omitted"`
+	Truncated bool              `json:"truncated"`
+}
+
+func (s *Server) FirstBytes() FirstByteReport {
+	out := FirstByteReport{Scope: "PAC frontend TCP accept to first delivered upstream byte (may be TLS); not HTTP/page success", Metrics: []FirstByteMetric{}}
+	if s != nil {
+		out.Metrics, out.Lost = s.firstBytes.snapshot()
+		out.Truncated = out.Lost != 0
+	}
+	for {
+		raw, _ := json.Marshal(out)
+		if len(raw) < 57000 || len(out.Metrics) == 0 {
+			break
+		}
+		out.Metrics = out.Metrics[:len(out.Metrics)-1]
+		out.Omitted++
+		out.Truncated = true
+	}
+	return out
 }

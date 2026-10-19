@@ -77,9 +77,9 @@ type Plan struct {
 	HTTPStatus       int                `json:"http_status,omitempty"`
 }
 type Record struct {
-	AcceptedAt        time.Time `json:"accepted_at"`
-	FirstByteMode     string    `json:"first_byte_mode"`
-	FirstByteMS       float64   `json:"connection_to_first_byte_ms"`
+	AcceptedAt        time.Time `json:"-"`
+	FirstByteMode     string    `json:"-"`
+	FirstByteMS       float64   `json:"-"`
 	PlanDurationMS    int64     `json:"plan_duration_ms"`
 	OpenDurationMS    int64     `json:"open_duration_ms"`
 	EvidenceSource    string    `json:"evidence_source,omitempty"`
@@ -101,8 +101,8 @@ type Record struct {
 	StallRetried bool `json:"stall_retried_via_relay,omitempty"`
 }
 type Snapshot struct {
-	FirstByteMetrics   []FirstByteMetric `json:"first_byte_metrics"`
-	FirstByteLost      uint64            `json:"first_byte_metrics_lost"`
+	FirstByteMetrics   []FirstByteMetric `json:"first_byte_metrics,omitempty"`
+	FirstByteLost      uint64            `json:"first_byte_metrics_lost,omitempty"`
 	Path               string            `json:"path"`
 	PathMetrics        []PathMetrics     `json:"path_metrics"`
 	MetricsLost        uint64            `json:"metrics_lost"`

@@ -1,8 +1,10 @@
 package browserproxy
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/buzzmean/neexitlag/core/flowpolicy"
+	"strings"
 	"testing"
 	"time"
 )
@@ -32,6 +34,11 @@ func TestFirstByteSeparatesGroupNetworkProfileModeAndFailures(t *testing.T) {
 			t.Fatal(m)
 		}
 	}
+	r.Port = 80
+	ledger.observe(r, 8*time.Millisecond)
+	if scoped, _ := ledger.snapshot(); len(scoped) != 5 {
+		t.Fatal("different ports mixed", scoped)
+	}
 	r.FirstByteMode = "RELAY_FIRST"
 	r.Plan.DirectAttempts = 1
 	r.Plan.Policy.Action = flowpolicy.RelayRequired
@@ -56,5 +63,21 @@ func TestFirstByteEvidenceIsBoundedAndUnknownSamplesAreNotInvented(t *testing.T)
 		if m.Replies != 0 || m.NoReply != 1 || m.MinMS != -1 || m.LastMS != -1 {
 			t.Fatal("failure fabricated latency", m)
 		}
+	}
+}
+
+func TestFirstByteReportOwnBoundDoesNotTruncateRoutingLedger(t *testing.T) {
+	s := &Server{records: map[uint64]Record{1: {ID: 1, Domain: "www.youtube.com"}}}
+	for i := 0; i < 128; i++ {
+		r := Record{Plan: Plan{Network: strings.Repeat("a", 64)}, Domain: fmt.Sprintf("long-%03d.%s", i, strings.Repeat("x", 220)), Owner: Owner{Profile: fmt.Sprintf("profile-%03d", i)}, EvidenceSource: "PAC_CONNECT", FirstByteMode: "DIRECT_FIRST"}
+		s.firstBytes.observe(r, time.Second)
+	}
+	report := s.FirstBytes()
+	raw, err := json.Marshal(report)
+	if err != nil || len(raw) >= 57000 || !report.Truncated || report.Omitted == 0 {
+		t.Fatal("report not independently bounded", len(raw), report.Omitted, err)
+	}
+	if len(s.records) != 1 || s.lost != 0 {
+		t.Fatal("metrics touched routing ledger")
 	}
 }

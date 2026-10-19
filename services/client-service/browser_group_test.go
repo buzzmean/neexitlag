@@ -100,3 +100,12 @@ func TestBrowserCachedGroupRechecksStalePlanBeforeDialAndNeverDirectOnRelayFailu
 		t.Fatal("DNS steered to relay")
 	}
 }
+
+func TestBrowserGroupDoesNotExpandVerifiedLocalStrategyDomains(t *testing.T) {
+	if !youtubeRelayDomain("foo.ggpht.com") || youtubeDomain("foo.ggpht.com") {
+		t.Fatal("relay grouping changed DIRECT+ eligibility")
+	}
+	if youtubeRelayDomain("www.google.com") || youtubeRelayDomain("ggpht.com.attacker.example") {
+		t.Fatal("generic Google/foreign domain grouped")
+	}
+}

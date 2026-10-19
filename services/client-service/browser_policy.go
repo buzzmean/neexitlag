@@ -40,9 +40,6 @@ func protectedBrowserDomain(domain string) bool {
 	return false
 }
 func youtubeDomain(domain string) bool {
-	if flowpolicy.BrowserRelayGroup(domain) != "" {
-		return true
-	}
 	for _, preset := range localstrategy.Presets() {
 		if preset.ID == "youtube" {
 			for _, suffix := range preset.Domains {
@@ -53,6 +50,12 @@ func youtubeDomain(domain string) bool {
 		}
 	}
 	return false
+}
+
+// Failure grouping may include more CDN names than the verified local strategy.
+// Do not expand DIRECT+ transform eligibility when extending relay-first groups.
+func youtubeRelayDomain(domain string) bool {
+	return flowpolicy.BrowserRelayGroup(domain) != "" || youtubeDomain(domain)
 }
 func (c *Controller) browserFlow(p profiles.Profile, id wp.ProcessIdentity, t wp.Tuple, domain, network string) flowpolicy.Result {
 	relay := p.RelayID
