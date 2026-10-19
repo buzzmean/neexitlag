@@ -1,6 +1,6 @@
 # CURRENT — состояние проекта (обновляется в конце каждой сессии)
 
-Обновлено: 19.10.2026, Codex; ветка `codex/work`. Игры на ec72beb подтверждены владельцем: CS DIRECT, relay_flows=0. Browser paths/Edge runtime и Windows updater — код `1db6be1`; Linux/Windows Verify, actual Chrome/native, Edge policy, release и isolated upgrade CI PASS. Нового ISP PASS нет; короткий ретест владельца с открытыми браузерами ещё нужен. PAC guard сохранён, этап (в) не начат. Подробности и команды — (p), docs/BROWSER_HOT_ATTACH.md. История Claude сохранена.
+Обновлено: 19.10.2026, Codex; ветка `codex/work`. Владелец подтвердил e9e31ac: новые вкладки открытых Chrome/Edge работают, PID Chrome неизменен, игры DIRECT. Исправлен cold-start stall retry (ae4fac1); раздельное native-only/PAC evidence и read-only firewall IPC (f21bf68, bc79d6c), Windows race gate (659c865). Локальные полный race/vet/Linux и Windows builds PASS; actual Windows cold retry/Chrome/Edge и PS5.1/7 тесты PASS. Общие CI блокирует quota upload-artifact; не объявлять их зелёными. PAC guard сохранён, native-only auto не активирован; этап (в) не начат. Подробности — (q).
 
 ## (a) Цель
 Чистый Windows 10/11: установил, нажал «Оптимизировать» — заблокированные в РФ сервисы работают без VPN: ChatGPT, Claude, YouTube, Discord, Telegram, браузеры Chrome и Edge. Первый заказчик — клуб на 36 ПК с откатом при перезагрузке.
@@ -47,7 +47,7 @@
 | UDP latency / аудит очередей вне выбранных маршрутов | `platform/windows/capture_queue*.go` (новые), `capture_windows.go`, `tcp_capture_windows.go`, `ipv6_guard_windows.go` (только замеры), `boundary.go` (статус), `services/client-service/controller.go` (новый read-only IPC), `capture_queue_test.go` (новый), `tools/windows/diag-no-vpn.ps1`, `.github/workflows/verify.yml` (только новые Windows tests), `docs/UDP_CAPTURE_AUDIT.md` (новый), `CURRENT.md` | Codex | `codex/work` | ПРИОСТАНОВЛЕНО 19.10.2026: владелец подтвердил 28025 UDP packets CS через VPS; причина — маршрут application default RELAY. Код фильтров/очередей не менялся, область освобождена |
 | Игры/неизвестные приложения: безопасный DIRECT по умолчанию и явное RELAY предупреждение | `core/profiles/profile{,_test}.go`, `services/client-service/{controller,flow_policy}.go`, новые `automatic_relay*.go`, `services/client-service/*_test.go` (регрессии routing), `apps/desktop-core/{DesktopViewModel,RelayWarning}.cs`, `apps/desktop/{MainWindow.xaml,RelayWarning}.cs`, `apps/desktop-core/Resources/Strings.resx`, `tests/desktop/*`, `tools/windows/diag-no-vpn.ps1`, `tests/windows-tools/profile-routing-checks.ps1` (новый), `.github/workflows/verify.yml` (PS fixtures), `docs/GAME_DIRECT.md` (новый), `CURRENT.md` | Codex | `codex/work` | ГОТОВО 19.10.2026 (`50f750f`, `060bc19`, `2815bd0`), область освобождена; владелец подтвердил исходный AUTO. Старые игровые AUTO безопасны, новые обычные приложения DIRECT; явный MANUAL и browser/protected presets сохранены. Проверено владельцем на ec72beb: cs2 relay_flows=0, игровой flow DIRECT; баг пинга закрыт |
 | Browser paths: PAC/native, Edge readiness, ошибки origin | `services/client-service/browser_*.go`, `edge_*.go`, `controller.go` (только browser hooks), `core/browserproxy/*` (метрики/ошибки), `apps/desktop{,-core}/BrowserNative*.cs`, `EdgeRouting*.cs`, `Models.cs` (добавочные поля), `tests/desktop/*`, `tests/windows-tools/*`, `tools/windows/diag-no-vpn.ps1`, `tests/desktop/BrowserStartupTests.cs` (только cleanup собственной фикстуры), `.github/workflows/{chrome-native,verify}.yml` (read-only warmup/fixtures), `tools/windows/{native-tcp-firewall,update-service}.ps1` (явная opt-in Windows app-scoped admission и rollback; не VPS), browser Windows acceptance, `platform/windows/{browser_windows,browser_other,tcp_capture_windows,boundary,deferred_tcp}.go` (только exact delegated upstream, без изменения фильтра), `docs/BROWSER_HOT_ATTACH.md`, `CURRENT.md` | Codex | `codex/work` | ГОТОВО 19.10.2026, код 1db6be1, область освобождена: PAC/native раздельно, exact WinDivert handoff, Edge readiness и opt-in app-scoped firewall; CI PASS, ISP ретест ещё нужен. Игры/PAC guard сохранены, этап (в) не начат |
-| Cold-start browser retry / native-only audit | `core/browserproxy/{proxy,stall,path_metrics}*.go`, `core/browserproxy/*_test.go`, `services/client-service/browser_*.go`, `services/client-service/controller.go` (read-only browser IPC), `platform/windows/{tcp_capture_windows,tcp_state,browser*,native_firewall*}.go`, Windows browser tests, `internal/browserfixture/*` (cold-start fixture), `tools/windows/diag-no-vpn.ps1`, `tests/windows-tools/*`, `.github/workflows/{chrome-native,verify}.yml` (tests), `docs/BROWSER_HOT_ATTACH.md`, `CURRENT.md` | Codex | `codex/work` | В РАБОТЕ: e9e31ac проверен владельцем (оба браузера, PID неизменен, игры DIRECT). Аудит native-only без снятия PAC; cold DIRECT stall → relay, фактический firewall status. Этап (в) не начинать |
+| Cold-start browser retry / native-only audit | `core/browserproxy/{proxy,stall,path_metrics}*.go`, `core/browserproxy/*_test.go`, `services/client-service/browser_*.go`, `services/client-service/controller.go` (read-only browser IPC), `platform/windows/{tcp_capture_windows,tcp_state,browser*,native_firewall*}.go`, `platform/windows/native_firewall_probe.ps1` (embedded read-only probe), Windows browser tests, `internal/browserfixture/*` (cold-start fixture), `tools/windows/diag-no-vpn.ps1`, `tests/windows-tools/*`, `.github/workflows/{chrome-native,verify}.yml` (tests), `docs/BROWSER_HOT_ATTACH.md`, `CURRENT.md` | Codex | `codex/work` | ГОТОВО 19.10.2026, файлы освобождены: ae4fac1/f21bf68/bc79d6c; race gate 659c865. Cold retry и actual Windows regression PASS, firewall read-only и честные native-only counters; все-site native-only остаётся security blocker при PAC как единственном crash-guard. CI upload quota, подробности (q); этап (в) не начат |
 | Discord медленно, DIRECT+ для YouTube | не определены | никто | — | свободно для Codex после диагностики; Go-файлы застоя (выше) не трогать |
 | PR #8, `codex/direct-plus-flowseal` | — | не трогать | — | только владелец |
 
@@ -633,4 +633,89 @@ codex/direct-plus-flowseal не менялись. Нового ISP PASS Chrome/E
 открытыми. Сборки и полный блок — docs/BROWSER_HOT_ATTACH.md; elevated updater теперь
 вызывать с явным -NativeTcpFirewall. Сверить SHA256 installed/built service и Running.
 Затем обычный owner PowerShell в C:\neexitlag после новых вкладок/обновления страниц:
+`& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube`.
+
+
+## (q) Cold-start relay retry и native-only — 19.10.2026
+
+### Подтверждение владельца / границы
+
+- e9e31ac: новые вкладки в открытых Chrome/Edge работают, Chrome PID прежний,
+  игры DIRECT. Это подтверждённый ISP результат предыдущей сборки.
+- Текущая сборка не объявляется новым ISP PASS. Owner diag не коммитился.
+- PAC остаётся единственным независимым crash-guard; этап (в) не начат.
+  Online PAC вызывает CONNECT, поэтому browser native-only SYN не возникает.
+  PAC DIRECT для всех сайтов после crash снял бы protected fail-closed.
+  Нужен отдельный устойчивый kernel/WFP guard; watchdog/реестр не атомарная замена.
+  Подробный безопасный следующий этап — docs/BROWSER_HOT_ATTACH.md.
+
+### Изменения маленькими коммитами
+
+- ae4fac1: full Close planned CONNECT теперь синхронно освобождает actual native
+  upstream/Engine tuple. Exact delegation generation не даёт закрыть чужой/заменённый
+  поток; half-close и pinning прежние. Старое поведение с silent origin сохраняло
+  Engine key до ответа/FIN и давало ErrFlowExists при relay retry того же CONNECT.
+- Остаточная коллизия получает LOCAL_FLOW_RESERVATION_IN_USE, не open_io_failed,
+  и не считается отказом VPS/сети/качества. Routing/security/tickets не изменены.
+- f21bf68: native_only / pac_native_upstream раздельные per-activation счётчики,
+  first OPEN/exchange clocks; NATIVE_ONLY_OBSERVED только actual NATIVE_TCP с
+  двусторонним обменом. Hybrid не создаёт этот статус; legacy = uninstrumented.
+  Суммы переживают bounded eviction, IPC прежнего ограниченного размера.
+- bc79d6c: browser.native.firewall — служба read-only проверяет installed EXE,
+  owned PersistentStore/ActiveStore и GPO; query failure = UNKNOWN, не PASS/MISSING.
+  diag 2026-10-19.6 выводит фактическое правило и ingress отдельно. Проверка не
+  вызывается из OPEN/capture и сама не меняет firewall. На ПК владельца актуальное
+  APPLIED ещё нужно прочитать; cold collision в CI доказана даже при APPLIED.
+- 659c865: новые lifecycle/ingress unit race-тесты выполняются отдельным ранним
+  Windows gate, не теряются за build/artifact шагами полного Verify.
+
+### Проверки и CI
+
+- Локально Go 1.25.3: go test -race -timeout 120s ./... PASS (включая integration
+  и demo), go vet ./... PASS, Linux build PASS, Windows amd64 cross-build PASS,
+  native Windows test binary compile PASS. Локально Windows/.NET/PowerShell нет.
+- [Chrome native на bc79d6c](https://github.com/buzzmean/neexitlag/actions/runs/39307168170):
+  actual driver, embedded firewall APPLIED, cold-cache same-CONNECT retry и actual
+  Chrome policy/HTTPS/HTTP2/outage/recovery PASS. Пять холодных origins дают verified
+  TLS+HTTP nonce, 5 stalls / 5 successful retries / 0 failed retries / 0 local collisions;
+  protected no DIRECT. Старый kernel-only Close воспроизвёл ErrFlowExists.
+  Run целиком FAILURE только из-за upload-artifact storage quota.
+- [Edge на bc79d6c](https://github.com/buzzmean/neexitlag/actions/runs/39307168085):
+  C# regressions/WPF, real Edge policy/HTTPS/relay/recovery и Chrome/Edge owner race
+  PASS. Run целиком FAILURE на artifact quota. Это controlled origins, не ISP PASS.
+- [Verify bc79d6c](https://github.com/buzzmean/neexitlag/actions/runs/39307168003):
+  PS5.1/7 browser-path и native-firewall regressions PASS; desktop-native UI PASS.
+  Windows job остановился на artifact quota до последующих Windows Go/lease шагов:
+  их нельзя считать выполненными этим run. Linux full race с PostgreSQL, vet и оба fuzz шага PASS.
+- [Isolated upgrade bc79d6c](https://github.com/buzzmean/neexitlag/actions/runs/39307168304): SUCCESS.
+- [Новый Windows race gate / Chrome](https://github.com/buzzmean/neexitlag/actions/runs/39307613274),
+  [Verify](https://github.com/buzzmean/neexitlag/actions/runs/39307613031) на 659c865:
+  новый Windows race gate PASS (planned full-close/foreign generation, ingress proof,
+  local collision classification); actual Chrome/WinDivert/cold-cache повтор PASS,
+  embedded firewall APPLIED. Run целиком FAILURE только upload quota. В Verify
+  на bc79d6c оба job FAILURE на upload quota, Linux full race/vet/fuzz PASS.
+  Смотреть test steps и общий вывод отдельно; artifact quota не исправлена.
+  Workflow assertions/upload не ослаблялись; старые artifacts не удалялись.
+- Release bc79d6c дополнительно получил CDP/INSTRUMENTATION_FAILURE при запуске
+  Linux Chrome (DevToolsActivePort не появился за 25 с); тот же полный набор race
+  прошёл в Verify и локально. Это отказ инструментирования до browser traffic,
+  не доказательство ошибки маршрута; повторный release на 659c865 выполняется.
+
+### Журнал решений / передача
+
+19.10.2026: не превращать PAC_NATIVE_UPSTREAM в native-only доказательство. При
+нынешнем единственном PAC guard полный native-only auto не активировать: fail-closed
+важнее нового имени статуса. Архитектуру независимого guard вынести отдельно.
+19.10.2026: закрытие planned native upstream должно быть синхронным до retry, а не
+ждать remote FIN. Причина воспроизведена при действующем app-scoped firewall;
+увеличение timeout/смена VPS/повторное ослабление firewall её не исправляют.
+19.10.2026: исчерпание GitHub Artifact storage явно сохраняется как CI blocker;
+не удалять прежние сборки и не делать upload continue-on-error ради зелёного badge.
+
+Область Codex освобождена; Chrome/Edge/game policy, фильтры, UDP, TLS/mTLS, VPS,
+сертификаты, credentials, production lease, PR #8 и direct-plus-flowseal не трогались.
+Для новой сборки повтор нужен только короткий: Chrome/Edge не закрывать, только GUI;
+обновить службу тем же owner SID по docs/BROWSER_HOT_ATTACH.md с -NativeTcpFirewall.
+GUI код не менялся; переустановка GUI для этих исправлений не обязательна.
+Обычный PowerShell владельца из C:\neexitlag после новых вкладок/обновления страницы:
 `& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube`.

@@ -301,3 +301,65 @@ Remove-NativeTcpFirewallAdmission "$env:ProgramData\neexitlag\neexitlag-service.
 Удаление тоже проверяет точный EXE и маркер владения; чужую политику не удаляет.
 Контролируемые CI origins не являются Internet PASS и не заменяют короткий ретест
 у владельца с уже открытыми Chrome/Edge.
+
+## Cold-start retry и граница native-only (19.10.2026, код bc79d6c)
+
+### Почему терялось первое соединение
+
+После DIRECT_STALL CONNECT frontend закрывал kernel TCP socket, но native pipe
+делал только half-close actual DIRECT upstream. Если origin молчал даже после FIN,
+Engine сохранял ключ исходного потока. Повтор этого же CONNECT через relay получал
+ErrFlowExists; новый запрос с новым tuple уже использовал кэш и проходил.
+Это локальная ошибка lifecycle, не доказательство отказа VPS/билета/TLS.
+
+Полный Close planned delegation теперь синхронно закрывает actual upstream и
+освобождает ключ до relay retry. Проверяется exact generation; чужие, legacy и
+уже заменённые потоки не закрываются. CloseWrite и existing TCP route pinning
+сохранены. Оставшаяся локальная коллизия получает точный код
+LOCAL_FLOW_RESERVATION_IN_USE вместо open_io_failed и не отравляет network cache.
+
+Реальный Windows WinDivert тест воспроизводит старое поведение при уже применённом
+production app-scoped firewall: kernel-only Close сохраняет ErrFlowExists.
+После исправления пять холодных доменов (youtube/www.youtube/googlevideo/play.google/vk)
+получают verified TLS+HTTP nonce через authenticated relay в исходном CONNECT,
+без reconnect; следующие запросы relay-first, protected домен не идёт DIRECT.
+Это изолированные контролируемые origins, не ISP PASS для перечисленных сайтов.
+
+### Почему hybrid пока обязателен
+
+Online PAC отправляет каждый origin в loopback CONNECT. Для настоящего native-only
+браузер должен вместо CONNECT создать внешний TCP SYN, то есть PAC должен разрешить
+DIRECT. Но при crash службы WinDivert снимается, а такой PAC останется разрешающим:
+он больше не является fail-closed crash-guard. Inbound allow firewall — тоже не deny
+guard. Поэтому весь native-only auto mode при единственном PAC guard **не активирован**.
+Ни PAC, ни диалоги/legacy recovery не удалены; этап (в) не начат.
+
+Безопасное дальнейшее направление — отдельный устойчивый fail-closed kernel/WFP
+барьер для выбранного app+owner, действующий при падении routing worker и при boot,
+с проверками crash/recovery/IPv6/QUIC. Неоднозначный ECH/coalesced поток остаётся
+relay-only; уже установленные TCP не мигрируют. Простой watchdog, DNS-переключение
+PAC или асинхронная запись реестра атомарной защиты не дают. Этот отдельный этап
+не реализован и требует отдельного согласования.
+
+### Что показывает diag 2026-10-19.6
+
+- browser.native.status: native_only_state, native_only_auto_mode, отдельные
+  native_only_totals / pac_native_upstream_totals и per-profile accepted/opened/failed,
+  active, bidirectional_exchanges, bytes, first-open/exchange clocks.
+- NATIVE_ONLY_OBSERVED появляется только после actual NATIVE_TCP с двусторонними
+  байтами. PAC_NATIVE_UPSTREAM не может создать это доказательство. Для текущего
+  hybrid ожидается NATIVE_ONLY_NOT_OBSERVED. Это не отказ работающего CONNECT.
+- browser.native.firewall: read-only проверка службой фактического установленного
+  EXE, owned PersistentStore/ActiveStore rule и GPO. APPLIED — правило реально
+  подходит; ошибка/старый IPC = UNKNOWN, не MISSING и не ложный PASS.
+  Диагностика сама ничего не добавляет/удаляет в firewall.
+- Firewall помогает reflected SYN/ACK к listener. Если после ClientHello наступил
+  DIRECT_STALL, это другая стадия: нельзя автоматически объяснять её отсутствием
+  правила. Исправленная коллизия воспроизводилась при APPLIED.
+
+Для повторной проверки оставить Chrome/Edge открытыми, закрыть только GUI и
+обновить службу по блоку выше с -NativeTcpFirewall. Затем открыть/обновить вкладки
+и в обычном owner PowerShell из C:\neexitlag выполнить:
+`& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube`.
+Состояние правила отдельно: `. .\tools\windows\common.ps1; Invoke-ServiceIPC 'browser.native.firewall'`.
+Перезапуск службы прерывает её sockets; это не тест непрерывности во время enable.
