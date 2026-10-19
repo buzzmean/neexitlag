@@ -167,3 +167,25 @@ func TestVideoAdmissionIsBoundedAndCanceledWaiterDoesNotLeak(t *testing.T) {
 		r()
 	}
 }
+
+func TestVideoAdmissionHardDeadlineLeavesEstablishedTunnelsUntouched(t *testing.T) {
+	u := &browserRelayUsage{}
+	for i := 0; i < videoRelayLimit; i++ {
+		r, ok := u.acquireVideo()
+		if !ok {
+			t.Fatal("capacity")
+		}
+		defer r()
+	}
+	started := time.Now()
+	if _, ok := u.acquireVideoContext(context.Background()); ok {
+		t.Fatal("over hard cap")
+	}
+	elapsed := time.Since(started)
+	if elapsed < videoRelayWait-50*time.Millisecond || elapsed > videoRelayWait+time.Second {
+		t.Fatal("admission deadline", elapsed)
+	}
+	if s := u.snapshot(); s.VideoActive != videoRelayLimit || s.VideoWaiting != 0 || s.VideoTimeouts != 1 {
+		t.Fatal("healthy tunnels disrupted or waiter leaked", s)
+	}
+}

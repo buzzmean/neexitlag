@@ -194,6 +194,9 @@ func (c *Controller) openBrowser(ctx context.Context, q browserproxy.Request, pl
 		var ok bool
 		release, ok = c.relayUsage().acquireVideoContext(ctx)
 		if !ok {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
 			return nil, errVideoRelayCapacity
 		}
 	}

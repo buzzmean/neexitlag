@@ -207,7 +207,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-18.7 (Chrome+Edge, address/domain cache, minute relay bytes, guarded Edge errors)'
+$ScriptVersion='2026-10-19.1 (Edge fresh nonce + guarded rollback, googlevideo 8/2s, DNS recovery)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -419,7 +419,7 @@ Step 'youtube' {
  $allRecords=@();$shownUsage=$false
  foreach($lane in @('browser','edge')){
   try{$snapshot=Invoke-IPC ($lane+'.status')}catch{Say ($lane+': IPC unavailable: '+(Scrub $_.Exception.Message));continue}
-  Say ($lane+": listening="+(Prop $snapshot 'listening')+" policy_ready="+(Prop $snapshot 'policy_ready')+" ready_profiles="+(@(Prop $snapshot 'ready_profiles' @()) -join ',')+" last_error="+(Prop $snapshot 'last_error' '')+" truncated="+(Prop $snapshot 'truncated')+" lost="+(Prop $snapshot 'lost'))
+  Say ($lane+": listening="+(Prop $snapshot 'listening')+" policy_ready="+(Prop $snapshot 'policy_ready')+" ready_profiles="+(@(Prop $snapshot 'ready_profiles' @()) -join ',')+" rollback_guard_active="+(Prop $snapshot 'rollback_guard_active' $false)+" readiness_state="+(Prop $snapshot 'readiness_state' '')+" pending_profile="+(Prop $snapshot 'pending_profile' '')+" last_error="+(Prop $snapshot 'last_error' '')+" truncated="+(Prop $snapshot 'truncated')+" lost="+(Prop $snapshot 'lost'))
   $cache=Prop $snapshot 'direct_timeout_cache'
   if($cache){
    Say ("cache (shared by both lanes): domains="+(Prop $cache 'active_origins')+" addresses="+(Prop $cache 'active_addresses' '-')+" stalls="+(Prop $cache 'direct_stalls_total')+" rechecks="+(Prop $cache 'background_direct_probes')+" recovered_verified="+(Prop $cache 'recovered_to_direct'))
@@ -430,7 +430,7 @@ Step 'youtube' {
   $usage=Prop $snapshot 'relay_usage'
   if($usage -and -not $shownUsage){
    $shownUsage=$true
-   Say ("relay usage (shared, TCP payload excluding QUIC overhead/probes): googlevideo="+(Prop $usage 'googlevideo_active_tunnels')+"/"+(Prop $usage 'googlevideo_tunnel_limit')+" cap_events="+(Prop $usage 'googlevideo_limit_events')+" truncated="+(Prop $usage 'truncated')+" overflow_bytes="+(Prop $usage 'cardinality_overflow_bytes'))
+   Say ("relay usage (shared, TCP payload excluding QUIC overhead/probes): googlevideo="+(Prop $usage 'googlevideo_active_tunnels')+"/"+(Prop $usage 'googlevideo_tunnel_limit')+" waiters="+(Prop $usage 'googlevideo_waiters' 0)+" admission_failures="+(Prop $usage 'googlevideo_admission_failures' 0)+" cap_events="+(Prop $usage 'googlevideo_limit_events')+" truncated="+(Prop $usage 'truncated')+" overflow_bytes="+(Prop $usage 'cardinality_overflow_bytes'))
    foreach($minute in @(Prop $usage 'minutes' @())){Say (" minute="+(Prop $minute 'minute_utc')+" profile="+(Prop $minute 'profile_id')+" domain="+(Prop $minute 'domain')+" tx="+(Prop $minute 'sent_bytes')+" rx="+(Prop $minute 'received_bytes'))}
   }
   $failures=Prop $snapshot 'failures'

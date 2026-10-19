@@ -2,7 +2,6 @@ package clientservice
 
 import (
 	"context"
-	"errors"
 	"github.com/buzzmean/neexitlag/core/browserproxy"
 	"github.com/buzzmean/neexitlag/core/flowpolicy"
 	"net"
@@ -11,7 +10,7 @@ import (
 	"time"
 )
 
-var errVideoRelayCapacity = errors.New("GOOGLEVIDEO_RELAY_CAPACITY")
+var errVideoRelayCapacity = browserproxy.ErrVideoRelayAdmission
 
 const videoRelayLimit = 8
 const videoRelayWaitLimit = 32
@@ -58,11 +57,14 @@ func (c *Controller) relayUsage() *browserRelayUsage {
 	}
 	return c.browser.usage
 }
-func (u *browserRelayUsage) acquireVideo() (func(), bool) {
+func (u *browserRelayUsage) acquireVideo() (func(), bool) { return u.tryAcquireVideo(true) }
+func (u *browserRelayUsage) tryAcquireVideo(count bool) (func(), bool) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if u.video >= videoRelayLimit {
-		u.limitHits++
+		if count {
+			u.limitHits++
+		}
 		return nil, false
 	}
 	u.video++
@@ -108,7 +110,7 @@ func (u *browserRelayUsage) acquireVideoContext(ctx context.Context) (func(), bo
 		changed := u.changed
 		u.mu.Unlock()
 		if ctx.Err() == nil {
-			if release, ok := u.acquireVideo(); ok {
+			if release, ok := u.tryAcquireVideo(false); ok {
 				return release, true
 			}
 		}
