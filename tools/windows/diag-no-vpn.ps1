@@ -500,7 +500,7 @@ Step 'startup_profiles' {
  foreach($browserName in 'chrome.exe','msedge.exe'){
   $matches=@($profiles|Where-Object{@(Prop $_ 'executables' @()|Where-Object{($_ -replace '\\','/').Split('/')[-1] -ieq $browserName}).Count -gt 0})
   Say ("$browserName profiles: "+$matches.Count)
-  foreach($profile in $matches){Say (Json ([ordered]@{id=(Prop $profile 'id');mode=(Prop $profile 'mode');preset=(Prop $profile 'app_preset');exe=(Prop $profile 'executables')}))}
+  foreach($profile in $matches){Say (Json ([ordered]@{id=(Prop $profile 'id');mode=(Prop $profile 'mode');preset=(Prop $profile 'app_preset');transport=(Prop $profile 'browser_transport');exe=(Prop $profile 'executables')}))}
  }
  $report=Join-Path $env:LOCALAPPDATA 'NeExitLag\browser-startup.json'
  if((Test-Path -LiteralPath $report) -and (Get-Item -LiteralPath $report).Length -le 65536){

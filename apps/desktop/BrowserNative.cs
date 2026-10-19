@@ -16,8 +16,10 @@ public partial class MainWindow
                 // Idempotent enable repairs an owned Edge guard/listener after service restart.
                 if (!forOptimize && nativeBrowserRetry.TryGetValue(p.Id, out var at) && at > DateTimeOffset.UtcNow) continue;
                 nativeBrowserRetry[p.Id] = DateTimeOffset.UtcNow.AddSeconds(30);
+                var phase="browser.native.enable";
                 try {
                     await model.EnableNativeBrowserAsync(p, lifetime.Token);
+                    phase="browser.native.recovery";
                     // Restore existing owner-scoped recovery only; never create PAC
                     // or a new browser profile, and never launch/quit a browser.
                     if (BrowserCatalog.IsEdge(p)) {
@@ -25,6 +27,7 @@ public partial class MainWindow
                         if (File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NeExitLag", "edge-recovery.json")))
                             await edgeRecovery.StartAsync(lifetime.Token);
                     } else if (ChromePolicy.Monitored) await chromeRecovery.StartAsync(lifetime.Token);
+                    phase="browser.native.policy-refresh";
                     if (nativeBrowserPolicyRefreshed.Add(p.Id))
                     {
                         var refresh = BrowserNativePolicy.RequestRefresh();
@@ -36,8 +39,8 @@ public partial class MainWindow
                 catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { throw; }
                 catch (Exception error)
                 {
-                    model.RecordGuiFailure(error, "browser.native.enable");
-                    model.SetNotice("browser.native.enable: "+DesktopViewModel.NativeBrowserErrorCode(error)+". Native не активирован. Нужны обновлённая служба, WinDivert и существующий owned PAC crash-guard. Fresh без guard не активируется; старые кнопки PAC доступны. Профили и окна сохранены.");
+                    model.RecordGuiFailure(error, phase);
+                    model.SetNotice(phase+": "+DesktopViewModel.NativeBrowserErrorCode(error)+". Подготовка не завершена; фактический режим — в диагностике. Нужны обновлённая служба, WinDivert и существующий owned PAC crash-guard. Fresh без guard не активируется; старые кнопки PAC доступны. Профили и окна сохранены.");
                 }
             }
             await model.ObserveAuxiliaryAsync(() => model.ObserveNativeBrowsersAsync(lifetime.Token), "browser.native.status", lifetime.Token);
