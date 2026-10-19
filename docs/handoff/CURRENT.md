@@ -17,7 +17,7 @@
 - Linux: полный Go race, build/vet, Windows amd64 cross-build/vet и compile native test binary.
 - Изолированный PostgreSQL: control-plane race-тесты, включая 5000 revocations; production код CP не менялся.
 - CI `6a64f14`: C# desktop tests, WPF build и actual Edge policy/HTTPS/nonce/outage/restart прошли.
-  Это контролируемые Windows origins, не Internet PASS. Последующие CI проверяют фикстуры.
+  Это контролируемые Windows origins, не Internet PASS. Фикстуры 0aeebcb прошли Linux/Windows Verify, native Chrome, relay release и isolated upgrade; ссылки в (l).
 
 ## (d) Открыто
 - **Полное удаление ProxySettings при отказе не реализовано:** без PAC нельзя гарантировать
@@ -323,7 +323,7 @@ Read-only команды Windows/VPS и риски 1 vCPU описаны в BROW
 - [Relay release PASS](https://github.com/buzzmean/neexitlag/actions/runs/39219040514),
   [isolated upgrade PASS](https://github.com/buzzmean/neexitlag/actions/runs/39219040504).
 - [Verify](https://github.com/buzzmean/neexitlag/actions/runs/39219040508): Linux core PASS;
-  Windows build/native bursts/accelerated lease PASS; на момент записи финальные PS/IPC checks ещё идут.
+  Windows build/native bursts/accelerated lease и финальные PS/IPC checks PASS; весь Verify завершён success.
 - Локально: `go test -race -timeout 120s ./...` с отдельной PostgreSQL 17 PASS, `go vet ./...`,
   Linux build и Windows amd64 build/vet PASS; native test binaries cross-compiled, deployment Python 21 PASS.
   Тестовый контейнер удалён; ни один command не обращался к production VPS.
