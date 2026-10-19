@@ -225,7 +225,7 @@ func (c *Controller) openBrowser(ctx context.Context, q browserproxy.Request, pl
 	if err == nil && observe && plan.Enabled && isVideo(q) && directTimeoutEligible(q, plan) {
 		conn = browserproxy.WatchMidstream(conn, browserproxy.DefaultMidstreamTimeout, func() {
 			if current.network != "" {
-				c.browser.directTimeouts.RecordStall(c.directTimeoutKey(current, q, plan), time.Now())
+				c.recordBrowserStall(current, q, plan)
 			}
 		})
 	}
@@ -344,12 +344,10 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 	} else {
 		key.Revision += ":http"
 	}
-	// An origin whose DIRECT connect timed out twice goes straight to the relay
-	// (fail-closed) unless a verified DIRECT success is already known for it.
-	if known, ok := c.browser.learned.Lookup(key, time.Now()); !ok || !known.Confirmed {
-		if steered, ok := c.steerTimedOutOrigin(plan, current, q, time.Now()); ok {
-			return steered, nil
-		}
+	// Confirmed network failures override stale learned DIRECT results, but never
+	// explicit rules, protected routes or verified DIRECT+ policy.
+	if steered, ok := c.steerTimedOutOrigin(plan, current, q, time.Now()); ok {
+		return steered, nil
 	}
 	if cached, ok := c.browser.learned.Lookup(key, time.Now()); ok && (cached.Confirmed || !cached.RetryAfter.IsZero()) {
 		if cached.Destination != "" {

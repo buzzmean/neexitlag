@@ -40,6 +40,9 @@ func protectedBrowserDomain(domain string) bool {
 	return false
 }
 func youtubeDomain(domain string) bool {
+	if flowpolicy.BrowserRelayGroup(domain) != "" {
+		return true
+	}
 	for _, preset := range localstrategy.Presets() {
 		if preset.ID == "youtube" {
 			for _, suffix := range preset.Domains {

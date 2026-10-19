@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net"
 	"net/netip"
-	"strings"
 	"time"
 
 	"github.com/buzzmean/neexitlag/core/browserproxy"
@@ -26,7 +25,13 @@ type browserStatusView struct {
 // YouTube is eligible only while its policy is plain DIRECT; once DIRECT+ is configured
 // the plan's action is DirectPlus and this cache stays out of its way.
 func directTimeoutEligible(q browserproxy.Request, plan browserproxy.Plan) bool {
-	if plan.Policy.Action != flowpolicy.Direct || plan.Policy.Source == "rule" || plan.Probe == "PRIVATE_ORIGIN_NO_AUTOPROBE" || plan.Destination.IsValid() && plan.Destination.Addr().Is6() || protectedBrowserDomain(q.Host) {
+	return directTimeoutRouteEligible(q, plan) && !(plan.Destination.IsValid() && plan.Destination.Addr().Is6())
+}
+
+// Steering to authenticated relay is safe for IPv6 too; observing unsupported
+// native IPv6 DIRECT is deliberately still excluded from failure learning.
+func directTimeoutRouteEligible(q browserproxy.Request, plan browserproxy.Plan) bool {
+	if q.Port == 53 || plan.Policy.Action != flowpolicy.Direct || plan.Policy.Source == "rule" || plan.Probe == "PRIVATE_ORIGIN_NO_AUTOPROBE" || protectedBrowserDomain(q.Host) {
 		return false
 	}
 	_, ipErr := netip.ParseAddr(q.Host)
@@ -35,13 +40,7 @@ func directTimeoutEligible(q browserproxy.Request, plan browserproxy.Plan) bool 
 
 // cacheHost folds CDN families that use a different hostname per video or edge node
 // (rr3---sn-xyz.googlevideo.com) into one entry; blocking hits the whole family.
-func cacheHost(host string) string {
-	host = strings.ToLower(strings.TrimSuffix(host, "."))
-	if flowpolicy.DomainMatches(host, "googlevideo.com") {
-		return "googlevideo.com"
-	}
-	return host
-}
+func cacheHost(host string) string { return flowpolicy.DirectTimeoutHost(host) }
 
 func (c *Controller) directTimeoutKey(current profilesResult, q browserproxy.Request, plans ...browserproxy.Plan) flowpolicy.DirectTimeoutKey {
 	key := flowpolicy.DirectTimeoutKey{Network: current.network, Application: current.profile.ID, Host: cacheHost(q.Host), Port: q.Port}
@@ -61,6 +60,7 @@ func (c *Controller) observeDirectOpen(current profilesResult, q browserproxy.Re
 	switch {
 	case errors.Is(err, context.DeadlineExceeded) || err != nil && plan.Destination.IsValid() && retryableDirectOpen(err):
 		c.browser.directTimeouts.RecordTimeout(key, now)
+		c.browser.directTimeouts.SetProbeHost(key, q.Host)
 	}
 }
 
@@ -77,7 +77,7 @@ func (c *Controller) relayAllowedFor(host string) bool {
 // steerTimedOutOrigin moves a cached origin straight to the authenticated relay,
 // fail-closed. It never returns a DIRECT decision.
 func (c *Controller) steerTimedOutOrigin(plan browserproxy.Plan, current profilesResult, q browserproxy.Request, now time.Time) (browserproxy.Plan, bool) {
-	if current.network == "" || !directTimeoutEligible(q, plan) {
+	if !current.enabled || current.network == "" || !directTimeoutRouteEligible(q, plan) {
 		return plan, false
 	}
 	key := c.directTimeoutKey(current, q)
@@ -145,11 +145,7 @@ func (c *Controller) stallRetry(ctx context.Context, current profilesResult, q b
 		return nil, plan, errors.New("stall retry not allowed for this origin")
 	}
 	if current.network != "" {
-		if youtubeDomain(q.Host) {
-			c.browser.directTimeouts.RecordOriginStall(c.directTimeoutKey(current, q, plan), time.Now())
-		} else {
-			c.browser.directTimeouts.RecordStall(c.directTimeoutKey(current, q, plan), time.Now())
-		}
+		c.recordBrowserStall(current, q, plan)
 	}
 	if next, ok := nextDirectPlan(plan); !youtubeDomain(q.Host) && ok && !c.directAddressFailed(current, q, next) {
 		attempt, stop := directAttemptContext(ctx, next)
@@ -193,6 +189,18 @@ func (c *Controller) revalidateDirect(current profilesResult, q browserproxy.Req
 		if _, err := c.browserProfile(q.Owner); err != nil {
 			return // the browser is gone: nothing to conclude
 		}
+		if host := c.browser.directTimeouts.ProbeHost(key); host != "" {
+			q.Host = host
+			resolver := c.BrowserResolver
+			if resolver == nil {
+				resolver = net.DefaultResolver
+			}
+			ips, err := resolver.LookupNetIP(ctx, "ip4", host)
+			if err != nil || len(ips) == 0 {
+				return
+			}
+			probePlan.Destination = netip.AddrPortFrom(ips[0].Unmap(), q.Port)
+		}
 		// A real HTTPS exchange with the origin, not a bare connect: a blackholing path
 		// accepts the connect and then swallows the ClientHello.
 		open := func(ctx context.Context) (net.Conn, error) { return c.browserOpenUnobserved(ctx, q, probePlan) }
@@ -204,6 +212,7 @@ func (c *Controller) revalidateDirect(current profilesResult, q browserproxy.Req
 		case "NETWORK_TIMEOUT", "CONNECTION_RESET", "TLS_FAILED", "CONNECTION_FAILED":
 			c.browser.directTimeouts.RecordTimeout(c.directTimeoutKey(current, q, probePlan), time.Now()) // Still broken.
 			c.browser.directTimeouts.RecordTimeout(key, time.Now())                                       // Renew claimed domain TTL.
+			c.browser.directTimeouts.SetProbeHost(key, q.Host)
 			conclusive = true
 		}
 	}()
@@ -233,5 +242,20 @@ func (v *browserStatusView) bound() {
 		default:
 			return
 		}
+	}
+}
+
+// A real first-flight stall confirms only the caller's current network/profile.
+// The fixed YouTube family shares that evidence; ordinary hosts do not.
+func (c *Controller) recordBrowserStall(current profilesResult, q browserproxy.Request, p browserproxy.Plan) {
+	if current.network == "" || q.Port == 53 {
+		return
+	}
+	key := c.directTimeoutKey(current, q, p)
+	if flowpolicy.BrowserRelayGroup(q.Host) != "" {
+		c.browser.directTimeouts.RecordOriginStall(key, time.Now())
+		c.browser.directTimeouts.SetProbeHost(key, q.Host)
+	} else {
+		c.browser.directTimeouts.RecordStall(key, time.Now())
 	}
 }

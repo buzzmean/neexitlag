@@ -486,12 +486,7 @@ func (c *Controller) openNativeBrowser(ctx context.Context, p profiles.Profile, 
 	} // No generic native fallback after a planned failure.
 	if current.network != "" && directTimeoutEligible(q, plan) {
 		conn = &nativeFirstReplyConn{Conn: conn, timeout: 2 * time.Second, stalled: func() {
-			key := c.directTimeoutKey(current, q, plan)
-			if youtubeDomain(q.Host) {
-				c.browser.directTimeouts.RecordOriginStall(key, time.Now())
-			} else {
-				c.browser.directTimeouts.RecordStall(key, time.Now())
-			}
+			c.recordBrowserStall(current, q, plan)
 			n.mu.Lock()
 			r, ok := n.records[record]
 			if ok {

@@ -126,17 +126,17 @@ func TestSilentDirectOriginIsRetriedViaRelayThenCachedRelayFirst(t *testing.T) {
 		return time.Since(started), string(got)
 	}
 
-	// Two tunnels: the DIRECT origin swallows the ClientHello, each is moved to the relay
-	// before the browser sees anything but a slightly late ServerHello.
+	// Empty cache: only the first group member pays the DIRECT timeout. Every
+	// subsequent sibling must open relay-first, including previously unseen CDNs.
 	for i, host := range []string{"www.youtube.com", "rr3---sn-4g5e6nzs.googlevideo.com"} {
 		took, got := browser(host)
 		t.Logf("tunnel %d (%s): answer %q after %v via relay (direct origin saw %d conns)", i+1, host, got, took.Round(time.Millisecond), silentSaw.conns())
-		if got != "SERVER-HELLO" || took < 150*time.Millisecond {
+		if got != "SERVER-HELLO" || i == 0 && took < 150*time.Millisecond || i > 0 && took >= 150*time.Millisecond {
 			t.Fatalf("tunnel %d: %q after %v", i+1, got, took)
 		}
 	}
-	if stats := c.browser.directTimeouts.Stats(); stats.Stalls != 2 || stats.StallRetries != 2 || stats.ActiveOrigins != 2 {
-		t.Fatalf("both domains must be cached after their first SNI stall: %+v", stats)
+	if stats := c.browser.directTimeouts.Stats(); stats.Stalls != 1 || stats.StallRetries != 1 || stats.ActiveOrigins != 1 {
+		t.Fatalf("one stall must confirm the entire group: %+v", stats)
 	}
 	took, _ := browser("www.youtube.com") // already cached after the first stall
 	t.Logf("tunnel 3 (www.youtube.com again): answered via relay after %v (cached after first stall)", took.Round(time.Millisecond))
@@ -152,7 +152,7 @@ func TestSilentDirectOriginIsRetriedViaRelayThenCachedRelayFirst(t *testing.T) {
 	}
 	stats := c.browser.directTimeouts.Stats()
 	t.Logf("direct_timeout_cache: %+v", stats)
-	if stats.Stalls != 2 || stats.StallRetries != 2 || stats.StallRetryFails != 0 || stats.Hits < 1 || stats.ActiveOrigins < 1 {
+	if stats.Stalls != 1 || stats.StallRetries != 1 || stats.StallRetryFails != 0 || stats.Hits < 1 || stats.ActiveOrigins < 1 {
 		t.Fatalf("counters wrong: %+v", stats)
 	}
 	if relaySaw.text() != "CLIENT-HELLOCLIENT-HELLOCLIENT-HELLOCLIENT-HELLO" {

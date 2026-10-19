@@ -139,7 +139,7 @@ func TestCachedAddressSelectionReportsZeroFreshDirectDials(t *testing.T) {
 		}
 		return a, nil
 	})
-	if err != nil || calls != 1 || actual.DirectAttempts != 0 || actual.Probe != "DIRECT_ADDRESS_CACHED_RELAY" {
+	if err != nil || calls != 1 || actual.DirectAttempts != 0 || actual.Probe != "DIRECT_TIMEOUT_CACHED" {
 		t.Fatal("evidence claimed nonexistent DIRECT dials", actual, calls, err)
 	}
 }

@@ -50,6 +50,13 @@ func (c *Controller) browserOpenPlan(ctx context.Context, q browserproxy.Request
 	return c.openBrowserPlan(ctx, cur, q, p, c.browserOpen)
 }
 func (c *Controller) openBrowserPlan(ctx context.Context, current profilesResult, q browserproxy.Request, p browserproxy.Plan, open func(context.Context, browserproxy.Request, browserproxy.Plan) (net.Conn, error)) (net.Conn, browserproxy.Plan, error) {
+	// A sibling may have confirmed the group while this request was planning.
+	if p.Enabled {
+		if steered, ok := c.steerTimedOutOrigin(p, current, q, time.Now()); ok {
+			conn, err := open(ctx, q, steered)
+			return conn, steered, err
+		}
+	}
 	if !p.Enabled || !directTimeoutEligible(q, p) {
 		conn, err := open(ctx, q, p)
 		return conn, p, err

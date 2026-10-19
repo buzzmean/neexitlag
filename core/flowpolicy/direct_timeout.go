@@ -42,6 +42,7 @@ const (
 type directTimeoutEntry struct {
 	addresses    map[string]bool // Bounded at two distinct failed addresses, never packet bursts.
 	reason       string
+	probeHost    string
 	firstFailure time.Time
 	failures     int
 	active       bool
@@ -256,6 +257,8 @@ func (c *DirectTimeoutCache) AddressFailed(k DirectTimeoutKey, now time.Time) bo
 }
 
 type DirectTimeoutOrigin struct {
+	Group           string    `json:"group,omitempty"`
+	ProbeHost       string    `json:"probe_host,omitempty"`
 	Network         string    `json:"network"`
 	Application     string    `json:"profile_id"`
 	Address         string    `json:"address,omitempty"`
@@ -302,7 +305,7 @@ func (c *DirectTimeoutCache) Stats() DirectTimeoutStats {
 		if remaining < 0 {
 			remaining = 0
 		}
-		s.Top = append(s.Top, DirectTimeoutOrigin{Network: k.Network, Application: k.Application, Address: k.Address, Reason: e.reason, FailedAddresses: len(e.addresses), RemainingMS: remaining, Probing: e.probing, Host: k.Host, Port: k.Port, Hits: e.hits, Since: e.since, NextProbe: e.nextProbe})
+		s.Top = append(s.Top, DirectTimeoutOrigin{Group: BrowserRelayGroup(k.Host), ProbeHost: e.probeHost, Network: k.Network, Application: k.Application, Address: k.Address, Reason: e.reason, FailedAddresses: len(e.addresses), RemainingMS: remaining, Probing: e.probing, Host: k.Host, Port: k.Port, Hits: e.hits, Since: e.since, NextProbe: e.nextProbe})
 	}
 	sort.Slice(s.Top, func(i, j int) bool {
 		if s.Top[i].Hits != s.Top[j].Hits {
