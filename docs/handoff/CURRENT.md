@@ -1,6 +1,6 @@
 # CURRENT — состояние проекта (обновляется в конце каждой сессии)
 
-Обновлено: 19.10.2026, Codex; рабочая ветка `codex/work`. Этап (а) проверен владельцем; этап (б) native новых TCP с owned PAC crash-guard — код `0e89144`, локальные проверки и CI в работе. История передачи Claude сохранена ниже.
+Обновлено: 19.10.2026, Codex; рабочая ветка `codex/work`. Этап (а) проверен владельцем; этап (б) native новых TCP с owned PAC crash-guard — код `673624a` / `c2455a4` (burst diagnostics), завершается Windows Verify. История передачи Claude сохранена ниже.
 
 ## (a) Цель
 Чистый Windows 10/11: установил, нажал «Оптимизировать» — заблокированные в РФ сервисы работают без VPN: ChatGPT, Claude, YouTube, Discord, Telegram, браузеры Chrome и Edge. Первый заказчик — клуб на 36 ПК с откатом при перезагрузке.
@@ -384,19 +384,64 @@ Read-only команды Windows/VPS и риски 1 vCPU описаны в BROW
   Browser процессы закрывать не надо; соединения при service update могут прерваться.
 
 
-## (n) Этап (б), 19.10.2026 — checkpoint для проверки
+## (n) Этап (б), 19.10.2026 — реализация и проверка
 
-- `0e89144`: native AUTO новых IPv4 TCP; нет reset/replay/migration существующих TCP,
-  opaque/ECH только RELAY_REQUIRED; тот же TLS/HTTP planner, DNS recovery, cache.
-- Решение владельца: существующий owned PAC остаётся независимым crash-guard.
-  Fresh без guard автоматически не активировать. Новый IPC проверяет это и при profile.set.
-- Edge pending → AUTO/native при guard/capture ready; failed nonce не даёт ложный READY,
-  сохраняет live bound listener либо статический fail-closed guard. last_error — безопасный code.
-- Native/PAC shared relay payload bytes/minute, active/opened tunnels по profile/domain;
-  known googlevideo hard 8 / очередь 32 / 2 с, overflow admission error без DIRECT.
-- GUI/diagnostics — следующий отдельный коммит. Старые PAC/restart кнопки сохранены, (в) не начат.
-- Targeted Go race PASS; Linux vet, Windows cross-build + compile platform tests PASS;
-  полный race с isolated PostgreSQL и CI ещё выполняются. .NET локально отсутствует.
-- Exact update/check: docs/BROWSER_HOT_ATTACH.md; закрыть только GUI, браузеры не закрывать.
-- Caveat: GP refresh request не равен live uptake; cached dead PAC старого Edge требует
-  проверки владельца. Оpaque domain counters честно `<opaque>`; IPv6/QUIC routing не менялись.
+- `0e89144`, `fc75207`: native AUTO новых IPv4 TCP, тот же TLS/certificate/HTTP GET
+  planner, DNS recovery и сетевой/профильный кэш. Opaque/ECH → RELAY_REQUIRED;
+  внешний IP не угадывается по DNS/outer SNI. Нет replay или migration старого TLS.
+- Решение владельца: owned mandatory PAC остаётся независимым crash-guard. Fresh
+  без него автоматически не активируется (`NATIVE_OWNED_PAC_GUARD_REQUIRED`).
+  Gate проверяется и для `profile.set`. Удаление guard — отдельный этап.
+- `96b8a2f`, `b6792e5`, `673624a`: latency от начала IPC, first open/exchange только
+  новых flow ID. Одних timestamp недостаточно: Windows может выдать одинаковое время.
+  Backend prepare не сбрасывает старые TCP браузера даже до публикации native-профиля.
+- `7d47e2d`: новая backend `ReconfigureNewConnections` использует прежний UDP fence,
+  закрывает только старые UDP mappings выбранного браузера и обновляет cache epoch,
+  **сохраняет все установленные TCP** и не запускает TCP-table reconnect sweep.
+  Идемпотентный monitor не публикует/не сбрасывает UDP каждые 30 с.
+- Edge DIRECT/AUTO `edge-sites-pending` → AUTO/native автоматически при готовых guard
+  и capture. Ошибка nonce не даёт fake PAC READY: остаётся bound listener/owned policy
+  или static fail-closed guard. Старые owner/recovery/config/identity сохранены.
+- `701237f`, `6cf7e0b`: различаются отказ native IPC и auxiliary recovery/refresh;
+  таблица приложений сохраняется. Явное «Отключить PAC» отключает native, сохраняет
+  protected guard, не включает его снова таймером. Старые PAC/dialog/quit кнопки
+  работают как opt-in rollback. Этап (в) **не начат**.
+- Метрики: actual origin/opaque, PID/birth, route/reason/error, payload bytes;
+  enable→first open/exchange — **не HTTP/page PASS**. Бounded 512 records / 128 clocks,
+  IPC до 60 KiB; truncation/lost видимы. Native+PAC relay usage: active/opened TCP,
+  bytes/minute по profile/domain; QUIC overhead/probes не входят. Opaque = `<opaque>`.
+- Known googlevideo: hard 8, очередь 32 / 2 с, затем admission error без DIRECT.
+  Opaque видео не выдумывается как googlevideo; действует общий pool 8×48.
+- Реальные QUIC/IPv6 маршруты не менялись. Только сохранена IPv6 fail-closed проверка
+  при new-only TCP-флаге; legacy interception/прочие приложения покрыты регрессиями.
+
+### Верификация / оставшееся
+
+- Локально: полный Go race с isolated PostgreSQL, Linux build/vet, Windows amd64
+  cross-build и native platform test compilation PASS; Python deployment 21 PASS.
+  .NET и Windows локально отсутствуют. В первых прогонах были существующие timing
+  failures lease-revocation ACK и demo failover; повторный полный race PASS.
+- Runtime `673624a`: [Chrome native](https://github.com/buzzmean/neexitlag/actions/runs/39238593704)
+  и [Edge/C#/WPF](https://github.com/buzzmean/neexitlag/actions/runs/39238593692) PASS.
+  Chrome уже запущен при native IPC enable: PID/creation unchanged, owned PAC сохранён.
+  Это real controlled HTTPS/HTTP2/mTLS/driver fixture, не Internet PASS.
+- Windows Verify остаётся в проверке: 256 nondeferred burst иногда получает
+  `upstream_dial_failed / connectex refused` от loopback echo target при свободном
+  relay pool. Assertions не удалялись. Windows clock bug и C# append-only mock
+  исправлены; backlog hint проблему не устранил. `c2455a4` добавляет Accept error,
+  accepted count и independent listener probe для точного класса причины.
+- Последняя проверка: [Verify c2455a4](https://github.com/buzzmean/neexitlag/actions/runs/39239353957).
+  До устранения/проверки FAIL не считать весь CI зелёным.
+- Существующий PAC может обслуживать новые запросы без native records: это PAC path,
+  **не native interception PASS**. `RefreshPolicy(false)` означает user GP request,
+  не live uptake. Cached dead PAC открытого Edge требует проверки на ПК владельца.
+  Старое HTTP/2-соединение остаётся pinned; reload может его повторно использовать.
+
+### Обновление Windows
+
+Точный stop-on-error блок: `docs/BROWSER_HOT_ATTACH.md`, раздел «Обновление и короткая
+проверка без закрытия Chrome/Edge». Закрыть только GUI; elevated owner PowerShell:
+`build-e2e.ps1`, `build-desktop.ps1`, `update-service.ps1`, SHA256; обычный owner:
+`install-desktop.ps1`, открыть VELIQ, Optimize, обновить страницы в уже открытых окнах.
+Проверка: `& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube` (версия 2026-10-19.3).
+VPS/credentials/certificates/PR #8/ветка direct-plus-flowseal не менялись.

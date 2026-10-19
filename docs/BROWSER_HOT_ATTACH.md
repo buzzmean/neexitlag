@@ -95,7 +95,10 @@ TLS/certificate/HTTP GET planner, DNS recovery и сетевой/профиль�
 RELAY_REQUIRED к исходному адресу, **никакого DIRECT fallback**. DNS/53 остаётся прежним.
 Метаданные/IP/shared-IP не заменяют истинное имя. HTTPS не расшифровывается.
 
-Native enable не вызывает reset/reconfigure/hot attach старых TCP. Уже открытый HTTP/2
+Native enable не вызывает reset старых TCP: `ReconfigureNewConnections` сохраняет
+TCP-сокеты, но атомарно fences/retires старые UDP mappings выбранного браузера, чтобы
+старый DIRECT UDP/443 не переживал публикацию AUTO. Повторный monitor без изменения
+профиля UDP не трогает. Уже открытый HTTP/2
 может пережить обновление страницы: новый маршрут действует только после появления
 нового соединения. Для initial DIRECT silence после отправки данных: через 2 с закрывается
 только этот flow, в кэш идёт отказ (YouTube-family сразу TTL 10 мин); никакого replay или
@@ -104,7 +107,8 @@ Native enable не вызывает reset/reconfigure/hot attach старых TC
 
 `browser.native.status`: capture/Optimize, actual origin/opaque, PID/creation time, policy,
 ошибки, actual payload bytes, enable→first upstream open и first bidirectional exchange.
-Последние — **не HTTP(S)/page PASS**. Учет максимум 512 flows / 128 activation clocks,
+Часы Windows могут иметь одинаковые timestamp: граница активации задаётся flow ID,
+а не сравнением времени. Последние метрики — **не HTTP(S)/page PASS**. Учет максимум 512 flows / 128 activation clocks,
 ответ до 60 KiB, усечения/lost видны. Общий native+PAC relay usage: active/opened TCP
 и минуты по profile/domain, payload bytes без QUIC overhead и origin probes. Opaque
 идёт в `<opaque>`, истинный домен не выдумывается. Googlevideo с известным именем —
