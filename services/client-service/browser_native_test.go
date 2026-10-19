@@ -366,7 +366,16 @@ func TestNativeEdgeStatusSeparatesCaptureFromPACNonceReadiness(t *testing.T) {
 		t.Fatal(err)
 	}
 	n.opened(id, browserproxy.Plan{}, nil)
-	n.bytes(id, 11, 21)
+	got = read()
+	if got["readiness_state"] != "NATIVE_UPSTREAM_OPENED_NO_EXCHANGE" {
+		t.Fatal("upstream OPEN without bytes presented as working tunnel", got)
+	}
+	n.bytes(id, 11, 0)
+	got = read()
+	if got["readiness_state"] != "NATIVE_UPSTREAM_OPENED_NO_EXCHANGE" {
+		t.Fatal("one-way traffic presented as bidirectional tunnel", got)
+	}
+	n.bytes(id, 0, 21)
 	got = read()
 	if got["readiness_state"] != "NATIVE_TUNNEL_OBSERVED" || c.browser.edge.server.Confirmed(p.ID) {
 		t.Fatal("native observation forged PAC nonce readiness", got)

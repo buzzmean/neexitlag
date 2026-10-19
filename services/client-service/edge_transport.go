@@ -334,7 +334,10 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (result any,
 				timing := c.browser.native.profiles[p.ID]
 				c.browser.native.mu.Unlock()
 				if timing.Opened > 0 {
-					state = "NATIVE_TUNNEL_OBSERVED"
+					state = "NATIVE_UPSTREAM_OPENED_NO_EXCHANGE"
+					if !timing.FirstExchange.IsZero() {
+						state = "NATIVE_TUNNEL_OBSERVED"
+					}
 				} else {
 					for _, m := range snapshot.PathMetrics {
 						if m.Profile == p.ID && m.Opened > 0 {
