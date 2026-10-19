@@ -67,7 +67,7 @@ func (b *WinDivertBackend) OpenBrowserNativeTCP(ctx context.Context, id ProcessI
 	}
 	bind := selector.LocalAddr().(*net.UDPAddr).AddrPort().Addr()
 	selector.Close()
-	tuple := Tuple{Protocol: "tcp", Source: source, Destination: dest}
+	tuple := Tuple{Protocol: "tcp", Source: source, Destination: b.nativeDelegationDestination(dest)}
 	b.evidence.BeginFlow(id, tuple)
 	b.evidence.RecordDomain(id, tuple, d.OriginDomain)
 	b.evidence.RecordInitialPolicy(id, tuple, d)
