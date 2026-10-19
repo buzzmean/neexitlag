@@ -46,6 +46,73 @@ function Prop($Object,[string]$PropName,$Default=$null){
  if($null -ne $Object -and $Object.PSObject.Properties.Name -contains $PropName){return $Object.$PropName};return $Default
 }
 
+# Configured default and observed traffic are deliberately separate. AUTO is
+# not proof of DIRECT, especially on services predating the game safety fix.
+function Get-RelayProfileSummary($AppProfile,$Routing,$Snapshots){
+ $profileId=[string](Prop $AppProfile 'id' '')
+ $mode=[string](Prop $AppProfile 'mode' '')
+ $defaultRoute=if($mode -eq 'MANUAL'){'RELAY'}elseif($mode -eq 'AUTO'){'UNKNOWN_LEGACY_AUTO'}else{$mode}
+ $origin='unknown (legacy files do not record GUI/IPC author)'
+ $allowed='unknown'
+ $configuredRelay=[string](Prop $AppProfile 'relay_id' '-')
+ if($null -ne $Routing){$defaultRoute=[string](Prop $Routing 'default_route' $defaultRoute);$origin=[string](Prop $Routing 'origin' $origin);$allowed=[string](Prop $Routing 'automatic_relay_allowed' 'unknown')}
+ if($null -ne $Routing){$configuredRelay=[string](Prop $Routing 'relay_id' $configuredRelay)}
+ "PROFILE id=$profileId mode=$mode origin=$origin default=$defaultRoute automatic_relay_allowed=$allowed relay=$configuredRelay"
+ $observed=0;$complete=(@($Snapshots).Count -gt 0)
+ foreach($snap in @($Snapshots)){
+  $processId=[uint32](Prop $snap 'pid' 0);$birth=[uint64](Prop $snap 'birth' 0)
+  if(!$processId -or !$birth){continue}
+  $data=Prop $snap 'data'
+  $truncated=[bool](Prop $data 'truncated' $false);$lost=[bool](Prop $data 'evidence_lost' $false)
+  if($truncated -or $lost){$complete=$false}
+  "CAPTURE profile=$profileId pid=$processId birth=$birth truncated=$truncated evidence_lost=$lost"
+  foreach($flow in @(Prop $data 'flows' @())){
+   if([uint32](Prop $flow 'pid' 0) -ne $processId -or [uint64](Prop $flow 'creation_time' 0) -ne $birth){continue}
+   $group=[string](Prop $flow 'process_group' '')
+   if($group -and $group -ne $profileId){continue}
+   $counters=Prop $flow 'counters';$relayed=[uint64](Prop $counters 'relayed_packets' 0)
+   $route=[string](Prop $flow 'selected_route' '')
+   if($route -ne 'RELAY' -and !$relayed){continue}
+   $observed++
+   $policy=Prop $flow 'policy'
+   "FLOW profile=$profileId pid=$processId route=$route relay=$(Prop $flow 'relay_id' '-') protocol=$(Prop $flow 'protocol') destination=$(Prop $flow 'destination') captured=$(Prop $counters 'captured_packets' 0) relayed=$relayed relay_bytes=$(Prop $counters 'relayed_bytes' 0) direct=$(Prop $counters 'direct_packets' 0) source=$(Prop $policy 'source' 'unknown') fallback=$(Prop $policy 'fallback' 'unknown') last_seen=$(Prop $flow 'last_seen' 'unknown')"
+  }
+ }
+ "OBSERVED profile=$profileId relay_flows=$observed snapshots_complete=$complete (bounded cumulative evidence, not a complete live-connection census)"
+}
+
+function Write-RelayProfileAudit {
+ $profiles=@(Invoke-IPC 'profiles')
+ $routing=@()
+ try{$audit=Invoke-IPC 'profiles.routing';$routing=@(Prop $audit 'profiles' @());Say ("routing_metadata_truncated="+(Prop $audit 'truncated' $false))}
+ catch{Say 'profiles.routing unavailable: legacy AUTO may inherit a global relay; configured mode alone is insufficient'}
+ # Put games/ordinary apps before browser subprocesses in the bounded sample.
+ $ordered=@($profiles|Sort-Object @{Expression={if((Prop $_ 'id') -eq 'cs2'){0}elseif((Prop $_ 'mode') -eq 'MANUAL'){1}elseif((Prop $_ 'mode') -eq 'DIRECT'){2}else{3}}},@{Expression={Prop $_ 'id'}})
+ $budget=32;$cache=@{}
+ foreach($appProfile in @($ordered|Select-Object -First 64)){
+  $profileId=[string](Prop $appProfile 'id');$exe=@(Prop $appProfile 'executables' @())
+  $entry=@($routing|Where-Object{(Prop $_ 'id') -eq $profileId}|Select-Object -First 1)
+  $metadata=if($entry.Count){$entry[0]}else{$null}
+  $snapshots=@()
+  if($exe.Count -and $budget -gt 0){
+   $processes=@(Invoke-IPC 'processes' @{executables=$exe})
+   foreach($process in $processes){
+    $processId=[uint32](Prop $process 'PID' 0);$birth=[uint64](Prop $process 'CreationTime' 0)
+    if(!$processId -or !$birth){continue}
+    $key="$processId/$birth"
+    if(!$cache.ContainsKey($key)){
+     if($budget -le 0){break}
+     $data=Invoke-IPC 'capture.diagnostics' @{pid=$processId;creation_time=$birth}
+     $cache[$key]=[pscustomobject]@{pid=$processId;birth=$birth;data=$data};$budget--
+    }
+    $snapshots+=@($cache[$key])
+   }
+  }
+  foreach($line in @(Get-RelayProfileSummary $appProfile $metadata $snapshots)){Say $line}
+ }
+ Say ("sample_limits: profiles=$([Math]::Min(64,$profiles.Count))/$($profiles.Count) process_budget_remaining=$budget; zero observed flows is not proof of no relay outside this sample")
+}
+
 # Existing user browsers are observed only; never send them quit/kill or change PAC.
 function Get-LiveBrowserIdentity {
  if(-not $isWin){return @()}
@@ -220,7 +287,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-19.3 (native new TCP + owned PAC crash-guard; existing PID proof)'
+$ScriptVersion='2026-10-19.4 (profile relay audit; games default DIRECT)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -287,6 +354,11 @@ Step 'pool' {
  if($ids.Count -eq 0){$ids=@('VPS-01')}
  foreach($relayId in $ids){Say ("relay $relayId : "+(Json (Invoke-IPC 'relay.pool.diagnostics' @{relay_id=$relayId})))}
 }}
+
+if((Want 'apps') -or (Want 'ipc')){
+ Section '1h. Процессы с профилем RELAY'
+ Step 'relay-profiles' {Write-RelayProfileAudit}
+}
 
 if(Want 'tcp'){
 Section "2a. $VpsHost TCP $ControlPlanePort (control plane) - INFORMATIONAL"

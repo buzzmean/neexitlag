@@ -126,7 +126,7 @@ public sealed class ViewModelTests
             var profile = (Profile)service.Calls.Single(c => c.method == "profile.set").payload!;
             Assert.Equal(path, profile.Executables.Single());
             Assert.True(profile.Custom);
-            Assert.Equal("AUTO", profile.Mode);
+            Assert.Equal("DIRECT", profile.Mode);
         }
         finally { File.Delete(path); }
     }

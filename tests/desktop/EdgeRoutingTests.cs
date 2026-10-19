@@ -3,14 +3,14 @@ using System.Text.Json;
 using Xunit;
 namespace NeExitLag.Tests;
 public class EdgeRoutingTests {
- [Fact] public async Task EdgeCleanInstallCreatesOnePendingAutoProfileAndLeavesChromeUntouched(){
+ [Fact] public async Task EdgeCleanInstallCreatesOnePendingDirectProfileAndLeavesChromeUntouched(){
   var dir=Path.Combine(Path.GetTempPath(),"veliq-edge-"+Guid.NewGuid());Directory.CreateDirectory(dir);
   var exe=Path.Combine(dir,"msedge.exe");await File.WriteAllBytesAsync(exe,[0]);
   try{
    var service=new PickerService{State=new(){Profiles=[new(){Id="chrome",Mode="AUTO",Executables=[@"C:\Chrome\chrome.exe"],LocalStrategyId="baseline"}]}};
    var vm=new DesktopViewModel(new VersionedEdgeService(service,3));
    var list=new[]{new InstalledBrowser("edge","Microsoft Edge",exe,true)};
-   var created=await vm.EnsureEdgeProfileAsync(list);Assert.NotNull(created);Assert.Equal("AUTO",created!.Mode);Assert.Equal("edge-sites-pending",created.PolicyData!["app_preset"].GetString());
+   var created=await vm.EnsureEdgeProfileAsync(list);Assert.NotNull(created);Assert.Equal("DIRECT",created!.Mode);Assert.Equal("edge-sites-pending",created.PolicyData!["app_preset"].GetString());
    Assert.Equal(Path.GetFullPath(exe),Assert.Single(created.Executables));
    Assert.Null(await vm.EnsureEdgeProfileAsync(list));
    Assert.Single(service.Calls,c=>c.Method=="profile.set");

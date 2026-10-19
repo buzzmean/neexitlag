@@ -52,6 +52,10 @@ jobs:
         shell: powershell
       - run: ./tests/windows-tools/desktop-upgrade-checks.ps1
         shell: pwsh
+      - run: ./tests/windows-tools/profile-routing-checks.ps1
+        shell: powershell
+      - run: ./tests/windows-tools/profile-routing-checks.ps1
+        shell: pwsh
       - uses: actions/setup-go@v5
         with: {go-version: '1.25.x'}
       - uses: actions/setup-dotnet@v4
