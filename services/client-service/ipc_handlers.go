@@ -310,6 +310,7 @@ func (c *Controller) handleProfileSet(ctx context.Context, raw json.RawMessage) 
 }
 
 func (c *Controller) handleOptimize(ctx context.Context, raw json.RawMessage) (any, error) {
+	activationStarted := time.Now()
 	var v struct {
 		Enabled bool `json:"enabled"`
 	}
@@ -333,6 +334,7 @@ func (c *Controller) handleOptimize(ctx context.Context, raw json.RawMessage) (a
 		c.enabled = true
 	}
 	c.mu.Unlock()
+	c.nativeBrowserActivation(v.Enabled, wasEnabled, activationStarted)
 	if c.Backend != nil {
 		if v.Enabled {
 			if !c.Backend.Status().Ready {
@@ -367,7 +369,6 @@ func (c *Controller) handleOptimize(ctx context.Context, raw json.RawMessage) (a
 		}
 	}
 	c.Measurements.Active.Store(v.Enabled)
-	c.nativeBrowserActivation(v.Enabled, wasEnabled)
 	return c.Snapshot(), nil
 }
 

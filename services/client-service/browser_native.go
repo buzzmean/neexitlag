@@ -78,21 +78,22 @@ type nativeBrowserRuntime struct {
 	records    map[uint64]nativeBrowserRecord
 }
 
-func (n *nativeBrowserRuntime) activate(id string, reset bool) {
+func (n *nativeBrowserRuntime) activate(id string, reset bool) { n.activateAt(id, reset, time.Now()) }
+func (n *nativeBrowserRuntime) activateAt(id string, reset bool, at time.Time) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if n.profiles == nil {
 		n.profiles = map[string]nativeBrowserProfileStatus{}
 	}
 	if _, ok := n.profiles[id]; (reset || !ok) && (ok || len(n.profiles) < 128) {
-		n.profiles[id] = nativeBrowserProfileStatus{Profile: id, Activated: time.Now(), FirstOpenMS: -1, FirstExchangeMS: -1}
+		n.profiles[id] = nativeBrowserProfileStatus{Profile: id, Activated: at, FirstOpenMS: -1, FirstExchangeMS: -1}
 	}
 }
-func (c *Controller) nativeBrowserActivation(enabled, wasEnabled bool) {
+func (c *Controller) nativeBrowserActivation(enabled, wasEnabled bool, at time.Time) {
 	if enabled && !wasEnabled {
 		for _, p := range c.Profiles.List() {
 			if nativeBrowserProfile(p) {
-				c.browser.native.activate(p.ID, true)
+				c.browser.native.activateAt(p.ID, true, at)
 			}
 		}
 	}
@@ -148,6 +149,7 @@ func (c *Controller) handleNativeBrowser(ctx context.Context, method string, raw
 	if method == "browser.native.status" {
 		return c.nativeSnapshot(), nil
 	}
+	activationStarted := time.Now()
 	var q struct {
 		Profile       string `json:"profile_id"`
 		Compatibility bool   `json:"compatibility"`
@@ -211,6 +213,7 @@ func (c *Controller) handleNativeBrowser(ctx context.Context, method string, raw
 	if err := p.Validate(); err != nil {
 		return nil, err
 	}
+	c.browser.native.activateAt(p.ID, false, activationStarted)
 	// No Reconfigure/RequestHotAttach: established TCP is intentionally pinned.
 	if err := c.Profiles.Upsert(p); err != nil {
 		return nil, err
@@ -285,7 +288,7 @@ func (n *nativeBrowserRuntime) opened(id uint64, plan browserproxy.Plan, err err
 	} else {
 		r.Result = "TUNNEL_OPENED"
 		p := n.profiles[r.Owner.Profile]
-		if !p.Activated.IsZero() && p.FirstOpened.IsZero() {
+		if !p.Activated.IsZero() && !r.Started.Before(p.Activated) && p.FirstOpened.IsZero() {
 			p.FirstOpened = time.Now()
 			p.FirstOpenMS = p.FirstOpened.Sub(p.Activated).Milliseconds()
 			n.profiles[r.Owner.Profile] = p
@@ -305,7 +308,7 @@ func (n *nativeBrowserRuntime) bytes(id uint64, tx, rx uint64) {
 	if r.Sent > 0 && r.Received > 0 {
 		r.Result = "BIDIRECTIONAL_EXCHANGE"
 		p := n.profiles[r.Owner.Profile]
-		if !p.Activated.IsZero() && p.FirstExchange.IsZero() {
+		if !p.Activated.IsZero() && !r.Started.Before(p.Activated) && p.FirstExchange.IsZero() {
 			p.FirstExchange = time.Now()
 			p.FirstExchangeMS = p.FirstExchange.Sub(p.Activated).Milliseconds()
 			n.profiles[r.Owner.Profile] = p

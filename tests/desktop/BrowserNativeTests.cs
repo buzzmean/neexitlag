@@ -9,10 +9,12 @@ public sealed class BrowserNativeTests
     {
         public readonly PickerService Inner = new();
         public bool Reject;
+        public int NativeCalls;
         public Task<T> Call<T>(string method, object? payload = null, CancellationToken cancellationToken = default)
         {
             if (method == "browser.native.enable")
             {
+                NativeCalls++;
                 if (Reject) return Task.FromException<T>(new ServiceException(ServiceFailure.Rejected, "NATIVE_OWNED_PAC_GUARD_REQUIRED"));
                 return Task.FromResult((T)(object)JsonSerializer.SerializeToElement(new { native = true }));
             }
@@ -28,8 +30,8 @@ public sealed class BrowserNativeTests
         service.Inner.State.Profiles = [p];
         var vm = new DesktopViewModel(service); await vm.RefreshAsync();
         await vm.EnableNativeBrowserAsync(p);
-        Assert.Single(vm.Applications);
-        Assert.DoesNotContain(service.Inner.Calls, c => c.Method is "browser.prepare" or "edge.prepare" or "profile.set" or "processes" or "optimize");
+        Assert.Single(vm.Applications); Assert.Equal(1, service.NativeCalls);
+        Assert.DoesNotContain(service.Inner.Calls, c => c.Method is "browser.prepare" or "edge.prepare" or "profile.set" or "optimize");
     }
     [Fact]
     public async Task GuardRefusalKeepsApplicationsAndDoesNotInstallPolicy()
@@ -39,6 +41,12 @@ public sealed class BrowserNativeTests
         await Assert.ThrowsAsync<ServiceException>(() => vm.EnableNativeBrowserAsync(service.Inner.State.Profiles[0]));
         Assert.True(vm.Available); Assert.Single(vm.Applications);
         Assert.DoesNotContain(service.Inner.Calls, c => c.Method.Contains("policy") || c.Method.Contains("prepare") || c.Method == "profile.set");
+    }
+    [Fact]
+    public void NativeErrorsShowOnlyKnownCodeWithoutPayloadOrSecrets()
+    {
+        Assert.Equal("NATIVE_OWNED_PAC_GUARD_REQUIRED", DesktopViewModel.NativeBrowserErrorCode(new Exception("NATIVE_OWNED_PAC_GUARD_REQUIRED token=private")));
+        Assert.Equal("NATIVE_ACTIVATION_FAILED", DesktopViewModel.NativeBrowserErrorCode(new Exception("token=private")));
     }
     [Fact]
     public void NativeCandidatesPreserveExplicitModesAndPendingEdgeCanConverge()

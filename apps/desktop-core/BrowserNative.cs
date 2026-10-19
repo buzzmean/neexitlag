@@ -43,6 +43,12 @@ public sealed partial class DesktopViewModel
     public bool NativeBrowserCandidate(Profile p) => (BrowserCatalog.IsChrome(p) || BrowserCatalog.IsEdge(p))
         && (p.Mode == "AUTO" || NativeBrowser(p) || StartupChromeNeedsActivation(p)
             || p.Mode == "DIRECT" && p.PolicyData is { } data && data.TryGetValue("app_preset", out var v) && v.ValueKind == JsonValueKind.String && v.GetString() == "edge-sites-pending");
+    public static string NativeBrowserErrorCode(Exception error)
+    {
+        string[] codes = ["NATIVE_OWNED_PAC_GUARD_REQUIRED", "NATIVE_CAPTURE_NOT_READY", "NATIVE_CAPTURE_NOT_CONFIGURED", "NATIVE_CAPTURE_START_FAILED", "NATIVE_AUTOMATIC_DISABLED", "NATIVE_OWNER_SID_REQUIRED", "NATIVE_BROWSER_PROFILE_REQUIRED", "NATIVE_PROFILE_PERSIST_FAILED", "EDGE_LISTENER_BIND_FAILED", "EDGE_POLICY_OWNERSHIP_CHANGED", "CHROME_LISTENER_BIND_FAILED", "NATIVE_GUARD_ADDRESS_CHANGED"];
+        return codes.FirstOrDefault(c => error.Message.Contains(c, StringComparison.Ordinal))
+            ?? (error.Message.Contains("unsupported IPC", StringComparison.OrdinalIgnoreCase) ? "NATIVE_IPC_UNSUPPORTED" : "NATIVE_ACTIVATION_FAILED");
+    }
     public async Task EnableNativeBrowserAsync(Profile p, CancellationToken ct = default)
     {
         // Endpoint validates an existing owned crash-guard before any mutation.

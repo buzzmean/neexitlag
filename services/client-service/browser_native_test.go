@@ -286,3 +286,17 @@ func TestNativeFirstReplyIsProgressButDoesNotClearFailedDomainVerdict(t *testing
 	case <-time.After(50 * time.Millisecond):
 	}
 }
+
+func TestNativeNewEpochDoesNotCountOldTCPAsNewActivationSuccess(t *testing.T) {
+	c, _, _ := nativeEdgeFixture(t)
+	n := &c.browser.native
+	n.activate("edge", false)
+	id, _ := n.begin(browserproxy.Request{Owner: browserproxy.Owner{Profile: "edge"}}, wp.Tuple{})
+	n.activate("edge", true)
+	n.opened(id, browserproxy.Plan{}, nil)
+	n.bytes(id, 10, 10)
+	s := c.nativeSnapshot().Profiles[0]
+	if s.FirstOpenMS != -1 || s.FirstExchangeMS != -1 {
+		t.Fatal("old stream certified new activation", s)
+	}
+}

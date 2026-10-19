@@ -37,7 +37,7 @@ public partial class MainWindow
                 catch (Exception error)
                 {
                     model.RecordGuiFailure(error, "browser.native.enable");
-                    model.SetNotice("browser.native.enable: native не активирован. Нужны обновлённая служба, WinDivert и существующий owned PAC crash-guard. Fresh без guard не активируется; старые кнопки PAC доступны. Профили и окна сохранены.");
+                    model.SetNotice("browser.native.enable: "+DesktopViewModel.NativeBrowserErrorCode(error)+". Native не активирован. Нужны обновлённая служба, WinDivert и существующий owned PAC crash-guard. Fresh без guard не активируется; старые кнопки PAC доступны. Профили и окна сохранены.");
                 }
             }
             await model.ObserveAuxiliaryAsync(() => model.ObserveNativeBrowsersAsync(lifetime.Token), "browser.native.status", lifetime.Token);
