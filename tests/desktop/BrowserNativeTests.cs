@@ -18,6 +18,9 @@ public sealed class BrowserNativeTests
                 if (Reject) return Task.FromException<T>(new ServiceException(ServiceFailure.Rejected, "NATIVE_OWNED_PAC_GUARD_REQUIRED"));
                 return Task.FromResult((T)(object)JsonSerializer.SerializeToElement(new { native = true }));
             }
+            // PickerService models append-only application creation. Native disable
+            // edits an existing profile: emulate the real upsert contract here.
+            if(method=="profile.set" && payload is Profile p) Inner.State.Profiles=Inner.State.Profiles.Where(v=>v.Id!=p.Id).ToArray();
             return Inner.Call<T>(method, payload, cancellationToken);
         }
     }

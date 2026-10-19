@@ -205,9 +205,9 @@ func TestNativeTimingRequiresBidirectionalPayloadAndBoundsEvidence(t *testing.T)
 	if len(n.records) > 512 || len(raw) > 60*1024 || !s.Truncated || s.Lost == 0 {
 		t.Fatal("unbounded/false complete snapshot", len(raw), s.Lost)
 	}
-	first := s.Profiles[0].Activated
+	cutoff := n.next
 	n.activate("edge", true)
-	if !c.nativeSnapshot().Profiles[0].Activated.After(first) {
+	if c.nativeSnapshot().Profiles[0].AfterFlow != cutoff || c.nativeSnapshot().Profiles[0].FirstExchangeMS != -1 {
 		t.Fatal("new optimization epoch not measured")
 	}
 }
@@ -295,7 +295,10 @@ func TestNativeNewEpochDoesNotCountOldTCPAsNewActivationSuccess(t *testing.T) {
 	n := &c.browser.native
 	n.activate("edge", false)
 	id, _ := n.begin(browserproxy.Request{Owner: browserproxy.Owner{Profile: "edge"}}, wp.Tuple{})
-	n.activate("edge", true)
+	n.mu.Lock()
+	clock := n.records[id].Started
+	n.mu.Unlock()
+	n.activateAt("edge", true, clock)
 	n.opened(id, browserproxy.Plan{}, nil)
 	n.bytes(id, 10, 10)
 	s := c.nativeSnapshot().Profiles[0]

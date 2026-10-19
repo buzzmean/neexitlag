@@ -11,7 +11,9 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -20,7 +22,6 @@ import (
 	"github.com/buzzmean/neexitlag/core/security"
 	"github.com/buzzmean/neexitlag/core/transport"
 	"github.com/buzzmean/neexitlag/services/relay"
-	"github.com/buzzmean/neexitlag/tools/echo"
 	"github.com/buzzmean/neexitlag/tools/labcert"
 )
 
@@ -61,7 +62,7 @@ func testTCPNativeBurst(t *testing.T, count int, deferred bool) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { pool.Close() })
-	addr, closeEcho, err := echo.TCP()
+	addr, closeEcho, err := burstTCPEcho()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -368,4 +369,67 @@ func TestTCPNativeInitialWriteReleasesAdmission(t *testing.T) {
 	redirect.admission.slots.Release(tcpOpenParallel)
 	// target intentionally never reads: application backpressure stays on this
 	// socket, rather than exhausting admission for unrelated new connections.
+}
+
+// The destination fixture must accept the entire burst too. Windows SOMAXCONN
+// chooses a dynamic backlog, which can reject a fast 256-open local burst even
+// while the client pool has spare capacity. Set a bounded explicit backlog on
+// THIS test socket only; production admission/relay/timeouts remain unchanged.
+func burstTCPEcho() (net.Addr, func(), error) {
+	listener, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		return nil, nil, err
+	}
+	raw, err := listener.SyscallConn()
+	if err != nil {
+		listener.Close()
+		return nil, nil, err
+	}
+	var listenErr error
+	err = raw.Control(func(fd uintptr) { listenErr = syscall.Listen(syscall.Handle(fd), -4096) }) // SOMAXCONN_HINT(4096)
+	if err == nil {
+		err = listenErr
+	}
+	if err != nil {
+		listener.Close()
+		return nil, nil, err
+	}
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	conns := map[net.Conn]bool{}
+	closed := false
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			conn, err := listener.AcceptTCP()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			if closed {
+				mu.Unlock()
+				conn.Close()
+				return
+			}
+			conns[conn] = true
+			wg.Add(1)
+			mu.Unlock()
+			go func() {
+				defer wg.Done()
+				defer func() { conn.Close(); mu.Lock(); delete(conns, conn); mu.Unlock() }()
+				io.Copy(conn, conn)
+			}()
+		}
+	}()
+	return listener.Addr(), func() {
+		listener.Close()
+		mu.Lock()
+		closed = true
+		for c := range conns {
+			c.Close()
+		}
+		mu.Unlock()
+		wg.Wait()
+	}, nil
 }

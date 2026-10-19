@@ -39,6 +39,7 @@ func (c *Controller) nativeBackendConfigured() bool {
 }
 
 type nativeBrowserProfileStatus struct {
+	AfterFlow       uint64    `json:"-"`
 	Profile         string    `json:"profile_id"`
 	Activated       time.Time `json:"activated_at"`
 	FirstOpened     time.Time `json:"first_tunnel_opened_at,omitempty"`
@@ -88,7 +89,7 @@ func (n *nativeBrowserRuntime) activateAt(id string, reset bool, at time.Time) {
 		n.profiles = map[string]nativeBrowserProfileStatus{}
 	}
 	if _, ok := n.profiles[id]; (reset || !ok) && (ok || len(n.profiles) < 128) {
-		n.profiles[id] = nativeBrowserProfileStatus{Profile: id, Activated: at, FirstOpenMS: -1, FirstExchangeMS: -1}
+		n.profiles[id] = nativeBrowserProfileStatus{Profile: id, AfterFlow: n.next, Activated: at, FirstOpenMS: -1, FirstExchangeMS: -1}
 	}
 }
 func (c *Controller) nativeBrowserActivation(enabled, wasEnabled bool, at time.Time) {
@@ -320,7 +321,7 @@ func (n *nativeBrowserRuntime) opened(id uint64, plan browserproxy.Plan, err err
 	} else {
 		r.Result = "TUNNEL_OPENED"
 		p := n.profiles[r.Owner.Profile]
-		if !p.Activated.IsZero() && !r.Started.Before(p.Activated) && p.FirstOpened.IsZero() {
+		if !p.Activated.IsZero() && id > p.AfterFlow && p.FirstOpened.IsZero() {
 			p.FirstOpened = time.Now()
 			p.FirstOpenMS = p.FirstOpened.Sub(p.Activated).Milliseconds()
 			n.profiles[r.Owner.Profile] = p
@@ -340,7 +341,7 @@ func (n *nativeBrowserRuntime) bytes(id uint64, tx, rx uint64) {
 	if r.Sent > 0 && r.Received > 0 {
 		r.Result = "BIDIRECTIONAL_EXCHANGE"
 		p := n.profiles[r.Owner.Profile]
-		if !p.Activated.IsZero() && !r.Started.Before(p.Activated) && p.FirstExchange.IsZero() {
+		if !p.Activated.IsZero() && id > p.AfterFlow && p.FirstExchange.IsZero() {
 			p.FirstExchange = time.Now()
 			p.FirstExchangeMS = p.FirstExchange.Sub(p.Activated).Milliseconds()
 			n.profiles[r.Owner.Profile] = p
