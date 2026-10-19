@@ -11,7 +11,7 @@ public sealed class BrowserConnection {public string EvidenceSource {get;set;}="
  public bool DirectPlusApplied {get;set;}
  public string Route=>(Result=="UPSTREAM_OPEN_FAILED"||Result=="ORIGIN_PLAN_FAILED")?"BLOCK":Plan.Policy.Action=="DIRECT_PLUS"&&!DirectPlusApplied?"DIRECT+ (не подтверждён)" :Plan.Policy.Action=="RELAY_REQUIRED"?"RELAY_REQUIRED · "+Plan.Policy.RelayId:Plan.Policy.Action;
  public string Reason=>Plan.Policy.Reason;
- public string Outcome=>OpenFailure!=""?OpenFailure:Plan.Probe is "HTTP_SUCCESS" or "DNS_RELAY_HTTP_VERIFIED"?$"Origin HTTP {Plan.HttpStatus}; страница Chrome не проверена":Plan.Probe;
+ public string Outcome=>OpenFailure!=""?"OPEN: "+OpenFailure:Plan.Probe is "HTTP_SUCCESS" or "DNS_RELAY_HTTP_VERIFIED"?$"Origin HTTP {Plan.HttpStatus}; страница Chrome не проверена":(SentBytes>0&&ReceivedBytes>0?"Есть обмен; ":"")+"Origin probe: "+Plan.Probe+"; результат страницы не измерен";
  public string Traffic=>$"↑ {Text.Bytes(SentBytes)} / ↓ {Text.Bytes(ReceivedBytes)}";
 }
 public sealed partial class DesktopViewModel {

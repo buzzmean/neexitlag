@@ -6,6 +6,7 @@ public sealed class EdgeTransportStatus {
  public int ActivationVersion {get;set;}
  public bool RollbackGuardActive {get;set;}
  public bool Listening {get;set;} public bool PolicyReady {get;set;} public bool Truncated {get;set;} public ulong Lost {get;set;}
+ public string TransportMode {get;set;}=""; public string PacNonceReadiness {get;set;}=""; public bool OwnedGuardInstalled {get;set;}
  public string ReadinessState {get;set;}=""; public string PendingProfile {get;set;}="";
  public string LastError {get;set;}=""; public string RecoveryAddress {get;set;}=""; public string[] ReadyProfiles {get;set;}=[];
  public BrowserConnection[] Records {get;set;}=[];
@@ -13,7 +14,7 @@ public sealed class EdgeTransportStatus {
 }
 public sealed class EdgeDomainRow(BrowserConnection connection) {
  public string Domain=>connection.Domain; public string Route=>connection.Route; public string Reason=>connection.Reason;
- public string Outcome=>connection.OpenFailure!=""?connection.OpenFailure:connection.Plan.Probe is "HTTP_SUCCESS" or "DNS_RELAY_HTTP_VERIFIED"?$"Origin HTTP {connection.Plan.HttpStatus}; страница Edge не проверена":connection.Plan.Probe;
+ public string Outcome=>connection.Outcome;
 }
 public sealed partial class DesktopViewModel {
  public ObservableCollection<EdgeDomainRow> EdgeDomains {get;}=[];
@@ -61,7 +62,7 @@ public sealed partial class DesktopViewModel {
   return applied;
  }
  public void ApplyEdgePolicyState(EdgeTransportStatus status){
-  EdgeState=status.LastError!=""?"Edge: "+status.LastError+" · "+status.ReadinessState+(status.RollbackGuardActive?" · защитный PAC: ordinary DIRECT, protected закрыты":""):status.Listening&&status.PolicyReady&&status.ReadyProfiles.Length>0?"Edge CONNECT/PAC готовы; доступность сайтов проверяется отдельно":"Edge PAC не подтверждён / guard: protected-домены без DIRECT";
+  EdgeState=status.TransportMode=="NATIVE_ARMED_PAC_GUARD"?"Edge: "+status.ReadinessState+" · PAC listener="+status.Listening+" · owned guard="+status.OwnedGuardInstalled+" · PAC nonce="+status.PacNonceReadiness+(status.LastError!=""?" · "+status.LastError:""):status.LastError!=""?"Edge: "+status.LastError+" · "+status.ReadinessState+(status.RollbackGuardActive?" · защитный PAC: ordinary DIRECT, protected закрыты":""):status.Listening&&status.PolicyReady&&status.ReadyProfiles.Length>0?"Edge CONNECT/PAC готовы; доступность сайтов проверяется отдельно":"Edge PAC не подтверждён / guard: protected-домены без DIRECT";
   Changed(nameof(EdgeState));
  }
  public void ApplyEdge(BrowserTransportSnapshot status){

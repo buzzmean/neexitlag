@@ -287,7 +287,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-19.4 (profile relay audit; games default DIRECT)'
+$ScriptVersion='2026-10-19.5 (separate PAC/native paths, games DIRECT)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -496,6 +496,19 @@ Step 'sni' {
  foreach($line in ($rows|Format-Table -AutoSize -Wrap|Out-String -Width 220).Split("`n")){if($line.Trim()){Say ("  "+$line.TrimEnd())}}
 }}
 
+function Write-BrowserPathEvidence($snapshot,[string]$lane) {
+ Say ($lane+' path='+(Prop $snapshot 'path' 'PAC_LEGACY_UNINSTRUMENTED')+' metrics_lost='+(Prop $snapshot 'metrics_lost' 0)+' failure_details_lost='+(Prop $snapshot 'failure_details_lost' 0))
+ foreach($m in @(Prop $snapshot 'path_metrics' @())) {
+  $opened=[long](Prop $m 'opened' 0)
+  $observation=if($opened -gt 0){'PAC_TUNNEL_OBSERVED'}else{'NO_NEW_PAC_TUNNEL_OBSERVED'}
+  Say ($lane+' PAC timing: profile='+(Prop $m 'profile_id')+' state='+$observation+' accepted='+(Prop $m 'accepted' 0)+' opened='+$opened+' failed='+(Prop $m 'failed' 0)+' active='+(Prop $m 'active' 0)+' first_open='+(Prop $m 'first_tunnel_opened_at' 'NOT_OBSERVED')+' listen_to_first_open_ms='+(Prop $m 'listen_to_first_open_ms' -1)+' first_exchange='+(Prop $m 'first_bidirectional_exchange_at' 'NOT_OBSERVED')+' tx='+(Prop $m 'sent_bytes' 0)+' rx='+(Prop $m 'received_bytes' 0))
+ }
+ foreach($f in @(Prop $snapshot 'failure_details' @())|Sort-Object -Property count -Descending|Select-Object -First 48) {
+  Say ($lane+' origin failure: profile='+(Prop $f 'profile_id')+' domain='+(Prop $f 'domain')+' stage='+(Prop $f 'phase')+' reason='+(Prop $f 'reason')+' route='+(Prop $f 'route' 'UNKNOWN')+' destination='+(Prop $f 'destination' 'UNKNOWN')+' policy_source='+(Prop $f 'policy_source' 'UNKNOWN')+' count='+(Prop $f 'count')+' last='+(Prop $f 'last_at'))
+ }
+ Say 'PAC OPEN means CONNECT/upstream-handoff accepted; actual native OPEN is separate. One PAC ingress may feed one PAC_NATIVE_UPSTREAM: do not sum them as independent application requests. No bytes/probe result alone proves page load.'
+}
+
 if($Only -contains 'youtube'){
 Section 'YouTube: Chrome + Edge, address/domain cache and actual relay payload bytes per minute'
 Step 'youtube' {
@@ -505,6 +518,7 @@ Step 'youtube' {
  foreach($lane in @('browser','edge')){
   try{$snapshot=Invoke-IPC ($lane+'.status')}catch{Say ($lane+': IPC unavailable: '+(Scrub $_.Exception.Message));continue}
   Say ($lane+": listening="+(Prop $snapshot 'listening')+" policy_ready="+(Prop $snapshot 'policy_ready')+" ready_profiles="+(@(Prop $snapshot 'ready_profiles' @()) -join ',')+" rollback_guard_active="+(Prop $snapshot 'rollback_guard_active' $false)+" readiness_state="+(Prop $snapshot 'readiness_state' '')+" pending_profile="+(Prop $snapshot 'pending_profile' '')+" last_error="+(Prop $snapshot 'last_error' '')+" truncated="+(Prop $snapshot 'truncated')+" lost="+(Prop $snapshot 'lost'))
+  Write-BrowserPathEvidence $snapshot $lane
   $cache=Prop $snapshot 'direct_timeout_cache'
   if($cache){
    Say ("cache (shared by both lanes): domains="+(Prop $cache 'active_origins')+" addresses="+(Prop $cache 'active_addresses' '-')+" stalls="+(Prop $cache 'direct_stalls_total')+" rechecks="+(Prop $cache 'background_direct_probes')+" recovered_verified="+(Prop $cache 'recovered_to_direct'))
@@ -552,17 +566,25 @@ Section 'Native browser new-connection evidence (owned PAC crash-guard retained)
 Step 'native_browser' {
  $native=Invoke-IPC 'browser.native.status'
  Say ("capture_ready="+(Prop $native 'capture_ready')+" optimizing="+(Prop $native 'optimizing')+" existing_tcp="+(Prop $native 'existing_tcp')+" truncated="+(Prop $native 'truncated')+" lost="+(Prop $native 'lost'))
- foreach($p in @(Prop $native 'profiles' @())){Say ("native timing: "+(Json $p))}
+ foreach($p in @(Prop $native 'profiles' @())){
+  $state=if([long](Prop $p 'opened' 0) -gt 0){'NATIVE_UPSTREAM_OPEN_OBSERVED'}else{'NO_NEW_NATIVE_UPSTREAM_OBSERVED'}
+  Say ("native timing: state="+$state+' profile='+(Prop $p 'profile_id')+' accepted='+(Prop $p 'accepted' 0)+' opened='+(Prop $p 'opened' 0)+' failed='+(Prop $p 'failed' 0)+' first_open='+(Prop $p 'first_tunnel_opened_at' 'NOT_OBSERVED')+' enable_to_first_open_ms='+(Prop $p 'enable_to_first_open_ms' -1)+' first_exchange='+(Prop $p 'first_bidirectional_exchange_at' 'NOT_OBSERVED')+' tx='+(Prop $p 'sent_bytes' 0)+' rx='+(Prop $p 'received_bytes' 0))
+ }
+ foreach($lane in @('browser','edge')){
+  try{$pac=Invoke-IPC ($lane+'.status');Write-BrowserPathEvidence $pac $lane
+   if($lane -eq 'edge'){Say ('edge transport_mode='+(Prop $pac 'transport_mode' 'LEGACY')+' readiness='+(Prop $pac 'readiness_state')+' nonce='+(Prop $pac 'pac_nonce_readiness' 'LEGACY')+' owned_guard='+(Prop $pac 'owned_guard_installed' $false)+' rollback_guard='+(Prop $pac 'rollback_guard_active' $false))}
+  }catch{Say ($lane+' path metrics unavailable: '+(Scrub $_.Exception.Message))}
+ }
  foreach($r in @(Prop $native 'records' @())|Select-Object -First 32){
   $owner=Prop $r 'owner';$policy=Prop $r 'policy'
-  Say ("native #"+(Prop $r 'id')+" pid="+(Prop $owner 'pid')+" birth="+(Prop $owner 'creation_time')+" domain="+(Prop $r 'domain')+" destination="+(Prop $r 'destination')+" route="+(Prop $policy 'action')+" relay="+(Prop $policy 'relay_id')+" source="+(Prop $policy 'source')+" result="+(Prop $r 'result')+" failure="+(Prop $r 'failure_reason')+" tx="+(Prop $r 'sent_bytes')+" rx="+(Prop $r 'received_bytes'))
+  Say ("native ingress="+(Prop $r 'ingress' 'NATIVE_TCP')+" #"+(Prop $r 'id')+" pid="+(Prop $owner 'pid')+" birth="+(Prop $owner 'creation_time')+" domain="+(Prop $r 'domain')+" destination="+(Prop $r 'destination')+" route="+(Prop $policy 'action')+" relay="+(Prop $policy 'relay_id')+" source="+(Prop $policy 'source')+" result="+(Prop $r 'result')+" failure="+(Prop $r 'failure_reason')+" tx="+(Prop $r 'sent_bytes')+" rx="+(Prop $r 'received_bytes'))
  }
  $usage=Prop $native 'relay_usage'
  Say ("shared relay TCP: active="+(Prop $usage 'active_tcp_tunnels')+" opened="+(Prop $usage 'tcp_tunnels_opened')+" scope="+(Prop $usage 'scope'))
  foreach($m in @(Prop $usage 'minutes' @())){Say ("relay minute: "+(Json $m))}
  foreach($o in @(Prop $usage 'active_origins' @())){Say ("relay active: "+(Json $o))}
  $refresh=Join-Path $env:LOCALAPPDATA 'NeExitLag\browser-native-policy-refresh.txt'
- if(Test-Path $refresh){Say ((Get-Content $refresh -TotalCount 1))}
+ if(Test-Path $refresh){Say ('Historical refresh request (not live evidence): '+(Get-Content $refresh -TotalCount 1))}
  Say 'Fresh without owned PAC guard: native is NOT auto-activated. Registry/refresh/tunnel bytes are NOT live-policy/site PASS. Existing HTTP/2 may be reused on reload; no connection egress migration. Opaque ECH uses RELAY only; domain cannot be inferred.'
 }
 Section 'Existing browser processes and startup profile registration (no browser restart)'

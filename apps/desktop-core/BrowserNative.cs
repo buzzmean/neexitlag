@@ -16,11 +16,15 @@ public sealed class NativeBrowserStatus
 public sealed class NativeBrowserTiming
 {
     public string ProfileId { get; set; } = "";
+    public ulong Opened { get; set; }
+    public ulong Accepted { get; set; }
+    public ulong Failed { get; set; }
     public long EnableToFirstOpenMs { get; set; } = -1;
     public long EnableToFirstExchangeMs { get; set; } = -1;
 }
 public sealed class NativeBrowserRecord
 {
+    public string Ingress { get; set; } = "";
     public ulong Id { get; set; }
     public BrowserOwner Owner { get; set; } = new();
     public DateTimeOffset Started { get; set; }
@@ -34,7 +38,7 @@ public sealed class NativeBrowserRecord
     public bool Active { get; set; }
     public BrowserConnection Connection() => new() { Id = Id, Owner = Owner, Started = Started, Domain = Domain,
         Plan = new() { Policy = Policy, Probe = OriginProbe }, Result = Result, OpenFailure = FailureReason,
-        SentBytes = SentBytes, ReceivedBytes = ReceivedBytes, Active = Active, EvidenceSource = "NATIVE_TCP" };
+        SentBytes = SentBytes, ReceivedBytes = ReceivedBytes, Active = Active, EvidenceSource = Ingress == "" ? "NATIVE_TCP" : Ingress };
 }
 public sealed partial class DesktopViewModel
 {
@@ -69,18 +73,31 @@ public sealed partial class DesktopViewModel
         var applied=BrowserCatalog.IsEdge(copy)?await EdgePolicyAsync(copy,"guard",ct):JsonSerializer.SerializeToElement(new{applied=true,guard=true});
         await RefreshAsync(ct);return applied;
     }
+    public static BrowserTransportSnapshot CombineBrowserPaths(BrowserTransportSnapshot pac, BrowserConnection[] native, NativeBrowserStatus status) => new()
+    {
+        Listening = pac.Listening || status.CaptureReady,
+        Records = pac.Records.Concat(native).ToArray(),
+        Truncated = pac.Truncated || status.Truncated, Lost = pac.Lost + status.Lost,
+        ReadyProfiles = pac.ReadyProfiles, RecoveryAddress = pac.RecoveryAddress
+    };
     public async Task ObserveNativeBrowsersAsync(CancellationToken ct = default)
     {
         if (!Applications.Any(a => NativeBrowser(a.Profile))) return;
         var status = await client.Call<NativeBrowserStatus>("browser.native.status", cancellationToken: ct);
+        // An empty native ledger must never replace a working PAC snapshot.
+        // A PAC ingress may delegate an upstream into native: label both pieces,
+        // never count them as two independent requests or a native-only PASS.
         var records = status.Records.Select(r => r.Connection()).ToArray();
-        var snapshot = new BrowserTransportSnapshot { Listening = status.CaptureReady, Records = records, Truncated = status.Truncated, Lost = status.Lost };
-        if (Applications.Any(a => BrowserCatalog.IsChrome(a.Profile) && NativeBrowser(a.Profile))) ApplyBrowser(snapshot);
+        if (Applications.Any(a => BrowserCatalog.IsChrome(a.Profile) && NativeBrowser(a.Profile)))
+        {
+            var pac = await ChromeStatusAsync(ct);
+            ApplyBrowser(CombineBrowserPaths(pac, records, status));
+        }
         if (Applications.Any(a => BrowserCatalog.IsEdge(a.Profile) && NativeBrowser(a.Profile)))
         {
-            ApplyEdge(snapshot);
-            EdgeState = status.CaptureReady ? "Edge native: новые TCP по SNI/Host; opaque только RELAY; owned PAC crash-guard сохранён" : "Edge native: capture не готов; owned PAC crash-guard";
-            Changed(nameof(EdgeState));
+            var pac = await EdgeStatusAsync(ct);
+            ApplyEdge(CombineBrowserPaths(pac.Snapshot(), records, status));
+            ApplyEdgePolicyState(pac);
         }
     }
 }

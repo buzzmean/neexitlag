@@ -54,6 +54,10 @@ jobs:
         shell: pwsh
       - run: ./tests/windows-tools/profile-routing-checks.ps1
         shell: powershell
+      - run: ./tests/windows-tools/browser-path-checks.ps1
+        shell: powershell
+      - run: ./tests/windows-tools/browser-path-checks.ps1
+        shell: pwsh
       - run: ./tests/windows-tools/profile-routing-checks.ps1
         shell: pwsh
       - uses: actions/setup-go@v5

@@ -74,3 +74,34 @@ public sealed class BrowserNativeTests
         Assert.False(vm.NativeBrowserCandidate(new() { Executables = ["discord.exe"], Mode = "AUTO" }));
     }
 }
+
+public sealed class BrowserPathDisplayTests
+{
+ [Fact]
+ public void EmptyNativeEvidenceCannotErasePACOrInventNativePass()
+ {
+  var pac=new BrowserTransportSnapshot{Listening=true,Records=[new(){Id=1,Domain="vk.com",EvidenceSource="PAC_CONNECT",Active=true,SentBytes=10,ReceivedBytes=20}]};
+  var combined=DesktopViewModel.CombineBrowserPaths(pac,[],new(){CaptureReady=true});
+  Assert.Single(combined.Records);Assert.Equal("PAC_CONNECT",combined.Records[0].EvidenceSource);
+  Assert.DoesNotContain(combined.Records,r=>r.EvidenceSource=="NATIVE_TCP");
+ }
+ [Fact]
+ public void MixedIngressAndNativeUpstreamAreLabeledAndRetainTruncation()
+ {
+  var pac=new BrowserTransportSnapshot{Listening=true,Records=[new(){Id=1,EvidenceSource="PAC_CONNECT"}]};
+  var native=new NativeBrowserRecord{Id=1,Ingress="PAC_NATIVE_UPSTREAM"}.Connection();
+  var combined=DesktopViewModel.CombineBrowserPaths(pac,[native],new(){CaptureReady=true,Truncated=true,Lost=2});
+  Assert.Equal(2,combined.Records.Length);Assert.True(combined.Truncated);Assert.Equal(2UL,combined.Lost);
+  Assert.Contains(combined.Records,r=>r.EvidenceSource=="PAC_NATIVE_UPSTREAM");
+ }
+ [Fact]
+ public void EdgeNativeReadinessDoesNotClaimPACNonceOrPages()
+ {
+  var vm=new DesktopViewModel(new PickerService());
+  vm.ApplyEdgePolicyState(new(){TransportMode="NATIVE_ARMED_PAC_GUARD",ReadinessState="NATIVE_TUNNEL_OBSERVED",Listening=true,OwnedGuardInstalled=true,PacNonceReadiness="NOT_PREPARED"});
+  Assert.Contains("NATIVE_TUNNEL_OBSERVED",vm.EdgeState);Assert.Contains("NOT_PREPARED",vm.EdgeState);
+  Assert.DoesNotContain("не настроен",vm.EdgeState);
+  var r=new BrowserConnection{SentBytes=10,ReceivedBytes=20,Plan=new(){Probe="CONNECTION_FAILED"}};
+  Assert.Contains("Origin probe",r.Outcome);Assert.Contains("результат страницы не измерен",r.Outcome);
+ }
+}
