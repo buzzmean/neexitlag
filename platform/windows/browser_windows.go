@@ -49,10 +49,10 @@ func (b *WinDivertBackend) OpenBrowserLocalTCP(ctx context.Context, id ProcessId
 }
 
 // OpenBrowserNativeTCP admits only this reserved service socket into native
-// deferred capture. The owner, immutable plan and fail-closed callback are
+// capture OPEN worker. The owner, immutable plan and fail-closed callback are
 // supplied by the authenticated CONNECT front end, never by a packet/DNS guess.
 func (b *WinDivertBackend) OpenBrowserNativeTCP(ctx context.Context, id ProcessIdentity, source, dest netip.AddrPort, d Decision) (net.Conn, error) {
-	if !dest.Addr().Is4() || !d.Deferred || d.ResolveDomain == nil || d.OpenDeferred == nil || !d.BlockOnFailure || !d.NewConnectionsOnly || !IsCurrent(id) {
+	if !dest.Addr().Is4() || d.Deferred || d.ResolveDomain != nil || d.OpenDeferred == nil || d.OriginDomain == "" || !d.BlockOnFailure || !d.NewConnectionsOnly || !IsCurrent(id) {
 		return nil, errors.New("NATIVE_PAC_DELEGATION_INVALID")
 	}
 	b.mu.Lock()

@@ -334,7 +334,7 @@ func (t *tcpRedirect) processPacket(p []byte, a [80]byte, classify Classifier) {
 	if flags&0x12 == 0x02 && !self && id.PID != 0 {
 		if decision.Block {
 			mode = "block"
-		} else if !decision.Route.Direct() || decision.Deferred {
+		} else if !decision.Route.Direct() || decision.Deferred || decision.OpenDeferred != nil {
 			mode = "opening"
 		}
 	}
@@ -437,10 +437,18 @@ func (t *tcpRedirect) open(e *tcpEntry, syn []byte, a [80]byte, release func()) 
 		return
 	}
 	openStarted := time.Now()
-	up, err := t.b.Engine.OpenTCP(ctx, e.decision.Flow)
+	decision := e.decision
+	planned := decision.OpenDeferred != nil
+	var up net.Conn
+	var err error
+	if planned {
+		up, decision, err = decision.OpenDeferred(ctx, decision, "CONNECT_AUTHORITY")
+	} else {
+		up, err = t.b.Engine.OpenTCP(ctx, decision.Flow)
+	}
 	cancel()
-	route := e.decision.Route
-	if err == nil {
+	route := decision.Route
+	if err == nil && !planned {
 		for _, f := range t.b.Engine.Snapshot() {
 			if f.Protocol == "tcp" && f.PID == e.identity.PID && f.Source == e.tuple.Source && f.Destination == e.tuple.Destination {
 				route = f.Route
@@ -456,8 +464,14 @@ func (t *tcpRedirect) open(e *tcpEntry, syn []byte, a [80]byte, release func()) 
 		}
 		return
 	}
-	t.b.evidence.RecordRelayOpen(e.identity, e.tuple, openStarted, err)
-	if err != nil || route.Direct() {
+	e.decision = decision
+	if planned {
+		t.b.evidence.RecordPolicy(e.identity, e.tuple, decision, "CONNECT_AUTHORITY")
+	}
+	if !route.Direct() {
+		t.b.evidence.RecordRelayOpen(e.identity, e.tuple, openStarted, err)
+	}
+	if err != nil || route.Direct() && !planned {
 		if up != nil {
 			up.Close()
 		}

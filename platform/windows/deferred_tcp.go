@@ -58,7 +58,7 @@ func ResolveDeferredDecision(initial Decision, domain, reason string) Decision {
 	// Missing SNI is not a failed relay open. Chrome sends an ECH extension
 	// even for GREASE; keep an explicit authenticated opaque-name route alive.
 	// Other policies without such a route still fail closed.
-	if domain == "" && d.ConnectOrigin == "" && d.BlockOnFailure && (d.Policy.Action != flowpolicy.RelayRequired || d.Route.Direct() || d.Route.Local()) {
+	if domain == "" && d.BlockOnFailure && (d.Policy.Action != flowpolicy.RelayRequired || d.Route.Direct() || d.Route.Local()) {
 		d.Block = true
 	}
 	if d.Block {

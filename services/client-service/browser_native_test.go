@@ -401,12 +401,8 @@ func TestNativePACExactDelegationIsBoundedFailClosedAndNotAFalseOpen(t *testing.
 		t.Fatal(err, b.calls)
 	}
 	d := b.decision
-	if !d.Deferred || !d.NewConnectionsOnly || !d.BlockOnFailure || d.ResolveDomain == nil || d.OpenDeferred == nil || d.ConnectOrigin != "chatgpt.com" {
+	if d.Deferred || !d.NewConnectionsOnly || !d.BlockOnFailure || d.ResolveDomain != nil || d.OpenDeferred == nil || d.OriginDomain != "chatgpt.com" {
 		t.Fatal(d)
-	}
-	resolved := wp.ResolveDeferredDecision(d, "outer.example", "ECH_OUTER_SNI_ONLY")
-	if resolved.Policy.Action != flowpolicy.RelayRequired || !resolved.BlockOnFailure || resolved.ConnectOrigin != "chatgpt.com" {
-		t.Fatal(resolved)
 	}
 	if len(c.nativeSnapshot().Records) != 0 {
 		t.Fatal("failed local delegation manufactured real upstream OPEN")

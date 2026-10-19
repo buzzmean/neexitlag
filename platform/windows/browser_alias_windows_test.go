@@ -3,6 +3,10 @@
 package windowsplatform
 
 import (
+	"context"
+	"fmt"
+	"github.com/buzzmean/neexitlag/core/flowpolicy"
+	"net"
 	"net/netip"
 	"testing"
 	"time"
@@ -90,5 +94,54 @@ func TestNativeDelegationTestDestinationNeverChangesProduction(t *testing.T) {
 	public := netip.MustParseAddrPort("203.0.113.9:443")
 	if b.nativeDelegationDestination(public) != public {
 		t.Fatal("fixture changed a real origin")
+	}
+}
+
+func TestNativePlannedOpenAcknowledgesOnlyRealUpstreamAndNeverSendsOriginalSYN(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(fmt.Sprint(fail), func(t *testing.T) {
+			b, _ := captureFixture(t)
+			redirect := &tcpRedirect{b: b, port: 19000, state: newTCPState(16), delegated: map[Tuple]delegatedTCP{}}
+			tuple := Tuple{Protocol: "tcp", Source: netip.MustParseAddrPort("192.0.2.1:12000"), Destination: netip.MustParseAddrPort("203.0.113.1:443")}
+			up, peer := net.Pipe()
+			defer up.Close()
+			defer peer.Close()
+			opened := 0
+			sent := 0
+			d := Decision{NewConnectionsOnly: true, BlockOnFailure: true, Policy: flowpolicy.Result{Action: flowpolicy.Direct}}
+			d.OpenDeferred = func(ctx context.Context, d Decision, reason string) (net.Conn, Decision, error) {
+				opened++
+				if reason != "CONNECT_AUTHORITY" {
+					t.Fatal(reason)
+				}
+				if fail {
+					return nil, d, context.DeadlineExceeded
+				}
+				return up, d, nil
+			}
+			entry := redirect.state.add(tuple, ProcessIdentity{PID: 42}, d, "opening", time.Now())
+			b.packetWriter = func(packet []byte, _ [80]byte) error {
+				sent++
+				got, _, _, err := ParseTCP(packet)
+				if err != nil || got.Destination.Port() != redirect.port {
+					t.Fatal("original SYN leaked", got, err)
+				}
+				return nil
+			}
+			redirect.wg.Add(1)
+			redirect.open(entry, tcpPacket(t, tuple), [80]byte{}, func() {})
+			if opened != 1 {
+				t.Fatal("callback skipped")
+			}
+			if fail {
+				if entry.mode != "block" || sent != 0 || entry.upstream != nil {
+					t.Fatal("failed OPEN acknowledged or fell DIRECT", entry.mode, sent)
+				}
+			} else {
+				if entry.mode != "relay" || sent != 1 || entry.upstream == nil || !entry.decision.Route.Direct() {
+					t.Fatal("successful DIRECT upstream was treated as fallback", entry.mode, sent)
+				}
+			}
+		})
 	}
 }

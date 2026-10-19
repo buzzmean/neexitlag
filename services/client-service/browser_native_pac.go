@@ -24,13 +24,20 @@ func (c *Controller) openNativePAC(ctx context.Context, q browserproxy.Request, 
 	if !c.nativeBackendReady() {
 		return nil, errors.New("NATIVE_CAPTURE_NOT_READY")
 	}
-	d.ConnectOrigin = q.Host
+	d.OriginDomain = q.Host
 	d.NewConnectionsOnly = true
 	d.BlockOnFailure = true
-	d.Deferred = true
-	resolved := d
-	resolved.Deferred = false
-	resolved.OpenDeferred = func(ctx context.Context, decision wp.Decision, _ string) (net.Conn, wp.Decision, error) {
+	d.Deferred = false
+	d.ResolveDomain = nil
+	requestContext := ctx
+	d.OpenDeferred = func(ctx context.Context, decision wp.Decision, _ string) (net.Conn, wp.Decision, error) {
+		// The exact plan is known from CONNECT: open it before acknowledging
+		// the reserved SYN, so PAC never reports OPEN before the actual route.
+		work, stop := context.WithCancel(ctx)
+		stopCaller := context.AfterFunc(requestContext, stop)
+		defer stopCaller()
+		defer stop()
+		ctx = work
 		// CONNECT authority is owner-validated origin metadata, including ECH. Do not
 		// replace it with the TLS outer SNI or DNS association observed downstream.
 		q.Ingress = "PAC_NATIVE_UPSTREAM"
@@ -50,8 +57,7 @@ func (c *Controller) openNativePAC(ctx context.Context, q browserproxy.Request, 
 		}
 		// Ingress marker prevents recursive delegation. This is the only real
 		// authenticated OPEN; planning/probes are not replayed inside the worker.
-		conn, openedPlan, err := c.browserOpenPlan(ctx, q, plan)
-		plan = openedPlan
+		conn, err := c.browserOpen(ctx, q, plan)
 		decision = applyFlowResult(current.profile, decision, plan.Policy, current.network, c.browserLocal(plan.Policy.Strategy))
 		decision.BlockOnFailure = true
 		n.opened(record, plan, err)
@@ -60,7 +66,5 @@ func (c *Controller) openNativePAC(ctx context.Context, q browserproxy.Request, 
 		}
 		return &nativeBrowserConn{Conn: conn, runtime: n, record: record}, decision, nil
 	}
-	d.OpenDeferred = resolved.OpenDeferred
-	d.ResolveDomain = func(string) wp.Decision { return resolved }
 	return backend.OpenBrowserNativeTCP(ctx, browserIdentity(q), q.Source, plan.Destination, d)
 }
