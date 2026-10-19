@@ -587,4 +587,8 @@
   <data name="ChromeAutomaticDisabled" xml:space="preserve"><value>Для Chrome AUTO включите автоматическую маршрутизацию в настройках. Активация отменена; защитный PAC сохранён.</value></data>
   <data name="ChromeRecoveryActive" xml:space="preserve"><value>Chrome: резервный DIRECT для обычных сайтов. Защищённые сайты ожидают восстановления службы.</value></data>
   <data name="ChromeRecoveryUnavailable" xml:space="preserve"><value>Резервный транспорт Chrome не готов. Основной маршрут не изменён; проверьте обновление service/GUI и diagnostics.</value></data>
+  <data name="EdgeSites" xml:space="preserve"><value>Сайты Edge AUTO</value></data>
+  <data name="DisableEdgeSites" xml:space="preserve"><value>Отключить PAC Edge</value></data>
+  <data name="EdgeDomainLabel" xml:space="preserve"><value>Домен Edge</value></data>
+  <data name="TransportOutcome" xml:space="preserve"><value>Результат транспорта</value></data>
 </root>
