@@ -26,16 +26,37 @@ GUI ничего не записывает в политику браузера 
 ## Короткая проверка этапа (а), VPN OFF
 
 Оставьте Chrome и Edge открытыми. Закройте **только VELIQ через «Выход» в трее**.
-Обновите только GUI (служба и VPS на этом этапе не менялись), в обычном PowerShell:
+Если служба уже из `b358970` или новее и `edge.status.activation_version >= 3`,
+обновите только GUI (служба и VPS на этом этапе не менялись), в обычном PowerShell:
 
 ```powershell
 git switch codex/work
+if ($LASTEXITCODE) { throw 'Git switch failed' }
 git pull --ff-only origin codex/work
+if ($LASTEXITCODE) { throw 'Git pull failed' }
+git merge-base --is-ancestor 84793bf HEAD
+if ($LASTEXITCODE) { throw 'Expected stage-a code/diagnostics not present' }
 & .\tools\windows\build-desktop.ps1
 if ($LASTEXITCODE) { throw 'GUI build failed' }
 & .\tools\windows\install-desktop.ps1
-Start-Process "$env:LOCALAPPDATA\NeExitLag\VELIQ.exe"
+Start-Process "$env:LOCALAPPDATA\Programs\VELIQ\VELIQ.exe"
 ```
+
+У старой службы `3fec1ae` Edge capability может быть ниже 3: новый GUI честно покажет
+`EDGE_IPC_UNSUPPORTED`, а не создаст нераспознаваемый AUTO. Если служба ещё не обновлялась,
+после `git pull` сначала выполните в обычном PowerShell `& .\tools\windows\build-e2e.ps1`,
+затем в повышенном PowerShell **под тем же SID владельца**, из того же репозитория:
+
+```powershell
+& .\tools\windows\update-service.ps1
+$built=(Get-FileHash .\bin\windows-e2e\neexitlag-service.exe).Hash
+$running=(Get-FileHash "$env:ProgramData\neexitlag\neexitlag-service.exe").Hash
+if ($built -ne $running -or (Get-Service neexitlag).Status -ne 'Running') { throw 'Service update verification failed' }
+```
+
+После этого выполните GUI-only команды выше в обычном окне. Закрывать браузеры
+не требуется; при обновлении службы возможен разрыв сетевых соединений, это не
+измерение hot attach. Не запускать setup/install/uninstall/update-vps и не переобучать identity.
 
 На чистой установке с выключенной оптимизацией через несколько секунд должны
 появиться обе строки, Edge AUTO pending. **Не удаляйте рабочие профили ради теста.**

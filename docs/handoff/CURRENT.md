@@ -42,7 +42,7 @@
 | Лестница адресов, кэш по (домен, адрес), запасной переход без флага, мидстрим-детектор, ограничитель релея | `core/flowpolicy/direct_timeout.go`, `core/browserproxy/{proxy,stall}.go`, `services/client-service/{browser_direct_timeout,browser_transport}.go`, тесты | Claude Code | — | передано Codex, не начато; план ниже, нужно «да» владельца на старт |
 | `diag-no-vpn.ps1 -Only youtube`: расширение (адреса googlevideo, столбец «процесс») | `tools/windows/diag-no-vpn.ps1` | Claude Code | — | передано Codex; базовая версия `ea4792a` готова |
 | GUI A и YouTube/браузерный proxy B, Edge | `core/browserproxy/*`, `core/flowpolicy/direct_timeout.go`, `services/client-service/browser_*.go`, `controller.go`, `tools/windows/diag-no-vpn.ps1`, Edge-файлы, `apps/desktop-core/DesktopViewModel.cs`, `apps/desktop/MainWindow.xaml.cs`, новые GUI error-boundary файлы и тесты, `.github/workflows/edge-native.yml`, `tests/desktop/*`, `docs/BROWSER_DIRECT_FALLBACK.md`, `docs/EDGE_SITE_ROUTING.md`, `apps/desktop/MainWindow.xaml`, `apps/desktop-core/Resources/Strings.resx`, `platform/windows/browser_acceptance_windows_test.go`, `services/control-plane/{api,revocation}_test.go` (только фикстуры) | Codex | `codex/work` | ЗАВЕРШЕНО 19.10.2026: исправления закоммичены/запушены, файлы освобождены. Native Chrome/Edge, C#/WPF, Go race с PostgreSQL PASS. Полное снятие PAC остаётся открытым security blocker (см. (d)/(l)); QUIC/IPv6 без изменений |
-| Этап (а): профили Chrome/Edge при запуске GUI и диагностика; PAC/restart без изменений | `apps/desktop/BrowserStartup*.cs`, `apps/desktop/MainWindow.xaml.cs`, `apps/desktop/ChromeRouting.cs` (только сохранение старого activation path), `apps/desktop-core/BrowserStartup*.cs`, `apps/desktop-core/BrowserCatalog.cs`, `apps/desktop-core/DesktopViewModel.cs` (создание/диагностика), `apps/desktop/MainWindow.xaml`, `tests/desktop/*`, `tests/desktop-bindings/*`, `tools/windows/diag-no-vpn.ps1`, `docs/BROWSER_HOT_ATTACH.md`, `docs/handoff/CURRENT.md` | Codex | `codex/work` | Этап (а) ГОТОВ 19.10.2026 (`c556ac6`), область освобождена, ожидается проверка ПК; локальные Go/Python PASS, C#/Windows CI проверяется. Этап (б) отдельно, (в) только после проверки владельца; VPS/QUIC/IPv6 не менять |
+| Этап (а): профили Chrome/Edge при запуске GUI и диагностика; PAC/restart без изменений | `apps/desktop/BrowserStartup*.cs`, `apps/desktop/MainWindow.xaml.cs`, `apps/desktop/ChromeRouting.cs` (только сохранение старого activation path), `apps/desktop-core/BrowserStartup*.cs`, `apps/desktop-core/BrowserCatalog.cs`, `apps/desktop-core/DesktopViewModel.cs` (создание/диагностика), `apps/desktop/MainWindow.xaml`, `tests/desktop/*`, `tests/desktop-bindings/*`, `tools/windows/diag-no-vpn.ps1`, `docs/BROWSER_HOT_ATTACH.md`, `docs/handoff/CURRENT.md` | Codex | `codex/work` | Этап (а) ГОТОВ 19.10.2026 (`c556ac6`), область освобождена, ожидается проверка ПК; локальные Go/Python PASS, C#/WPF, Edge policy и полный Linux/Windows Verify CI PASS. Этап (б) отдельно, (в) только после проверки владельца; VPS/QUIC/IPv6 не менять |
 | Discord медленно, DIRECT+ для YouTube | не определены | никто | — | свободно для Codex после диагностики; Go-файлы застоя (выше) не трогать |
 | PR #8, `codex/direct-plus-flowseal` | — | не трогать | — | только владелец |
 
@@ -357,9 +357,26 @@ Read-only команды Windows/VPS и риски 1 vCPU описаны в BROW
   того же PID/start time. CI и Internet/ISP владельца — разные доказательства.
 - PAC/диалог/quit/restore-last-session не удалены. Дельта `ChromeRouting.cs` сохраняет
   старую активацию для Chrome, который теперь зарегистрирован раньше, при старте GUI.
+  Точки интеграции: `ChromeRouting.cs:26–29` (выбор созданного startup-профиля),
+  `MainWindow.xaml.cs:116` (регистрация после успешного Refresh); restart-код не менялся.
   Механизм AUTO без PAC, enable-to-first-success, объединённые native/PAC relay counters
   и последующая googlevideo admission-политика — этап (б), не заявлены готовыми.
   Этап (в) ждёт отдельной проверки владельца. VPS/сертификаты/TLS/mTLS/PR #8 не менялись.
 - Инструкция GUI-only обновления и границы проверки: [BROWSER_HOT_ATTACH.md](../BROWSER_HOT_ATTACH.md).
   Оставить Chrome/Edge открытыми, обновить/перезапустить только GUI, не нажимать PAC-кнопки
   для проверки регистрации; затем `& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube`.
+
+### CI этапа (а)
+
+- Полный код/скрипт `84793bf`: [Edge policy acceptance PASS](https://github.com/buzzmean/neexitlag/actions/runs/39229227048)
+  (C# core, заранее работающие Chrome/Edge с теми же PID/start time, WPF, PS5.1/7 parser,
+  Edge real policy/HTTPS/recovery). Native Chrome [PASS на `c556ac6`](https://github.com/buzzmean/neexitlag/actions/runs/39229047809),
+  следующие изменения затрагивали diagnostics/docs, не Chrome runtime.
+- [Verify `84793bf`](https://github.com/buzzmean/neexitlag/actions/runs/39229227087):
+  полный PASS: Linux core и Windows, включая native WPF, Go, ускоренный lease и PS-регрессии.
+  Финальный handoff после `84793bf` меняет только документы, не исполняемый код/скрипт.
+- DNS recovery fixture после первого load-timeout дополнительно прошла `-race -count=3`
+  без кэша; production Go и таймауты не менялись.
+- Инструкция учитывает старую службу: если capability Edge <3, сначала обновить только
+  локальную Windows-службу через build-e2e/update-service с SHA256-проверкой, затем GUI.
+  Browser процессы закрывать не надо; соединения при service update могут прерваться.
