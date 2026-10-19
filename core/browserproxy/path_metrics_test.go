@@ -69,6 +69,9 @@ func TestPACPathsOpenBudgetAndFirstExchange(t *testing.T) {
 		snap := s.Snapshot()
 		if len(snap.PathMetrics) == 1 && snap.PathMetrics[0].Received == 4 {
 			m := snap.PathMetrics[0]
+			if len(snap.FirstByteMetrics) != 1 || snap.FirstByteMetrics[0].Replies != 1 || snap.FirstByteMetrics[0].Mode != "DIRECT_FIRST" || snap.Records[0].FirstByteMS < 0 || snap.Records[0].AcceptedAt.IsZero() {
+				t.Fatal("missing actual connection-to-first-byte evidence", snap)
+			}
 			if snap.Path != "PAC_CONNECT" || m.Accepted != 1 || m.Opened != 1 || m.Failed != 0 || m.Sent != 4 || m.FirstOpened.IsZero() || m.FirstExchange.IsZero() || m.FirstOpenMS < 0 || m.FirstExchangeMS < 0 {
 				t.Fatal(snap)
 			}

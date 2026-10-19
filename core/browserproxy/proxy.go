@@ -77,6 +77,9 @@ type Plan struct {
 	HTTPStatus       int                `json:"http_status,omitempty"`
 }
 type Record struct {
+	AcceptedAt        time.Time `json:"accepted_at"`
+	FirstByteMode     string    `json:"first_byte_mode"`
+	FirstByteMS       float64   `json:"connection_to_first_byte_ms"`
 	PlanDurationMS    int64     `json:"plan_duration_ms"`
 	OpenDurationMS    int64     `json:"open_duration_ms"`
 	EvidenceSource    string    `json:"evidence_source,omitempty"`
@@ -98,6 +101,8 @@ type Record struct {
 	StallRetried bool `json:"stall_retried_via_relay,omitempty"`
 }
 type Snapshot struct {
+	FirstByteMetrics   []FirstByteMetric `json:"first_byte_metrics"`
+	FirstByteLost      uint64            `json:"first_byte_metrics_lost"`
 	Path               string            `json:"path"`
 	PathMetrics        []PathMetrics     `json:"path_metrics"`
 	MetricsLost        uint64            `json:"metrics_lost"`
@@ -138,6 +143,7 @@ type Config struct {
 	Open         func(context.Context, Request, Plan) (net.Conn, error)
 }
 type Server struct {
+	firstBytes         firstByteLedger
 	started            time.Time
 	paths              map[string]PathMetrics
 	metricsLost        uint64
@@ -215,6 +221,7 @@ func (s *Server) Snapshot() Snapshot {
 		ready = append(ready, profile)
 	}
 	out := Snapshot{Path: "PAC_CONNECT", PathMetrics: []PathMetrics{}, FailureDetails: []FailureSummary{}, MetricsLost: s.metricsLost, FailureDetailsLost: s.failureDetailsLost, ReadyProfiles: ready, Failures: failures, Listening: !s.closed && s.ctx.Err() == nil, Address: s.Address(), Lost: s.lost, Records: make([]Record, 0, len(s.records))}
+	out.FirstByteMetrics, out.FirstByteLost = s.firstBytes.snapshot()
 	for _, p := range s.paths {
 		out.PathMetrics = append(out.PathMetrics, p)
 	}
@@ -245,6 +252,7 @@ func (s *Server) serve() {
 			s.CloseConnections()
 			return
 		}
+		acceptedAt := time.Now()
 		select {
 		case s.slots <- struct{}{}:
 			s.mu.Lock()
@@ -254,7 +262,7 @@ func (s *Server) serve() {
 			go func() {
 				defer s.wg.Done()
 				defer func() { <-s.slots; s.mu.Lock(); delete(s.conns, c); s.mu.Unlock(); c.Close() }()
-				s.handle(c)
+				s.handle(c, acceptedAt)
 			}()
 		default:
 			s.reject("PROXY_CONNECTION_CAPACITY")
@@ -318,7 +326,7 @@ func (s *Server) reject(reason string) {
 	s.failures[reason]++
 	s.mu.Unlock()
 }
-func (s *Server) handle(c net.Conn) {
+func (s *Server) handle(c net.Conn, acceptedAt time.Time) {
 	lifetime, stopLifetime := context.WithCancel(s.ctx)
 	defer stopLifetime()
 	ctx, cancel := context.WithTimeout(lifetime, 8*time.Second)
@@ -368,13 +376,16 @@ func (s *Server) handle(c net.Conn) {
 		}
 		snapshot := s.cfg.Metadata()
 		raw, err := json.Marshal(snapshot)
-		for err == nil && len(raw) > 58000 && (len(snapshot.Records) > 0 || len(snapshot.FailureDetails) > 0 || len(snapshot.PathMetrics) > 0) {
+		for err == nil && len(raw) > 58000 && (len(snapshot.Records) > 0 || len(snapshot.FailureDetails) > 0 || len(snapshot.PathMetrics) > 0 || len(snapshot.FirstByteMetrics) > 0) {
 			snapshot.Truncated = true
 			switch {
 			case len(snapshot.Records) > 0:
 				snapshot.Records = snapshot.Records[:len(snapshot.Records)-1]
 			case len(snapshot.FailureDetails) > 0:
 				snapshot.FailureDetails = snapshot.FailureDetails[:len(snapshot.FailureDetails)-1]
+			case len(snapshot.FirstByteMetrics) > 0:
+				snapshot.FirstByteMetrics = snapshot.FirstByteMetrics[:len(snapshot.FirstByteMetrics)-1]
+				snapshot.FirstByteLost++
 			case len(snapshot.PathMetrics) > 0:
 				snapshot.PathMetrics = snapshot.PathMetrics[:len(snapshot.PathMetrics)-1]
 			}
@@ -466,11 +477,14 @@ func (s *Server) handle(c net.Conn) {
 		return
 	}
 	s.pathBeginLocked(owner.Profile)
-	s.records[id] = Record{ID: id, Owner: owner, Domain: host, Port: port, Source: originalSource.String(), Plan: plan, PlanDurationMS: time.Since(started).Milliseconds(), EvidenceSource: q.Ingress, Started: started, Active: true, Result: "OPEN_PENDING"}
+	s.records[id] = Record{AcceptedAt: acceptedAt, FirstByteMS: -1, FirstByteMode: firstByteMode(plan), ID: id, Owner: owner, Domain: host, Port: port, Source: originalSource.String(), Plan: plan, PlanDurationMS: time.Since(started).Milliseconds(), EvidenceSource: q.Ingress, Started: started, Active: true, Result: "OPEN_PENDING"}
 	s.mu.Unlock()
 	finish := func(result string, tx, rx uint64) {
 		s.mu.Lock()
 		r := s.records[id]
+		if r.FirstByteMS < 0 {
+			s.firstBytes.observe(r, -1)
+		}
 		r.Active = false
 		r.Result = result
 		p := s.paths[r.Owner.Profile]
@@ -518,6 +532,7 @@ func (s *Server) handle(c net.Conn) {
 	s.mu.Lock()
 	openedRecord := s.records[id]
 	openedRecord.OpenDurationMS = time.Since(openStarted).Milliseconds()
+	openedRecord.FirstByteMode = firstByteMode(plan)
 	s.records[id] = openedRecord
 	s.mu.Unlock()
 	if e != nil {
@@ -610,6 +625,11 @@ func (s *Server) account(id, tx, rx uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r := s.records[id]
+	if rx > 0 && r.FirstByteMS < 0 {
+		elapsed := time.Since(r.AcceptedAt)
+		r.FirstByteMS = float64(elapsed) / float64(time.Millisecond)
+		s.firstBytes.observe(r, elapsed)
+	}
 	r.Sent += tx
 	r.Received += rx
 	s.pathBytesLocked(r, tx, rx)

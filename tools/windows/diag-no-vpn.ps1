@@ -287,7 +287,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-19.6 (native-only proof, cold retry, actual firewall)'
+$ScriptVersion='2026-10-19.7 (group relay-first, connection-to-first-byte)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -497,6 +497,7 @@ Step 'sni' {
 }}
 
 function Write-BrowserPathEvidence($snapshot,[string]$lane) {
+ Write-BrowserFirstByteEvidence $snapshot $lane
  Say ($lane+' path='+(Prop $snapshot 'path' 'PAC_LEGACY_UNINSTRUMENTED')+' metrics_lost='+(Prop $snapshot 'metrics_lost' 0)+' failure_details_lost='+(Prop $snapshot 'failure_details_lost' 0))
  foreach($m in @(Prop $snapshot 'path_metrics' @())) {
   $opened=[long](Prop $m 'opened' 0)
@@ -507,6 +508,29 @@ function Write-BrowserPathEvidence($snapshot,[string]$lane) {
   Say ($lane+' origin failure: profile='+(Prop $f 'profile_id')+' domain='+(Prop $f 'domain')+' stage='+(Prop $f 'phase')+' reason='+(Prop $f 'reason')+' route='+(Prop $f 'route' 'UNKNOWN')+' destination='+(Prop $f 'destination' 'UNKNOWN')+' policy_source='+(Prop $f 'policy_source' 'UNKNOWN')+' count='+(Prop $f 'count')+' last='+(Prop $f 'last_at'))
  }
  Say 'PAC OPEN means CONNECT/upstream-handoff accepted; actual native OPEN is separate. One PAC ingress may feed one PAC_NATIVE_UPSTREAM: do not sum them as independent application requests. No bytes/probe result alone proves page load.'
+}
+
+function Write-BrowserFirstByteEvidence($snapshot,[string]$lane) {
+ $property=if($null -ne $snapshot){$snapshot.PSObject.Properties['first_byte_metrics']}else{$null}
+ if($null -eq $property){Say ($lane+' first-byte: UNINSTRUMENTED (old service); no before/after latency invented');return}
+ $rows=@($property.Value)
+ if($rows.Count -eq 0){Say ($lane+' first-byte: NO_SAMPLES')}
+ Say ($lane+' first-byte scope: proxy TCP accept -> first delivered origin byte (including TLS); not HTTP/page load; PAC_NATIVE_UPSTREAM is not a second sample; lost='+(Prop $snapshot 'first_byte_metrics_lost' 0))
+ $pairs=@{}
+ foreach($metric in @($rows)){
+  $samples=[long](Prop $metric 'replies' 0)
+  $avg=if($samples -gt 0){[Math]::Round(([double](Prop $metric 'total_ms' 0)/$samples),2)}else{'NOT_OBSERVED'}
+  $mode=[string](Prop $metric 'mode' 'UNINSTRUMENTED')
+  Say ($lane+' first-byte: network='+(Prop $metric 'network')+' profile='+(Prop $metric 'profile_id')+' group='+(Prop $metric 'group')+' path='+(Prop $metric 'path')+' mode='+$mode+' n='+$samples+' no_reply='+(Prop $metric 'closed_without_reply' 0)+' avg_ms='+$avg+' min_ms='+(Prop $metric 'min_ms' -1)+' max_ms='+(Prop $metric 'max_ms' -1)+' last_ms='+(Prop $metric 'last_ms' -1))
+  $key=([string](Prop $metric 'network'))+'|'+(Prop $metric 'profile_id')+'|'+(Prop $metric 'group')+'|'+(Prop $metric 'path')
+  if(!$pairs.ContainsKey($key)){$pairs[$key]=@{}}
+  if($samples -gt 0){$pairs[$key][$mode]=$avg}
+ }
+ foreach($key in @($pairs.Keys|Sort-Object)){
+  $before=if($pairs[$key].ContainsKey('DIRECT_FIRST')){$pairs[$key]['DIRECT_FIRST']}else{'NOT_OBSERVED'}
+  $after=if($pairs[$key].ContainsKey('RELAY_FIRST')){$pairs[$key]['RELAY_FIRST']}else{'NOT_OBSERVED'}
+  Say ($lane+' first-byte comparison '+$key+': before_direct_first_avg_ms='+$before+' after_relay_first_avg_ms='+$after+' (observed connections; not a controlled ISP A/B test)')
+ }
 }
 
 function Write-NativeIngressEvidence($native) {
@@ -545,7 +569,7 @@ Step 'youtube' {
   if($cache){
    Say ("cache (shared by both lanes): domains="+(Prop $cache 'active_origins')+" addresses="+(Prop $cache 'active_addresses' '-')+" stalls="+(Prop $cache 'direct_stalls_total')+" rechecks="+(Prop $cache 'background_direct_probes')+" recovered_verified="+(Prop $cache 'recovered_to_direct'))
    foreach($origin in @(Prop $cache 'top_origins' @())){
-    Say (" cache: network="+(Prop $origin 'network' '-')+" profile="+(Prop $origin 'profile_id' '-')+" domain="+(Prop $origin 'host')+" port="+(Prop $origin 'port')+" address="+(Prop $origin 'address' '(domain)')+" reason="+(Prop $origin 'reason' '-')+" distinct="+(Prop $origin 'distinct_failed_addresses' '-')+" ttl_ms="+(Prop $origin 'ttl_remaining_ms' '-')+" next_probe="+(Prop $origin 'next_direct_probe'))
+    Say (" cache: network="+(Prop $origin 'network' '-')+" profile="+(Prop $origin 'profile_id' '-')+" group="+(Prop $origin 'group' '(exact host)')+" probe_host="+(Prop $origin 'probe_host' '-')+" domain="+(Prop $origin 'host')+" port="+(Prop $origin 'port')+" address="+(Prop $origin 'address' '(domain)')+" reason="+(Prop $origin 'reason' '-')+" distinct="+(Prop $origin 'distinct_failed_addresses' '-')+" ttl_ms="+(Prop $origin 'ttl_remaining_ms' '-')+" next_probe="+(Prop $origin 'next_direct_probe'))
    }
   }
   $usage=Prop $snapshot 'relay_usage'

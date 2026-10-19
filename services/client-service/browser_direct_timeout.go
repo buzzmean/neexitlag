@@ -232,6 +232,9 @@ func (v *browserStatusView) bound() {
 			v.Records = v.Records[:len(v.Records)-1]
 		case len(v.FailureDetails) > 0:
 			v.FailureDetails = v.FailureDetails[:len(v.FailureDetails)-1]
+		case len(v.FirstByteMetrics) > 0:
+			v.FirstByteMetrics = v.FirstByteMetrics[:len(v.FirstByteMetrics)-1]
+			v.FirstByteLost++
 		case len(v.PathMetrics) > 0:
 			v.PathMetrics = v.PathMetrics[:len(v.PathMetrics)-1]
 		case len(v.RelayUsage.Minutes) > 0:

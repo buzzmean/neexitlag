@@ -156,7 +156,7 @@ func testNativeColdStallRetry(t *testing.T, b *WinDivertBackend, id ProcessIdent
 	t.Log("CONFIRMED old kernel-only Close -> ErrFlowExists while app-scoped firewall is applied; synchronous planned close releases it")
 	cache := flowpolicy.NewDirectTimeoutCache()
 	cacheKey := func(q browserproxy.Request) flowpolicy.DirectTimeoutKey {
-		return flowpolicy.DirectTimeoutKey{Network: "cold-network", Application: "cold-browser", Host: q.Host, Port: q.Port, Address: destination.Addr().String()}
+		return flowpolicy.DirectTimeoutKey{Network: "cold-network", Application: "cold-browser", Host: flowpolicy.DirectTimeoutHost(q.Host), Port: q.Port, Address: destination.Addr().String()}
 	}
 	var direct, collisions atomic.Uint64
 	open := func(ctx context.Context, q browserproxy.Request, p browserproxy.Plan) (net.Conn, error) {
@@ -182,7 +182,11 @@ func testNativeColdStallRetry(t *testing.T, b *WinDivertBackend, id ProcessIdent
 		},
 		Plan: func(_ context.Context, q browserproxy.Request) (browserproxy.Plan, error) {
 			action, source := flowpolicy.Direct, "cold-direct"
-			if active, _ := cache.Lookup(cacheKey(q), time.Now()); active {
+			key := cacheKey(q)
+			if flowpolicy.BrowserRelayGroup(q.Host) != "" {
+				key.Address = ""
+			}
+			if active, _ := cache.Lookup(key, time.Now()); active {
 				action, source = flowpolicy.RelayRequired, "direct_timeout_cache"
 			}
 			if q.Host == "chatgpt.com" {
@@ -191,7 +195,11 @@ func testNativeColdStallRetry(t *testing.T, b *WinDivertBackend, id ProcessIdent
 			return browserproxy.Plan{Enabled: true, Network: "cold-network", Destination: destination, Policy: flowpolicy.Result{Action: action, RelayID: "VPS-01", Fallback: flowpolicy.Required, Source: source}}, nil
 		}, Open: open,
 		OnStall: func(ctx context.Context, q browserproxy.Request, p browserproxy.Plan) (net.Conn, browserproxy.Plan, error) {
-			cache.RecordStall(cacheKey(q), time.Now())
+			if flowpolicy.BrowserRelayGroup(q.Host) != "" {
+				cache.RecordOriginStall(cacheKey(q), time.Now())
+			} else {
+				cache.RecordStall(cacheKey(q), time.Now())
+			}
 			p.Policy = flowpolicy.Result{Action: flowpolicy.RelayRequired, RelayID: "VPS-01", Fallback: flowpolicy.Required, Source: "direct_stall_retry"}
 			conn, err := open(ctx, q, p)
 			cache.NoteRetry(err == nil)
@@ -206,19 +214,21 @@ func testNativeColdStallRetry(t *testing.T, b *WinDivertBackend, id ProcessIdent
 	tr := &http.Transport{Proxy: http.ProxyURL(proxyURL), TLSClientConfig: &tls.Config{RootCAs: f.Roots, MinVersion: tls.VersionTLS12}, DisableKeepAlives: true, ForceAttemptHTTP2: true}
 	defer tr.CloseIdleConnections()
 	client := &http.Client{Transport: tr, Timeout: 4 * time.Second}
-	for _, host := range []string{"youtube.com", "www.youtube.com", "rr1---sn-test.googlevideo.com", "play.google.com", "vk.ru"} {
+	for _, host := range []string{"youtube.com", "www.youtube.com", "rr1---sn-test.googlevideo.com", "i.ytimg.com", "yt3.ggpht.com", "play.google.com", "vk.ru"} {
 		for attempt := 0; attempt < 2; attempt++ {
 			before := direct.Load()
+			started := time.Now()
 			response, err := client.Get("https://" + host + "/cold-nonce")
 			if err != nil {
 				t.Fatal("first cold request must finish, not rely on browser reconnect/cache", host, attempt, err, "local tuple collisions", collisions.Load())
 			}
+			t.Logf("cold verified TLS/HTTP headers: host=%s attempt=%d time=%v DIRECT opens=%d", host, attempt, time.Since(started), direct.Load()-before)
 			body, readErr := io.ReadAll(response.Body)
 			response.Body.Close()
 			if readErr != nil || response.StatusCode != 200 || string(body) != f.Nonce {
 				t.Fatal("TLS/HTTP nonce failed", host, response.StatusCode, readErr)
 			}
-			if attempt == 1 && direct.Load() != before {
+			if (attempt == 1 || flowpolicy.BrowserRelayGroup(host) != "" && host != "youtube.com") && direct.Load() != before {
 				t.Fatal("cached request retried DIRECT", host)
 			}
 		}
@@ -234,8 +244,27 @@ func testNativeColdStallRetry(t *testing.T, b *WinDivertBackend, id ProcessIdent
 		t.Fatal("protected origin failed or leaked DIRECT", err)
 	}
 	snapshot := proxy.Snapshot()
-	if collisions.Load() != 0 || replies.Load() != 11 || snapshot.Failures["DIRECT_STALL"] != 5 || snapshot.Failures["DIRECT_STALL_RETRIED_VIA_RELAY"] != 5 || snapshot.Failures["DIRECT_STALL_RETRY_FAILED"] != 0 {
+	if collisions.Load() != 0 || replies.Load() != 15 || snapshot.Failures["DIRECT_STALL"] != 3 || snapshot.Failures["DIRECT_STALL_RETRIED_VIA_RELAY"] != 3 || snapshot.Failures["DIRECT_STALL_RETRY_FAILED"] != 0 {
 		t.Fatal("cold retry counters", collisions.Load(), replies.Load(), snapshot.Failures)
 	}
-	t.Log("PASS cold-cache native DIRECT stall -> same CONNECT authenticated RELAY: verified TLS+HTTP nonce, five first requests survive, no Engine collision, cached request relay-first, protected no DIRECT")
+	var groupDirect, groupRelay uint64
+	for _, timing := range snapshot.FirstByteMetrics {
+		if timing.Group != "youtube-media" {
+			continue
+		}
+		t.Logf("connection-to-first-byte: group=%s mode=%s n=%d avg=%.2fms min=%.2fms max=%.2fms no_reply=%d", timing.Group, timing.Mode, timing.Replies, timing.TotalMS/float64(timing.Replies), timing.MinMS, timing.MaxMS, timing.NoReply)
+		if timing.NoReply != 0 {
+			t.Fatal("group lost first connection", timing)
+		}
+		if timing.Mode == "DIRECT_FIRST" {
+			groupDirect += timing.Replies
+		}
+		if timing.Mode == "RELAY_FIRST" {
+			groupRelay += timing.Replies
+		}
+	}
+	if groupDirect != 1 || groupRelay != 9 {
+		t.Fatal("cold group paid repeated DIRECT timeouts", groupDirect, groupRelay)
+	}
+	t.Log("PASS cold-cache native DIRECT stall -> same CONNECT authenticated RELAY: verified TLS+HTTP nonce, seven first requests survive; YouTube group only one initial stall, no Engine collision, cached request relay-first, protected no DIRECT")
 }
