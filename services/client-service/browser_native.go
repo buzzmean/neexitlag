@@ -39,18 +39,20 @@ func (c *Controller) nativeBackendConfigured() bool {
 }
 
 type nativeBrowserProfileStatus struct {
-	Accepted        uint64    `json:"accepted"`
-	Opened          uint64    `json:"opened"`
-	Failed          uint64    `json:"failed"`
-	Sent            uint64    `json:"sent_bytes"`
-	Received        uint64    `json:"received_bytes"`
-	AfterFlow       uint64    `json:"-"`
-	Profile         string    `json:"profile_id"`
-	Activated       time.Time `json:"activated_at"`
-	FirstOpened     time.Time `json:"first_tunnel_opened_at,omitzero"`
-	FirstExchange   time.Time `json:"first_bidirectional_exchange_at,omitzero"`
-	FirstOpenMS     int64     `json:"enable_to_first_open_ms"`
-	FirstExchangeMS int64     `json:"enable_to_first_exchange_ms"`
+	NativeOnly      nativeIngressMetrics `json:"native_only"`
+	PACUpstream     nativeIngressMetrics `json:"pac_native_upstream"`
+	Accepted        uint64               `json:"accepted"`
+	Opened          uint64               `json:"opened"`
+	Failed          uint64               `json:"failed"`
+	Sent            uint64               `json:"sent_bytes"`
+	Received        uint64               `json:"received_bytes"`
+	AfterFlow       uint64               `json:"-"`
+	Profile         string               `json:"profile_id"`
+	Activated       time.Time            `json:"activated_at"`
+	FirstOpened     time.Time            `json:"first_tunnel_opened_at,omitzero"`
+	FirstExchange   time.Time            `json:"first_bidirectional_exchange_at,omitzero"`
+	FirstOpenMS     int64                `json:"enable_to_first_open_ms"`
+	FirstExchangeMS int64                `json:"enable_to_first_exchange_ms"`
 }
 type nativeBrowserRecord struct {
 	Ingress     string             `json:"ingress"`
@@ -69,16 +71,20 @@ type nativeBrowserRecord struct {
 	Active      bool               `json:"active"`
 }
 type nativeBrowserSnapshot struct {
-	RelayUsage       relayUsageSnapshot           `json:"relay_usage"`
-	Version          int                          `json:"version"`
-	Ready            bool                         `json:"capture_ready"`
-	Enabled          bool                         `json:"optimizing"`
-	ExistingTCP      string                       `json:"existing_tcp"`
-	PageVerification string                       `json:"page_verification"`
-	Profiles         []nativeBrowserProfileStatus `json:"profiles"`
-	Records          []nativeBrowserRecord        `json:"records"`
-	Lost             uint64                       `json:"lost"`
-	Truncated        bool                         `json:"truncated"`
+	NativeOnlyState    string                       `json:"native_only_state"`
+	NativeOnlyAutoMode string                       `json:"native_only_auto_mode"`
+	NativeOnly         nativeIngressCounters        `json:"native_only_totals"`
+	PACUpstream        nativeIngressCounters        `json:"pac_native_upstream_totals"`
+	RelayUsage         relayUsageSnapshot           `json:"relay_usage"`
+	Version            int                          `json:"version"`
+	Ready              bool                         `json:"capture_ready"`
+	Enabled            bool                         `json:"optimizing"`
+	ExistingTCP        string                       `json:"existing_tcp"`
+	PageVerification   string                       `json:"page_verification"`
+	Profiles           []nativeBrowserProfileStatus `json:"profiles"`
+	Records            []nativeBrowserRecord        `json:"records"`
+	Lost               uint64                       `json:"lost"`
+	Truncated          bool                         `json:"truncated"`
 }
 type nativeBrowserRuntime struct {
 	mu         sync.Mutex
@@ -95,7 +101,7 @@ func (n *nativeBrowserRuntime) activateAt(id string, reset bool, at time.Time) {
 		n.profiles = map[string]nativeBrowserProfileStatus{}
 	}
 	if _, ok := n.profiles[id]; (reset || !ok) && (ok || len(n.profiles) < 128) {
-		n.profiles[id] = nativeBrowserProfileStatus{Profile: id, AfterFlow: n.next, Activated: at, FirstOpenMS: -1, FirstExchangeMS: -1}
+		n.profiles[id] = nativeBrowserProfileStatus{NativeOnly: newIngressMetrics(), PACUpstream: newIngressMetrics(), Profile: id, AfterFlow: n.next, Activated: at, FirstOpenMS: -1, FirstExchangeMS: -1}
 	}
 }
 func (c *Controller) nativeBrowserActivation(enabled, wasEnabled bool, at time.Time) {
@@ -108,7 +114,7 @@ func (c *Controller) nativeBrowserActivation(enabled, wasEnabled bool, at time.T
 	}
 }
 func (c *Controller) nativeSnapshot() nativeBrowserSnapshot {
-	s := nativeBrowserSnapshot{Version: 1, Ready: c.nativeBackendReady(), ExistingTCP: "PINNED_UNTIL_CLOSED; reload may reuse HTTP/2", PageVerification: "NOT_OBSERVED; bidirectional bytes are not HTTPS/page PASS", Profiles: []nativeBrowserProfileStatus{}, Records: []nativeBrowserRecord{}}
+	s := nativeBrowserSnapshot{NativeOnlyState: "NATIVE_ONLY_NOT_OBSERVED", NativeOnlyAutoMode: "NOT_AVAILABLE_WITH_PAC_AS_ONLY_CRASH_GUARD", Version: 1, Ready: c.nativeBackendReady(), ExistingTCP: "PINNED_UNTIL_CLOSED; reload may reuse HTTP/2", PageVerification: "NOT_OBSERVED; bidirectional bytes are not HTTPS/page PASS", Profiles: []nativeBrowserProfileStatus{}, Records: []nativeBrowserRecord{}}
 	c.mu.Lock()
 	s.Enabled = c.enabled
 	c.mu.Unlock()
@@ -118,6 +124,11 @@ func (c *Controller) nativeSnapshot() nativeBrowserSnapshot {
 	defer n.mu.Unlock()
 	for _, p := range n.profiles {
 		s.Profiles = append(s.Profiles, p)
+		addIngress(&s.NativeOnly, p.NativeOnly.nativeIngressCounters)
+		addIngress(&s.PACUpstream, p.PACUpstream.nativeIngressCounters)
+	}
+	if s.NativeOnly.Exchanges > 0 {
+		s.NativeOnlyState = "NATIVE_ONLY_OBSERVED"
 	}
 	sort.Slice(s.Profiles, func(i, j int) bool { return s.Profiles[i].Profile < s.Profiles[j].Profile })
 	for _, r := range n.records {
@@ -314,6 +325,9 @@ func (n *nativeBrowserRuntime) begin(q browserproxy.Request, t wp.Tuple) (uint64
 	p := n.profiles[q.Owner.Profile]
 	if p.Profile != "" {
 		p.Accepted++
+		if path := p.ingress(q.Ingress); path != nil {
+			path.Accepted++
+		}
 		n.profiles[q.Owner.Profile] = p
 	}
 	return n.next, nil
@@ -342,6 +356,20 @@ func (n *nativeBrowserRuntime) opened(id uint64, plan browserproxy.Plan, err err
 			p.FirstOpenMS = p.FirstOpened.Sub(p.Activated).Milliseconds()
 		}
 	}
+	if p.Profile != "" && id > p.AfterFlow {
+		if path := p.ingress(r.Ingress); path != nil {
+			if err != nil {
+				path.Failed++
+			} else {
+				path.Opened++
+				path.Active++
+				if path.FirstOpened.IsZero() {
+					path.FirstOpened = time.Now()
+					path.FirstOpenMS = path.FirstOpened.Sub(p.Activated).Milliseconds()
+				}
+			}
+		}
+	}
 	if p.Profile != "" {
 		n.profiles[r.Owner.Profile] = p
 	}
@@ -354,12 +382,26 @@ func (n *nativeBrowserRuntime) bytes(id uint64, tx, rx uint64) {
 	if !ok {
 		return
 	}
+	wasExchange := r.Sent > 0 && r.Received > 0
 	r.Sent += tx
 	r.Received += rx
 	p := n.profiles[r.Owner.Profile]
 	if p.Profile != "" {
 		p.Sent += tx
 		p.Received += rx
+		if id > p.AfterFlow {
+			if path := p.ingress(r.Ingress); path != nil {
+				path.Sent += tx
+				path.Received += rx
+				if !wasExchange && r.Sent > 0 && r.Received > 0 {
+					path.Exchanges++
+					if path.FirstExchange.IsZero() {
+						path.FirstExchange = time.Now()
+						path.FirstExchangeMS = path.FirstExchange.Sub(p.Activated).Milliseconds()
+					}
+				}
+			}
+		}
 		n.profiles[r.Owner.Profile] = p
 	}
 	if r.Sent > 0 && r.Received > 0 {
@@ -378,6 +420,13 @@ func (n *nativeBrowserRuntime) closed(id uint64) {
 	defer n.mu.Unlock()
 	r, ok := n.records[id]
 	if ok {
+		p := n.profiles[r.Owner.Profile]
+		if r.Active && id > p.AfterFlow {
+			if path := p.ingress(r.Ingress); path != nil && path.Active > 0 {
+				path.Active--
+				n.profiles[r.Owner.Profile] = p
+			}
+		}
 		r.Active = false
 		n.records[id] = r
 	}
