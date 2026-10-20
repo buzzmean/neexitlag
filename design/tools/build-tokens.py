@@ -131,9 +131,8 @@ def main() -> None:
         (dest / "img" / "tray").mkdir(exist_ok=True)
         for tray in icons.glob("tray-*.svg"):
             shutil.copy(tray, dest / "img" / "tray" / tray.name)
-        og = ROOT / "brand" / "social" / "og-image.png"
-        if og.exists():
-            shutil.copy(og, dest / "img" / "og-image.png")
+        for og in (ROOT / "brand" / "social").glob("og-*.png"):
+            shutil.copy(og, dest / "img" / og.name)
         print("обновлено:", dest.relative_to(ROOT))
 
 

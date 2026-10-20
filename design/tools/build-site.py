@@ -41,7 +41,7 @@ def icon(name, cls="i"):
     return f'<svg class="{cls}" aria-hidden="true"><use href="#i-{name}"/></svg>'
 
 
-def head(title, desc, path, extra_ld=None):
+def head(title, desc, path, extra_ld=None, og="og-image.png", og_alt="VELIQ: нажал — работает."):
     url = f'{SITE["url"]}/{path if path != "index.html" else ""}'
     ld = ""
     if extra_ld:
@@ -63,11 +63,12 @@ def head(title, desc, path, extra_ld=None):
   <meta property="og:title" content="{html.escape(full_title)}">
   <meta property="og:description" content="{html.escape(desc)}">
   <meta property="og:url" content="{url}">
-  <meta property="og:image" content="{SITE['url']}/assets/img/og-image.png">
+  <meta property="og:image" content="{SITE['url']}/assets/img/{og}">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
-  <meta property="og:image:alt" content="VELIQ: нажал — работает.">
+  <meta property="og:image:alt" content="{html.escape(og_alt)}">
   <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="{SITE['url']}/assets/img/{og}">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
   <link rel="icon" href="assets/img/favicon.ico" sizes="any">
   <link rel="apple-touch-icon" href="assets/img/app-icon-180.png">
@@ -147,8 +148,8 @@ def footer():
 """
 
 
-def page(path, title, desc, active, body, ld=None):
-    (OUT / path).write_text(head(title, desc, path, ld) + header(active) + '<main id="main">\n' + body + "\n</main>\n" + footer(), encoding="utf-8")
+def page(path, title, desc, active, body, ld=None, og="og-image.png", og_alt="VELIQ: нажал — работает."):
+    (OUT / path).write_text(head(title, desc, path, ld, og, og_alt) + header(active) + '<main id="main">\n' + body + "\n</main>\n" + footer(), encoding="utf-8")
     print("страница:", path)
 
 
@@ -467,7 +468,7 @@ vpn_body = f"""
 """
 page("vpn.html", "Чем VELIQ отличается от VPN",
      "VPN отправляет весь трафик через один сервер. VELIQ выбирает путь для каждого соединения: заблокированное открывается, игры получают самый быстрый маршрут, остальное работает как обычно.",
-     "how", vpn_body)
+     "how", vpn_body, og="og-vpn.png", og_alt="Не VPN: VELIQ строит свой путь для каждого соединения.")
 
 # ---------------------------------------------------------------- скачать
 download_body = f"""
@@ -676,7 +677,7 @@ clubs_body = f"""
 """
 page("clubs.html", "VELIQ для компьютерных клубов",
      "Заблокированные сервисы и быстрый путь для игр на всех ПК клуба. Работает на компьютерах с откатом после перезагрузки, в том числе с Langame. Калькулятор выгоды.",
-     "clubs", clubs_body)
+     "clubs", clubs_body, og="og-clubs.png", og_alt="VELIQ для компьютерных клубов: каждый ПК — работает.")
 
 # ---------------------------------------------------------------- цены
 pricing_body = f"""
@@ -746,9 +747,9 @@ support_body = f"""
   <div class="wrap cols">
     <div>
       <div class="faq">
-        <h3 class="faq__group">Общие вопросы</h3>
+        <h2 class="faq__group">Общие вопросы</h2>
 {faq(SUPPORT_FAQ)}
-        <h3 class="faq__group" id="errors">Ошибки в программе</h3>
+        <h2 class="faq__group" id="errors">Ошибки в программе</h2>
 {err_html}
       </div>
     </div>

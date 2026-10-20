@@ -38,7 +38,6 @@
   .nav a[aria-current="page"] { box-shadow: inset 3px 0 0 var(--accent); padding-left: 14px; }
   .menu-btn { display: inline-flex; }
   .top__tools { margin-left: auto; }
-  .top__cta { display: none; }
 }
 
 /* ---------- Типографика страниц ---------- */
@@ -167,8 +166,8 @@
 .faq details[open] summary svg { transform: rotate(180deg); }
 .faq .a { padding: 0 0 22px; color: var(--text-muted); max-width: 66ch; line-height: var(--lh-relaxed); }
 .faq .a p { margin: 0 0 10px; }
-.faq h3.faq__group { margin: var(--sp-7) 0 var(--sp-2); font-size: var(--fs-sm); color: var(--text-faint); font-weight: var(--fw-medium); }
-.faq h3.faq__group:first-child { margin-top: var(--sp-4); }
+.faq .faq__group { margin: var(--sp-7) 0 var(--sp-2); font-size: var(--fs-sm); color: var(--text-faint); font-weight: var(--fw-medium); }
+.faq .faq__group:first-child { margin-top: var(--sp-4); }
 
 /* ---------- Страницы: шапка ---------- */
 .page-head { padding-block: clamp(40px, 6vw, 88px) clamp(32px, 4vw, 56px); border-bottom: 1px solid var(--line); }
@@ -382,3 +381,6 @@
   .js .sec__head .h2::after, .js [data-trace] .flow__a, .js [data-trace] .flow__b, .js [data-trace] .flow__plain, .js .seen__path .seen__wire::before { transition: none; }
 }
 @media print { .top::after { display: none; } .js .sec__head .h2::after, .js [data-trace] * , .js .seen__path .seen__wire::before { transform: none !important; } }
+
+/* Телефон: «Скачать» всегда в шапке */
+@media (max-width: 380px) { .top__in { gap: var(--sp-3); } .top__tools { gap: 4px; } .logo img { height: 38px; margin: -8px -4px; } .top__cta { padding-inline: 12px; } }

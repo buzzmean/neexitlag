@@ -19,6 +19,8 @@ const svgJobs = [
 
 const htmlJobs = [
   ['social/og-image.html', 1200, 630, 'social/og-image.png'],
+  ['social/og-clubs.html', 1200, 630, 'social/og-clubs.png'],
+  ['social/og-vpn.html', 1200, 630, 'social/og-vpn.png'],
   ['social/github-banner.html', 1280, 640, 'social/github-banner.png'],
   ['social/github-social.html', 1280, 640, 'social/github-social-preview.png'],
 ];
