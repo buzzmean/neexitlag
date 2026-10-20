@@ -271,6 +271,23 @@ index_body = f"""
   </div>
 </section>
 
+<section class="sec sec--tight band--sunken" id="check" data-access-check hidden>
+  <div class="wrap check">
+    <div>
+      <h2 class="h2">Что у вас открывается прямо сейчас</h2>
+      <p class="check__lead" data-check-lead>Проверяем несколько сервисов для примера…</p>
+      <p class="check__note">Проверка приблизительная: браузер просто пробует достучаться до сайтов. Блокировщики рекламы и рабочие сети могут влиять на результат. Данные никуда не отправляются.</p>
+    </div>
+    <div class="check__list" aria-live="polite">
+      <div class="check__row" data-check-url="https://www.youtube.com/favicon.ico"><span class="check__name">YouTube</span><span class="check__line"></span><span class="check__st">проверяем</span></div>
+      <div class="check__row" data-check-url="https://discord.com/favicon.ico"><span class="check__name">Discord</span><span class="check__line"></span><span class="check__st">проверяем</span></div>
+      <div class="check__row" data-check-url="https://web.telegram.org/favicon.ico"><span class="check__name">Telegram</span><span class="check__line"></span><span class="check__st">проверяем</span></div>
+      <div class="check__row" data-check-url="https://chatgpt.com/favicon.ico"><span class="check__name">ChatGPT</span><span class="check__line"></span><span class="check__st">проверяем</span></div>
+      <a class="btn btn--sm btn--ghost check__again" href="#check" data-check-again hidden>{icon('refresh','i i--sm')}Проверить ещё раз</a>
+    </div>
+  </div>
+</section>
+
 <section class="sec band--sunken" id="how">
   <div class="wrap">
     <div class="sec__head">
@@ -727,9 +744,11 @@ ERRORS = [
     ("Ключ устройства недействителен", "Компьютер не прошёл проверку на сервере — например после переустановки Windows.", "Нажмите «Зарегистрировать заново». В клубе введите код активации клуба заново."),
     ("Не хватает прав", "Действие требует прав администратора.", "Подтвердите запрос Windows. В режиме клуба — введите пароль администратора VELIQ."),
 ]
+# Постоянные адреса ошибок: support.html#err-<ключ>. Ключи совпадают с кодами ошибок в app-ui/app.js — программа может открывать нужный ответ.
+ERR_IDS = ["service", "relay", "browser", "identity", "rights"]
 err_html = "\n".join(
-    f'<details><summary>{t}{icon("chevron-down")}</summary><div class="a"><p><strong>Что случилось.</strong> {w}</p><p><strong>Что сделать.</strong> {f}</p></div></details>'
-    for t, w, f in ERRORS)
+    f'<details id="err-{k}"><summary>{t}{icon("chevron-down")}</summary><div class="a"><p><strong>Что случилось.</strong> {w}</p><p><strong>Что сделать.</strong> {f}</p></div></details>'
+    for k, (t, w, f) in zip(ERR_IDS, ERRORS))
 SUPPORT_FAQ = FAQ_MAIN + [
     ("Как выключить VELIQ?", "<p>Нажмите большую кнопку ещё раз или выберите «Выключить» в меню значка в трее. Интернет продолжит работать как без программы.</p>"),
     ("Как добавить свой сайт или приложение?", "<p>Вкладка «Сервисы» → «Добавить». VELIQ подберёт для него маршрут так же, как для остальных.</p>"),
@@ -783,7 +802,7 @@ privacy_body = f"""
 <h2>Что мы не делаем</h2>
 <ul><li>Не продаём и не передаём данные рекламным сетям.</li><li>Не показываем рекламу и не встраиваем её в страницы.</li></ul>
 <h2>Сайт</h2>
-<p>Сайт не использует счётчики и рекламные cookie. Выбор темы сохраняется только в вашем браузере.</p>
+<p>Сайт не использует счётчики и рекламные cookie. Выбор темы сохраняется только в вашем браузере. Проверка «Что у вас открывается» на главной отправляет пустые запросы к сайтам сервисов прямо из вашего браузера; её результат никуда не передаётся.</p>
 <h2>Связь</h2>
 <p>Вопросы о данных — на <a href="mailto:{SITE['email']}">{SITE['email']}</a>.</p>
 </div></section>

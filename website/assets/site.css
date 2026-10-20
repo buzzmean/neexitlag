@@ -384,3 +384,30 @@
 
 /* Телефон: «Скачать» всегда в шапке */
 @media (max-width: 380px) { .top__in { gap: var(--sp-3); } .top__tools { gap: 4px; } .logo img { height: 38px; margin: -8px -4px; } .top__cta { padding-inline: 12px; } }
+
+/* ---------- Проверка доступа ---------- */
+.check { display: grid; grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); gap: clamp(28px, 5vw, 72px); align-items: center; }
+.check .h2 { font-size: clamp(28px, 3.4vw, var(--fs-4xl)); }
+.check__lead { margin: var(--sp-5) 0 0; font-size: var(--fs-lg); max-width: 44ch; }
+.check__lead strong { color: var(--text); }
+.check__note { margin: var(--sp-4) 0 0; font-size: var(--fs-xs); color: var(--text-faint); max-width: 56ch; }
+.check__list { display: grid; gap: 2px; border-top: 1px solid var(--line-strong); }
+.check__row { display: grid; grid-template-columns: 96px 1fr auto; align-items: center; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--line); font-size: var(--fs-md); }
+.check__name { font-weight: var(--fw-semibold); }
+.check__line { height: 0; border-top: 2px dashed var(--line-strong); }
+.check__st { font-size: var(--fs-sm); color: var(--text-faint); white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; }
+.check__st::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--line-strong); }
+.check__row[data-st="ok"] .check__st { color: var(--text-muted); }
+.check__row[data-st="ok"] .check__st::before { background: var(--ok, #1F9D55); }
+.check__row[data-st="slow"] .check__st, .check__row[data-st="fail"] .check__st { color: var(--text); font-weight: var(--fw-semibold); }
+.check__row[data-st="slow"] .check__st::before { background: var(--warn, #C98A04); }
+.check__row[data-st="fail"] .check__st::before { background: var(--c-signal-500); border-radius: 1px; height: 3px; width: 12px; }
+.check__row[data-st="fail"] .check__line, .check__row[data-st="slow"] .check__line { border-top-color: var(--c-signal-500); }
+.check__row[data-st="wait"] .check__st::before { animation: check-pulse 1s ease-in-out infinite; }
+@keyframes check-pulse { 50% { opacity: .3; } }
+.check__again { justify-self: start; margin-top: var(--sp-4); }
+@media (max-width: 860px) { .check { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { .check__row[data-st="wait"] .check__st::before { animation: none; } }
+
+/* Ошибка, на которую ведёт ссылка из программы */
+.faq details:target { box-shadow: inset 3px 0 0 var(--c-signal-500); padding-left: 16px; scroll-margin-top: 96px; }

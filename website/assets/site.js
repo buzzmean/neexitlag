@@ -73,6 +73,63 @@
     if (isPhone) showPlatform('phone');
   }
 
+  /* Проверка: что открывается у посетителя прямо сейчас (примерно, из браузера) */
+  var checkSec = document.querySelector('[data-access-check]');
+  if (checkSec && window.fetch && window.AbortController) {
+    checkSec.hidden = false;
+    var CONTROL = 'https://ya.ru/favicon.ico';
+    var probe = function (url, ms) {
+      var ctl = new AbortController(); var t0 = performance.now();
+      var timer = setTimeout(function () { ctl.abort(); }, ms);
+      return fetch(url + (url.indexOf('?') < 0 ? '?' : '&') + 'veliq=' + Date.now(), { mode: 'no-cors', cache: 'no-store', credentials: 'omit', signal: ctl.signal, referrerPolicy: 'no-referrer' })
+        .then(function () { clearTimeout(timer); return { ok: true, ms: performance.now() - t0 }; })
+        .catch(function () { clearTimeout(timer); return { ok: false, ms: performance.now() - t0 }; });
+    };
+    var rows = checkSec.querySelectorAll('[data-check-url]');
+    var lead = checkSec.querySelector('[data-check-lead]');
+    var again = checkSec.querySelector('[data-check-again]');
+    var LABEL = { wait: 'проверяем', ok: 'открывается', slow: 'медленно', fail: 'не открывается' };
+    var setRow = function (row, st) { row.setAttribute('data-st', st); row.querySelector('.check__st').textContent = LABEL[st]; };
+    var running = false;
+    var runCheck = function () {
+      if (running) return; running = true; again.hidden = true;
+      lead.textContent = 'Проверяем несколько сервисов для примера…';
+      rows.forEach(function (row) { setRow(row, 'wait'); });
+      probe(CONTROL, 6000).then(function (ctrl) {
+        if (!ctrl.ok) { checkSec.hidden = true; running = false; return; } /* проверить нельзя — не показываем ничего */
+        return Promise.all([].map.call(rows, function (row) {
+          return probe(row.getAttribute('data-check-url'), 6000).then(function (r) {
+            var st = !r.ok ? 'fail' : (r.ms > Math.max(2500, ctrl.ms * 4) ? 'slow' : 'ok');
+            setRow(row, st); return { name: row.querySelector('.check__name').textContent, st: st };
+          });
+        })).then(function (res) {
+          var bad = res.filter(function (x) { return x.st !== 'ok'; }).map(function (x) { return x.name; });
+          lead.innerHTML = '';
+          if (bad.length) {
+            var s1 = document.createElement('strong'); s1.textContent = (bad.length === 1 ? 'Сейчас у вас плохо открывается ' : 'Сейчас у вас плохо открываются ') + bad.join(', ') + '.';
+            lead.appendChild(s1); lead.appendChild(document.createTextNode(' С VELIQ они снова заработают — без настроек.'));
+          } else {
+            lead.textContent = 'Сейчас эти сервисы у вас открываются. VELIQ пригодится, когда что-то перестанет, — и для игр: он сам найдёт самый быстрый путь.';
+          }
+          again.hidden = false; running = false;
+        });
+      });
+    };
+    again.addEventListener('click', function (e) { e.preventDefault(); runCheck(); });
+    if ('IntersectionObserver' in window) {
+      var cio = new IntersectionObserver(function (en) { if (en[0].isIntersecting) { cio.disconnect(); runCheck(); } }, { threshold: 0.3 });
+      cio.observe(checkSec);
+    } else runCheck();
+  }
+
+  /* Помощь: ссылка вида support.html#err-relay открывает нужную ошибку */
+  var openTarget = function () {
+    var id = location.hash.slice(1); if (!id) return;
+    var el = document.getElementById(id);
+    if (el && el.tagName === 'DETAILS') { el.open = true; el.scrollIntoView({ block: 'start' }); }
+  };
+  window.addEventListener('hashchange', openTarget); openTarget();
+
   /* Демо большой кнопки на главной */
   var demo = document.querySelector('[data-demo]');
   if (demo) {
@@ -100,11 +157,23 @@
       demo.querySelectorAll('[data-on]').forEach(function (v) { v.textContent = state === 'on' ? v.getAttribute('data-on') : '—'; });
       if (live) live.textContent = status.lastChild.textContent;
     }
+    var touched = false;
     go.addEventListener('click', function () {
+      touched = true;
       clearTimeout(timer);
       if (demo.getAttribute('data-state') === 'off') { set('connecting'); timer = setTimeout(function () { set('on'); }, 1500); }
       else set('off');
     });
+    /* Один раз запускается сам, когда демо видно, — чтобы было понятно, как строятся маршруты */
+    var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!reduce && 'IntersectionObserver' in window) {
+      var dio = new IntersectionObserver(function (en) {
+        if (!en[0].isIntersecting) return;
+        dio.disconnect();
+        setTimeout(function () { if (!touched && demo.getAttribute('data-state') === 'off') { set('connecting'); timer = setTimeout(function () { set('on'); }, 1500); } }, 900);
+      }, { threshold: 0.6 });
+      dio.observe(demo);
+    }
   }
 
   /* График пинга */
