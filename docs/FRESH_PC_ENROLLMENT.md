@@ -167,12 +167,14 @@ AllSigned/ExecutionPolicy не отключаются; запрещённое п
 скриптов требует разрешения IT/подписанной поставки, не автоматического bypass. WinDivert сохраняет
 существующие pinned SHA256. Новых библиотек/версий драйвера нет.
 
-Обычный PowerShell владельца:
+PowerShell владельца (обычный при включённом UAC; при проверенном выключенном UAC
+допускается его обычный для этого ПК full-admin token, см. режимы ниже):
 
 ```powershell
 # Клонирование и переход выполняются один раз после каждого freeze.
-git clone --branch codex/work https://github.com/buzzmean/neexitlag.git C:\neexitlag
-Set-Location C:\neexitlag
+$repo = Join-Path $env:USERPROFILE 'neexitlag'
+git clone --branch codex/work https://github.com/buzzmean/neexitlag.git $repo
+Set-Location $repo
 # Единственная команда установки после подготовленной migration VPS:
 & .\tools\windows\bootstrap-fresh-pc.ps1 -VpsIP 2.56.177.4 -SSHUser root -SSHPort 22
 ```
@@ -180,7 +182,7 @@ Set-Location C:\neexitlag
 Bootstrap строит backend/GUI и Windows/Linux enrollment helper, получает CSR
 response за одну SSH-сессию, проверяет CA pin, cert/key/EKU и signed ticket.
 **С самого ПК** проверяет CP8443 и real relay TCP/UDP через4433 до установки.
-Затем UAC под **тем же SID** устанавливает только службу и существующее owned
+При включённом UAC эскалация под **тем же SID** устанавливает только службу и существующее owned
 app-scoped native TCP firewall admission rule. На VPS firewall не меняется.
 Elevated-этап сверяет закрытый service.json и хеши скопированных credentials,
 передаёт наружу только public proof. Обычный процесс не читает manifest/identity
@@ -188,9 +190,11 @@ Elevated-этап сверяет закрытый service.json и хеши ск�
 установленная identity остаётся SYSTEM/admin-only. Startup ожидание проверяет connected и свежий network snapshot (optional error
 читается безопасно), не ждёт quality.health. После UAC обычный процесс ставит/запускает GUI, создаёт browser profiles и повторно
 использует прежнюю PAC/recovery/owner-nonce транзакцию Edge, затем Chrome,
-проверяет ReadyProfiles и включает Optimize. GUI не получает elevation.
+проверяет ReadyProfiles и включает Optimize. При включённом UAC GUI не получает elevation.
+При доказанно выключенном UAC тот же шаг службы выполняется в текущем процессе;
+GUI наследует полные права, как описано ниже.
 
-Это одна команда, но не «zero interaction»: SSH host key/password, UAC, а при уже
+Это одна команда, но не «zero interaction»: SSH host key/password, при включённом UAC — UAC prompt, а при уже
 открытых браузерах могут появиться **существующие** диалоги PAC/restart. Их удаление
 (этап в) этой задачей не разрешено и не выполнено. Отмена диалога/неподтверждённый
 PAC дают FAIL, а не фиктивный готовый браузер. Чужая policy не перезаписывается;
@@ -208,6 +212,48 @@ SCM/service directory существующей установки не зати�
 штатный updater/reinstall с прежней identity; fresh bootstrap не служит способом
 обойти `reinstall-state.ps1`. При частичной неудачной установке credentials
 сохраняются для восстановления, а не удаляются «для чистоты».
+
+## Режимы UAC и права владельца
+
+Bootstrap **только читает** 64-bit HKLM `Policies\System`: DWORD `EnableLUA`
+и `ConsentPromptBehaviorAdmin`. Дополнительно через `TOKEN_QUERY` читает
+`TokenElevationType`, `TokenElevation`, реальное наличие `TokenLinkedToken`
+и `IsTokenRestricted`. Проверка не включает привилегии, не меняет токен, UAC,
+реестр или ACL установленных файлов. Ошибка/отсутствие этих данных — отказ,
+не повод считать UAC выключенным.
+
+| ПК / токен | Поведение |
+|---|---|
+| UAC включён, обычный owner или limited split token | `UAC_ENABLED_OWNER`: прежний путь, отдельный elevated ServicePhase после проверки CA/relay; GUI остаётся обычным |
+| UAC включён, PowerShell elevated (включая `ConsentPromptBehaviorAdmin=0`, «не спрашивать») | Отказ до build/SSH/enroll. Запустить обычный owner PowerShell |
+| UAC выключен (`EnableLUA=0`), Administrators, `TokenElevation=true`, тип Default, linked token отсутствует, token не restricted | `UAC_DISABLED_FULL_ADMIN`: служба ставится **в этом же процессе**, без `-Verb RunAs` и без дочернего ServicePhase. GUI запускается с полными правами, **без понижения** |
+| Restricted (`runas /trustlevel`), неизвестная/противоречивая policy/token комбинация, либо UAC-off без полного admin token | Отказ; скрипт не пытается чинить токен или обходить запрет |
+
+Режим и безопасные policy/token поля выводятся перед build/SSH. В full-admin
+режиме отдельное предупреждение явно сообщает, что и GUI имеет права
+администратора. Это узкое исключение из правила unelevated GUI, **явно разрешённое
+владельцем для UAC-off клубных ПК**, а не изменение поведения обычных ПК.
+Выключать UAC ради VELIQ не нужно и скрипт этого не делает. Изменённое `EnableLUA`
+при ещё старом split token (до перезагрузки) не считается подходящим режимом.
+
+В обоих режимах OwnerSid берётся из текущей Windows identity. Общий installer
+повторно проверяет SAME SID и admin token, сохраняет прежние проверки `service.json`,
+хешей identity/certificate/echo token и service binary. `install.ps1`, ProgramData
+SYSTEM/admin-only ACL и IPC owner-check не меняются; staging ACL по-прежнему
+SYSTEM/admin/owner. На UAC-off ПК защита от самого пользователя-администратора
+ограничена правами этого пользователя в Windows; скрипт не выдаёт дополнительных
+прав и не делает credentials доступными всем.
+
+Скрипты определяют repo по `$PSScriptRoot`, не по текущей папке и не по `C:\neexitlag`.
+Поддерживается, например, `C:\Users\<user>\neexitlag`, включая пробелы в имени:
+пример клонирования выше использует `$env:USERPROFILE`, создание каталога в корне
+C: не требуется. Стандартные install outputs в ProgramData/LocalAppData остаются.
+
+Тесты покрывают матрицу UAC/token (включая consent=0 с включённым UAC), restricted
+и missing evidence, выбор ровно одного пути установки с тем же SID, quoting пути
+профиля. На Windows CI добавлено настоящее **read-only** чтение policy/token в
+PS5.1 и PS7; тесты не изменяют UAC и не выполняют installer/enroll/SSH. Изолированная
+матрица не заменяет запуск полного bootstrap на реальном UAC-off ПК владельца.
 
 ## Результат и проверка
 

@@ -14,6 +14,7 @@ param(
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'common.ps1')
+. (Join-Path $PSScriptRoot 'fresh-pc-execution.ps1')
 $root=(Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $state=Join-Path $root '.e2e\fresh-pc'
 
@@ -85,32 +86,45 @@ function Protect-FreshState([string]$Directory,[string]$Sid){
   Set-Acl -LiteralPath $item.FullName -AclObject $acl -ErrorAction Stop
  }
 }
+function Install-FreshService([string]$InstallationOwnerSid) {
+ $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+ try{
+  $isAdmin=([Security.Principal.WindowsPrincipal]::new($who)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+  if(!$isAdmin -or $InstallationOwnerSid -cne $who.User.Value){throw 'Service installation requires the SAME owner SID and administrator token'}
+ }finally{$who.Dispose()}
+ $bin=Join-Path $root 'bin\windows-e2e';$driver=Join-Path $root '.e2e\windivert'
+  $pins=Get-Content (Join-Path $driver 'pins.json') -Raw|ConvertFrom-Json
+  & (Join-Path $PSScriptRoot 'install.ps1') -ServiceExecutable (Join-Path $bin 'neexitlag-service.exe') -OwnerSid $InstallationOwnerSid -DeviceDirectory (Join-Path $state 'device') -TrustDirectory (Join-Path $state 'trust') -DriverDirectory $driver -DllSha256 $pins.dll_sha256 -DriverSha256 $pins.driver_sha256 -ControlPlaneUrl "https://${VpsIP}:8443" -ProbeTarget "${VpsIP}:40000" -TCPProbeTarget "${VpsIP}:40000" -ProbeTokenFile (Join-Path $state 'echo.token')
+  . (Join-Path $PSScriptRoot 'native-tcp-firewall.ps1')
+  [void](Add-NativeTcpFirewallAdmission (Join-Path $env:ProgramData 'neexitlag\neexitlag-service.exe'))
+  $installed=Join-Path $env:ProgramData 'neexitlag'
+  $manifest=Get-Content (Join-Path $installed 'service.json') -Raw|ConvertFrom-Json
+  if($manifest.owner_sid -cne $InstallationOwnerSid){throw 'INSTALLED_OWNER_MISMATCH'}
+  foreach($pair in @(@('device\identity.json','identity.json'),@('device\device.pem','device.pem'),@('trust\ca.pem','ca.pem'),@('trust\trust.json','trust.json'),@('echo.token','probe.token'))){
+   if((Get-FileHash (Join-Path $state $pair[0])).Hash -ne (Get-FileHash (Join-Path $installed $pair[1])).Hash){throw 'INSTALLED_CREDENTIAL_MISMATCH'}
+  }
+  $proof=@{owner_sid=$InstallationOwnerSid;sha256=(Get-FileHash (Join-Path $installed 'neexitlag-service.exe')).Hash}
+  [IO.File]::WriteAllText((Join-Path $state 'service-install-proof.json'),($proof|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
+}
 function Invoke-FreshPC {
  $script:FreshStage='preflight'
  if($env:OS -ne 'Windows_NT'){throw 'Windows 10/11 x64 required'}
  $script:VpsIP=Assert-VpsIPv4 $VpsIP
  if($VpsIP -ne '2.56.177.4'){throw 'This owner bootstrap is scoped to existing VPS 2.56.177.4'}
  $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
- $principal=[Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
- $admin=$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
  $bin=Join-Path $root 'bin\windows-e2e';$helper=Join-Path $bin 'fresh-pc.exe';$driver=Join-Path $root '.e2e\windivert'
- if($ServicePhase){
-  if(!$admin -or $OwnerSid -cne $sid){throw 'Elevate the SAME installation owner SID, not another administrator'}
-  $pins=Get-Content (Join-Path $driver 'pins.json') -Raw|ConvertFrom-Json
-  & (Join-Path $PSScriptRoot 'install.ps1') -ServiceExecutable (Join-Path $bin 'neexitlag-service.exe') -OwnerSid $OwnerSid -DeviceDirectory (Join-Path $state 'device') -TrustDirectory (Join-Path $state 'trust') -DriverDirectory $driver -DllSha256 $pins.dll_sha256 -DriverSha256 $pins.driver_sha256 -ControlPlaneUrl "https://${VpsIP}:8443" -ProbeTarget "${VpsIP}:40000" -TCPProbeTarget "${VpsIP}:40000" -ProbeTokenFile (Join-Path $state 'echo.token')
-  . (Join-Path $PSScriptRoot 'native-tcp-firewall.ps1')
-  [void](Add-NativeTcpFirewallAdmission (Join-Path $env:ProgramData 'neexitlag\neexitlag-service.exe'))
-  $installed=Join-Path $env:ProgramData 'neexitlag'
-  $manifest=Get-Content (Join-Path $installed 'service.json') -Raw|ConvertFrom-Json
-  if($manifest.owner_sid -cne $OwnerSid){throw 'INSTALLED_OWNER_MISMATCH'}
-  foreach($pair in @(@('device\identity.json','identity.json'),@('device\device.pem','device.pem'),@('trust\ca.pem','ca.pem'),@('trust\trust.json','trust.json'),@('echo.token','probe.token'))){
-   if((Get-FileHash (Join-Path $state $pair[0])).Hash -ne (Get-FileHash (Join-Path $installed $pair[1])).Hash){throw 'INSTALLED_CREDENTIAL_MISMATCH'}
-  }
-  $proof=@{owner_sid=$OwnerSid;sha256=(Get-FileHash (Join-Path $installed 'neexitlag-service.exe')).Hash}
-  [IO.File]::WriteAllText((Join-Path $state 'service-install-proof.json'),($proof|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
-  return
+ if($ServicePhase){Install-FreshService $OwnerSid;return}
+ try{
+  $evidence=Get-FreshExecutionEvidence
+  $mode=Resolve-FreshExecutionMode $evidence
+ }catch{
+  Write-Host 'UAC_TOKEN_PREFLIGHT_REJECTED: with UAC enabled use ordinary owner PowerShell; restricted, inconsistent or unknown tokens are refused. Full-admin mode requires verified EnableLUA=0 and no linked token.'
+  throw
  }
- if($admin){throw 'Run bootstrap from ordinary owner PowerShell; only the service phase requests UAC. GUI must not run elevated.'}
+ Write-Host ("Execution mode: $mode; EnableLUA="+$evidence.EnableLUA+'; ConsentPromptBehaviorAdmin='+$evidence.ConsentPromptBehaviorAdmin+'; elevation_type='+$evidence.ElevationType+'; linked_token='+$evidence.HasLinkedToken)
+ if($mode -eq 'UAC_DISABLED_FULL_ADMIN'){
+  Write-Warning 'UAC is disabled: service installation stays in this process; GUI will also run with full administrator rights, without token lowering. Owner SID/ACL/IPC checks remain enforced.'
+ }
  if(Get-Service neexitlag -ErrorAction SilentlyContinue){throw 'EXISTING_INSTALLATION_PRESERVED: use the normal updater; fresh bootstrap does not rotate an installed identity'}
  if(Test-Path (Join-Path $env:ProgramData 'neexitlag')){throw 'PRESERVED_INSTALLATION_FOUND: do not delete credentials; use explicit reinstall/update'}
  if($RotateCA -and $CaFingerprint -ne ''){throw 'Use ExpectedCurrentCAFingerprint for rotation; the new CA pin is generated on the VPS'}
@@ -164,15 +178,21 @@ function Invoke-FreshPC {
  $script:FreshStage='external_tcp_udp_probe'
   & $helper probe --state $state --vps-ip $VpsIP;if($LASTEXITCODE){throw 'REAL_CLIENT_RELAY_CHECK_FAILED; service not installed'}
  }finally{Remove-Item -LiteralPath $responsePath -Force -ErrorAction SilentlyContinue;$wire=$null;$payload=$null}
- # UAC only now: all credentials and the actual Internet relay have been verified.
- $scriptPath=Join-Path $PSScriptRoot 'bootstrap-fresh-pc.ps1'
- $q={param($v) "'"+$v.Replace("'","''")+"'"}
- $code='& '+(& $q $scriptPath)+' -VpsIP '+(& $q $VpsIP)+' -SSHUser '+(& $q $SSHUser)+' -SSHPort '+$SSHPort+' -ServicePhase -OwnerSid '+(& $q $sid)
- $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes("try { $code; exit 0 } catch { Write-Error 'Service installation failed; preserved files were not deleted'; exit 1 }"))
+ # Install only after pin, device identity and real TCP/UDP relay verification.
  $script:FreshStage='service_install'
  Remove-Item (Join-Path $state 'service-install-proof.json') -Force -ErrorAction SilentlyContinue
- $child=Start-Process powershell.exe -Verb RunAs -ArgumentList @('-NoProfile','-EncodedCommand',$encoded) -Wait -PassThru
- $child.WaitForExit();$child.Refresh();if($child.ExitCode -ne 0){throw 'SERVICE_INSTALL_FAILED; inspect preserved state, do not delete credentials'}
+ Invoke-FreshServicePhase -Mode $mode -Sid $sid -InProcess {
+  param($installationSid)
+  Install-FreshService $installationSid
+ } -Elevate {
+  param($installationSid)
+  $scriptPath=Join-Path $PSScriptRoot 'bootstrap-fresh-pc.ps1'
+  $q={param($v) "'"+$v.Replace("'","''")+"'"}
+  $code='& '+(& $q $scriptPath)+' -VpsIP '+(& $q $VpsIP)+' -SSHUser '+(& $q $SSHUser)+' -SSHPort '+$SSHPort+' -ServicePhase -OwnerSid '+(& $q $installationSid)
+  $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes("try { $code; exit 0 } catch { Write-Error 'Service installation failed; preserved files were not deleted'; exit 1 }"))
+  $child=Start-Process powershell.exe -Verb RunAs -ArgumentList @('-NoProfile','-EncodedCommand',$encoded) -Wait -PassThru
+  $child.WaitForExit();$child.Refresh();if($child.ExitCode -ne 0){throw 'SERVICE_INSTALL_FAILED; inspect preserved state, do not delete credentials'}
+ }
  $proof=Get-Content (Join-Path $state 'service-install-proof.json') -Raw|ConvertFrom-Json
  if((Fresh-Property $proof 'owner_sid') -cne $sid -or (Fresh-Property $proof 'sha256') -ne (Get-FileHash (Join-Path $bin 'neexitlag-service.exe')).Hash){throw 'INSTALLED_SERVICE_PROOF_MISMATCH'}
  if((Get-FileHash (Join-Path $bin 'neexitlag-service.exe')).Hash -ne (Get-FileHash (Join-Path $env:ProgramData 'neexitlag\neexitlag-service.exe')).Hash){throw 'INSTALLED_SERVICE_HASH_MISMATCH'}
