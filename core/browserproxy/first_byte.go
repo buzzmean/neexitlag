@@ -13,18 +13,22 @@ import (
 // One sample per CONNECT, including DNS/OPEN, admission and initial stall retry.
 // NoReply is separate: failures never become zero-latency successes.
 type FirstByteMetric struct {
-	Port    uint16  `json:"port"`
-	Network string  `json:"network"`
-	Profile string  `json:"profile_id"`
-	Group   string  `json:"group"`
-	Path    string  `json:"path"`
-	Mode    string  `json:"mode"`
-	Replies uint64  `json:"replies"`
-	NoReply uint64  `json:"closed_without_reply"`
-	TotalMS float64 `json:"total_ms"`
-	MinMS   float64 `json:"min_ms"`
-	MaxMS   float64 `json:"max_ms"`
-	LastMS  float64 `json:"last_ms"`
+	NoReplyReasons        map[string]uint64 `json:"no_reply_reasons"`
+	NoReplyWithoutRequest uint64            `json:"no_reply_without_request_payload"`
+	NoReplyWithRequest    uint64            `json:"no_reply_with_request_payload"`
+	NoReplyOriginSeen     uint64            `json:"no_reply_origin_payload_seen"`
+	Port                  uint16            `json:"port"`
+	Network               string            `json:"network"`
+	Profile               string            `json:"profile_id"`
+	Group                 string            `json:"group"`
+	Path                  string            `json:"path"`
+	Mode                  string            `json:"mode"`
+	Replies               uint64            `json:"replies"`
+	NoReply               uint64            `json:"closed_without_reply"`
+	TotalMS               float64           `json:"total_ms"`
+	MinMS                 float64           `json:"min_ms"`
+	MaxMS                 float64           `json:"max_ms"`
+	LastMS                float64           `json:"last_ms"`
 }
 type firstByteKey struct {
 	network, profile, group, path, mode string
@@ -69,6 +73,22 @@ func (l *firstByteLedger) observe(r Record, elapsed time.Duration) {
 	}
 	if elapsed < 0 {
 		m.NoReply++
+		if m.NoReplyReasons == nil {
+			m.NoReplyReasons = map[string]uint64{}
+		}
+		reason := r.NoReplyReason
+		if reason == "" {
+			reason = "UNCLASSIFIED"
+		}
+		m.NoReplyReasons[reason]++
+		if r.RequestPayloadSeen {
+			m.NoReplyWithRequest++
+		} else {
+			m.NoReplyWithoutRequest++
+		}
+		if r.OriginPayloadSeen {
+			m.NoReplyOriginSeen++
+		}
 	} else {
 		ms := float64(elapsed) / float64(time.Millisecond)
 		if m.Replies == 0 || ms < m.MinMS {
@@ -88,6 +108,13 @@ func (l *firstByteLedger) snapshot() ([]FirstByteMetric, uint64) {
 	defer l.mu.Unlock()
 	out := make([]FirstByteMetric, 0, len(l.rows))
 	for _, m := range l.rows {
+		if m.NoReplyReasons != nil {
+			copyReasons := make(map[string]uint64, len(m.NoReplyReasons))
+			for reason, count := range m.NoReplyReasons {
+				copyReasons[reason] = count
+			}
+			m.NoReplyReasons = copyReasons
+		}
 		out = append(out, m)
 	}
 	sort.Slice(out, func(i, j int) bool {

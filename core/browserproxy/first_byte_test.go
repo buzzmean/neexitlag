@@ -81,3 +81,21 @@ func TestFirstByteReportOwnBoundDoesNotTruncateRoutingLedger(t *testing.T) {
 		t.Fatal("metrics touched routing ledger")
 	}
 }
+
+func TestFirstByteKnownGroupsRemainSeparateFromYouTubeAndOrdinary(t *testing.T) {
+	var l firstByteLedger
+	for _, host := range []string{"KWS2.Web.Telegram.Org.", "t.me", "claude.ai", "api.anthropic.com", "bridge.claudeusercontent.com", "claude.com", "r.googlevideo.com", "claude.ai.example"} {
+		l.observe(Record{Domain: host, FirstByteMode: "RELAY_FIRST"}, time.Millisecond)
+	}
+	rows, _ := l.snapshot()
+	counts := map[string]uint64{}
+	for _, row := range rows {
+		counts[row.Group] += row.Replies
+	}
+	if counts["telegram"] != 2 || counts["anthropic"] != 4 || counts["youtube-media"] != 1 || counts["claude.ai.example"] != 1 {
+		t.Fatal(counts)
+	}
+	if flowpolicy.DirectTimeoutHost("claude.ai") != "claude.ai" || flowpolicy.DirectTimeoutHost("web.telegram.org") != "web.telegram.org" {
+		t.Fatal("known rules polluted YouTube learned cache")
+	}
+}

@@ -172,6 +172,9 @@ func (c *Controller) openBrowser(ctx context.Context, q browserproxy.Request, pl
 	if protectedBrowserDomain(q.Host) && plan.Policy.Action != flowpolicy.RelayRequired {
 		return nil, errors.New("protected origin cannot downgrade")
 	}
+	if current.enabled && q.Port != 53 && flowpolicy.KnownBrowserRelayGroup(q.Host) != "" && (plan.Policy.Action != flowpolicy.RelayRequired || plan.Policy.Fallback != flowpolicy.Required) {
+		return nil, errors.New("known relay-first browser group cannot downgrade")
+	}
 	d := applyFlowResult(current.profile, wp.Decision{}, plan.Policy, current.network, c.browserLocal(plan.Policy.Strategy))
 	d.OriginDomain = q.Host
 	d.Flow = routing.Flow{Protocol: "tcp", Source: q.Source, Destination: plan.Destination, PID: q.Owner.PID, ProcessPath: q.Owner.Exe, ApplicationID: q.Owner.Profile, Network: current.network, PinnedPolicy: d.Flow.PinnedPolicy}
@@ -295,6 +298,10 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 	}
 	plan := browserproxy.Plan{Network: current.network, Enabled: current.enabled, Policy: result, Destination: dest, Probe: "NOT_PROBED"}
 	if !current.enabled || protectedBrowserDomain(q.Host) || result.Source == "rule" {
+		return plan, nil
+	}
+	if flowpolicy.KnownBrowserRelayGroup(q.Host) != "" {
+		plan.Probe = "KNOWN_RELAY_FIRST"
 		return plan, nil
 	}
 	if youtubeRelayDomain(q.Host) {

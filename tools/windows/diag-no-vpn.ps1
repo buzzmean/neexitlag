@@ -287,7 +287,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-19.7 (group relay-first, connection-to-first-byte)'
+$ScriptVersion='2026-10-19.8 (Telegram/Anthropic relay-first, observed no-reply reasons)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -516,12 +516,25 @@ function Write-BrowserFirstByteEvidence($snapshot,[string]$lane) {
  $rows=@($property.Value)
  if($rows.Count -eq 0){Say ($lane+' first-byte: NO_SAMPLES')}
  Say ($lane+' first-byte scope: proxy TCP accept -> first delivered origin byte (including TLS); not HTTP/page load; PAC_NATIVE_UPSTREAM is not a second sample; lost='+(Prop $snapshot 'first_byte_metrics_lost' 0)+' rows_omitted='+(Prop $snapshot 'first_byte_rows_omitted' 0)+' truncated='+(Prop $snapshot 'truncated' $false))
+ Say 'no-reply scope: first observed I/O termination before local cleanup; client EOF can be a half-close. No request payload is only a preconnect candidate, not proof of success or harmless cancellation. Old totals cannot be retrospectively classified.'
  $pairs=@{}
  foreach($metric in @($rows)){
   $samples=[long](Prop $metric 'replies' 0)
   $avg=if($samples -gt 0){[Math]::Round(([double](Prop $metric 'total_ms' 0)/$samples),2)}else{'NOT_OBSERVED'}
   $mode=[string](Prop $metric 'mode' 'UNINSTRUMENTED')
   Say ($lane+' first-byte: network='+(Prop $metric 'network')+' profile='+(Prop $metric 'profile_id')+' group='+(Prop $metric 'group')+' port='+(Prop $metric 'port' 0)+' path='+(Prop $metric 'path')+' mode='+$mode+' n='+$samples+' no_reply='+(Prop $metric 'closed_without_reply' 0)+' avg_ms='+$avg+' min_ms='+(Prop $metric 'min_ms' -1)+' max_ms='+(Prop $metric 'max_ms' -1)+' last_ms='+(Prop $metric 'last_ms' -1))
+  $noReply=[long](Prop $metric 'closed_without_reply' 0)
+  $causes=Prop $metric 'no_reply_reasons'
+  $parts=@();$classified=[long]0
+  # Fixed vocabulary only; never dump arbitrary properties/errors or infer preconnect PASS.
+  foreach($reason in @('CLIENT_CLOSED_BEFORE_REQUEST','CLIENT_CLOSED_BEFORE_REPLY','CLIENT_INPUT_ERROR','CLIENT_DELIVERY_ERROR','TIMEOUT','UPSTREAM_EOF','UPSTREAM_EOF_WITHOUT_REQUEST','UPSTREAM_ERROR','ORIGIN_DNS_FAILED','GOOGLEVIDEO_ADMISSION','SERVICE_STOP','LOCAL_CANCELLED_OR_CLOSED','POLICY_OR_PLAN_FAILED','UNCLASSIFIED')){
+   $reasonProperty=if($null -ne $causes){$causes.PSObject.Properties[$reason]}else{$null}
+   $count=if($null -ne $reasonProperty){[long]$reasonProperty.Value}else{[long]0}
+   if($count -gt 0){$parts+=@($reason+'='+$count);$classified+=$count}
+  }
+  if($classified -lt $noReply){$parts+=@('UNCLASSIFIED_LEGACY='+($noReply-$classified))}
+  if($classified -gt $noReply){$parts+=@('INVALID_REASON_TOTAL')}
+  Say ($lane+' no-reply: group='+(Prop $metric 'group')+' mode='+$mode+' reasons='+($parts -join ',')+' without_request_payload='+(Prop $metric 'no_reply_without_request_payload' 'UNKNOWN')+' with_request_payload='+(Prop $metric 'no_reply_with_request_payload' 'UNKNOWN')+' origin_payload_seen='+(Prop $metric 'no_reply_origin_payload_seen' 'UNKNOWN'))
   $key=([string](Prop $metric 'network'))+'|'+(Prop $metric 'profile_id')+'|'+(Prop $metric 'group')+'|'+(Prop $metric 'path')+'|'+(Prop $metric 'port' 0)
   if(!$pairs.ContainsKey($key)){$pairs[$key]=@{}}
   if($samples -gt 0){$pairs[$key][$mode]=$avg}

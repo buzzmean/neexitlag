@@ -65,3 +65,16 @@ Write-Host 'PASS scoped first-byte comparison and missing samples under StrictMo
 $script:lines=@()
 Write-BrowserFirstByteEvidence ([pscustomobject]@{first_byte_metrics=@()}) 'browser'
 Check (($script:lines -join "`n") -match 'NO_SAMPLES' -and ($script:lines -join "`n") -notmatch 'UNINSTRUMENTED') 'Empty measured ledger misreported as old service'
+
+$script:lines=@()
+Write-BrowserFirstByteEvidence ([pscustomobject]@{first_byte_metrics=@(
+ [pscustomobject]@{group='telegram';mode='RELAY_FIRST';replies=1;total_ms=270;closed_without_reply=1;no_reply_reasons=[pscustomobject]@{ORIGIN_DNS_FAILED=1;secret='NEVER_LOG'};no_reply_without_request_payload=1;no_reply_with_request_payload=0},
+ [pscustomobject]@{group='anthropic';mode='RELAY_FIRST';replies=1;total_ms=430;closed_without_reply=3;no_reply_reasons=[pscustomobject]@{CLIENT_CLOSED_BEFORE_REQUEST=1;CLIENT_CLOSED_BEFORE_REPLY=1;TIMEOUT=1};no_reply_without_request_payload=1;no_reply_with_request_payload=2},
+ [pscustomobject]@{group='youtube-media';mode='RELAY_FIRST';closed_without_reply=34;no_reply_reasons=[pscustomobject]@{}}
+)}) 'browser'
+$text=$script:lines -join "`n"
+Check ($text -match 'group=telegram.*ORIGIN_DNS_FAILED=1' -and $text -match 'group=anthropic.*CLIENT_CLOSED_BEFORE_REQUEST=1.*CLIENT_CLOSED_BEFORE_REPLY=1.*TIMEOUT=1') 'Observed no-reply reasons missing'
+Check ($text -match 'without_request_payload=1 with_request_payload=2' -and $text -match 'UNCLASSIFIED_LEGACY=34') 'Legacy total guessed or payload scope lost'
+Check ($text -match 'only a preconnect candidate' -and $text -notmatch 'NEVER_LOG') 'Preconnect falsely claimed or unbounded properties logged'
+Check ($text -match 'comparison.*telegram.*after_relay_first_avg_ms=270' -and $text -match 'comparison.*anthropic.*after_relay_first_avg_ms=430') 'Known groups not compared'
+Write-Host 'PASS exact known groups, factual no-reply reasons, legacy unknowns and safe fixed fields under StrictMode'

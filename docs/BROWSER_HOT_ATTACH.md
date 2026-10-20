@@ -456,3 +456,60 @@ first-byte replies/no_reply. Полностью пустой кэш не озн�
 открытий у новых sibling-имён, без failed retries/локальных коллизий и без утечек
 protected. HTTP headers timing логируется отдельно от первого TLS байта.
 Это автоматическая isolated acceptance, не доказательство ускорения у провайдера.
+
+## Telegram/Anthropic relay-first и причины no_reply — diag .8 (20.10.2026)
+
+Причина DIRECT_FIRST у `kws2/venus.web.telegram.org` и Claude: браузерные
+поддомены попадали в обычный AUTO-подбор, хотя отдельный application preset
+Telegram не является политикой каждого браузерного origin. Теперь при активном
+browser AUTO точные группы `telegram.org`, `t.me`, `claude.ai`, `anthropic.com`,
+`claudeusercontent.com`, `claude.com` (включая поддомены) сразу используют
+RELAY_REQUIRED/VPS-01, источник `browser_known_relay_group`, probe
+`KNOWN_RELAY_FIRST`. Прямой trial и DIRECT fallback отсутствуют. Learned DIRECT
+и старый план нового OPEN не отменяют правило. Похожие имена другого домена
+не совпадают. Обычные сайты сохраняют DIRECT_FIRST/быстрый stall retry;
+YouTube имеет прежний отдельный learned family verdict. DNS/53 остаётся DIRECT.
+
+На ошибке destination OPEN сохранено существующее bounded DNS recovery:
+независимые кандидаты проверяются через authenticated relay, с настоящим SNI,
+проверкой сертификата и HTTP GET. Auth/session failures не запускают recovery;
+неудачная проверка не разрешает DIRECT. Это не обещание исправить любой сервер,
+который принимает TCP, но выдаёт неверный TLS: приложение не replay-ится после
+отправки его данных. TLS/owner-check, PAC, crash-guard и его список protected
+origin не менялись; новых гарантий при выключенной оптимизации/crash не добавлено.
+
+`browser.first-byte` / `edge.first-byte` теперь содержат bounded
+`no_reply_reasons`, `no_reply_without_request_payload`,
+`no_reply_with_request_payload`, `no_reply_origin_payload_seen`.
+Причины снимаются **до нашей принудительной очистки**, без чтения TLS-содержимого:
+
+- `CLIENT_CLOSED_BEFORE_REQUEST`: входной EOF без данных после CONNECT;
+- `CLIENT_CLOSED_BEFORE_REPLY`: входной EOF после отправки данных;
+- `TIMEOUT`: наблюдаемый timeout OPEN/планирования/I/O;
+- `UPSTREAM_EOF[_WITHOUT_REQUEST]`, `UPSTREAM_ERROR`: закрытие/ошибка origin;
+- `ORIGIN_DNS_FAILED`: планирование не смогло получить проверенный адрес;
+- `CLIENT_INPUT_ERROR`, `CLIENT_DELIVERY_ERROR`, `SERVICE_STOP`,
+  `LOCAL_CANCELLED_OR_CLOSED`, `GOOGLEVIDEO_ADMISSION`, `POLICY_OR_PLAN_FAILED`;
+- `UNCLASSIFIED`: причина не доказана; старые счётчики в diag —
+  `UNCLASSIFIED_LEGACY`, без придуманной реконструкции.
+
+EOF может быть half-close, а не полное закрытие вкладки. Отсутствие request
+payload — лишь **кандидат на preconnect**, не доказательство его безвредности.
+Ответ origin, который не удалось доставить клиенту, выделяется origin_payload_seen.
+Ошибки не превращаются в нулевую задержку/PASS. Старые 34 no_reply невозможно
+разделить задним числом: нужен свежий короткий прогон. Если соединение ещё активно,
+оно ещё не входит в счётчик завершённых без ответа. Измеряется транспортный первый
+байт (включая TLS), не успешная загрузка страницы/видео.
+
+Diag `2026-10-19.8` показывает причины и before/after отдельно по telegram,
+anthropic, youtube-media, сети, профилю, порту и пути. Нет выборки — NOT_OBSERVED.
+Лимит googlevideo 8/32 waiters/2 с, байты в минуту и routing evidence сохранены.
+Для сравнения открыть новые вкладки Telegram Web, Claude и видео YouTube при
+выключенном VPN, затем обычный owner PowerShell в C:\neexitlag:
+
+```powershell
+& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube
+```
+
+Internet/ISP PASS, объяснение всех старых no_reply и ускорение у владельца
+по CI/изолированным тестам не заявляются. Никаких действий на VPS не требуется.

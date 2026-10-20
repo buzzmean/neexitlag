@@ -1,6 +1,6 @@
 # CURRENT — состояние проекта (обновляется в конце каждой сессии)
 
-Обновлено: 19.10.2026, Codex; ветка `codex/work`. Владелец на ea4afdf: сайты работают, но холодные соединения ждут DIRECT_STALL. Реализован relay-first подтверждённой YouTube/CDN группы (5a3bd24), first-byte диагностика/benchmark (5f16ed5), отдельный timing IPC без вытеснения routing evidence (432899d). Полные локальные race/vet/Linux+Windows builds PASS; actual Windows cold-cache/Chrome и scoped race PASS, общий CI блокирует artifact quota. Новый ISP speed PASS не заявляется. PAC/игры/лимит 8 сохранены; этап (в) не начат. Подробности — (r).
+Обновлено: 20.10.2026, Codex; ветка `codex/work`. Владелец на 630921f: Telegram WSS/Anthropic ошибочно DIRECT_FIRST; youtube-media no_reply пока без причин. Реализованы точные известные browser relay-first группы и наблюдаемая классификация no_reply, diag .8; идёт проверка/CI, подробности — (s). PAC/guard/owner-check/TLS/игры/лимит 8 без изменений; Internet PASS не заявляется.
 
 ## (a) Цель
 Чистый Windows 10/11: установил, нажал «Оптимизировать» — заблокированные в РФ сервисы работают без VPN: ChatGPT, Claude, YouTube, Discord, Telegram, браузеры Chrome и Edge. Первый заказчик — клуб на 36 ПК с откатом при перезагрузке.
@@ -814,3 +814,14 @@ YouTube family, а не начинать ladder каждого hostname; не п
 закрыв только GUI, Chrome/Edge оставить открытыми. После новых вкладок/видео:
 `& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube` из обычного PowerShell
 в C:\neexitlag. Не удалять кэш/PAC/профили/identity. Scope освобождён.
+
+
+## (s) Telegram/Anthropic relay-first и no_reply (20.10.2026)
+
+- Причина DIRECT_FIRST: browser origin проходил общий AUTO learner, application preset не покрывал браузерный поддомен. Новое правило: точные Telegram/Anthropic семьи, normal active AUTO → RELAY_REQUIRED/VPS-01, KNOWN_RELAY_FIRST, без DIRECT trial/fallback. Ordinary domains/DNS53/YouTube local strategy scope сохранены. Явный BLOCK не ослабляется.
+- Сохранено bounded verified DNS recovery через authenticated relay при destination OPEN отказе; auth/session failure не вызывает DNS probes. Проверка TLS/SNI/HTTP обязательна; данные приложения не replay-ятся. Новый guard список/offline-гарантии не добавлялись.
+- no_reply получает первый наблюдаемый I/O cause до cleanup, request/origin payload presence без анализа содержимого. Client EOF может быть half-close; отсутствие payload только preconnect candidate. Старые 34/75 не классифицируются задним числом. Нужен свежий diag владельца; исправление реальных YouTube сбоев без причин не заявляется.
+- Диагностика .8: причины/legacy unknown, групповые before/after, безопасные fixed fields; ответы по-прежнему не являются page PASS. Отдельный timing IPC не вытесняет routing evidence.
+- Тесты/CI/коммит: завершаются; финальные результаты ниже будут обновлены перед передачей.
+- ПК: штатно обновить только службу (GUI не менялся), браузеры не закрывать, PAC/identity не удалять. Новые вкладки Telegram/Claude/YouTube, VPN OFF; обычный owner PowerShell C:\neexitlag: `& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube`.
+- VPS, credentials, certificates и PR #8 не затронуты; этап (в) не начат.

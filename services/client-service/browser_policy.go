@@ -55,7 +55,7 @@ func youtubeDomain(domain string) bool {
 // Failure grouping may include more CDN names than the verified local strategy.
 // Do not expand DIRECT+ transform eligibility when extending relay-first groups.
 func youtubeRelayDomain(domain string) bool {
-	return flowpolicy.BrowserRelayGroup(domain) != "" || youtubeDomain(domain)
+	return flowpolicy.BrowserRelayGroup(domain) == "youtube-media" || youtubeDomain(domain)
 }
 func (c *Controller) browserFlow(p profiles.Profile, id wp.ProcessIdentity, t wp.Tuple, domain, network string) flowpolicy.Result {
 	relay := p.RelayID
@@ -79,6 +79,16 @@ func (c *Controller) browserFlow(p profiles.Profile, id wp.ProcessIdentity, t wp
 	}
 	if protectedBrowserDomain(domain) {
 		return required("protected OpenAI origin: authenticated consistent egress")
+	}
+	if group := flowpolicy.KnownBrowserRelayGroup(domain); group != "" {
+		// A stricter explicit BLOCK remains authoritative; a learned/explicit
+		// DIRECT choice cannot weaken this family's relay-only data path.
+		if r, ok := flowpolicy.Evaluate(p.Rules, flowpolicy.Input{Protocol: t.Protocol, Domain: domain, Network: network, Destination: t.Destination}); ok && r.Action == flowpolicy.Block {
+			return r
+		}
+		r := required("known degraded " + group + " browser group: authenticated relay-first without a DIRECT trial")
+		r.Source = "browser_known_relay_group"
+		return r
 	}
 	if r, ok := flowpolicy.Evaluate(p.Rules, flowpolicy.Input{Protocol: t.Protocol, Domain: domain, Network: network, Destination: t.Destination}); ok {
 		return r

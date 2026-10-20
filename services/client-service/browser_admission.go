@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/buzzmean/neexitlag/core/browserproxy"
+	"github.com/buzzmean/neexitlag/core/flowpolicy"
+	wp "github.com/buzzmean/neexitlag/platform/windows"
 )
 
 const browserDirectBudget = 3 * time.Second
@@ -50,6 +52,12 @@ func (c *Controller) browserOpenPlan(ctx context.Context, q browserproxy.Request
 	return c.openBrowserPlan(ctx, cur, q, p, c.browserOpen)
 }
 func (c *Controller) openBrowserPlan(ctx context.Context, current profilesResult, q browserproxy.Request, p browserproxy.Plan, open func(context.Context, browserproxy.Request, browserproxy.Plan) (net.Conn, error)) (net.Conn, browserproxy.Plan, error) {
+	if p.Enabled && current.enabled && q.Port != 53 && flowpolicy.KnownBrowserRelayGroup(q.Host) != "" {
+		p.Policy = c.browserFlow(current.profile, current.id, wp.Tuple{Protocol: "tcp", Destination: p.Destination}, q.Host, current.network)
+		p.DirectAttempts, p.DirectIndex, p.DirectCandidates = 0, 0, nil
+		p.Probe = "KNOWN_RELAY_FIRST"
+		return c.openKnownBrowserGroup(ctx, current, q, p, open)
+	}
 	// A sibling may have confirmed the group while this request was planning.
 	if p.Enabled {
 		if steered, ok := c.steerTimedOutOrigin(p, current, q, time.Now()); ok {

@@ -77,25 +77,28 @@ type Plan struct {
 	HTTPStatus       int                `json:"http_status,omitempty"`
 }
 type Record struct {
-	AcceptedAt        time.Time `json:"-"`
-	FirstByteMode     string    `json:"-"`
-	FirstByteMS       float64   `json:"-"`
-	PlanDurationMS    int64     `json:"plan_duration_ms"`
-	OpenDurationMS    int64     `json:"open_duration_ms"`
-	EvidenceSource    string    `json:"evidence_source,omitempty"`
-	OpenFailure       string    `json:"open_failure,omitempty"`
-	DirectPlusApplied bool      `json:"direct_plus_applied"`
-	ID                uint64    `json:"id"`
-	Owner             Owner     `json:"owner"`
-	Domain            string    `json:"domain"`
-	Port              uint16    `json:"port"`
-	Source            string    `json:"source"`
-	Plan              Plan      `json:"plan"`
-	Started           time.Time `json:"started"`
-	Active            bool      `json:"active"`
-	Result            string    `json:"result"`
-	Sent              uint64    `json:"sent_bytes"`
-	Received          uint64    `json:"received_bytes"`
+	NoReplyReason      string    `json:"-"`
+	RequestPayloadSeen bool      `json:"-"`
+	OriginPayloadSeen  bool      `json:"-"`
+	AcceptedAt         time.Time `json:"-"`
+	FirstByteMode      string    `json:"-"`
+	FirstByteMS        float64   `json:"-"`
+	PlanDurationMS     int64     `json:"plan_duration_ms"`
+	OpenDurationMS     int64     `json:"open_duration_ms"`
+	EvidenceSource     string    `json:"evidence_source,omitempty"`
+	OpenFailure        string    `json:"open_failure,omitempty"`
+	DirectPlusApplied  bool      `json:"direct_plus_applied"`
+	ID                 uint64    `json:"id"`
+	Owner              Owner     `json:"owner"`
+	Domain             string    `json:"domain"`
+	Port               uint16    `json:"port"`
+	Source             string    `json:"source"`
+	Plan               Plan      `json:"plan"`
+	Started            time.Time `json:"started"`
+	Active             bool      `json:"active"`
+	Result             string    `json:"result"`
+	Sent               uint64    `json:"sent_bytes"`
+	Received           uint64    `json:"received_bytes"`
 	// StallRetried: the DIRECT origin stayed silent after the ClientHello and the tunnel
 	// was transparently moved to the relay (Plan then shows the relay policy).
 	StallRetried bool `json:"stall_retried_via_relay,omitempty"`
@@ -483,6 +486,18 @@ func (s *Server) handle(c net.Conn, acceptedAt time.Time) {
 		s.mu.Lock()
 		r := s.records[id]
 		if r.FirstByteMS < 0 {
+			if r.NoReplyReason == "" {
+				switch {
+				case errors.Is(planErr, ErrOriginDNS):
+					r.NoReplyReason = "ORIGIN_DNS_FAILED"
+				case result == "ORIGIN_PLAN_FAILED" && (isTimeout(planErr) || r.Plan.Probe == "NETWORK_TIMEOUT"):
+					r.NoReplyReason = "TIMEOUT"
+				case result == "ORIGIN_PLAN_FAILED":
+					r.NoReplyReason = "POLICY_OR_PLAN_FAILED"
+				default:
+					r.NoReplyReason = "UNCLASSIFIED"
+				}
+			}
 			s.firstBytes.observe(r, -1)
 		}
 		r.Active = false
@@ -539,6 +554,7 @@ func (s *Server) handle(c net.Conn, acceptedAt time.Time) {
 		s.mu.Lock()
 		r := s.records[id]
 		r.OpenFailure = openFailure(e)
+		r.NoReplyReason = noReplyFailure(e)
 		s.records[id] = r
 		s.mu.Unlock()
 		s.reject(openFailure(e))
@@ -561,25 +577,40 @@ func (s *Server) handle(c net.Conn, acceptedAt time.Time) {
 	// replay is permitted after any client bytes have been sent.
 	c.SetDeadline(time.Time{})
 	upstream.SetDeadline(time.Time{})
+	closeEvidence := &tunnelCloseEvidence{ctx: s.ctx}
+	setCloseCause := func() {
+		s.mu.Lock()
+		r := s.records[id]
+		r.NoReplyReason = closeEvidence.cause()
+		r.RequestPayloadSeen = closeEvidence.clientData.Load()
+		r.OriginPayloadSeen = closeEvidence.originData.Load()
+		s.records[id] = r
+		s.mu.Unlock()
+	}
 	if !secure {
 		request.RequestURI = ""
 		request.Close = true
 		request.Header.Del("Proxy-Authorization")
 		request.Header.Del("Proxy-Connection")
 		var sent uint64
-		if e = request.Write(countWriter{Writer: upstream, add: func(n int) { sent += uint64(n); s.account(id, uint64(n), 0) }}); e != nil {
+		closeEvidence.clientData.Store(true)
+		if e = request.Write(countWriter{Writer: closeWriter{Writer: upstream, evidence: closeEvidence}, add: func(n int) { sent += uint64(n); s.account(id, uint64(n), 0) }}); e != nil {
+			setCloseCause()
 			finish("HTTP_WRITE_FAILED", sent, 0)
 			return
 		}
-		n, e := io.Copy(countWriter{Writer: c, add: func(n int) { s.account(id, 0, uint64(n)) }}, upstream)
+		n, e := io.Copy(countWriter{Writer: closeWriter{Writer: c, evidence: closeEvidence, client: true}, add: func(n int) { s.account(id, 0, uint64(n)) }}, closeReader{Reader: upstream, evidence: closeEvidence})
 		result := "HTTP_RESPONSE"
 		if e != nil {
 			result = "HTTP_READ_FAILED"
 		}
+		setCloseCause()
 		finish(result, sent, uint64(n))
 		return
 	}
 	if _, e = io.WriteString(c, "HTTP/1.1 200 Connection Established\r\n\r\n"); e != nil {
+		closeEvidence.terminal("client-write", e)
+		setCloseCause()
 		finish("CLIENT_CLOSED", 0, 0)
 		return
 	}
@@ -594,13 +625,14 @@ func (s *Server) handle(c net.Conn, acceptedAt time.Time) {
 	}
 	out := make(chan copied, 1)
 	go func() {
-		n, e := io.Copy(countWriter{Writer: upstream, add: func(n int) { s.account(id, uint64(n), 0) }}, parsed)
+		n, e := io.Copy(countWriter{Writer: closeWriter{Writer: upstream, evidence: closeEvidence}, add: func(n int) { s.account(id, uint64(n), 0) }}, closeReader{Reader: parsed, evidence: closeEvidence, client: true})
 		if v, ok := upstream.(interface{ CloseWrite() error }); ok {
 			v.CloseWrite()
 		}
 		out <- copied{n, e}
 	}()
-	rx, re := io.Copy(countWriter{Writer: c, add: func(n int) { s.account(id, 0, uint64(n)) }}, upstream)
+	rx, re := io.Copy(countWriter{Writer: closeWriter{Writer: c, evidence: closeEvidence, client: true}, add: func(n int) { s.account(id, 0, uint64(n)) }}, closeReader{Reader: upstream, evidence: closeEvidence})
+	closeEvidence.forcing.Store(true)
 	c.Close()
 	upstream.Close()
 	tx := <-out
@@ -612,6 +644,7 @@ func (s *Server) handle(c net.Conn, acceptedAt time.Time) {
 		result = "DIRECT_MIDSTREAM_STALL"
 		s.reject(result)
 	}
+	setCloseCause()
 	finish(result, uint64(tx.n), uint64(rx))
 }
 func writeError(c net.Conn, code int) {

@@ -31,7 +31,7 @@ func directTimeoutEligible(q browserproxy.Request, plan browserproxy.Plan) bool 
 // Steering to authenticated relay is safe for IPv6 too; observing unsupported
 // native IPv6 DIRECT is deliberately still excluded from failure learning.
 func directTimeoutRouteEligible(q browserproxy.Request, plan browserproxy.Plan) bool {
-	if q.Port == 53 || plan.Policy.Action != flowpolicy.Direct || plan.Policy.Source == "rule" || plan.Probe == "PRIVATE_ORIGIN_NO_AUTOPROBE" || protectedBrowserDomain(q.Host) {
+	if q.Port == 53 || plan.Policy.Action != flowpolicy.Direct || plan.Policy.Source == "rule" || plan.Probe == "PRIVATE_ORIGIN_NO_AUTOPROBE" || protectedBrowserDomain(q.Host) || flowpolicy.KnownBrowserRelayGroup(q.Host) != "" {
 		return false
 	}
 	_, ipErr := netip.ParseAddr(q.Host)
@@ -260,7 +260,7 @@ func (c *Controller) recordBrowserStall(current profilesResult, q browserproxy.R
 		return
 	}
 	key := c.directTimeoutKey(current, q, p)
-	if flowpolicy.BrowserRelayGroup(q.Host) != "" {
+	if flowpolicy.BrowserRelayGroup(q.Host) == "youtube-media" {
 		c.browser.directTimeouts.RecordOriginStall(key, time.Now())
 		c.browser.directTimeouts.SetProbeHost(key, q.Host)
 	} else {

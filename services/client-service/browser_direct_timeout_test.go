@@ -32,7 +32,7 @@ var directPlan = browserproxy.Plan{Policy: flowpolicy.Result{Action: flowpolicy.
 
 func TestTwoConnectTimeoutsSteerOriginToRelayFailClosed(t *testing.T) {
 	c, cur := timeoutFixture(t)
-	q := browserproxy.Request{Host: "Claude.AI", Port: 443, Secure: true}
+	q := browserproxy.Request{Host: "Ordinary.Example", Port: 443, Secure: true}
 	now := time.Now()
 	if _, steered := c.steerTimedOutOrigin(directPlan, cur, q, now); steered {
 		t.Fatal("steered before any timeout")
@@ -91,7 +91,7 @@ func TestOnlyConnectDeadlinesOnOrdinaryDirectOriginsCount(t *testing.T) {
 
 func TestCacheHitsAreVisibleInBrowserStatus(t *testing.T) {
 	c, cur := timeoutFixture(t)
-	q := browserproxy.Request{Host: "claude.ai", Port: 443, Secure: true}
+	q := browserproxy.Request{Host: "ordinary.example", Port: 443, Secure: true}
 	now := time.Now()
 	c.observeDirectOpen(cur, q, directPlan, context.DeadlineExceeded, now)
 	c.observeDirectOpen(cur, q, directPlan, context.DeadlineExceeded, now.Add(time.Second))
@@ -117,7 +117,7 @@ func TestCacheHitsAreVisibleInBrowserStatus(t *testing.T) {
 	if err := json.Unmarshal(raw, &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.Cache.Active != 1 || out.Cache.Hits != 4 || len(out.Cache.Top) != 1 || out.Cache.Top[0].Host != "claude.ai" || !strings.Contains(string(out.Records), "[") {
+	if out.Cache.Active != 1 || out.Cache.Hits != 4 || len(out.Cache.Top) != 1 || out.Cache.Top[0].Host != "ordinary.example" || !strings.Contains(string(out.Records), "[") {
 		t.Fatalf("%s", raw)
 	}
 }
@@ -126,7 +126,7 @@ func TestCacheHitsAreVisibleInBrowserStatus(t *testing.T) {
 // browser owner is gone) traffic stays on the relay and the recheck is retried soon.
 func TestBackgroundRecheckKeepsRelayWhenInconclusiveAndRetries(t *testing.T) {
 	c, cur := timeoutFixture(t)
-	q := browserproxy.Request{Host: "claude.ai", Port: 443, Secure: true}
+	q := browserproxy.Request{Host: "ordinary.example", Port: 443, Secure: true}
 	now := time.Now()
 	c.observeDirectOpen(cur, q, directPlan, context.DeadlineExceeded, now)
 	c.observeDirectOpen(cur, q, directPlan, context.DeadlineExceeded, now.Add(time.Second))
