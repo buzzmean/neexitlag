@@ -67,7 +67,9 @@ func TestPACPathsOpenBudgetAndFirstExchange(t *testing.T) {
 	until := time.Now().Add(time.Second)
 	for {
 		snap := s.Snapshot()
-		if len(snap.PathMetrics) == 1 && snap.PathMetrics[0].Received == 4 {
+		// The echo can arrive before the upload goroutine accounts a completed
+		// Write. Wait for both directions, then keep every strict assertion.
+		if len(snap.PathMetrics) == 1 && snap.PathMetrics[0].Received == 4 && snap.PathMetrics[0].Sent == 4 {
 			m := snap.PathMetrics[0]
 			if len(snap.FirstByteMetrics) != 1 || snap.FirstByteMetrics[0].Replies != 1 || snap.FirstByteMetrics[0].Mode != "DIRECT_FIRST" || snap.Records[0].FirstByteMS < 0 || snap.Records[0].AcceptedAt.IsZero() {
 				t.Fatal("missing actual connection-to-first-byte evidence", snap)
