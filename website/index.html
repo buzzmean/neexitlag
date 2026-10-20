@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VELIQ — нажал, и работает</title>
+  <meta name="description" content="VELIQ сам строит оптимальный маршрут: заблокированные сервисы открываются без перезапуска браузера, игры получают самый быстрый путь. Для Windows 10 и 11.">
+  <link rel="canonical" href="https://veliq.app/">
+  <meta name="theme-color" content="#0A0A0B">
+  <meta name="color-scheme" content="light dark">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="VELIQ">
+  <meta property="og:locale" content="ru_RU">
+  <meta property="og:title" content="VELIQ — нажал, и работает">
+  <meta property="og:description" content="VELIQ сам строит оптимальный маршрут: заблокированные сервисы открываются без перезапуска браузера, игры получают самый быстрый путь. Для Windows 10 и 11.">
+  <meta property="og:url" content="https://veliq.app/">
+  <meta property="og:image" content="https://veliq.app/assets/img/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="VELIQ: нажал — работает.">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="assets/img/favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="assets/img/app-icon-180.png">
+  <link rel="manifest" href="site.webmanifest">
+  <link rel="preload" href="assets/fonts/Onest-var.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="assets/tokens.css">
+  <link rel="stylesheet" href="assets/components.css">
+  <link rel="stylesheet" href="assets/site.css">
+  <script>try{var t=localStorage.getItem('veliq-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+  <script type="application/ld+json">[{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "VELIQ", "operatingSystem": "Windows 10, Windows 11", "applicationCategory": "UtilitiesApplication", "description": "VELIQ строит оптимальный маршрут для каждого соединения: заблокированные сервисы открываются, игры получают самый быстрый путь.", "softwareVersion": "1.0 beta", "url": "https://veliq.app"}, {"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Это VPN?", "acceptedAnswer": {"@type": "Answer", "text": "Нет. VPN отправляет весь трафик через один сервер, и всё становится медленнее. VELIQ выбирает путь для каждого соединения отдельно: через свою сеть — когда так открывается доступ или выходит быстрее, обычным путём — когда так лучше."}}, {"@type": "Question", "name": "Нужно ли перезапускать браузер?", "acceptedAnswer": {"@type": "Answer", "text": "Нет. Chrome и Edge подхватывают маршрут сразу после нажатия «Оптимизировать», открытые вкладки закрывать не нужно."}}, {"@type": "Question", "name": "Как VELIQ влияет на пинг в играх?", "acceptedAnswer": {"@type": "Answer", "text": "VELIQ сравнивает пути до игрового сервера и выбирает самый быстрый. Если путь через сеть VELIQ не быстрее обычного, маршрут не меняется. Замеры видно в программе."}}, {"@type": "Question", "name": "Вы видите, что я открываю?", "acceptedAnswer": {"@type": "Answer", "text": "Нет. Мы не расшифровываем и не подменяем HTTPS. Сервер-релей видит только адрес назначения и объём данных — этого достаточно, чтобы переслать трафик. Подробности — в <a href=\"privacy.html\">политике конфиденциальности</a>."}}, {"@type": "Question", "name": "Какие системы поддерживаются?", "acceptedAnswer": {"@type": "Answer", "text": "Windows 10 и 11, 64-бит. Нужны права администратора один раз — при установке службы."}}, {"@type": "Question", "name": "Работает на компьютерах в клубе, которые откатываются после перезагрузки?", "acceptedAnswer": {"@type": "Answer", "text": "Да, для этого есть режим клуба: программа ставится в образ, запускается сама при входе и не требует настроек после отката. <a href=\"clubs.html\">Как это устроено</a>."}}]}]</script>
+</head>
+<body>
+<script src="assets/icons.js"></script>
+<a class="skip" href="#main">Перейти к содержанию</a>
+<header class="top">
+  <div class="wrap top__in">
+    <a class="logo" href="index.html" aria-label="VELIQ — на главную">
+      <img class="on-light" src="assets/img/veliq-wordmark-light.svg" alt="VELIQ" width="144" height="66">
+      <img class="on-dark" src="assets/img/veliq-wordmark-dark.svg" alt="" width="144" height="66">
+    </a>
+    <nav class="nav" id="nav" aria-label="Основное меню">
+      <a href="index.html#how">Как работает</a>
+      <a href="index.html#games">Игры</a>
+      <a href="clubs.html">Клубам</a>
+      <a href="pricing.html">Цены</a>
+      <a href="support.html">Помощь</a>
+    </nav>
+    <div class="top__tools">
+      <button class="btn btn--quiet btn--icon btn--sm theme-btn" type="button" data-theme-toggle aria-label="Сменить тему">
+        <svg class="i i-sun-use" aria-hidden="true"><use href="#i-sun"/></svg><svg class="i i-moon-use" aria-hidden="true"><use href="#i-moon"/></svg>
+      </button>
+      <a class="btn btn--sm top__cta" href="download.html">Скачать</a>
+      <button class="btn btn--quiet btn--icon btn--sm menu-btn" type="button" data-menu aria-expanded="false" aria-controls="nav" aria-label="Меню"><svg class="i" aria-hidden="true"><use href="#i-menu"/></svg></button>
+    </div>
+  </div>
+</header>
+<main id="main">
+
+<section class="hero" style="overflow-x:clip">
+  <div class="wrap hero__grid">
+    <div class="hero__copy">
+      <h1 class="h-display hero-title">
+        <span class="slit-line"><span class="slit">Нажал —</span></span>
+        <span class="slit-line"><span class="slit">работает.</span><span class="slit-bar" aria-hidden="true"></span></span>
+      </h1>
+      <p class="lede">VELIQ сам выстраивает оптимальный маршрут для каждого соединения. Заблокированные сервисы открываются, игры получают самый быстрый путь до сервера. Браузер перезапускать не нужно.</p>
+      <div class="hero__actions">
+        <a class="btn btn--lg" href="download.html"><svg class="i" aria-hidden="true"><use href="#i-download"/></svg>Скачать для Windows</a>
+        <a class="btn btn--lg btn--ghost" href="clubs.html">Для компьютерных клубов</a>
+      </div>
+      <p class="hero__meta">Версия 1.0 beta, Windows 10 и 11, 64-бит</p>
+    </div>
+
+    <div class="demo" data-demo data-state="off" aria-label="Демонстрация программы">
+      <div class="demo__bar">
+        <img src="assets/img/veliq-wordmark-dark.svg" alt="VELIQ" width="48" height="22">
+        <span class="status status--off" data-demo-status><i class="status__mark" aria-hidden="true"></i><span>Выключено</span></span>
+      </div>
+      <button class="go" type="button" data-state="off" aria-pressed="false" aria-describedby="demo-hint">
+        <span class="go__label"><span data-go-label>Оптимизировать</span><small data-go-sub>выключено</small></span>
+      </button>
+      <div class="route" aria-label="Маршруты">
+        <div class="route__row route__row--relay"><span class="route__name">YouTube</span><span class="route__line"></span><span class="route__via">открыт</span></div>
+        <div class="route__row route__row--relay"><span class="route__name">Discord</span><span class="route__line"></span><span class="route__via">открыт</span></div>
+        <div class="route__row route__row--relay"><span class="route__name">ChatGPT</span><span class="route__line"></span><span class="route__via">открыт</span></div>
+        <div class="route__row route__row--relay"><span class="route__name">Игры</span><span class="route__line"></span><span class="route__via">быстрый путь</span></div>
+      </div>
+      <p class="demo__hint" id="demo-hint">Нажмите кнопку — так выглядит запуск в программе.</p>
+      <span class="sr-only" aria-live="polite" data-demo-live></span>
+    </div>
+  </div>
+</section>
+
+<section class="sec band--sunken" id="how">
+  <div class="wrap">
+    <div class="sec__head">
+      <h2 class="h2">Три шага, и всё открывается</h2>
+      <p>Никаких адресов серверов, ключей и настроек браузера. Всё это программа делает сама.</p>
+    </div>
+    <ol class="steps" style="list-style:none;margin:0;padding:0">
+      <li class="step"><span class="step__n">1</span><h3 class="h3">Скачайте</h3><p>Один установщик для Windows 10 и 11.</p></li>
+      <li class="step"><span class="step__n">2</span><h3 class="h3">Установите</h3><p>Windows один раз спросит права администратора — это для службы, которая строит маршруты.</p></li>
+      <li class="step"><span class="step__n">3</span><h3 class="h3">Нажмите «Оптимизировать»</h3><p>Маршруты строятся сразу. Заблокированное открывается в уже открытом браузере.</p></li>
+    </ol>
+  </div>
+</section>
+
+<section class="sec">
+  <div class="wrap">
+    <div class="sec__head">
+      <h2 class="h2">Свой путь для каждого соединения</h2>
+      <p>Одним сервисам нужен доступ, играм — скорость. VELIQ понимает разницу и подбирает маршрут сам, без списков и настроек.</p>
+    </div>
+    <div class="split">
+      <div class="split__col">
+        <h3 class="h3">Открывает доступ</h3>
+        <ul class="split__list">
+          <li><span class="mono">YT</span><span>YouTube</span><span>через сеть VELIQ</span></li>
+          <li><span class="mono">DS</span><span>Discord</span><span>через сеть VELIQ</span></li>
+          <li><span class="mono">TG</span><span>Telegram</span><span>через сеть VELIQ</span></li>
+          <li><span class="mono">AI</span><span>ChatGPT, Claude и другие нейросети</span><span>через сеть VELIQ</span></li>
+        </ul>
+        <p class="split__note">Это примеры. Список сервисов пополняется, свой сайт или приложение можно добавить в программе.</p>
+      </div>
+      <div class="split__col">
+        <h3 class="h3">Ускоряет</h3>
+        <ul class="split__list">
+          <li><span class="mono"><svg class="i i--sm" aria-hidden="true"><use href="#i-games"/></svg></span><span>Онлайн-игры</span><span>самый быстрый путь</span></li>
+          <li><span class="mono"><svg class="i i--sm" aria-hidden="true"><use href="#i-globe"/></svg></span><span>Игровые серверы в Европе</span><span>доступ и низкий пинг</span></li>
+          <li><span class="mono"><svg class="i i--sm" aria-hidden="true"><use href="#i-ping"/></svg></span><span>Голосовые чаты и стримы</span><span>стабильный канал</span></li>
+          <li><span class="mono"><svg class="i i--sm" aria-hidden="true"><use href="#i-check"/></svg></span><span>То, что и так работает быстро</span><span>не трогаем</span></li>
+        </ul>
+        <p class="split__note">VELIQ замеряет задержку и выбирает путь, на котором она меньше.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sec sec--tight">
+  <div class="wrap">
+    <div class="facts">
+      <div class="fact fact--wide"><h3>Браузер не нужно перезапускать</h3><p>Маршрут подхватывается в открытых Chrome и Edge. Вкладки, вход в аккаунты и загрузки остаются на месте.</p></div>
+      <div class="fact"><h3>Своя сеть серверов</h3><p>Собственные серверы в Европе, а не общие бесплатные узлы, где скорость делят тысячи людей.</p></div>
+      <div class="fact fact--r"><h3>HTTPS не расшифровывается</h3><p>Сервер пересылает зашифрованный трафик как есть. Пароли и переписка ему не видны.</p></div>
+      <div class="fact"><h3>Ничего не настраивать</h3><p>Одна кнопка. Если что-то пошло не так, программа скажет, что именно, и предложит решение.</p></div>
+      <div class="fact fact--r"><h3>Готово для клубов</h3><p>Работает на ПК, которые откатываются после перезагрузки: запускается сам, настройки не теряются.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="sec band--sunken" id="games">
+  <div class="wrap games">
+    <div>
+      <h2 class="h2">Оптимальный маршрут для игр</h2>
+      <p class="lede" style="margin-top:20px">VELIQ сравнивает пути до игрового сервера и выбирает самый быстрый. Если лучше обычного пути нет, ничего не меняется.</p>
+      <ul class="ticks">
+        <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>Доступ к европейским серверам, закрытым для российских адресов</span></li>
+        <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>Меньший пинг, если через сеть VELIQ путь короче, чем у провайдера</span></li>
+        <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>Маршрут перестраивается сам, если какой-то путь стал хуже</span></li>
+      </ul>
+    </div>
+    <figure class="games__panel" style="margin:0">
+      <header><strong>Пинг до игрового сервера в Европе</strong><ul class="legend"><li><i class="direct"></i>обычный путь</li><li><i class="hel"></i>маршрут VELIQ</li></ul></header>
+      <div data-ping-chart='{"label": "Пинг до игрового сервера: обычный путь около 73 мс, маршрут VELIQ около 41 мс. Иллюстрация.", "series": [{"id": "direct", "name": "обычный", "values": [71, 74, 70, 77, 72, 73, 79, 71, 70, 75, 72, 74, 73, 76, 72, 71, 74, 73, 72, 73]}, {"id": "hel", "name": "VELIQ", "values": [42, 41, 43, 40, 41, 42, 41, 44, 41, 40, 41, 42, 41, 41, 43, 41, 40, 41, 42, 41]}]}'></div>
+      <footer>Иллюстрация. Настоящий замер VELIQ делает на вашем компьютере и у вашего провайдера.</footer>
+    </figure>
+  </div>
+</section>
+
+<section class="sec band--ink">
+  <div class="wrap club-band">
+    <div>
+      <h2 class="h2">Клубные ПК с откатом после перезагрузки — и всё работает</h2>
+      <p class="lede" style="margin-top:20px">Режим клуба для Langame и других систем управления: VELIQ ставится в образ, запускается при входе гостя и не просит настроек.</p>
+      <div class="hero__actions" style="margin-top:32px"><a class="btn btn--lg" href="clubs.html">VELIQ для клубов</a><a class="btn btn--lg btn--ghost" href="clubs.html#calc">Посчитать выгоду</a></div>
+    </div>
+    <div class="club-band__pcs" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  </div>
+</section>
+
+<section class="sec" id="download">
+  <div class="wrap">
+    <div class="get">
+      <img class="get__icon" src="assets/img/app-icon.svg" alt="" width="88" height="88">
+      <div>
+        <h2 class="h3" style="font-size:var(--fs-3xl)">VELIQ для Windows</h2>
+        <ul class="get__meta"><li>Версия 1.0 beta</li><li>≈ 40 МБ</li><li>Windows 10 и 11, 64-бит</li></ul>
+      </div>
+      <a class="btn btn--lg" href="download.html"><svg class="i" aria-hidden="true"><use href="#i-download"/></svg>Скачать</a>
+    </div>
+  </div>
+</section>
+
+<section class="sec sec--tight" id="faq" style="padding-top:0">
+  <div class="wrap">
+    <div class="sec__head"><h2 class="h2">Частые вопросы</h2><p>Не нашли ответ — <a href="support.html">все вопросы и ошибки</a> или напишите на support@veliq.app.</p></div>
+    <div class="faq">
+<details><summary>Это VPN?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary><div class="a"><p>Нет. VPN отправляет весь трафик через один сервер, и всё становится медленнее. VELIQ выбирает путь для каждого соединения отдельно: через свою сеть — когда так открывается доступ или выходит быстрее, обычным путём — когда так лучше.</p></div></details>
+<details><summary>Нужно ли перезапускать браузер?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary><div class="a"><p>Нет. Chrome и Edge подхватывают маршрут сразу после нажатия «Оптимизировать», открытые вкладки закрывать не нужно.</p></div></details>
+<details><summary>Как VELIQ влияет на пинг в играх?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary><div class="a"><p>VELIQ сравнивает пути до игрового сервера и выбирает самый быстрый. Если путь через сеть VELIQ не быстрее обычного, маршрут не меняется. Замеры видно в программе.</p></div></details>
+<details><summary>Вы видите, что я открываю?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary><div class="a"><p>Нет. Мы не расшифровываем и не подменяем HTTPS. Сервер-релей видит только адрес назначения и объём данных — этого достаточно, чтобы переслать трафик. Подробности — в <a href="privacy.html">политике конфиденциальности</a>.</p></div></details>
+<details><summary>Какие системы поддерживаются?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary><div class="a"><p>Windows 10 и 11, 64-бит. Нужны права администратора один раз — при установке службы.</p></div></details>
+<details><summary>Работает на компьютерах в клубе, которые откатываются после перезагрузки?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary><div class="a"><p>Да, для этого есть режим клуба: программа ставится в образ, запускается сама при входе и не требует настроек после отката. <a href="clubs.html">Как это устроено</a>.</p></div></details>
+    </div>
+  </div>
+</section>
+
+</main>
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot__grid">
+      <div>
+        <a class="logo" href="index.html" aria-label="VELIQ — на главную">
+          <img class="on-light" src="assets/img/veliq-wordmark-light.svg" alt="VELIQ" width="144" height="66">
+          <img class="on-dark" src="assets/img/veliq-wordmark-dark.svg" alt="" width="144" height="66">
+        </a>
+        <p class="muted" style="max-width:34ch;margin:16px 0 0">Оптимальный маршрут для каждого соединения. Для Windows.</p>
+      </div>
+      <div>
+        <h2>Продукт</h2>
+        <ul><li><a href="download.html">Скачать</a></li><li><a href="index.html#how">Как работает</a></li><li><a href="index.html#games">Для игр</a></li><li><a href="pricing.html">Цены</a></li></ul>
+      </div>
+      <div>
+        <h2>Клубам</h2>
+        <ul><li><a href="clubs.html">VELIQ для клубов</a></li><li><a href="clubs.html#calc">Расчёт выгоды</a></li><li><a href="clubs.html#setup">Установка в образ</a></li></ul>
+      </div>
+      <div>
+        <h2>Помощь</h2>
+        <ul><li><a href="support.html">Вопросы и ответы</a></li><li><a href="support.html#errors">Ошибки и решения</a></li><li><a href="mailto:support@veliq.app">support@veliq.app</a></li></ul>
+      </div>
+    </div>
+    <div class="foot__bottom">
+      <span>© 2026 VELIQ</span>
+      <span><a href="privacy.html">Конфиденциальность</a>&nbsp;&nbsp;&nbsp;<a href="terms.html">Условия</a></span>
+    </div>
+  </div>
+</footer>
+<script src="assets/charts.js"></script>
+<script src="assets/site.js"></script>
+</body>
+</html>
