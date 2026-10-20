@@ -14,8 +14,8 @@ $root=(Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 . (Join-Path $PSScriptRoot 'bootstrap-fresh-pc.ps1') -VpsIP $VpsIP -SSHUser $SSHUser -SSHPort $SSHPort
 $commit=(& git -C $root rev-parse HEAD).Trim()
 if($LASTEXITCODE -or $commit -cne $ExpectedCommit){throw 'EXACT_RELEASE_COMMIT_MISMATCH'}
-$dirty=& git -C $root status --porcelain --untracked-files=no
-if($LASTEXITCODE -or $dirty){throw 'CLEAN_RELEASE_CHECKOUT_REQUIRED'}
+$dirty=& git -C $root status --porcelain --untracked-files=normal
+if($LASTEXITCODE -or $dirty){throw 'CLEAN_RELEASE_CHECKOUT_REQUIRED; keep untracked reports outside release checkout; never add credentials to git'}
 $bin=Join-Path $root 'bin\activation-release'
 New-Item -ItemType Directory -Path $bin -Force|Out-Null
 $oldOS=$env:GOOS;$oldArch=$env:GOARCH;$oldCGO=$env:CGO_ENABLED

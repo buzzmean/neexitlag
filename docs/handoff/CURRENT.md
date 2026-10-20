@@ -1,5 +1,7 @@
 # CURRENT — состояние проекта (обновляется в конце каждой сессии)
 
+Последняя передача Codex 20.10.2026: коды активации/CSR после freeze и leaf timer реализованы, область освобождена; результаты и команда — (af). Production не обновлён: SSH из среды недоступен, реальные коды не созданы.
+
 Обновлено: 20.10.2026, Codex; `codex/work`, база 6d91aea (fast-forward сайта Claude сохранён; browser работа от 0d20db1). Владелец подтвердил TLS/HTTP отказ исходного Telegram IP с VPS и успех независимого кандидата с тем же SNI. Реализован bounded per-IP first-flight recovery для relay-first, negative TTL и диагностика .2; детали — (ab), docs/TELEGRAM_TLS_DIAGNOSTICS.md. На production VPS ничего не выполнялось; Владелец подтвердил per-IP recovery на ПК. Этап (в): вариант A, тихий owned PAC без browser restart, реализация и ограничения — (ac); PR #8 не тронут.
 
 ## (a) Цель
@@ -62,7 +64,7 @@
 | Relay-first: per-IP TLS silence recovery | `core/browserproxy/{origin_*,proxy,dns,dns_test,tls_wire,tls_wire_test}.go`, `services/client-service/browser_{transport,admission,known_group,native,native_pac,origin,origin_test}.go`, `tests/integration/relay_origin_test.go`, PS tests/diag-no-vpn.ps1, docs/TELEGRAM_TLS_DIAGNOSTICS.md, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; один итоговый commit по требованию владельца; actual Windows/ISP ещё не проверен; VPS не тронут |
 | Этап (в), вариант A: тихий owned PAC без browser restart | `services/client-service/browser_silent*.go`, browser/edge transport/controller; `platform/windows/*policy*`; desktop Browser/Chrome/Edge/Fresh routing; bootstrap/update/diag; acceptance/tests/docs | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; один итоговый commit включает ownership по требованию владельца; WFP/VPS/игры вне задачи; Windows uptake не измерен локально |
 | Windows freeze-фикстура: настоящий SID + post-push CI handoff | `services/client-service/browser_silent_test.go`, `docs/BROWSER_SILENT_POLICY.md`, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; дополнительный commit явно разрешён владельцем; production runtime без правок |
-| Коды активации club/personal, повторный CSR после freeze, leaf renewal | `core/enrollment/*`, control-plane/migrations/API/store, client-service activation/manifest/startup, desktop Activation*, tools/codes, fresh hardware adapter, deploy/vps certificate renewal + tests/docs | Codex | `codex/work` | РЕАЛИЗОВАНО 20.10.2026; isolated checks PASS; ожидается CI/передача deployment владельцу. SSH из среды недоступен; production не изменён; veliq-swe-01/PR #8 вне области |
+| Коды активации club/personal, повторный CSR после freeze, leaf renewal | `core/enrollment/*`, control-plane/migrations/API/store, client-service activation/manifest/startup, desktop Activation*, tools/codes, fresh hardware adapter, deploy/vps certificate renewal + tests/docs | Codex | `codex/work` | ГОТОВО 20.10.2026, область освобождена; 4cdf2e5 / 82f6f84 / 7ea0769 / b84bdb3 / 0d3883b. Local checks и focused Linux/Windows CI PASS; финальные CI ссылки ниже. SSH недоступен, production/codes не изменены; deployment передан владельцу; veliq-swe-01/PR #8 вне области |
 | Discord медленно, DIRECT+ для YouTube | не определены | никто | — | свободно для Codex после диагностики; Go-файлы застоя (выше) не трогать |
 | PR #8, `codex/direct-plus-flowseal` | — | не трогать | — | только владелец |
 
@@ -1379,3 +1381,18 @@ worker group, а не сбрасывается от одного GUI wake. HTTPS
 создан). Полный client-service race PASS (6.606 s); остальные маршруты не менялись.
 Документировано maintenance-ограничение leaf timer: CP/relay restart может кратко
 прервать relay-сессии; это не изменение same-session lease renewal.
+
+Финальная передача (af): код 0d3883b, область освобождена, новых правок не планируется.
+- https://github.com/buzzmean/neexitlag/actions/runs/39485374085 — focused Linux/Windows PASS (b84bdb3).
+- https://github.com/buzzmean/neexitlag/actions/runs/39485839538 — isolated production upgrade PASS (0d3883b).
+- https://github.com/buzzmean/neexitlag/actions/runs/39485839584 — focused CI 0d3883b, выполнялся на момент записи.
+- Общий Verify/Edge: старое ограничение artifact quota; все workflows зелёными не названы.
+Последняя передача дополнительно проверяет чистый checkout и untracked files до
+сборки server/helper: Go VCS modified не должен обнаруживаться лишь после SSH.
+Ignored `.e2e/`/`bin/` допустимы; отчёты держать вне release checkout, не коммитить.
+
+Production/живой Windows activation/freeze/systemd leaf renewal не проверены.
+Из этой среды нет разрешённого SSH/TCP-доступа к VPS, поэтому остановка ровно на
+передаче команд владельцу (пункт 4 задания), а не deployment или выдаче фиктивных
+кодов. Следующий owner-run — только после принятия CI, существующую identity не
+переустанавливать и CA не ротировать. Отзыв/nonce при rollback сохраняются.
