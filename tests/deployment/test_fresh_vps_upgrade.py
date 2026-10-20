@@ -63,6 +63,15 @@ class FreshVpsTests(unittest.TestCase):
   self.assertFalse(any(x[0] in ('start','stop','systemd-run','pg_dump') for x in self.events))
   self.assertFalse(list(self.h.path('/etc').glob('neexitlag.bak-*')))
 
+ def test_full_candidate_validation_is_readonly_even_when_compatible(self):
+  before=u.e.config_fingerprint(self.h)
+  with patch.object(u.e,'Host',return_value=self.h),contextlib.redirect_stderr(io.StringIO()):
+   result=u.prepare(self.fixture.bundle,self.helper,original.SHA,'UPGRADE-VPS-2.56.177.4',force_update=True,validate_only=True)
+  self.assertTrue(result['read_only']);self.assertTrue(result['pass'])
+  self.assertEqual(before,u.e.config_fingerprint(self.h))
+  self.assertFalse(any(x[0] in ('start','stop','systemd-run') or (x[0]=='pg_dump' and '--version' not in x) for x in self.events))
+  self.assertFalse(list(self.h.path('/etc').glob('neexitlag.bak-*')))
+
  def test_readonly_ssh_report_has_no_remote_staging_or_lock(self):
   def code(value):
    b=value.encode();return {'data':base64.b64encode(b).decode(),'sha256':hashlib.sha256(b).hexdigest()}

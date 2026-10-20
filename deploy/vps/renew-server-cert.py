@@ -23,7 +23,10 @@ BACKUPS=Path('/var/backups/neexitlag-certificates')
 
 def command(argv):
     p=subprocess.run(argv,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=50,check=False)
-    if p.returncode: raise RuntimeError('COMMAND_FAILED_'+Path(argv[0]).name)
+    if p.returncode:
+        error=RuntimeError('COMMAND_FAILED_'+Path(argv[0]).name)
+        error.command=Path(argv[0]).name;error.exit_code=p.returncode;error.command_stderr=p.stderr
+        raise error
     return p.stdout.decode('utf-8')
 
 def certificate(path):

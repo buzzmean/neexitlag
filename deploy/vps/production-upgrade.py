@@ -28,6 +28,10 @@ BIN = '/opt/neexitlag/bin'
 STATE = '/var/lib/neexitlag-upgrade'
 BACKUPS = '/var/backups/neexitlag-upgrades'
 DROPIN = '/etc/systemd/system/neexitlag-control-plane.service.d/40-neexitlag-production-upgrade.conf'
+FRESH_CA_DROPIN = '/etc/systemd/system/neexitlag-control-plane.service.d/91-veliq-fresh-ca.conf'
+ACTIVATION_DROPIN = '/etc/systemd/system/neexitlag-control-plane.service.d/92-veliq-activation.conf'
+CREDENTIAL_EXEC_DROPIN = '/etc/systemd/system/neexitlag-control-plane.service.d/94-veliq-production-upgrade.conf'
+CA_CREDENTIAL = '%d/veliq-device-ca-key'
 GUARD = '/etc/systemd/system/{service}.service.d/10-neexitlag-upgrade-guard.conf'
 RECOVERY = '/etc/systemd/system/neexitlag-upgrade-recover.service'
 ID_RE = re.compile(r'^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}$')
@@ -130,14 +134,20 @@ class Host:
             try:
                 result = subprocess.run(args, stdout=target, stderr=errors, timeout=timeout, check=False)
             except (OSError, subprocess.TimeoutExpired):
-                raise UpgradeError('Required command unavailable or timed out') from None
+                error = UpgradeError('Required command unavailable or timed out')
+                error.command = Path(args[0]).name
+                raise error from None
             if self.log:
                 self.log.write(('command=' + Path(args[0]).name + ' code=' + str(result.returncode) + '\n').encode())
                 errors.seek(0)
                 shutil.copyfileobj(errors, self.log)
                 self.log.flush()
             if check and result.returncode:
-                raise UpgradeError('Required command failed; private transaction log retained')
+                error = UpgradeError('Required command failed; private transaction log retained')
+                error.exit_code = result.returncode
+                error.command = Path(args[0]).name
+                errors.seek(0); error.command_stderr = errors.read(4096)
+                raise error
             captured.seek(0)
             raw = captured.read(2 * MAX_CONFIG + 1)
             if len(raw) > 2 * MAX_CONFIG:
@@ -225,7 +235,7 @@ def config_fingerprint(host):
     return data
 
 
-def clean_cp_command(text):
+def clean_cp_command(text, credential_ca=False):
     lines = [line.partition('=')[2] for line in text.splitlines() if line.startswith('ExecStart=') and line.partition('=')[2]]
     if len(lines) != 1:
         raise UpgradeError('Unsupported control-plane ExecStart layout')
@@ -245,7 +255,7 @@ def clean_cp_command(text):
             raise UpgradeError('Unsupported control-plane flags; review before upgrade')
         value = args[i + 1]
         if flag in allowed:
-            if not re.fullmatch(r'[A-Za-z0-9_./:-]+', value):
+            if not re.fullmatch(r'[A-Za-z0-9_./:-]+', value) and not (credential_ca and flag == '-ca-key' and value == CA_CREDENTIAL):
                 raise UpgradeError('Unsupported control-plane argument syntax')
             result += [flag, value]
         i += 2
@@ -253,10 +263,40 @@ def clean_cp_command(text):
     if not required.issubset(result):
         raise UpgradeError('Expected credential-file arguments missing')
     for flag, name in [('-tls-cert', 'server.pem'), ('-tls-key', 'server.key'), ('-signing-key', 'signing.key'), ('-ca', 'ca.pem'), ('-ca-key', 'ca.key'), ('-admin-token-file', 'admin.token'), ('-database-password-file', 'database.password')]:
-        if result[result.index(flag) + 1] != CP + '/' + name or result.count(flag) != 1:
+        expected = CA_CREDENTIAL if credential_ca and flag == '-ca-key' else CP + '/' + name
+        if result[result.index(flag) + 1] != expected or result.count(flag) != 1:
             raise UpgradeError('Custom credential layout requires review')
     # Never repeat bootstrap seed operations on an established installation.
     return ' '.join(result)
+
+
+def reviewed_credentials(host):
+    """Only the exact owned fresh CA mechanism; never relax the root CA ACL."""
+    path = host.path(FRESH_CA_DROPIN)
+    if not path.exists(): return False
+    st = path.stat()
+    if path.is_symlink() or not host.configuration_owner(st) or st.st_mode & 0o022:
+        raise UpgradeError('UNSAFE_FRESH_CA_DROPIN')
+    lines = path.read_text().strip().splitlines()
+    if len(lines) != 4 or lines[:3] != ['[Service]', 'LoadCredential=veliq-device-ca-key:/etc/neexitlag/control/ca.key', 'ExecStart='] or not lines[3].startswith('ExecStart='):
+        raise UpgradeError('UNREVIEWED_FRESH_CA_DROPIN')
+    clean_cp_command(lines[3], credential_ca=True)
+    override = host.path(CREDENTIAL_EXEC_DROPIN)
+    if override.exists():
+        text = override.read_text()
+        command = clean_cp_command(text, credential_ca=True)
+        expected = '[Service]\nExecStart=\nExecStart=' + command
+        if text not in (expected+'\n', expected+' -publish-config-on-start\n'):
+            raise UpgradeError('UNREVIEWED_CREDENTIAL_EXEC_DROPIN')
+    return True
+
+
+def reviewed_activation_dropin(host):
+    path = host.path(ACTIVATION_DROPIN)
+    if not path.exists(): return
+    expected = '# VELIQ_OWNED_ACTIVATION_V1 -- measurement credential only, never admin token.\n[Service]\nLoadCredential=veliq-echo-probe:/etc/neexitlag/echo/echo.token\nEnvironment=VELIQ_ENROLL_PROBE_TOKEN_FILE=%d/veliq-echo-probe\n'
+    if path.read_text() != expected:
+        raise UpgradeError('UNREVIEWED_ACTIVATION_DROPIN')
 
 
 class Upgrade:
@@ -301,12 +341,22 @@ class Upgrade:
                         raise UpgradeError('Managed path owner/write permissions unsafe')
                 p = p.parent
         fingerprint = config_fingerprint(h)
+        credential_ca = reviewed_credentials(h)
+        reviewed_activation_dropin(h)
         for role, names in [('control', ['ca.pem', 'ca.key', 'server.pem', 'server.key', 'signing.key', 'admin.token', 'database.password', 'control-plane.env']), ('relay', ['ca.pem', 'server.pem', 'server.key', 'trust.json', 'heartbeat.token'])]:
             for name in names:
                 p = h.path('/etc/neexitlag/' + role + '/' + name)
                 if not p.is_file() or p.stat().st_mode & 0o007:
                     raise UpgradeError('Private deployment file absent or world-accessible')
-                h.run(['runuser', '-u', 'neexitlag-' + role, '--', 'test', '-r', str(p)])
+                if role == 'control' and name == 'ca.key' and credential_ca:
+                    if not h.configuration_owner(p.stat()) or stat.S_IMODE(p.stat().st_mode) != 0o600:
+                        raise UpgradeError('ROOT_ONLY_CA_KEY_REQUIRED')
+                    runtime = h.path('/run/credentials/neexitlag-control-plane.service/veliq-device-ca-key')
+                    if runtime.is_symlink() or not runtime.is_file() or digest(runtime) != digest(p):
+                        raise UpgradeError('CA_RUNTIME_CREDENTIAL_MISMATCH')
+                    h.run(['runuser', '-u', 'neexitlag-control', '--', 'test', '-r', str(runtime)])
+                else:
+                    h.run(['runuser', '-u', 'neexitlag-' + role, '--', 'test', '-r', str(p)])
         unit_files = []
         cp_text = None
         for service, user in [('neexitlag-relay', 'neexitlag-relay'), ('neexitlag-control-plane', 'neexitlag-control')]:
@@ -317,6 +367,9 @@ class Upgrade:
                 raise UpgradeError('Custom/vendor unit location requires review')
             drops = shlex.split(h.systemctl('show', '--value', '--property=DropInPaths', service))
             allowed_drops = {GUARD.format(service=service)} | ({DROPIN} if service == 'neexitlag-control-plane' else set())
+            if service == 'neexitlag-control-plane':
+                allowed_drops |= {ACTIVATION_DROPIN}
+                if credential_ca: allowed_drops |= {FRESH_CA_DROPIN, CREDENTIAL_EXEC_DROPIN}
             if set(drops) - allowed_drops:
                 raise UpgradeError('Unknown service drop-in requires review')
             for unit in [fragment] + drops:
@@ -325,14 +378,15 @@ class Upgrade:
                     raise UpgradeError('Service unit ownership/type/permissions unsafe')
             unit_files += [fragment] + drops
             if service == 'neexitlag-control-plane':
-                cp_text = h.path(DROPIN if DROPIN in drops else fragment).read_text()
+                chosen = next((x for x in (CREDENTIAL_EXEC_DROPIN, FRESH_CA_DROPIN, DROPIN) if x in drops), fragment)
+                cp_text = h.path(chosen).read_text()
             binary = h.path(BIN + '/' + ('relay' if service == 'neexitlag-relay' else 'control-plane'))
             if not binary.is_file() or binary.is_symlink() or not h.configuration_owner(binary.stat()) or binary.stat().st_mode & 0o022:
                 raise UpgradeError('Installed binary missing or linked')
             pid = h.systemctl('show', '--value', '--property=MainPID', service)
             if not pid.isdigit() or int(pid) < 1 or h.running_binary_hash(pid) != digest(binary):
                 raise UpgradeError('Running binary differs from installed file')
-        cp_command = clean_cp_command(cp_text)
+        cp_command = clean_cp_command(cp_text, credential_ca=credential_ca)
         url = urllib.parse.urlsplit(env_value(h.path(CP + '/control-plane.env'), 'DATABASE_URL'))
         name = url.path.lstrip('/')
         if url.scheme not in ('postgres', 'postgresql') or url.hostname not in ('127.0.0.1', 'localhost') or url.username != 'neexitlag' or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,62}', name) or set(urllib.parse.parse_qs(url.query)) - {'sslmode'}:
@@ -416,7 +470,8 @@ class Upgrade:
         p = b / ('new-cp.conf' if publish else 'rollback-cp.conf')
         p.write_text(text)
         os.chmod(p, 0o600)
-        self.install(p, DROPIN, 0o644)
+        destination = CREDENTIAL_EXEC_DROPIN if CA_CREDENTIAL in shlex.split(command) else DROPIN
+        self.install(p, destination, 0o644)
 
     def arm(self, b, state):
         h = self.h

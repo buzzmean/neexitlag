@@ -10,8 +10,9 @@ param(
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 $root=(Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-# Reuse host-verified one-session console SSH; dot-sourcing does not bootstrap.
-. (Join-Path $PSScriptRoot 'bootstrap-fresh-pc.ps1') -VpsIP $VpsIP -SSHUser $SSHUser -SSHPort $SSHPort
+# This transport does not load fresh bootstrap or trigger enrollment.
+. (Join-Path $PSScriptRoot 'activation-ssh.ps1')
+$state=Join-Path $root '.e2e\fresh-pc'
 $commit=(& git -C $root rev-parse HEAD).Trim()
 if($LASTEXITCODE -or $commit -cne $ExpectedCommit){throw 'EXACT_RELEASE_COMMIT_MISMATCH'}
 $dirty=& git -C $root status --porcelain --untracked-files=normal
@@ -36,4 +37,4 @@ New-Item -ItemType Directory -Force -Path $state|Out-Null
 $payload=@{commit=$commit;confirm=$ConfirmDeployment;files=$files}|ConvertTo-Json -Depth 6 -Compress
 $remote=[IO.File]::ReadAllText((Join-Path $root 'deploy\vps\activation-release-ssh.py'))
 Write-Host 'Owner-authorized existing VPS update. No CA rotation; DB security records preserved. One host-verified SSH session.'
-Invoke-FreshSSH $payload $remote (Join-Path $state 'known_hosts')|Write-Host
+Invoke-ActivationSSH -Payload $payload -RemoteCode $remote -KnownHosts (Join-Path $state 'known_hosts') -VpsIP $VpsIP -SSHUser $SSHUser -SSHPort $SSHPort|Write-Host

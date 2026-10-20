@@ -65,6 +65,7 @@
 | Этап (в), вариант A: тихий owned PAC без browser restart | `services/client-service/browser_silent*.go`, browser/edge transport/controller; `platform/windows/*policy*`; desktop Browser/Chrome/Edge/Fresh routing; bootstrap/update/diag; acceptance/tests/docs | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; один итоговый commit включает ownership по требованию владельца; WFP/VPS/игры вне задачи; Windows uptake не измерен локально |
 | Windows freeze-фикстура: настоящий SID + post-push CI handoff | `services/client-service/browser_silent_test.go`, `docs/BROWSER_SILENT_POLICY.md`, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; дополнительный commit явно разрешён владельцем; production runtime без правок |
 | Коды активации club/personal, повторный CSR после freeze, leaf renewal | `core/enrollment/*`, control-plane/migrations/API/store, client-service activation/manifest/startup, desktop Activation*, tools/codes, fresh hardware adapter, deploy/vps certificate renewal + tests/docs | Codex | `codex/work` | ГОТОВО 20.10.2026, область освобождена; 4cdf2e5 / 82f6f84 / 7ea0769 / b84bdb3 / 0d3883b. Local checks и focused Linux/Windows CI PASS; финальные CI ссылки ниже. SSH недоступен, production/codes не изменены; deployment передан владельцу; veliq-swe-01/PR #8 вне области |
+| Отказ activation deployment после preflight | `deploy/vps/{production-upgrade,fresh-vps-upgrade,deploy-activation,activation-release-ssh,renew-server-cert,inspect-activation}.py`, `tools/windows/{activation-ssh,verify-activation-vps,update-activation-vps}.ps1`, deployment/PS tests, `.github/workflows/{activation,production-upgrade}.yml`, `docs/ENROLLMENT_CODES.md`, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026, область освобождена; 70 Python tests и PS parsing/fresh checks PASS. Actual Windows redirected process/systemd matrix — в CI после push; production не выполнялся. Ownership включён в отдельный fix-коммит по требованию владельца |
 | Discord медленно, DIRECT+ для YouTube | не определены | никто | — | свободно для Codex после диагностики; Go-файлы застоя (выше) не трогать |
 | PR #8, `codex/direct-plus-flowseal` | — | не трогать | — | только владелец |
 
@@ -1396,3 +1397,47 @@ Production/живой Windows activation/freeze/systemd leaf renewal не про
 передаче команд владельцу (пункт 4 задания), а не deployment или выдаче фиктивных
 кодов. Следующий owner-run — только после принятия CI, существующую identity не
 переустанавливать и CA не ротировать. Отзыв/nonce при rollback сохраняются.
+
+
+## (ag) Activation upgrade: root-only CA layout и диагностируемый отказ
+
+20.10.2026, база 3f31c1f. Владелец запускал deployment сам: SSH пароль со второй
+попытки принят, достигнут VPS_PREFLIGHT. Binaries пока сообщали 2c06089, schema 1,
+CA migration уже выполнена (91 LoadCredential). Старый общий код ошибки не хранит
+точный исторический exit/stage; без read-only снимка нельзя объявить VPS неизменённым.
+
+Воспроизведена несовместимость старого preflight: direct `runuser ... test -r`
+для CA key root:600; затем неизвестный 91 drop-in и `%d` CA argument. Исправлено
+строгим признанием только owned LoadCredential layout, сравнением runtime key с
+root key (приватно), seed-free override 94 после 91/92. Root CA ACL не расширяется.
+Неизвестные directives/specifiers/drop-ins по-прежнему блокируют обновление.
+Full candidate validation выполняется ДО постоянных backup/units/service stop.
+
+Новый activation SSH transport не загружает bootstrap/enroll; сохраняет один
+host-verified сеанс и интерактивный пароль. Нет ложного `no installation performed`.
+Удалённый failure report: stage/step, command/exit_code, allowlisted stderr, backup,
+vps_modified и rollback. Неизвестные слова/PEM/ошибки не пересылаются как raw stderr.
+Backup выводится сразу после создания; guard unit тоже входит в backup/rollback.
+Исходная причина сохраняется даже при отдельной ошибке rollback. SQL restore нет,
+nonce/revocations/добавочная схема сохраняются согласно решению владельца.
+
+Read-only: `& .\tools\windows\verify-activation-vps.ps1` из обновлённого клона.
+Скрипт ничего не собирает и не staging/enroll/provision/restart на VPS; Python
+исполняется из памяти, SQL в BEGIN READ ONLY. Сверяет installed/running hashes,
+baseline commit, schema/activation tables, PID/start-time, units/drop-ins, timers,
+backup phases, CA root/runtime доступ. Snapshot не доказывает отсутствие всех
+исторических DB writes; baseline и deployment artifacts показываются раздельно.
+Старый скрипт мог создать внешний backup/guard и перезапустить службы при rollback
+ещё до замены binaries/БД. Этот факт не скрывается под «ничего не установлено».
+
+Локально: 70 Python deployment tests PASS; bash syntax, PS parser/quoting + fresh-PC
+regressions PASS. Go/C# production код не менялся. Добавлен Windows fake ssh.exe
+process test на loopback: redirected stdout/exit=23, без сети/паролей; локально
+Windows runtime недоступен. Isolated systemd CI теперь имеет legacy и fresh-credential
+(root:600 + LoadCredential) варианты, оба проверяют update/rollback без ACL downgrade.
+CI запускается после commit; результаты проверять по SHA в Actions.
+
+На боевом VPS, в его БД, units или ключах из среды разработки ничего не выполнялось.
+Первая команда владельцу — read-only verify; повторный deployment только после
+разбора результата и CI нового полного SHA. PR #8/маршруты/credentials не менялись.
+Область освобождена, одно отдельное исправление в codex/work без rewrite/force-push.

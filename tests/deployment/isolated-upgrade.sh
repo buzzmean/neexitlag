@@ -32,6 +32,18 @@ install -m 0644 deploy/vps/neexitlag-{relay,control-plane,echo}.service /etc/sys
 python3 deploy/vps/database-sql.py /etc/neexitlag/control/database.password > "$private/provision.sql"
 # Directory is deliberately not made readable to postgres; pass SQL via stdin.
 runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 < "$private/provision.sql" > "$private/postgres.log" 2>&1
+if [[ ${NEEXITLAG_ISOLATED_CA_LAYOUT:-legacy} == fresh-credential ]]; then
+ # Match the owner's migrated layout using ONLY this VM's disposable test CA.
+ install -d -m 0755 /etc/systemd/system/neexitlag-control-plane.service.d
+ python3 - <<'PYFIXTURE'
+import importlib.util,pathlib
+spec=importlib.util.spec_from_file_location('fixture_rotation','deploy/vps/rotate-fresh-pc-ca.py')
+m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+u=pathlib.Path('/etc/systemd/system/neexitlag-control-plane.service')
+pathlib.Path('/etc/systemd/system/neexitlag-control-plane.service.d/91-veliq-fresh-ca.conf').write_bytes(m.credential_dropin(u.read_text()))
+PYFIXTURE
+ chmod 0600 /etc/neexitlag/control/ca.key
+fi
 systemctl daemon-reload
 systemctl start neexitlag-control-plane neexitlag-relay neexitlag-echo
 for n in $(seq 1 30); do
@@ -75,4 +87,9 @@ systemctl is-active --quiet neexitlag-relay neexitlag-control-plane
 [[ $(runuser -u postgres -- psql -XAt -d neexitlag -c 'SELECT count(*) FROM devices WHERE revoked') == 5000 ]]
 cp "$private/candidate-relay" "$bundle/bin/relay"
 cp "$private/manifest.json" "$bundle/UPGRADE_MANIFEST.json"
+if [[ ${NEEXITLAG_ISOLATED_CA_LAYOUT:-legacy} == fresh-credential ]]; then
+ [[ $(stat -c %a /etc/neexitlag/control/ca.key) == 600 ]]
+ if runuser -u neexitlag-control -- test -r /etc/neexitlag/control/ca.key; then echo 'FAIL: root CA readable directly'; exit 1; fi
+ cmp -s /etc/neexitlag/control/ca.key /run/credentials/neexitlag-control-plane.service/veliq-device-ca-key
+fi
 echo 'PASS: isolated real systemd + PostgreSQL, permanent dump restored into a separate DB, 5000 revocations >64 KiB, real /3 TCP/UDP two renewals, injected bad binary rolled back without reverting DB/replay.'

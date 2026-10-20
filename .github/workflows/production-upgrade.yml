@@ -6,6 +6,9 @@ jobs:
   disposable-systemd-postgres:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    strategy:
+      matrix:
+        ca-layout: [legacy, fresh-credential]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -31,7 +34,8 @@ jobs:
       - name: Real local systemd transaction and rollback
         env:
           NEEXITLAG_ISOLATED_UPGRADE: github-disposable-runner
-        run: sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,NEEXITLAG_ISOLATED_UPGRADE bash tests/deployment/isolated-upgrade.sh
+          NEEXITLAG_ISOLATED_CA_LAYOUT: ${{ matrix.ca-layout }}
+        run: sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,NEEXITLAG_ISOLATED_UPGRADE,NEEXITLAG_ISOLATED_CA_LAYOUT bash tests/deployment/isolated-upgrade.sh
       - name: Sanitized failure diagnostics only
         if: failure()
         run: |

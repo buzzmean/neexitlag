@@ -57,8 +57,11 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
-          foreach($p in @('tools/windows/install.ps1','tools/windows/stage-club-activation.ps1','tools/windows/update-activation-vps.ps1')) {
+          foreach($p in @('tools/windows/install.ps1','tools/windows/stage-club-activation.ps1','tools/windows/update-activation-vps.ps1','tools/windows/activation-ssh.ps1','tools/windows/verify-activation-vps.ps1')) {
             $tokens=$null;$errors=$null
             [void][Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD $p),[ref]$tokens,[ref]$errors)
             if($errors.Count){throw ($errors.Message -join ';')}
           }
+      - name: Native redirected SSH transport fixture (no network)
+        shell: powershell
+        run: ./tests/windows-tools/activation-deploy-checks.ps1

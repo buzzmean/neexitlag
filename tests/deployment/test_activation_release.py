@@ -57,3 +57,81 @@ class ActivationReleaseTests(unittest.TestCase):
    with mock.patch.object(release,'module',side_effect=[SimpleNamespace(),leaf]),mock.patch.object(leaf,'command',return_value=''),mock.patch.object(leaf,'BACKUPS',root/'none'):
     with self.assertRaisesRegex(RuntimeError,'BACKUP_HASH_MISMATCH'):release.restore(root)
    self.assertEqual(dest.read_bytes(),b'new')
+
+class FreshCredentialCompatibilityTests(unittest.TestCase):
+ def setUp(self):
+  import test_production_upgrade as base
+  self.base=base;self.fixture=base.UpgradeTests('test_preflight_full_inventory_no_mutation_or_secret_output')
+  self.fixture.setUp();self.addCleanup(self.fixture.doCleanups)
+  self.engine=load('production-upgrade.py');self.h=self.fixture.h
+  self.rotate=load('rotate-fresh-pc-ca.py')
+  drop=self.h.path(self.engine.FRESH_CA_DROPIN);drop.parent.mkdir(parents=True,exist_ok=True)
+  drop.write_bytes(self.rotate.credential_dropin(self.h.unit))
+  runtime=self.h.path('/run/credentials/neexitlag-control-plane.service/veliq-device-ca-key');runtime.parent.mkdir(parents=True);runtime.write_bytes(self.h.path(self.engine.CP+'/ca.key').read_bytes())
+  original=self.h.systemctl
+  self.h.systemctl=lambda *args,**kw: self.engine.FRESH_CA_DROPIN if '--property=DropInPaths' in args and args[-1]=='neexitlag-control-plane' else original(*args,**kw)
+  old_run=self.h.run
+  def run(args,**kw):
+   if args[0]=='runuser' and args[-1]==str(self.h.path(self.engine.CP+'/ca.key')):
+    raise AssertionError('root:600 CA must NEVER become readable by service user')
+   return old_run(args,**kw)
+  self.h.run=run
+ def test_root_only_ca_via_exact_loadcredential_passes_without_acl_changes(self):
+  with mock.patch.object(self.engine.shutil,'which',return_value='/fixture/tool'):
+   state=self.engine.Upgrade(self.h).preflight(self.fixture.bundle,self.base.SHA,self.fixture.inventory)
+  self.assertIn('%d/veliq-device-ca-key',state['cp_command'])
+  self.assertNotIn('-seed-',state['cp_command'])
+  self.assertEqual(self.h.path(self.engine.CP+'/ca.key').stat().st_mode&0o777,0o600)
+  self.assertIn(('runuser','-u','neexitlag-control','--','test','-r',str(self.h.path('/run/credentials/neexitlag-control-plane.service/veliq-device-ca-key'))),self.h.events)
+  backup=self.h.root/'override-fixture';backup.mkdir()
+  upgrade=self.engine.Upgrade(self.h)
+  with mock.patch.object(upgrade,'install') as install:
+   upgrade.dropin(backup,state['cp_command'],True)
+   self.assertEqual(install.call_args.args[1],self.engine.CREDENTIAL_EXEC_DROPIN)
+  self.assertGreater(self.engine.CREDENTIAL_EXEC_DROPIN,self.engine.FRESH_CA_DROPIN)
+ def test_changed_runtime_key_and_unreviewed_dropins_are_rejected(self):
+  self.h.path('/run/credentials/neexitlag-control-plane.service/veliq-device-ca-key').write_bytes(b'wrong-fixture')
+  with mock.patch.object(self.engine.shutil,'which',return_value='/fixture/tool'):
+   with self.assertRaisesRegex(Exception,'CA_RUNTIME_CREDENTIAL_MISMATCH'):
+    self.engine.Upgrade(self.h).preflight(self.fixture.bundle,self.base.SHA,self.fixture.inventory)
+  p=self.h.path(self.engine.FRESH_CA_DROPIN);p.write_text(p.read_text()+'Environment=UNREVIEWED=1\n')
+  with self.assertRaisesRegex(Exception,'UNREVIEWED_FRESH_CA_DROPIN'):self.engine.reviewed_credentials(self.h)
+ def test_arbitrary_percent_specifier_and_direct_ca_layout_not_silently_allowed(self):
+  text=self.h.path(self.engine.FRESH_CA_DROPIN).read_text()
+  with self.assertRaises(Exception):self.engine.clean_cp_command(text,credential_ca=False)
+  with self.assertRaises(Exception):self.engine.clean_cp_command(text.replace('%d/veliq-device-ca-key','%h/unreviewed'),credential_ca=True)
+
+class DeploymentFailureDiagnosticsTests(unittest.TestCase):
+ def test_unknown_exception_and_stderr_never_disclose_secrets(self):
+  d=load('deploy-activation.py');p=d.Progress();p.step('CANDIDATE_READ_ONLY_PREFLIGHT')
+  secret='PRIVATE_CODE_KEY_TOKEN_MUST_NOT_ESCAPE'
+  error=RuntimeError(secret);error.command_stderr=b'Permission denied '+secret.encode()+b'\n-----BEGIN PRIVATE KEY-----\n'+secret.encode()
+  error.command='runuser';error.exit_code=13
+  report=p.failure(error)
+  self.assertNotIn(secret,json.dumps(report));self.assertNotIn('PRIVATE KEY',json.dumps(report))
+  self.assertEqual(report['stderr'],'PERMISSION_DENIED');self.assertEqual(report['exit_code'],13)
+  self.assertEqual(report['vps_modified'],'NO');self.assertIsNone(report['backup'])
+  self.assertEqual(report['stage'],'CANDIDATE_READ_ONLY_PREFLIGHT')
+ def test_candidate_rejection_precedes_every_backup_unit_service_mutation(self):
+  d=load('deploy-activation.py');events=[]
+  class FakePath:
+   def __init__(self,s):self.s=s
+   def __truediv__(self,s):return FakePath(self.s+'/'+s)
+   def is_file(self):return True
+  engine=SimpleNamespace(e=SimpleNamespace(Host=lambda:None),report=lambda h:{'capabilities':{'relay':{},'control-plane':{}},'systemd_version':257},compatible=lambda *a:True)
+  def reject(*a,**kw):
+   self.assertTrue(kw['validate_only']);events.append('candidate_preflight');raise RuntimeError('ROOT_ONLY_CA_KEY_REQUIRED')
+  engine.prepare=reject
+  leaf=SimpleNamespace(Renewal=lambda:SimpleNamespace(preflight=lambda *a:events.append('leaf_preflight')))
+  with mock.patch.object(d,'guard'),mock.patch.object(d,'Path',FakePath),mock.patch.object(d,'module',side_effect=[engine,leaf]):
+   # ROOT is untouched because candidate preflight raises before its first mkdir.
+   with self.assertRaisesRegex(RuntimeError,'ROOT_ONLY_CA_KEY_REQUIRED'):d.apply('fixture','a'*40,'ACTIVATE-CODES-2.56.177.4')
+  self.assertEqual(events,['leaf_preflight','candidate_preflight']);self.assertEqual(d.PROGRESS.modified,'NO');self.assertIsNone(d.PROGRESS.backup)
+ def test_command_exit_and_sanitized_stderr_retained_without_private_log(self):
+  d=load('deploy-activation.py');e=load('production-upgrade.py')
+  error=None
+  try:e.Host().run([__import__('sys').executable,'-c',"import sys;print('Permission denied PRIVATE_FIXTURE',file=sys.stderr);sys.exit(7)"])
+  except e.UpgradeError as exc:error=exc
+  self.assertIsNotNone(error)
+  report=d.Progress().failure(error)
+  self.assertEqual(report['exit_code'],7);self.assertEqual(report['stderr'],'PERMISSION_DENIED');self.assertNotIn('PRIVATE_FIXTURE',json.dumps(report))

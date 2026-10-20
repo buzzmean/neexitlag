@@ -186,3 +186,69 @@ Hardware spoofing/администратор, имеющий клубный ко
 это maintenance-событие с возможным кратким разрывом активных relay-соединений.
 Оно отличается от 30-минутного same-session lease renewal, который не менялся.
 Горячая перезагрузка server TLS без restart в этот этап не входит.
+
+## Отказ обновления после CA-ротации: диагностика и первая команда
+
+В `3f31c1f` binary preflight не учитывал уже выполненную fresh CA-ротацию:
+требовал `test -r control/ca.key` от пользователя CP, хотя ключ намеренно root:600
+и выдаётся службе через `LoadCredential`. Не были также допущены штатный
+`91-veliq-fresh-ca.conf` и ровно `%d/veliq-device-ca-key`. Это воспроизведённая
+несовместимость; старый `SAFE_DEPLOYMENT_FAILED` не сохранил точный exit/status
+конкретного запуска, поэтому фактическое состояние VPS нужно сначала прочитать.
+Пароль был принят и preflight исполнялся на сервере; scp здесь не используется,
+SSH-сессия одна. Dot-source bootstrap не выполнял enrollment благодаря старому
+entry guard, но давал вводящий в заблуждение `SSH_ENROLLMENT_FAILED` callstack.
+
+**Первое действие владельца — read-only, не повторять deployment вслепую.**
+PowerShell (обычный либо full-admin) из папки существующего репозитория:
+
+```powershell
+git pull --ff-only origin codex/work
+& .\tools\windows\verify-activation-vps.ps1
+```
+
+Пароль/host-key OpenSSH остаются интерактивными. На VPS Python работает из памяти:
+нет staging/lock-файлов, сборки, enrollment, proof identity, миграций, pg_dump,
+изменения конфигурации/таймеров или start/stop/restart. Запросы PostgreSQL заключены
+в `BEGIN READ ONLY`; вывод содержит только публичные версии/хеши бинарников,
+PID/start-time/состояния служб, порты, схему/количества строк, имена/состояния
+таймеров и фазы backup. Ключи, коды, токены, raw stderr и содержимое конфигов
+не выдаются. SSH-аудит и обычная статистика ОС/БД при чтении естественно меняются.
+
+Для этого неудачного запуска baseline по умолчанию — установленные binaries
+`2c06089f61c7b7a2cf575f5cea4b834992426d`, migration 1. Поля:
+- `binary[].same_binary`: running hash равен installed; `commit` сверяется с baseline.
+- `database.activation_migration_not_applied`: migration 002 и её таблицы отсутствуют.
+- `ca_access`: root-only ключ, прямое чтение службой и совпадение runtime-копии.
+- `units` / `timers` / `backups`: следы старого внешнего guard, phase и путь backup;
+  `BASELINE_WITH_DEPLOYMENT_ARTIFACTS` **не означает**, что вообще ничего не менялось.
+- `historical_no_changes_proven=false`: без снимка ДО операции нельзя доказать
+  отсутствие всех прошлых записей. Активный клиент также пишет nonce/телеметрию.
+
+Старый coordinator создавал внешний backup и recovery unit **до** полного binary
+preflight; его rollback мог перезапустить службы даже при неизменных binaries/БД.
+По одному старому сообщению `no installation performed` обещать отсутствие
+изменений нельзя. Если `PENDING_RECOVERY_REQUIRES_REVIEW` — сначала разобрать
+указанный backup; read-only команда сама ничего не восстанавливает и не удаляет.
+
+Исправление разрешает только точный проверенный LoadCredential layout. Права CA
+не расширяются; runtime credential сравнивается с root-ключом приватно, служба
+должна читать runtime-копию. Owned override `94-veliq-production-upgrade.conf`
+идёт после 91/92 и сохраняет credential, удаляя bootstrap seeds и управляя полной
+публикацией. Неизвестные drop-in/подстановки по-прежнему отвергаются.
+
+Полная проверка кандидата теперь предшествует любому постоянному backup/guard и
+остановке служб. Диагностика содержит `stage`, `step`, `command`, `exit_code`
+(null, если дочерней команды не было), санированный `stderr`, `vps_modified`,
+`backup`, `rollback`. Stderr — только allowlisted категории, например
+`PERMISSION_DENIED`; непроверенный текст заменяется `REDACTED_UNRECOGNIZED_STDERR`.
+Это намеренно не «маскировка по regex» с риском оставить неизвестный секрет.
+`NO` — production изменений не запрашивали; `BACKUP_ONLY` — backup/частичный backup;
+`YES` — были изменения; `POSSIBLY`/`UNKNOWN` требуют read-only проверки.
+`rollback=COMPLETE_SECURITY_STATE_PRESERVED` не означает отсутствие предыдущих
+перезапусков и не откатывает nonce/revocation/schema. Backup печатается сразу после
+создания. При потере SSH нет ложного утверждения «VPS не изменён».
+
+Повторный изменяющий запуск — только после разбора read-only отчёта и зелёных
+проверок нового commit; в `-ExpectedCommit` нужен новый полный SHA, не `3f31c1f`.
+На production в ходе разработки исправления ничего не выполнялось.
