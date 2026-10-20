@@ -62,7 +62,7 @@
 | Relay-first: per-IP TLS silence recovery | `core/browserproxy/{origin_*,proxy,dns,dns_test,tls_wire,tls_wire_test}.go`, `services/client-service/browser_{transport,admission,known_group,native,native_pac,origin,origin_test}.go`, `tests/integration/relay_origin_test.go`, PS tests/diag-no-vpn.ps1, docs/TELEGRAM_TLS_DIAGNOSTICS.md, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; один итоговый commit по требованию владельца; actual Windows/ISP ещё не проверен; VPS не тронут |
 | Этап (в), вариант A: тихий owned PAC без browser restart | `services/client-service/browser_silent*.go`, browser/edge transport/controller; `platform/windows/*policy*`; desktop Browser/Chrome/Edge/Fresh routing; bootstrap/update/diag; acceptance/tests/docs | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; один итоговый commit включает ownership по требованию владельца; WFP/VPS/игры вне задачи; Windows uptake не измерен локально |
 | Windows freeze-фикстура: настоящий SID + post-push CI handoff | `services/client-service/browser_silent_test.go`, `docs/BROWSER_SILENT_POLICY.md`, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; дополнительный commit явно разрешён владельцем; production runtime без правок |
-| Коды активации club/personal, повторный CSR после freeze, leaf renewal | `core/enrollment/*`, control-plane/migrations/API/store, client-service activation/manifest/startup, desktop Activation*, tools/codes, fresh hardware adapter, deploy/vps certificate renewal + tests/docs | Codex | `codex/work` | В РАБОТЕ 20.10.2026; production deploy разрешён владельцем только после зелёных проверок; доступ к VPS из среды не настроен; veliq-swe-01/PR #8 вне области |
+| Коды активации club/personal, повторный CSR после freeze, leaf renewal | `core/enrollment/*`, control-plane/migrations/API/store, client-service activation/manifest/startup, desktop Activation*, tools/codes, fresh hardware adapter, deploy/vps certificate renewal + tests/docs | Codex | `codex/work` | РЕАЛИЗОВАНО 20.10.2026; isolated checks PASS; ожидается CI/передача deployment владельцу. SSH из среды недоступен; production не изменён; veliq-swe-01/PR #8 вне области |
 | Discord медленно, DIRECT+ для YouTube | не определены | никто | — | свободно для Codex после диагностики; Go-файлы застоя (выше) не трогать |
 | PR #8, `codex/direct-plus-flowseal` | — | не трогать | — | только владелец |
 
@@ -1292,3 +1292,53 @@ test/docs commit 20.10.2026: только actual SID для Windows freeze-фи�
 результаты CI, без переписывания истории. Исправление не меняет production-код,
 policy/guard/ACL contract, CDP readiness и маршруты. Нативный Windows запуск этого
 исправления локально не выполнялся; cross-compile не является runtime PASS.
+
+
+## (af) Коды активации и автопродление server leaf — 20.10.2026
+
+База: 165e026 (план/владение), fast-forward сайта владельца 50ae3cb сохранён.
+Добавлена migration 002, публичный code+CSR enroll, club/personal seat model,
+admin API/CLI, атомарные замена ключа/отзыв/полный signed config. В БД только hash
+кода; hardware v2 — общий HMAC UUID/board/MAC, legacy fresh UUID v1 сохранён
+ради существующих slots, v2 включается публичной солью. HW spoofing не является
+TPM-аттестацией; код из образа доступен администратору машины.
+
+Служба активирует в фоне с backoff, держит код и новый private key под SYSTEM/admin
+ACL, повторяет потерянный ответ тем же CSR, не стирает рабочую identity при неудачной
+смене кода. В образ — только public trust и отложенный код, не device private key.
+GUI: маскированный ввод, безопасные ошибки, смена кода/сроки в Настройках.
+Существующий legacy enroll и remote/renew путь сохранены; маршруты не менялись.
+
+Проверено локально: полный go test -race -p 1 ./... (первый прогон старого demo
+timeout, отдельный и повторный полный прогон PASS); vet, Linux build и Windows
+cross-build; 145 C# tests, WPF build (старые CS8604), 61 deployment Python tests;
+PS parsing + fresh/reinstall checks. Windows ACL regression скомпилирован, runtime
+только в Windows CI. COM desktop-upgrade проверка на Linux недоступна.
+PostgreSQL 17 — отдельный localhost/tmpfs container, не production.
+50 freeze replacements <5s занимают 1 seat; настоящий TLS fixture проверяет lost
+response/CSR/idempotency/новые ключи, отзыв/limit/DB failure/publication rollback.
+
+Server leaf timer: те же CA/SAN, 30d leaf, порог 10d, root-only durable backup,
+independent rollback/boot recovery, HTTPS и локальный mTLS QUIC /3 TCP+UDP proof.
+Временный proof device имеет durable journal для отзыва после crash. CA не ротируется.
+Production coordinator использует существующий binary upgrade без старого device
+credential, SHA256, pg_dump, health proof, затем leaf/timer/LoadCredential.
+
+Решение владельца: при rollback сохранять nonce, revocations, новые devices и
+совместимую additive schema; pg_dump — только backup, не автоматический pg_restore.
+Подготовленные coordinator/leaf transactions проверены fixtures, но production
+systemd/SSH не выполнялись. SSH к VPS из этой среды недоступен: этапы 4/5 не
+выполнены, реальные club/personal codes не созданы, leaf на VPS не продлён.
+Ожидается CI; команды владельцу и rollback — docs/ENROLLMENT_CODES.md.
+
+Следующий шаг после зелёного CI полного commit: из checkout codex/work выполнить
+`& .\tools\windows\update-activation-vps.ps1 -ExpectedCommit (git rev-parse HEAD).Trim() -ConfirmDeployment 'ACTIVATE-CODES-2.56.177.4'`.
+Это отдельное изменяющее VPS действие владельца, не обычный bootstrap/CA rotation.
+После deployment проверить существующий клиент, затем создать тестовые коды на VPS
+через root-only veliq-codes (одноразовый stdout, без transcript/файлов), проверить
+masked activation и повторную загрузку на ПК. Реального Windows/ISP PASS не заявляем.
+
+Журнал решений 20.10.2026: сохранять актуальные security-записи при откате (явное
+уточнение владельца); public runtime probe credential выдаётся только после
+валидного enrollment, root CA key/admin token клиенту не передаются; без SSH
+останавливаться на подготовленном deployment, не выдавать выдуманные рабочие коды.

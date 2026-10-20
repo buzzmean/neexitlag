@@ -20,7 +20,7 @@ type startupGate struct{ ready atomic.Bool }
 
 func (g *startupGate) wrap(h ipc.Handler) ipc.Handler {
 	return func(ctx context.Context, method string, raw json.RawMessage) (any, error) {
-		if !g.ready.Load() {
+		if !g.ready.Load() && method != "activation.status" && method != "activation.set" {
 			return nil, errStarting
 		}
 		return h(ctx, method, raw)

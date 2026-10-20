@@ -75,3 +75,15 @@ func (l *limiter) allow(now time.Time, source string) bool {
 	}
 	return l.global.take(now, l.globalRate, l.globalBr)
 }
+
+// Club cold boots share a NAT/code: allow the bounded startup burst, then a
+// conservative sustained issuance rate. Keys here are IP or SHA256, never codes.
+func newEnrollmentLimiter(now time.Time) *limiter {
+	l := newLimiter(now)
+	l.globalRate = 25
+	l.globalBr = 100
+	l.global = bucket{tokens: 100, last: now}
+	l.ipRate = 5
+	l.ipBr = 60
+	return l
+}

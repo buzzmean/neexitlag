@@ -10,6 +10,7 @@ import (
 	"github.com/buzzmean/neexitlag/core/security"
 	windowsplatform "github.com/buzzmean/neexitlag/platform/windows"
 	"log/slog"
+	"net/netip"
 	"strings"
 	"time"
 )
@@ -24,7 +25,10 @@ func (c *Controller) watchNetwork() {
 	defer tick.Stop()
 	for {
 		ctx, cancel := context.WithTimeout(c.ctx, 8*time.Second)
-		n := windowsplatform.InspectNetwork(ctx, c.NetworkHostRoutes)
+		c.mu.Lock()
+		routes := append([]netip.Addr{}, c.NetworkHostRoutes...)
+		c.mu.Unlock()
+		n := windowsplatform.InspectNetwork(ctx, routes)
 		cancel()
 		if n.Error != "" {
 			slog.Warn("network inspection failed; AUTO waits for a fresh fingerprint", "error", n.Error)

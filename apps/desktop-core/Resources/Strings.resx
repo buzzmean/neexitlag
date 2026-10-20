@@ -597,4 +597,8 @@
   <data name="DisableEdgeSites" xml:space="preserve"><value>Отключить PAC Edge</value></data>
   <data name="EdgeDomainLabel" xml:space="preserve"><value>Домен Edge</value></data>
   <data name="TransportOutcome" xml:space="preserve"><value>Результат транспорта</value></data>
+  <data name="ActivationStatusChecking" xml:space="preserve"><value>Код активации: проверяем</value></data>
+  <data name="ChangeActivationCode" xml:space="preserve"><value>Сменить</value></data>
+  <data name="EnterActivationCode" xml:space="preserve"><value>Введите код активации</value></data>
+  <data name="ActivateCode" xml:space="preserve"><value>Активировать</value></data>
 </root>

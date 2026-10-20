@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -27,10 +28,12 @@ import (
 	"time"
 
 	"github.com/buzzmean/neexitlag/core/controlclient"
+	"github.com/buzzmean/neexitlag/core/enrollment"
 	"github.com/buzzmean/neexitlag/core/freshpc"
 	"github.com/buzzmean/neexitlag/core/security"
 	"github.com/buzzmean/neexitlag/core/transport"
 	"github.com/buzzmean/neexitlag/internal/e2eprobe"
+	wp "github.com/buzzmean/neexitlag/platform/windows"
 	cp "github.com/buzzmean/neexitlag/services/control-plane"
 	"github.com/jackc/pgx/v5"
 )
@@ -290,6 +293,7 @@ func run() error {
 	}
 	f := flag.NewFlagSet("fresh-pc", flag.ContinueOnError)
 	state := f.String("state", "", "private repository staging")
+	saltHex := f.String("hardware-salt", "", "public deployment hardware salt hex (v2)")
 	machine := f.String("machine-hash", "", "hardware inventory SHA256")
 	pin := f.String("ca-sha256", "", "expected DER CA SHA256 from authenticated SSH or owner")
 	ip := f.String("vps-ip", "", "explicit VPS IPv4")
@@ -305,6 +309,23 @@ func run() error {
 		return errors.New("ABSOLUTE_PRIVATE_STATE_REQUIRED")
 	}
 	switch os.Args[1] {
+	case "hardware-hash":
+		salt, e := hex.DecodeString(*saltHex)
+		if e != nil {
+			return errors.New("HARDWARE_SALT_INVALID")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		hw, e := wp.EnrollmentHardware(ctx)
+		if e != nil {
+			return errors.New("HARDWARE_ID_UNAVAILABLE")
+		}
+		hash, e := enrollment.HardwareHash(hw, salt)
+		if e != nil {
+			return e
+		}
+		fmt.Println(hash)
+		return nil
 	case "request":
 		_, e := freshpc.RequestDevice(*state, *machine)
 		return e

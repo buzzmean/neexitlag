@@ -78,6 +78,10 @@ type Snapshot struct {
 	ActiveApps   []string                      `json:"active_apps"`
 }
 type Controller struct {
+	activation      activationRuntime
+	remoteDone      chan struct{}
+	remoteMu        sync.Mutex
+	remoteCancel    context.CancelFunc
 	selfExecutable  string
 	BrowserOwnerSID string // Existing installation owner; restrict the loopback endpoint to this user.
 	// In-process fixture injection only; production uses the system resolver/roots.
@@ -214,6 +218,12 @@ func (c *Controller) Start() {
 }
 func (c *Controller) Close() {
 	c.cancel()
+	c.activation.mu.Lock()
+	activationDone := c.activation.done
+	c.activation.mu.Unlock()
+	if activationDone != nil {
+		<-activationDone
+	}
 	c.closeEdge()
 	c.browser.mu.Lock()
 	bs := c.browser.server
@@ -439,6 +449,7 @@ func (c *Controller) Snapshot() Snapshot {
 	c.mu.Lock()
 	enabled := c.enabled
 	settings := c.settings
+	controlPlaneURL := c.ControlPlaneURL
 	recent := make(map[string]time.Time, len(c.recentApps))
 	for id, t := range c.recentApps {
 		recent[id] = t
@@ -476,7 +487,7 @@ func (c *Controller) Snapshot() Snapshot {
 		rx += brx
 		tx += btx
 	}
-	snapshot := Snapshot{HotAttach: c.hotAttachStatus(), Version: "0.3.0-dev", Build: buildStamp(), Connected: c.Demo || backend.Ready, Optimizing: enabled && (c.Demo || backend.Ready), Demo: c.Demo, Backend: backend, Primary: selection.Primary, Secondary: selection.Secondary, Tertiary: selection.Tertiary, Routes: views, Profiles: c.Profiles.List(), RXBytes: rx, TXBytes: tx, History: history, Flows: flows, Settings: settings, ControlPlane: c.ControlPlaneURL, ActiveApps: apps}
+	snapshot := Snapshot{HotAttach: c.hotAttachStatus(), Version: "0.3.0-dev", Build: buildStamp(), Connected: c.Demo || backend.Ready, Optimizing: enabled && (c.Demo || backend.Ready), Demo: c.Demo, Backend: backend, Primary: selection.Primary, Secondary: selection.Secondary, Tertiary: selection.Tertiary, Routes: views, Profiles: c.Profiles.List(), RXBytes: rx, TXBytes: tx, History: history, Flows: flows, Settings: settings, ControlPlane: controlPlaneURL, ActiveApps: apps}
 	// Keep mandatory profile/quality fields; shorten display history to the IPC frame.
 	for {
 		raw, _ := json.Marshal(snapshot)
@@ -538,6 +549,8 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		}()
 	}
 	switch method {
+	case "activation.status", "activation.set":
+		return c.handleActivation(method, raw)
 	case "browser.native.firewall":
 		return windowsplatform.InspectNativeFirewall(ctx), nil
 	case "browser.native.enable", "browser.native.status":
@@ -607,6 +620,9 @@ type Check struct {
 }
 
 func (c *Controller) Diagnostics(ctx context.Context) []Check {
+	c.mu.Lock()
+	controlPlaneURL, diagnosticHTTP, tcpTarget := c.ControlPlaneURL, c.DiagnosticHTTPClient, c.TCPDiagnosticTarget
+	c.mu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
 	out := []Check{}
@@ -626,17 +642,17 @@ func (c *Controller) Diagnostics(ctx context.Context) []Check {
 	}
 	out = append(out, Check{"IPv6", "unsupported", "no IPv6 relay transport: new attributable selected IPv6 packets blocked at NETWORK; existing/unattributed/unsupported traffic fails open"}, Check{"HTTPS through relay", "not configured", "not measured; encrypted TCP alone is not HTTPS evidence"}, Check{"QUIC through relay", "not configured", "not measured; UDP/443 alone is not QUIC evidence"}, Check{"Browser DNS", "not configured", "not attributed: system resolver service traffic stays DIRECT; selected browser DoH follows its socket profile"})
 	dnsHost := "localhost"
-	if c.ControlPlaneURL == "" {
+	if controlPlaneURL == "" {
 		out = append(out, Check{"Control Plane", "not configured", "no endpoint configured"})
 	} else {
-		u, e := url.Parse(c.ControlPlaneURL)
+		u, e := url.Parse(controlPlaneURL)
 		if e == nil {
 			dnsHost = u.Hostname()
 		}
-		req, e := http.NewRequestWithContext(ctx, "GET", c.ControlPlaneURL+"/healthz", nil)
+		req, e := http.NewRequestWithContext(ctx, "GET", controlPlaneURL+"/healthz", nil)
 		status := "unavailable"
 		if e == nil {
-			client := c.DiagnosticHTTPClient
+			client := diagnosticHTTP
 			if client == nil {
 				client = &http.Client{Timeout: time.Second}
 			}
@@ -677,8 +693,8 @@ func (c *Controller) Diagnostics(ctx context.Context) []Check {
 	}
 	out = append(out, Check{"UDP", udpStatus, "real application-level UDP echo probes"}, Check{"Relay", relayStatus, "authenticated relay UDP echo path"})
 	tcpStatus := "not configured"
-	if c.TCPDiagnosticTarget != "" {
-		conn, e := (&net.Dialer{Timeout: 500 * time.Millisecond}).DialContext(ctx, "tcp", c.TCPDiagnosticTarget)
+	if tcpTarget != "" {
+		conn, e := (&net.Dialer{Timeout: 500 * time.Millisecond}).DialContext(ctx, "tcp", tcpTarget)
 		tcpStatus = "unavailable"
 		if e == nil {
 			conn.Close()

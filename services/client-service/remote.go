@@ -19,23 +19,26 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
 type Manifest struct {
-	ProbeTokenFile     string                      `json:"probe_token_file,omitempty"`
-	ControlPlaneCAFile string                      `json:"control_plane_ca_file,omitempty"`
-	OwnerSID           string                      `json:"owner_sid"`
-	TokenFile          string                      `json:"token_file"`
-	StateDirectory     string                      `json:"state_directory"`
-	ControlPlaneURL    string                      `json:"control_plane_url"`
-	TrustFile          string                      `json:"trust_file"`
-	DeviceIdentityFile string                      `json:"device_identity_file"`
-	DeviceCertificate  string                      `json:"device_certificate"`
-	CAFile             string                      `json:"ca_file"`
-	ProbeTarget        string                      `json:"probe_target"`
-	TCPProbeTarget     string                      `json:"tcp_probe_target"`
-	Driver             windowsplatform.DriverFiles `json:"driver"`
+	ActivationCodeFile      string                      `json:"activation_code_file,omitempty"`
+	ActivationCAFingerprint string                      `json:"activation_ca_sha256,omitempty"`
+	ProbeTokenFile          string                      `json:"probe_token_file,omitempty"`
+	ControlPlaneCAFile      string                      `json:"control_plane_ca_file,omitempty"`
+	OwnerSID                string                      `json:"owner_sid"`
+	TokenFile               string                      `json:"token_file"`
+	StateDirectory          string                      `json:"state_directory"`
+	ControlPlaneURL         string                      `json:"control_plane_url"`
+	TrustFile               string                      `json:"trust_file"`
+	DeviceIdentityFile      string                      `json:"device_identity_file"`
+	DeviceCertificate       string                      `json:"device_certificate"`
+	CAFile                  string                      `json:"ca_file"`
+	ProbeTarget             string                      `json:"probe_target"`
+	TCPProbeTarget          string                      `json:"tcp_probe_target"`
+	Driver                  windowsplatform.DriverFiles `json:"driver"`
 }
 
 func LoadManifest(path string) (Manifest, error) {
@@ -53,6 +56,8 @@ func LoadManifest(path string) (Manifest, error) {
 	return m, nil
 }
 func (c *Controller) ConnectRemote(ctx context.Context, m Manifest) error {
+	c.remoteMu.Lock()
+	defer c.remoteMu.Unlock()
 	raw, e := os.ReadFile(m.TrustFile)
 	if e != nil {
 		return e
@@ -109,17 +114,16 @@ func (c *Controller) ConnectRemote(ctx context.Context, m Manifest) error {
 			return e
 		}
 	}
-	renewer.fetch = cp.RenewCertificate
-	c.wg.Add(1)
-	go func() { defer c.wg.Done(); renewer.run(c.ctx) }()
-	c.DiagnosticHTTPClient = cp.HTTP
-	c.ControlPlaneURL = m.ControlPlaneURL
-	c.TCPDiagnosticTarget = m.TCPProbeTarget
 	target, e := netip.ParseAddrPort(m.ProbeTarget)
 	if e != nil {
 		return errors.New("explicit UDP echo probe target required")
 	}
+	c.mu.Lock()
+	c.DiagnosticHTTPClient = cp.HTTP
+	c.ControlPlaneURL = m.ControlPlaneURL
+	c.TCPDiagnosticTarget = m.TCPProbeTarget
 	c.NetworkHostRoutes = []netip.Addr{target.Addr()}
+	c.mu.Unlock()
 	remote := &remoteState{controller: c, cp: cp, tls: cfg, target: target, addresses: make(map[string]string), clients: make(map[string]*transport.Pool)}
 	if m.ProbeTokenFile != "" {
 		remote.echoKey, e = e2eprobe.Token(m.ProbeTokenFile)
@@ -127,6 +131,20 @@ func (c *Controller) ConnectRemote(ctx context.Context, m Manifest) error {
 			return e
 		}
 	}
+	if e = c.stopRemoteLocked(ctx); e != nil {
+		return e
+	}
+	remoteCtx, stopRemote := context.WithCancel(c.ctx)
+	c.remoteCancel = stopRemote
+	done := make(chan struct{})
+	c.remoteDone = done
+	var workers sync.WaitGroup
+	workers.Add(2)
+	renewer.fetch = cp.RenewCertificate
+	c.wg.Add(1)
+	go func() { defer c.wg.Done(); defer workers.Done(); renewer.run(remoteCtx) }()
+	c.wg.Add(1)
+	go func() { defer c.wg.Done(); workers.Wait(); close(done) }()
 	signed, initialError := cp.Config(ctx)
 	if initialError == nil {
 		initialError = remote.apply(ctx, signed)
@@ -135,17 +153,18 @@ func (c *Controller) ConnectRemote(ctx context.Context, m Manifest) error {
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
+		defer workers.Done()
 		defer remote.close()
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
-			case <-c.ctx.Done():
+			case <-remoteCtx.Done():
 				return
 			case <-ticker.C:
-				cfg, e := cp.Config(c.ctx)
+				cfg, e := cp.Config(remoteCtx)
 				if e == nil {
-					remote.apply(c.ctx, cfg)
+					remote.apply(remoteCtx, cfg)
 				}
 			}
 		}
@@ -168,6 +187,9 @@ func (s *remoteState) apply(ctx context.Context, cfg security.Config) error {
 	c := s.controller
 	for _, id := range cfg.RevokedDevices {
 		if id == s.cp.DeviceID {
+			c.activation.mu.Lock()
+			c.activation.revoked = true
+			c.activation.mu.Unlock()
 			s.close()
 			return errors.New("device revoked")
 		}
@@ -302,4 +324,20 @@ func (s *remoteState) close() {
 		pool.Close()
 	}
 	s.clients = make(map[string]*transport.Pool)
+}
+
+// Caller holds remoteMu. Stop both old config polling and leaf renewal before
+// replacing the identity/certificate so an old renewal cannot overwrite it.
+func (c *Controller) stopRemoteLocked(ctx context.Context) error {
+	if c.remoteCancel != nil {
+		c.remoteCancel()
+	}
+	if c.remoteDone != nil {
+		select {
+		case <-c.remoteDone:
+		case <-ctx.Done():
+			return errors.New("previous connection shutdown pending")
+		}
+	}
+	return nil
 }

@@ -14,7 +14,7 @@ root-SSH fresh_machine_slots остаются совместимыми. Новы
 `VQ-` + 24 случайных base32 символа (120 бит), группы по 4. Пример формата с
 заполнителями, не рабочий ключ: VQ-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX. Public release
 не содержит ни кодов, ни administrator token, ни private CA. Обычное перечисление
-админом возвращает ID/метаданные, никогда исходный код/hash. Создание возвращает
+админом возвращает ID/метаданные, никогда исходный код/hash. Инвентарь — страницы до 128 строк с next_cursor; tools/codes принимает --after. Создание возвращает
 код один раз; tools/codes не пишет его в файл/лог, только явно в терминал владельца.
 
 ## API
@@ -90,3 +90,94 @@ Windows compile. Деплой только при зелёных проверк�
 2.56.177.4, не veliq-swe-01. Если SSH недоступен, выполняются только подготовка и
 точные команды владельцу; тестовые club/personal коды до реального deployment
 не создаются и не выдаются как работающие. На ПК не обещать PASS без owner retest.
+
+
+Решение владельца об откате: возвращаем бинарники/units/leaf, **сохраняем текущие
+nonce/revocations и совместимую добавочную схему**, pg_dump — резервная копия,
+не автоматический pg_restore после публичных запросов. Это явно согласованное
+уточнение первоначального требования полного отката БД.
+
+Измерительные пробы сохраняют существующий authenticated echo: CP получает
+существующий probe token через systemd LoadCredential и отдаёт его только после
+успешного code+CSR enrollment, как прежний fresh ответ. Это не admin/CA credential
+и не право open proxy. На ПК токен, как и device identity/code, закрыт SYSTEM/admin
+ACL; публичный релиз его не содержит. Без этого runtime credential новый endpoint
+показывает enrollment_ready=false, не выдавая ложную готовность.
+
+Чистая установка службы допускает `install.ps1 -ActivationOnly` с проверенным
+публичным trust bundle; identity/CSR заранее не нужны. Для образа —
+`stage-club-activation.ps1`: один закрытый ввод кода администратором, активация
+отложена до следующей загрузки; подготовка отказывается при наличии device keys.
+Образ не должен содержать ни зарегистрированную identity, ни pending private keys.
+Неверная смена кода хранится отдельно (.pending), рабочий код/identity не удаляются.
+Срок кода ограничивает новую регистрацию/re-enrollment; автоматическая оплата и
+истечение подписки не реализованы. Явный отзыв кода/ПК блокирует существующие
+устройства через прежнюю архитектуру revocation и lease.
+
+## Передача production-обновления владельцу
+
+Из среды разработки SSH к VPS недоступен. Production не обновлён, leaf не продлён,
+реальные коды ещё не созданы. Ниже **изменяющая сервер команда**, запускать только
+после зелёного CI нужного полного commit и с разрешения владельца. Не использовать
+её как обычную установку ПК; не запускать bootstrap/CA rotation повторно.
+
+В PowerShell из клона, checkout `codex/work`, без локальных изменений:
+
+```powershell
+git pull --ff-only origin codex/work
+$release = (git rev-parse HEAD).Trim()
+& .\tools\windows\update-activation-vps.ps1 -ExpectedCommit $release -ConfirmDeployment 'ACTIVATE-CODES-2.56.177.4'
+```
+
+Одна host-verified SSH-сессия, интерактивный пароль владельца; собирает Linux
+бинарники именно из проверенного checkout, проверяет SHA256 всех артефактов,
+показывает read-only preflight, принудительно обновляет даже совместимые `/3`
+бинарники. Требует уже существующую `/3` baseline, systemd ≥247, тот же CA/SAN,
+root-only CA key и существующий echo credential. PostgreSQL migration 002 — только
+добавление. Штатный binary upgrade сохраняет pg_dump, старые binaries и units в
+напечатанном `/etc/neexitlag.bak-<id>`; локальный authenticated TCP/UDP proof создаёт
+и отзывает временное устройство. Identity владельца не заменяется.
+
+Внешняя транзакция сохраняет `/etc/neexitlag`, leaf и управляемые units/helper в
+`/var/backups/neexitlag-activation/<id>`. Независимый rollback timer 480 с и boot
+recovery работают из постоянной копии. Затем устанавливает LoadCredential,
+maintenance helper/timer, принудительно продлевает leaf тем же CA на 30 суток,
+проверяет HTTPS и настоящий QUIC/mTLS `/3`, готовность enrollment. У leaf есть
+свой rollback watchdog. При ошибке — возврат leaf/units/binaries; security-записи
+БД не откатываются. При несовместимости старого binary с текущей security state
+штатный rollback останавливает службы, сохраняя БД для безопасного разбора.
+
+Для ручного отката на VPS под root (подставить **напечатанный** backup, не выдумывать):
+
+```bash
+python3 /var/backups/neexitlag-activation/<id>/deploy-activation.py rollback --backup /var/backups/neexitlag-activation/<id>
+```
+
+Только после `ACTIVATION_DEPLOYMENT_COMMITTED` и проверки владельцем существующего
+клиента (билет + TCP/UDP) на VPS под root создать тестовые коды. Не включать запись
+терминала/PowerShell transcript, не перенаправлять вывод в файл. Код отображается
+один раз; впоследствии доступен только его публичный ID/статус, не исходный код.
+
+```bash
+/opt/neexitlag/maintenance/veliq-codes create --ca /etc/neexitlag/control/ca.pem --admin-token-file /etc/neexitlag/control/admin.token --kind club --limit 40 --name 'Тестовый клуб' --days 90
+/opt/neexitlag/maintenance/veliq-codes create --ca /etc/neexitlag/control/ca.pem --admin-token-file /etc/neexitlag/control/admin.token --kind personal --limit 2 --name 'Личная проверка' --days 90
+```
+
+`list`/`machines --id <id>` возвращают страницу ≤128 записей и `next_cursor`.
+Для продолжения — `--after <cursor>`; тихого обрезания нет. `revoke --id <id>`
+отзывает весь код, `disable --id <id> --machine <hash>` блокирует конкретный слот.
+
+Проверка ПК после обновления service/GUI: в Настройках — «Сменить», ввести код
+через закрытое поле. Дождаться «активирован»; `activation.status` и обычный diag
+показывают только состояния/сроки, не код. Перезапустить службу, проверить повторное
+подключение; freeze на чистом activation-only образе — новый device key, тот же
+слот, предыдущий ключ отозван. Не копировать зарегистрированный private key в образ.
+Публичный trust bundle должен быть заранее проверен/подписан издателем; из
+непроверенного ответа enrollment корневой CA не устанавливается.
+
+Границы проверок: локальные тесты не доказывают production systemd/SSH rollback,
+реальный UAC-off/WinDivert/GUI или работу у провайдера. 50 замен identity проверяются
+на isolated PostgreSQL, а HTTPS с потерянным ответом — настоящим TLS тестового CA.
+Hardware spoofing/администратор, имеющий клубный код, не устраняются без аппаратной
+аттестации. При долгой freeze-эксплуатации revocations растут; лимит подписанного
+конфига 1 MiB остаётся fail-closed, очистка security history автоматически не делается.

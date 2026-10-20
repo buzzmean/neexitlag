@@ -30,6 +30,7 @@ func runReady(ctx context.Context, path string, ready func()) error {
 	if e = controller.SetCustomPath(manifest.StateDirectory + string(os.PathSeparator) + "profiles.json"); e != nil {
 		return e
 	}
+	managedActivation := controller.ConfigureActivation(manifest)
 	// The pipe opens before the slow stages so SCM does not wait on the network and
 	// the GUI can tell "starting" from "not installed". Methods are rejected until
 	// initialization finishes (see startupGate).
@@ -50,7 +51,7 @@ func runReady(ctx context.Context, path string, ready func()) error {
 		if e := controller.RestoreBrowserTransport(); e != nil {
 			slog.Warn("Chrome transport not restored; proxy remains fail-closed", "error", e)
 		}
-		if manifest.ControlPlaneURL != "" {
+		if manifest.ControlPlaneURL != "" && !managedActivation {
 			if e := controller.ConnectRemote(ctx, manifest); e != nil {
 				slog.Warn("control plane initialization unavailable; capture remains DIRECT", "error", e)
 			}

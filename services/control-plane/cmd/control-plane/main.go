@@ -126,7 +126,33 @@ func main() {
 	if e != nil {
 		fail(e)
 	}
-	api, e := controlplane.New(store, controlplane.Settings{AdminToken: adminToken, KeyID: *kid, SigningKey: key, CA: cert, CAKey: cak})
+	var serverLeaf *x509.Certificate
+	if *tlsCert != "" {
+		raw, err := os.ReadFile(*tlsCert)
+		if err != nil {
+			fail(err)
+		}
+		block, _ := pem.Decode(raw)
+		if block == nil {
+			fail(fmt.Errorf("invalid server certificate"))
+		}
+		serverLeaf, e = x509.ParseCertificate(block.Bytes)
+		if e != nil {
+			fail(e)
+		}
+	}
+	enrollProbeToken := ""
+	if path := os.Getenv("VELIQ_ENROLL_PROBE_TOKEN_FILE"); path != "" {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			fail(fmt.Errorf("enrollment measurement credential unavailable"))
+		}
+		enrollProbeToken = strings.TrimSpace(string(raw))
+		if len(enrollProbeToken) < 24 || len(enrollProbeToken) > 256 {
+			fail(fmt.Errorf("invalid enrollment measurement credential"))
+		}
+	}
+	api, e := controlplane.New(store, controlplane.Settings{EnrollmentProbeToken: enrollProbeToken, AdminToken: adminToken, KeyID: *kid, SigningKey: key, CA: cert, CAKey: cak, ServerCertificate: serverLeaf})
 	if e != nil {
 		fail(e)
 	}

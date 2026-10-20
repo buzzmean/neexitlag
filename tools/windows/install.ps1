@@ -3,7 +3,8 @@
 param(
  [Parameter(Mandatory=$true)][string]$ServiceExecutable,
  [Parameter(Mandatory=$true)][string]$OwnerSid,
- [Parameter(Mandatory=$true)][string]$DeviceDirectory,
+ [string]$DeviceDirectory="",
+ [switch]$ActivationOnly,
  [Parameter(Mandatory=$true)][string]$TrustDirectory,
  [Parameter(Mandatory=$true)][string]$DriverDirectory,
  [Parameter(Mandatory=$true)][string]$DllSha256,
@@ -26,7 +27,11 @@ $ServiceExecutable=(Resolve-Path $ServiceExecutable).Path
 $DriverDirectory=(Resolve-Path $DriverDirectory).Path
 if($DllSha256 -notmatch '^[0-9a-fA-F]{64}$' -or $DriverSha256 -notmatch '^[0-9a-fA-F]{64}$'){throw "SHA256 pins must be provided from a trusted WinDivert distribution."}
 foreach($pair in @(@("WinDivert.dll",$DllSha256),@("WinDivert64.sys",$DriverSha256))){if((Get-FileHash (Join-Path $DriverDirectory $pair[0]) -Algorithm SHA256).Hash -ne $pair[1]){throw "WinDivert hash mismatch: $($pair[0])"}}
-$sources=@{'identity.json'=(Join-Path $DeviceDirectory 'identity.json');'device.pem'=(Join-Path $DeviceDirectory 'device.pem');'trust.json'=(Join-Path $TrustDirectory 'trust.json');'ca.pem'=(Join-Path $TrustDirectory 'ca.pem')}
+$sources=@{'ca.pem'=(Join-Path $TrustDirectory 'ca.pem')}
+if(!$ActivationOnly){
+ if($DeviceDirectory -eq ''){throw 'DeviceDirectory required without -ActivationOnly'}
+ $sources['identity.json']=Join-Path $DeviceDirectory 'identity.json';$sources['device.pem']=Join-Path $DeviceDirectory 'device.pem';$sources['trust.json']=Join-Path $TrustDirectory 'trust.json'
+}elseif(Test-Path -LiteralPath (Join-Path $TrustDirectory 'trust.json')){$sources['trust.json']=Join-Path $TrustDirectory 'trust.json'}
 $cpCA=Join-Path $TrustDirectory 'cp-ca.pem'
 if(Test-Path -LiteralPath $cpCA){$sources['cp-ca.pem']=$cpCA}
 if($ProbeTokenFile -ne ''){$sources['probe.token']=$ProbeTokenFile}
@@ -57,6 +62,10 @@ $manifest=@{owner_sid=$OwnerSid;token_file=$tokenFile;state_directory=(Join-Path
 if(Test-Path -LiteralPath (Join-Path $InstallDirectory "probe.token")){$manifest.probe_token_file=(Join-Path $InstallDirectory "probe.token")}
 if(Test-Path -LiteralPath (Join-Path $InstallDirectory 'cp-ca.pem')){$manifest.control_plane_ca_file=(Join-Path $InstallDirectory 'cp-ca.pem')}
 if($null -ne $preserved){foreach($property in $preserved.PSObject.Properties){if(!$manifest.ContainsKey($property.Name)){$manifest[$property.Name]=$property.Value}}}
+# Pin the already verified public CA at installation; never trust an enroll reply as CA.
+$activationCA=Join-Path $InstallDirectory 'cp-ca.pem';if(!(Test-Path $activationCA)){$activationCA=Join-Path $InstallDirectory 'ca.pem'}
+$publicCert=New-Object Security.Cryptography.X509Certificates.X509Certificate2 $activationCA
+$caHash=[Security.Cryptography.SHA256]::Create();try{$manifest.activation_ca_sha256=([BitConverter]::ToString($caHash.ComputeHash($publicCert.RawData))).Replace('-','').ToLowerInvariant()}finally{$caHash.Dispose();$publicCert.Dispose()}
 $manifestPath=Join-Path $InstallDirectory "service.json"
 [IO.File]::WriteAllText($manifestPath,($manifest|ConvertTo-Json -Depth 4),[Text.UTF8Encoding]::new($false))
 Protect-ServiceDirectory $InstallDirectory $OwnerSid

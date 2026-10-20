@@ -6,6 +6,7 @@ param(
  [ValidateRange(1,65535)][int]$SSHPort=22,
  [string]$CaFingerprint='',
  [switch]$RepairBrowserReadiness,
+ [string]$HardwareSalt="",
  [switch]$PreflightVps,
  [switch]$UpgradeVpsBinaries,
  [string]$ConfirmVpsUpgrade='',
@@ -248,9 +249,15 @@ function Invoke-FreshPC {
  }
  $request=$null
  if(!$PreflightVps){
+ if($HardwareSalt -ne ''){
+  if($HardwareSalt -notmatch '^[a-fA-F0-9]{64}$'){throw 'HARDWARE_SALT_INVALID'}
+  $machine=(& $helper hardware-hash --hardware-salt $HardwareSalt | Out-String).Trim();if($LASTEXITCODE -or $machine -notmatch '^[a-f0-9]{64}$'){throw 'HARDWARE_ID_UNAVAILABLE'}
+ }else{
  $uuid=([string](Get-CimInstance Win32_ComputerSystemProduct -ErrorAction Stop).UUID).Trim().ToLowerInvariant()
  if($uuid -notmatch '^[a-f0-9-]{36}$' -or $uuid -match '^(0|-)+$|^(f|-)+$'){throw 'Stable unique SMBIOS UUID required; cloned/empty UUIDs cannot identify a machine safely'}
  $hash=[Security.Cryptography.SHA256]::Create();try{$machine=([BitConverter]::ToString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes('veliq-machine-v1|'+$uuid)))).Replace('-','').ToLowerInvariant()}finally{$hash.Dispose()}
+ }
+
  $script:FreshStage='csr'
  & $helper request --state $state --machine-hash $machine;if($LASTEXITCODE){throw 'CSR_GENERATION_FAILED'}
  $request=Get-Content (Join-Path $state 'request.json') -Raw|ConvertFrom-Json

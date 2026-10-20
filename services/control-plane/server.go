@@ -27,11 +27,13 @@ import (
 )
 
 type Settings struct {
-	AdminToken string
-	KeyID      string
-	SigningKey ed25519.PrivateKey
-	CA         *x509.Certificate
-	CAKey      crypto.Signer
+	EnrollmentProbeToken string
+	AdminToken           string
+	KeyID                string
+	SigningKey           ed25519.PrivateKey
+	CA                   *x509.Certificate
+	CAKey                crypto.Signer
+	ServerCertificate    *x509.Certificate
 }
 type API struct {
 	Store                                     *Store
@@ -39,13 +41,14 @@ type API struct {
 	Requests, Errors, AuthFailures, Telemetry atomic.Uint64
 	LatencyNS                                 atomic.Uint64
 	limit                                     *limiter
+	enrollIP, enrollCode                      *limiter
 }
 
 func New(s *Store, c Settings) (*API, error) {
 	if len(c.AdminToken) < 24 || len(c.SigningKey) != ed25519.PrivateKeySize || c.KeyID == "" || c.CA == nil || c.CAKey == nil {
 		return nil, errors.New("admin token, signing key and device CA required")
 	}
-	return &API{Store: s, Settings: c, limit: newLimiter(time.Now())}, nil
+	return &API{Store: s, Settings: c, limit: newLimiter(time.Now()), enrollIP: newEnrollmentLimiter(time.Now()), enrollCode: newEnrollmentLimiter(time.Now())}, nil
 }
 func (a *API) publish(ctx context.Context) ([]byte, error) {
 	pub := a.Settings.SigningKey.Public().(ed25519.PublicKey)
@@ -94,6 +97,10 @@ func (a *API) Handler() http.Handler {
 	})
 	m.HandleFunc("GET /metrics", a.metrics)
 	m.HandleFunc("POST /api/v1/auth", a.auth)
+	m.HandleFunc("POST /api/v1/enroll", a.enroll)
+	m.HandleFunc("GET /api/v1/enroll/policy", a.enrollmentPolicy)
+	m.HandleFunc("/api/v1/codes", a.codes)
+	m.HandleFunc("/api/v1/codes/", a.codes)
 	m.HandleFunc("GET /api/v1/config", a.config)
 	m.HandleFunc("GET /api/v1/version", func(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, map[string]string{"version": "0.3.0-dev", "ipc_version": "1"})

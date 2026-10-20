@@ -185,11 +185,11 @@ class LocalUpgrade(e.Upgrade):
             self.h.log = None
 
 
-def prepare(bundle, helper, commit, confirm, preflight_only=False):
+def prepare(bundle, helper, commit, confirm, preflight_only=False, force_update=False, before_commit=None):
     h = e.Host()
     current = report(h)
     print('VPS_PREFLIGHT=' + json.dumps(current, sort_keys=True), file=sys.stderr, flush=True)
-    if preflight_only or not current['upgrade_needed']:
+    if preflight_only or (not current['upgrade_needed'] and not force_update):
         return current
     if confirm != 'UPGRADE-VPS-2.56.177.4':
         raise e.UpgradeError('EXPLICIT_UPGRADE_CONFIRMATION_REQUIRED')
@@ -207,6 +207,7 @@ def prepare(bundle, helper, commit, confirm, preflight_only=False):
     up = LocalUpgrade(h, helper)
     with transaction_lock():
         summary = up.apply(bundle, commit, inventory)
+        if before_commit is not None: before_commit(summary)
         return up.prove_commit(summary['id'])
 
 

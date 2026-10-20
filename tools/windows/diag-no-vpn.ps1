@@ -287,7 +287,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-20.3 (silent owned PAC; observed uptake separate)'
+$ScriptVersion='2026-10-20.4 (activation and certificate deadlines)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -342,6 +342,11 @@ Step 'profiles' {
  $exes=($rows|ForEach-Object{@(Prop $_ 'executables' @())})-join ' '
  Say ("Has Chrome profile: "+($exes -match 'chrome\.exe')+"; Edge: "+($exes -match 'msedge\.exe')+"; Telegram: "+($exes -match '(?i)telegram\.exe')+"; Discord: "+($exes -match '(?i)discord'))
 }
+Section '1c-activation. Activation / certificate validity (no credential)'
+Step 'ipc' {
+ try{$v=Invoke-IPC 'activation.status';$state=[string](Prop $v 'state' 'UNKNOWN');if($state -notin @('CODE_REQUIRED','CODE_STAGED','ACTIVATING','ACTIVATED','ACTIVATION_ERROR','UNAVAILABLE')){$state='UNKNOWN'};Say ('activation state='+$state+' identity='+(Prop $v 'has_identity' $false)+' ca_not_after='+(Prop $v 'ca_not_after' 'UNKNOWN')+' server_not_after='+(Prop $v 'server_not_after' 'UNKNOWN'))}catch{Say 'activation: STATUS_UNAVAILABLE (older service or IPC unavailable)'}
+}
+
 Section '1d. IPC browser.status'
 Step 'browser' {$script:browserJson=Json (Invoke-IPC 'browser.status');Say $script:browserJson}
 Section '1e. IPC capture.diagnostics'

@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"context"
+	"crypto/rand"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -50,6 +51,22 @@ func (s *Store) Migrate(ctx context.Context) error {
 		return e
 	}
 	if _, e = tx.Exec(ctx, string(b)); e != nil {
+		return e
+	}
+	for _, name := range []string{"migrations/002_activation_codes.sql"} {
+		b, e := migrations.ReadFile(name)
+		if e != nil {
+			return e
+		}
+		if _, e = tx.Exec(ctx, string(b)); e != nil {
+			return e
+		}
+	}
+	salt := make([]byte, 32)
+	if _, e = rand.Read(salt); e != nil {
+		return e
+	}
+	if _, e = tx.Exec(ctx, "INSERT INTO activation_policy(singleton,hardware_salt) VALUES(true,$1) ON CONFLICT DO NOTHING", salt); e != nil {
 		return e
 	}
 	for _, p := range profiles.Defaults() {

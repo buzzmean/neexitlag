@@ -144,6 +144,7 @@
      <Button Content="{ui:Tr LocalTest}" Click="TestLocal" HorizontalAlignment="Left" IsEnabled="{Binding CanControl}"/>
     </StackPanel></ScrollViewer>
     <ScrollViewer x:Name="Settings" Visibility="Collapsed" VerticalScrollBarVisibility="Auto"><StackPanel>
+ <StackPanel Orientation="Horizontal"><TextBlock x:Name="ActivationSummary" Text="{ui:Tr ActivationStatusChecking}" Foreground="#A3A3A3" VerticalAlignment="Center"/><Button Content="{ui:Tr ChangeActivationCode}" Click="ChangeActivation" Margin="12,0,0,0"/></StackPanel><TextBlock x:Name="ActivationCertificates" Foreground="#A3A3A3"/>
      <CheckBox x:Name="Launch" Content="{ui:Tr AutoStart}"/>
      <CheckBox x:Name="StartMinimized" Content="{ui:Tr StartMinimized}"/>
      <CheckBox x:Name="MinimizeToTray" Content="{ui:Tr MinimizeToTray}"/>
@@ -155,5 +156,5 @@
     </StackPanel></ScrollViewer>
    </Grid>
   </DockPanel>
- </Grid>
+ <Border x:Name="ActivationPanel" Grid.ColumnSpan="2" Background="#F5000000" Visibility="Collapsed" Panel.ZIndex="10"><StackPanel Width="440" VerticalAlignment="Center" HorizontalAlignment="Center"><TextBlock Text="{ui:Tr EnterActivationCode}" FontSize="28" Foreground="White" Margin="0,0,0,16"/><PasswordBox x:Name="ActivationCode" MaxLength="64" FontSize="18" Padding="12"/><Button x:Name="ActivationSubmit" Content="{ui:Tr ActivateCode}" Click="SubmitActivation" Margin="0,16,0,12"/><TextBlock x:Name="ActivationError" TextWrapping="Wrap" Foreground="#A3A3A3"/></StackPanel></Border></Grid>
 </Window>
