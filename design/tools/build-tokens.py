@@ -43,6 +43,10 @@ def build_css() -> str:
         "  font-weight: 100 900;",
         "  font-style: normal;",
         "  font-display: swap;",
+        "  /* Метрики шрифта зафиксированы, чтобы строка и прорезь в заголовках стояли одинаково на Windows, Android, macOS и iOS */",
+        "  ascent-override: 97%;",
+        "  descent-override: 30.5%;",
+        "  line-gap-override: 0%;",
         "}",
         "",
     ]

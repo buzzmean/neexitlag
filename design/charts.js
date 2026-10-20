@@ -12,7 +12,8 @@
 
   function render(container, opts) {
     var series = opts.series || [];
-    var W = 640, H = opts.height || 220, padL = 34, padR = 136, padT = 12, padB = 24;
+    /* Ширина графика = ширина контейнера: подписи остаются читаемыми и на телефоне, а не сжимаются вместе с картинкой */
+    var W = Math.max(280, Math.round(container.clientWidth) || 640), H = opts.height || 220, padL = 34, padR = W < 480 ? 100 : 136, padT = 12, padB = 24;
     var all = []; series.forEach(function (s) { all = all.concat(s.values); });
     var max = Math.max.apply(null, all), min = Math.min.apply(null, all);
     var top = Math.ceil((max + 5) / 20) * 20, bottom = Math.max(0, Math.floor((min - 5) / 20) * 20);
@@ -49,5 +50,16 @@
     });
     return svg;
   }
-  global.veliqPingChart = render;
+  function mount(container, opts) {
+    var svg = render(container, opts);
+    if (window.ResizeObserver && !container.__veliqRO) {
+      var lastW = container.clientWidth;
+      container.__veliqRO = new ResizeObserver(function () {
+        var w = container.clientWidth; if (Math.abs(w - lastW) < 2) return; lastW = w; render(container, opts);
+      });
+      container.__veliqRO.observe(container);
+    }
+    return svg;
+  }
+  global.veliqPingChart = mount;
 })(window);

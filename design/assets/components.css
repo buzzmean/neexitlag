@@ -28,20 +28,21 @@ a:hover { text-decoration-color: var(--accent); }
 /* ---------- Срез (фирменный приём) ----------
    Прорезь на 66% высоты строки, как в логотипе. Применять к одному крупному объекту на экране. */
 .slit {
-  --slit-at: 0.62em;              /* положение прорези от верха строки при line-height ≈ 0.94 */
-  --slit-gap: 0.055em;
+  /* Прорезь задаётся в процентах высоты строки, а не в em: так она остаётся на месте при любом
+     масштабе (зум страницы, размер шрифта в системе, встроенный просмотр в приложениях).
+     Расчёт для line-height 0.94: прорезь от 0.62em до 0.675em сверху. */
+  --slit-top: 65.96%;
+  --slit-bottom: 71.81%;
   display: block;
-  -webkit-mask: linear-gradient(#000 0 0) top / 100% var(--slit-at) no-repeat,
-                linear-gradient(#000 0 0) bottom / 100% calc(100% - var(--slit-at) - var(--slit-gap)) no-repeat;
-          mask: linear-gradient(#000 0 0) top / 100% var(--slit-at) no-repeat,
-                linear-gradient(#000 0 0) bottom / 100% calc(100% - var(--slit-at) - var(--slit-gap)) no-repeat;
+  -webkit-mask-image: linear-gradient(to bottom, #000 0 var(--slit-top), transparent var(--slit-top) var(--slit-bottom), #000 var(--slit-bottom));
+          mask-image: linear-gradient(to bottom, #000 0 var(--slit-top), transparent var(--slit-top) var(--slit-bottom), #000 var(--slit-bottom));
 }
 .slit-line { position: relative; display: block; width: fit-content; }
 /* Сигнальная полоса выходит из конца слова и уходит к краю — как маршрут. Не перечёркивает слово. */
 .slit-line > .slit-bar {
   position: absolute; left: calc(100% + 0.14em); width: 100vw;
-  top: calc(var(--slit-at, 0.62em) - 0.002em);
-  height: var(--slit-gap, 0.055em);
+  top: 65.8%;
+  height: 6.05%;
   background: var(--accent);
   transform-origin: left center;
 }

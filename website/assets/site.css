@@ -45,8 +45,8 @@
   margin: 0; font-weight: var(--fw-display); font-size: var(--fs-display);
   line-height: var(--lh-tight); letter-spacing: var(--ls-display);
 }
-.h1 { margin: 0; font-size: clamp(40px, 6vw, var(--fs-6xl)); font-weight: var(--fw-display); line-height: 1; letter-spacing: var(--ls-display); }
-.h2 { margin: 0; font-size: clamp(30px, 4vw, var(--fs-5xl)); font-weight: var(--fw-bold); line-height: 1.04; letter-spacing: var(--ls-display); }
+.h1 { margin: 0; overflow-wrap: break-word; hyphens: auto; font-size: clamp(34px, 6vw, var(--fs-6xl)); font-weight: var(--fw-display); line-height: 1; letter-spacing: var(--ls-display); }
+.h2 { margin: 0; overflow-wrap: break-word; hyphens: auto; font-size: clamp(30px, 4vw, var(--fs-5xl)); font-weight: var(--fw-bold); line-height: 1.04; letter-spacing: var(--ls-display); }
 .h3 { margin: 0; font-size: var(--fs-xl); font-weight: var(--fw-semibold); line-height: var(--lh-snug); letter-spacing: var(--ls-heading); }
 .lede { font-size: clamp(var(--fs-lg), 1.6vw, var(--fs-xl)); line-height: 1.5; color: var(--text-muted); max-width: 46ch; margin: 0; }
 .muted { color: var(--text-muted); }
@@ -411,3 +411,22 @@
 
 /* Ошибка, на которую ведёт ссылка из программы */
 .faq details:target { box-shadow: inset 3px 0 0 var(--c-signal-500); padding-left: 16px; scroll-margin-top: 96px; }
+
+/* ---------- Телефон: доводка ---------- */
+@media (max-width: 900px) {
+  /* Меню на весь экран, страница под ним не прокручивается */
+  /* .top с backdrop-filter — контейнер для fixed, поэтому высоту задаём явно */
+  .nav { inset: 68px 0 auto 0; height: calc(100vh - 68px); height: calc(100dvh - 68px); overflow-y: auto; border-bottom: 0; align-content: start; justify-content: flex-start; }
+  body.menu-open { overflow: hidden; }
+}
+@media (max-width: 560px) {
+  .hero__actions .btn { width: 100%; }
+  .olist > li { grid-template-columns: 36px 1fr; gap: 12px; }
+  /* Подпись справа уходит под название, чтобы не ломать строку */
+  .split__list li { flex-wrap: wrap; row-gap: 2px; }
+  .split__list li span:last-child { margin-left: 46px; width: 100%; }
+  .calc__row { grid-template-columns: 1fr 96px; }
+}
+@media (max-width: 720px) {
+  .seen__wire { flex: none; height: 56px; }
+}

@@ -25,9 +25,11 @@
     menuBtn.addEventListener('click', function () {
       var open = nav.classList.toggle('is-open');
       menuBtn.setAttribute('aria-expanded', String(open));
+      document.body.classList.toggle('menu-open', open);
     });
+    nav.addEventListener('click', function (e) { if (e.target.closest('a')) { nav.classList.remove('is-open'); document.body.classList.remove('menu-open'); menuBtn.setAttribute('aria-expanded', 'false'); } });
     document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && nav.classList.contains('is-open')) { nav.classList.remove('is-open'); menuBtn.setAttribute('aria-expanded', 'false'); menuBtn.focus(); }
+      if (e.key === 'Escape' && nav.classList.contains('is-open')) { nav.classList.remove('is-open'); document.body.classList.remove('menu-open'); menuBtn.setAttribute('aria-expanded', 'false'); menuBtn.focus(); }
     });
   }
 
@@ -200,7 +202,7 @@
       calc.querySelector('[data-out="hours"]').textContent = fmt.format(paidHours) + ' ч';
       calc.querySelector('[data-out="revenue"]').textContent = fmt.format(revenue) + ' ₽';
       calc.querySelector('[data-out="back"]').textContent = '+' + fmt.format(back) + ' ₽';
-      calc.querySelector('[data-out="cost"]').textContent = '−' + fmt.format(veliq) + ' ₽';
+      calc.querySelector('[data-out="cost"]').textContent = (veliq > 0 ? '−' : '') + fmt.format(veliq) + ' ₽';
     }
     inputs.forEach(function (el) {
       el.addEventListener('input', function () {
