@@ -1359,3 +1359,9 @@ CI: добавлен focused activation.yml без upload artifacts: isolated Po
 Go vet/build, deployment tests; Windows native SYSTEM/admin ACL, activation contracts,
 145 C# tests/WPF и PS5.1 parsing. Это отделяет новые проверки от прежнего quota-blocked
 общего Verify; не заменяет Internet/production acceptance.
+
+CI уточнение 7ea0769: реальный ClientHello фикстуры 713 bytes на OpenSSL runner,
+а не ожидаемые >=1500. Одного -ign_eof недостаточно: версии ограничивают число
+custom extensions по-разному. В test-only ALPN добавлены 8 bounded protocol names
+для фактического большого ClientHello; размер/framing assertions не ослаблены,
+production TLS/probe не изменены. Причина прежнего CI отказа уточнена по safe summary.
