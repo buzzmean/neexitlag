@@ -25,6 +25,7 @@ public class ActivationSSHFixture {
    Console.Error.WriteLine("ACTIVATION_DEPLOYMENT_FAILED stage=CANDIDATE_READ_ONLY_PREFLIGHT exit_code=13 vps_modified=NO");
    Environment.Exit(23);
   }
+  if(input!="success") { Console.Error.WriteLine("BAD_FIXTURE_INPUT_LENGTH="+input.Length); Environment.Exit(97); }
   Console.WriteLine("SAFE_FIXTURE_OK");
  }
 }

@@ -1441,3 +1441,11 @@ CI запускается после commit; результаты проверя
 Первая команда владельцу — read-only verify; повторный deployment только после
 разбора результата и CI нового полного SHA. PR #8/маршруты/credentials не менялись.
 Область освобождена, одно отдельное исправление в codex/work без rewrite/force-push.
+
+CI после 05cdfd1: оба actual isolated systemd/PostgreSQL прогона (legacy и fresh
+LoadCredential/root:600) PASS, run 39492338314. Новый Windows SSH fixture выявил
+UTF-8 BOM в stdin .NET Framework: literal payload fail не был распознан fixture.
+Транспорт теперь явно StandardInputEncoding=UTF8Encoding(false), fixture отвергает
+любой неизвестный input (не принимает его как success). Это отдельный небольшой
+follow-up без rewrite; на VPS ничего не выполнялось. Локально PS parse/quoting PASS;
+actual native Windows rerun — после push, фактический результат отдельно в Actions.
