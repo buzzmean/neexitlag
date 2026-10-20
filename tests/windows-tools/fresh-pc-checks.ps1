@@ -47,6 +47,13 @@ Write-Host 'PASS bounded startup wait, optional network.error and final deadline
 
 # Pure policy/token matrix: never change UAC, obtain an elevated token, install,
 # enroll or contact SSH. Consent=0 alone is NOT proof that UAC is disabled.
+function Execution-Fixture {
+ $e=New-FreshExecutionEvidence
+ $e.EnableLUA=0;$e.EnableLUAKind='DWord';$e.ConsentPromptBehaviorAdmin=0;$e.ConsentKind='DWord'
+ foreach($name in @('PolicyReadError','OwnerQueryError','NativeReadError','OpenTokenError','ElevationTypeError','ElevationError','RestrictedError','LinkedTokenError')){$e.$name=0}
+ $e.IsAdministrator=$true;$e.ElevationType=1;$e.Elevated=$true;$e.Restricted=$false;$e.HasLinkedToken=$false;$e.LinkedTokenQuery='ABSENT'
+ return $e
+}
 foreach($lua in @(0,1)){
  foreach($consent in @(0,5)){
   foreach($admin in @($false,$true)){
@@ -54,7 +61,9 @@ foreach($lua in @(0,1)){
     foreach($type in @(1,2,3)){
      foreach($linked in @($false,$true)){
       foreach($restricted in @($false,$true)){
-       $e=[pscustomobject]@{EnableLUA=$lua;ConsentPromptBehaviorAdmin=$consent;IsAdministrator=$admin;Elevated=$elevated;ElevationType=$type;HasLinkedToken=$linked;Restricted=$restricted}
+       $e=Execution-Fixture
+       $e.EnableLUA=$lua;$e.ConsentPromptBehaviorAdmin=$consent;$e.IsAdministrator=$admin;$e.Elevated=$elevated;$e.ElevationType=$type;$e.HasLinkedToken=$linked;$e.Restricted=$restricted
+       $e.LinkedTokenQuery=if($linked){'PRESENT'}else{'ABSENT'}
        $full=($lua -eq 0 -and $admin -and $elevated -and $type -eq 1 -and !$linked -and !$restricted)
        $owner=($lua -eq 1 -and !$admin -and !$elevated -and !$restricted -and (($type -eq 3 -and $linked) -or ($type -eq 1 -and !$linked)))
        if($full){Check ((Resolve-FreshExecutionMode $e) -ceq 'UAC_DISABLED_FULL_ADMIN') 'Full-admin UAC-off rejected'}
@@ -69,6 +78,37 @@ foreach($lua in @(0,1)){
 }
 Reject {Resolve-FreshExecutionMode ([pscustomobject]@{})}
 Reject {Resolve-FreshExecutionMode ([pscustomobject]@{Restricted=$false;EnableLUA=2;ConsentPromptBehaviorAdmin=0;ElevationType=1})}
+foreach($errorCode in @(5,87,1008,1312)){
+ # Exact owner facts: UAC=0/consent=0/Default=1/elevated=1/restricted=0,
+ # while querying TokenLinkedToken fails. No failure of a different query.
+ $e=Execution-Fixture;$e.HasLinkedToken=$null;$e.LinkedTokenQuery='ERROR';$e.LinkedTokenError=$errorCode
+ Check ((Resolve-FreshExecutionMode $e) -ceq 'UAC_DISABLED_FULL_ADMIN') 'Default linked-query error rejected owner facts'
+ $diag=Format-FreshExecutionEvidence $e 'ACCEPTED'
+ Check ($diag.Contains('EnableLUA=0') -and $diag.Contains('ElevationType=1') -and $diag.Contains('Elevated=True') -and $diag.Contains('Restricted=False') -and $diag.Contains('LinkedTokenQuery=ERROR') -and $diag.Contains('LinkedTokenError='+$errorCode)) 'Diagnostic lost owner token facts'
+ $e.Restricted=$true;Reject {Resolve-FreshExecutionMode $e};$e.Restricted=$false
+ foreach($type in @(2,3)){$e.ElevationType=$type;Reject {Resolve-FreshExecutionMode $e}}
+ $e.ElevationType=1;$e.EnableLUA=1;Reject {Resolve-FreshExecutionMode $e}
+ $e.EnableLUA=0;$e.Restricted=$null;$e.RestrictedError=5;Reject {Resolve-FreshExecutionMode $e}
+}
+$e=Execution-Fixture # successful linked query with null handle => ABSENT
+Check ((Resolve-FreshExecutionMode $e) -ceq 'UAC_DISABLED_FULL_ADMIN') 'Null linked handle rejected Default token'
+$e.LinkedTokenQuery='NOT_RUN';$e.HasLinkedToken=$null;Reject {Resolve-FreshExecutionMode $e}
+$e=Execution-Fixture;$e.EnableLUA=1
+try{Resolve-FreshExecutionMode $e;throw 'Elevated UAC-on accepted'}catch{Check ($_.Exception.Message -ceq 'UAC_ENABLED_ELEVATED_REFUSED') 'Refusal lost UAC-on condition'}
+$e=Execution-Fixture;$e.Restricted=$true
+try{Resolve-FreshExecutionMode $e;throw 'Restricted accepted'}catch{Check ($_.Exception.Message -ceq 'RESTRICTED_TOKEN_REFUSED') 'Refusal lost restricted condition'}
+$e=Execution-Fixture;$e.ElevationType=3;$e.HasLinkedToken=$null;$e.LinkedTokenQuery='ERROR';$e.LinkedTokenError=87
+try{Resolve-FreshExecutionMode $e;throw 'Limited linked-query error accepted'}catch{Check ($_.Exception.Message -ceq 'LINKED_TOKEN_QUERY_UNAVAILABLE') 'Limited linked-query failure was hidden'}
+$e=Execution-Fixture;$e.HasLinkedToken=$null;$e.LinkedTokenQuery='ERROR';$e.LinkedTokenError=0
+Reject {Resolve-FreshExecutionMode $e} # ERROR without an actual error code is not evidence
+$e=Execution-Fixture;$e.EnableLUAKind='String';$e.EnableLUA='0'
+try{Resolve-FreshExecutionMode $e;throw 'Wrong registry kind accepted'}catch{Check ($_.Exception.Message -ceq 'ENABLE_LUA_NOT_DWORD') 'Refusal did not identify registry condition'}
+$e=New-FreshExecutionEvidence
+$e | Add-Member -NotePropertyName PrivatePayload -NotePropertyValue 'DO_NOT_PRINT_FIXTURE'
+$diag=Format-FreshExecutionEvidence $e 'DO_NOT_PRINT_FIXTURE / arbitrary error'
+Check ($diag.Contains('EnableLUA=unknown') -and $diag.Contains('Restricted=unknown') -and !$diag.Contains('DO_NOT_PRINT_FIXTURE')) 'Partial/redacted diagnostic failed'
+Check ($text.Contains('Format-FreshExecutionEvidence $evidence $_.Exception.Message')) 'Bootstrap does not emit structured rejection diagnostics'
+Write-Host 'PASS exact UAC-off facts, Default linked-query errors/null handle, restricted/limited refusal and safe failure diagnostics'
 foreach($mode in @('UAC_DISABLED_FULL_ADMIN','UAC_ENABLED_OWNER')){
  $calls=[Collections.Generic.List[string]]::new()
  Invoke-FreshServicePhase $mode 'S-1-5-21-test' {param($sid)$calls.Add('same-process:'+ $sid)} {param($sid)$calls.Add('elevated-child:'+ $sid)}
@@ -98,6 +138,7 @@ if($env:OS -eq 'Windows_NT'){
  # Actual read-only native probe in PS5.1 and PS7 CI; this does not require admin.
  $actual=Get-FreshExecutionEvidence
  Check ($actual.EnableLUA -in @(0,1) -and $actual.ElevationType -in @(1,2,3)) 'Windows token/policy query failed'
- Check ($actual.HasLinkedToken -is [bool] -and $actual.Restricted -is [bool]) 'Linked/restricted token evidence missing'
+ Check (($actual.HasLinkedToken -is [bool] -or ($actual.ElevationType -eq 1 -and $actual.LinkedTokenQuery -ceq 'ERROR' -and $actual.LinkedTokenError -ne 0)) -and $actual.Restricted -is [bool]) 'Linked/restricted token evidence missing'
+ Check ($actual.PolicyReadError -eq 0 -and $actual.NativeReadError -eq 0 -and $actual.RestrictedError -eq 0 -and $actual.ElevationError -eq 0) (Format-FreshExecutionEvidence $actual 'CI_QUERY_FAILED')
 }
 Write-Host 'PASS UAC/token matrix, restricted-token refusal, same-SID dispatch and user-profile paths'

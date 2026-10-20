@@ -114,14 +114,15 @@ function Invoke-FreshPC {
  $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
  $bin=Join-Path $root 'bin\windows-e2e';$helper=Join-Path $bin 'fresh-pc.exe';$driver=Join-Path $root '.e2e\windivert'
  if($ServicePhase){Install-FreshService $OwnerSid;return}
+ $evidence=New-FreshExecutionEvidence
  try{
   $evidence=Get-FreshExecutionEvidence
   $mode=Resolve-FreshExecutionMode $evidence
  }catch{
-  Write-Host 'UAC_TOKEN_PREFLIGHT_REJECTED: with UAC enabled use ordinary owner PowerShell; restricted, inconsistent or unknown tokens are refused. Full-admin mode requires verified EnableLUA=0 and no linked token.'
+  Write-Host ('UAC_TOKEN_PREFLIGHT_REJECTED: '+(Format-FreshExecutionEvidence $evidence $_.Exception.Message))
   throw
  }
- Write-Host ("Execution mode: $mode; EnableLUA="+$evidence.EnableLUA+'; ConsentPromptBehaviorAdmin='+$evidence.ConsentPromptBehaviorAdmin+'; elevation_type='+$evidence.ElevationType+'; linked_token='+$evidence.HasLinkedToken)
+ Write-Host ("Execution mode: $mode; "+(Format-FreshExecutionEvidence $evidence 'ACCEPTED'))
  if($mode -eq 'UAC_DISABLED_FULL_ADMIN'){
   Write-Warning 'UAC is disabled: service installation stays in this process; GUI will also run with full administrator rights, without token lowering. Owner SID/ACL/IPC checks remain enforced.'
  }

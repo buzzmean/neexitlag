@@ -1,6 +1,6 @@
 # CURRENT — состояние проекта (обновляется в конце каждой сессии)
 
-Обновлено: 20.10.2026, Codex; `codex/work`, база c0725d6. Fresh-PC bootstrap поддерживает подтверждённый UAC-off/full-admin режим без UAC child; обычный UAC-enabled путь и отказ elevated сохранены. SID/ACL/IPC/CA pin не ослаблены. Один итоговый коммит; детали — (u). Только подготовка/локальные тесты, VPS/PR #8 не трогались.
+Обновлено: 20.10.2026, Codex; `codex/work`, база b882d64. Исправлен ложный UAC-off отказ при недоступном TokenLinkedToken для Default. Добавлены независимый TokenIsRestricted=40 и безопасные partial diagnostics с точным reason/Win32 errors. Один итоговый коммит; детали — (v). VPS/PR #8 не трогались, ПК владельца здесь не доступен.
 
 ## (a) Цель
 Чистый Windows 10/11: установил, нажал «Оптимизировать» — заблокированные в РФ сервисы работают без VPN: ChatGPT, Claude, YouTube, Discord, Telegram, браузеры Chrome и Edge. Первый заказчик — клуб на 36 ПК с откатом при перезагрузке.
@@ -53,6 +53,7 @@
 | Fresh-PC CSR enrollment / подготовленная CA migration | `core/freshpc/*` (новые), `tools/fresh-pc/*` (новые), `services/control-plane/fresh_enrollment*.go` (новые), `store.go` (выделение publication transaction helper), `tools/windows/bootstrap-fresh-pc*.ps1` (новые), `deploy/vps/{rotate-fresh-pc-ca,fresh-pc-ssh}.py` (новые), `apps/desktop/App.xaml.cs` (bootstrap entry only), `apps/desktop/FreshPCSetup.cs` (new, reuse existing PAC transaction), `tests/desktop-native/{Program,FreshPCSetupChecks}.cs`, `tests/windows-tools/fresh-pc-checks.ps1`, `.github/workflows/verify.yml` (early tests), tests/CI fresh enrollment, `docs/FRESH_PC_ENROLLMENT.md`, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена. По требованию владельца один итоговый commit, ownership включён в него. Только isolated tests; VPS/veliq-swe-01/PR #8 не тронуты; production Windows/SSH/systemd не проверены |
 | Дизайн VELIQ: дизайн-система, сайт, макеты программы, бренд-материалы | только новые папки `design/`, `website/`, `app-ui/`, `brand/`; строка в `CURRENT.md` | Claude Code | `codex/work` | ГОТОВО 20.10.2026, область освобождена. Код программы, службы и VPS не менялся. Описание и допущения — `design/README.md`; перенос в WPF и новая иконка в `apps/desktop/Assets/` ещё не сделаны |
 | Fresh-PC: UAC-disabled execution | `tools/windows/bootstrap-fresh-pc.ps1`, новый `tools/windows/fresh-pc-execution.ps1`, `tests/windows-tools/fresh-pc-checks.ps1`, `docs/FRESH_PC_ENROLLMENT.md`, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; один итоговый коммит по требованию владельца. UAC-off поддержка и isolated tests; actual Windows UAC-off/full install не проверены; production install/enroll не запускались |
+| Fresh-PC: Default linked-query regression | `tools/windows/{fresh-pc-execution,bootstrap-fresh-pc}.ps1`, `tests/windows-tools/fresh-pc-checks.ps1`, `docs/FRESH_PC_ENROLLMENT.md`, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; один коммит по требованию владельца. Exact owner facts + Default query errors covered; actual owner Windows retest не выполнен; без VPS |
 | Discord медленно, DIRECT+ для YouTube | не определены | никто | — | свободно для Codex после диагностики; Go-файлы застоя (выше) не трогать |
 | PR #8, `codex/direct-plus-flowseal` | — | не трогать | — | только владелец |
 
@@ -80,6 +81,7 @@
 ## (h) Журнал решений
 | Дата | Решение | Почему |
 |---|---|---|
+| 20.10.2026 | Default token: любая ошибка linked-query штатна; elevation/restriction/registry по-прежнему обязательны. Диагностика — фиксированные поля и точный reason | В b882d64 non-1312 linked-query исключение скрывалось generic отказом; владелец подтвердил Default/elevated/unrestricted/UAC-off |
 | 20.10.2026 | Дизайн VELIQ в `design/`, `website/`, `app-ui/`, `brand/`; позиционирование общее: без числа серверов и ПК, сервисы как примеры, для игр — «оптимальный маршрут» | Решение владельца; тексты — `brand/copy.md` |
 | 20.10.2026 | UAC-off: GUI может наследовать full-admin только при EnableLUA=0 + Default token без linked/restricted; служба в текущем процессе, SID/ACL прежние | Явное исключение владельца для freeze/Langame; при включённом UAC elevated bootstrap по-прежнему запрещён |
 | 20.10.2026 | Fresh-PC: SSH-authorized CSR, root-only CA storage, hardware-slot replacement и atomic full publication; CA rotation только по явному confirmation | Старый bundle потерян; нельзя раздавать CA/admin token или молча перепровиживать VPS |
@@ -922,3 +924,31 @@ Ownership-пометка включена в этот же commit по прям�
 - Будущая команда из клонированного repo в профиле: `& .\tools\windows\bootstrap-fresh-pc.ps1 -VpsIP 2.56.177.4 -SSHUser root -SSHPort 22`.
   Это enrollment на production при реальном запуске, не локальная проверка; подготовка
   CA migration по (t) остаётся отдельным подтверждаемым действием.
+
+
+## (v) UAC-off Default token / linked-query false rejection
+
+20.10.2026, база `b882d64`; один commit
+«Исправить Default token preflight и показать причины UAC-отказа».
+Ownership включён в этот же commit по прямому требованию владельца.
+
+- В b882d64 C# adapter бросал исключение при linked-token error !=1312. Тогда
+  `Get-FreshExecutionEvidence` не возвращал snapshot и bootstrap печатал generic
+  UAC_TOKEN_PREFLIGHT_REJECTED. Это реальный путь ложного отказа; конкретный Win32
+  код на ПК владельца ранее не сохранён и не заявляется установленным.
+- Теперь read-only collector сохраняет независимые результаты 18/20/40/19, policy
+  Registry64/DWord и membership. Default допускает linked-query ERROR/ABSENT,
+  но не PRESENT/NOT_RUN. Full/Limited error, restricted, UAC-on elevated,
+  unknown elevation/restriction и плохая policy по-прежнему отклоняются.
+- Safe diagnostic allowlist показывает все входы, query errors и точное условие
+  отказа, без raw exceptions/окружения/секретов. Partial errors не скрывают уже
+  собранные факты. Native adapter V2 не конфликтует с загруженным старым Add-Type.
+- Локально PS7.4.6: exact owner fixture UAC=0/consent=0/type=1/elevated=1/restricted=0
+  с linked errors 5/87/1008/1312 и null handle PASS; restricted/limited/UAC-on
+  elevated отказы, матрица и безопасная partial diagnostics PASS; C# adapter
+  компилируется. Deployment Python 28 tests и scoped Go race (core/freshpc, tools/fresh-pc) PASS. PS5.1/native token reading — существующий CI; actual owner ПК
+  и полный fresh install здесь не выполнялись. Service dispatch/SID/ACL/IPC,
+  CA pin/TLS/mTLS/SSH/enrollment/production logic не менялись.
+- VPS, CA rotation и production enroll не запускались. PR #8/force-push запрещены
+  и не выполнялись. Дополнительных dependencies нет.
+- Владелец может безопасно проверить локально без VPS: `. .\tools\windows\fresh-pc-execution.ps1; $e=Get-FreshExecutionEvidence; Format-FreshExecutionEvidence $e 'READ_ONLY'; Resolve-FreshExecutionMode $e`.

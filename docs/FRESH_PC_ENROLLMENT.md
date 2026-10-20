@@ -218,15 +218,19 @@ SCM/service directory существующей установки не зати�
 Bootstrap **только читает** 64-bit HKLM `Policies\System`: DWORD `EnableLUA`
 и `ConsentPromptBehaviorAdmin`. Дополнительно через `TOKEN_QUERY` читает
 `TokenElevationType`, `TokenElevation`, реальное наличие `TokenLinkedToken`
-и `IsTokenRestricted`. Проверка не включает привилегии, не меняет токен, UAC,
-реестр или ACL установленных файлов. Ошибка/отсутствие этих данных — отказ,
-не повод считать UAC выключенным.
+и `TokenIsRestricted` (класс 40). Проверка не включает привилегии, не меняет токен, UAC,
+реестр или ACL установленных файлов. Ошибка/отсутствие обязательных данных — отказ,
+не повод считать UAC выключенным. Исключение: для независимо подтверждённого
+`TokenElevationTypeDefault=1` отсутствие linked handle или ошибка самого
+`TokenLinkedToken` — штатное состояние non-split token. Win32 error сохраняется
+в диагностике (не ограничивается кодом 1312); ошибки elevation/restricted/registry
+этим исключением не скрываются. Для Full/Limited ошибка linked-query остаётся отказом.
 
 | ПК / токен | Поведение |
 |---|---|
 | UAC включён, обычный owner или limited split token | `UAC_ENABLED_OWNER`: прежний путь, отдельный elevated ServicePhase после проверки CA/relay; GUI остаётся обычным |
 | UAC включён, PowerShell elevated (включая `ConsentPromptBehaviorAdmin=0`, «не спрашивать») | Отказ до build/SSH/enroll. Запустить обычный owner PowerShell |
-| UAC выключен (`EnableLUA=0`), Administrators, `TokenElevation=true`, тип Default, linked token отсутствует, token не restricted | `UAC_DISABLED_FULL_ADMIN`: служба ставится **в этом же процессе**, без `-Verb RunAs` и без дочернего ServicePhase. GUI запускается с полными правами, **без понижения** |
+| UAC выключен (`EnableLUA=0`), Administrators, `TokenElevation=true`, тип Default, linked token отсутствует/его запрос недоступен, `TokenIsRestricted=0` | `UAC_DISABLED_FULL_ADMIN`: служба ставится **в этом же процессе**, без `-Verb RunAs` и без дочернего ServicePhase. GUI запускается с полными правами, **без понижения** |
 | Restricted (`runas /trustlevel`), неизвестная/противоречивая policy/token комбинация, либо UAC-off без полного admin token | Отказ; скрипт не пытается чинить токен или обходить запрет |
 
 Режим и безопасные policy/token поля выводятся перед build/SSH. В full-admin
@@ -235,6 +239,32 @@ Bootstrap **только читает** 64-bit HKLM `Policies\System`: DWORD `En
 владельцем для UAC-off клубных ПК**, а не изменение поведения обычных ПК.
 Выключать UAC ради VELIQ не нужно и скрипт этого не делает. Изменённое `EnableLUA`
 при ещё старом split token (до перезагрузки) не считается подходящим режимом.
+
+При `UAC_TOKEN_PREFLIGHT_REJECTED` выводятся только разрешённые безопасные поля:
+`reason` с конкретным не прошедшим условием; `PolicyView`, оба policy value и их
+registry kinds; `IsAdministrator`, `ElevationType`, `Elevated`, `Restricted`;
+результат linked-query (`ABSENT/PRESENT/ERROR/NOT_RUN`), `HasLinkedToken`, Win32
+`LinkedTokenError` и независимые query error codes. Неизвестные значения остаются
+`unknown`, а не превращаются в false/0. Частичный отказ чтения реестра не мешает
+попытке собрать token evidence и наоборот. Сырые exception/окружение/identity не
+сериализуются. Для повторного запуска в той же PS-сессии новый adapter имеет
+отдельное имя `FreshPCTokenV2`, старый Add-Type не используется.
+
+Локальная read-only проверка без bootstrap/SSH/install/enroll (из repo):
+
+```powershell
+. .\tools\windows\fresh-pc-execution.ps1
+$e = Get-FreshExecutionEvidence
+Format-FreshExecutionEvidence $e 'READ_ONLY'
+Resolve-FreshExecutionMode $e
+```
+
+Например, `ENABLE_LUA_NOT_DWORD` означает неверный registry kind,
+`RESTRICTED_TOKEN_REFUSED` — ограниченный токен, `UAC_ENABLED_ELEVATED_REFUSED` —
+полный admin token при включённом UAC; `TOKEN_RESTRICTION_UNAVAILABLE` — не удалось
+доказать отсутствие restrictions. Строка `LinkedTokenQuery=ERROR` сама по себе
+не является отказом при Default. Реальный Win32-код прежнего отказа владельца
+из старого generic сообщения восстановить нельзя; новый вывод его покажет.
 
 В обоих режимах OwnerSid берётся из текущей Windows identity. Общий installer
 повторно проверяет SAME SID и admin token, сохраняет прежние проверки `service.json`,
