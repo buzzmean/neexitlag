@@ -99,7 +99,7 @@ class FreshRotationTests(unittest.TestCase):
         def versions(args):
             role=Path(args[0]).name
             return json.dumps(dict(role=role,max_config_bytes=1048576,full_revocations=True,
-                                   protocols=['neexitlag/3'],lease_seconds=1800))
+                                   protocols=['neexitlag/3'],default_lease_seconds=1800))
         r.check_capabilities(versions)
         def old(args):
             value=json.loads(versions(args));value['max_config_bytes']=65536

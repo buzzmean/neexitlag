@@ -200,7 +200,7 @@ def check_capabilities(run=command):
         info = json.loads(run(['/opt/neexitlag/bin/' + role, '-version-json']))
         if info.get('role') != role or info.get('max_config_bytes', 0) < 1048576 or info.get('full_revocations') is not True:
             raise RuntimeError('FULL_REVOCATION_1MIB_SUPPORT_REQUIRED')
-        if role == 'relay' and ('neexitlag/3' not in info.get('protocols', []) or info.get('lease_seconds') != 1800):
+        if role == 'relay' and ('neexitlag/3' not in info.get('protocols', []) or info.get('default_lease_seconds') != 1800):
             raise RuntimeError('PRODUCTION_PROTOCOL_3_REQUIRED')
 
 

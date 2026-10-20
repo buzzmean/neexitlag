@@ -1,6 +1,6 @@
 # CURRENT — состояние проекта (обновляется в конце каждой сессии)
 
-Обновлено: 20.10.2026, Codex; `codex/work`, база 34e042d. По данным владельца подтверждён ERROR_BAD_LENGTH=24: DWORD token query использовал IntPtr.Size=8. Исправлены out int/4-byte ABI классов 18/20/40, отдельная linked-token структура и query error diagnostics. Один итоговый коммит; детали — (w). VPS/PR #8 не трогались; actual owner ПК ещё не проверен на новой сборке.
+Обновлено: 20.10.2026, Codex; `codex/work`, база a86d5e5. Подготовлен explicit VPS binary upgrade без старых client credentials: memory-only read-only report, Root SSH/SHA/backup/pg_dump/recovery и локальная временная identity с отзывом. Исправлен capability key default_lease_seconds. Один итоговый commit; детали — (x). На production ничего не выполнялось; PR #8 не трогался.
 
 ## (a) Цель
 Чистый Windows 10/11: установил, нажал «Оптимизировать» — заблокированные в РФ сервисы работают без VPN: ChatGPT, Claude, YouTube, Discord, Telegram, браузеры Chrome и Edge. Первый заказчик — клуб на 36 ПК с откатом при перезагрузке.
@@ -55,6 +55,7 @@
 | Fresh-PC: UAC-disabled execution | `tools/windows/bootstrap-fresh-pc.ps1`, новый `tools/windows/fresh-pc-execution.ps1`, `tests/windows-tools/fresh-pc-checks.ps1`, `docs/FRESH_PC_ENROLLMENT.md`, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; один итоговый коммит по требованию владельца. UAC-off поддержка и isolated tests; actual Windows UAC-off/full install не проверены; production install/enroll не запускались |
 | Fresh-PC: Default linked-query regression | `tools/windows/{fresh-pc-execution,bootstrap-fresh-pc}.ps1`, `tests/windows-tools/fresh-pc-checks.ps1`, `docs/FRESH_PC_ENROLLMENT.md`, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; один коммит по требованию владельца. Exact owner facts + Default query errors covered; actual owner Windows retest не выполнен; без VPS |
 | Fresh-PC: DWORD token ABI fix | `tools/windows/fresh-pc-execution.ps1`, `tests/windows-tools/fresh-pc-checks.ps1`, `docs/FRESH_PC_ENROLLMENT.md`, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; один итоговый commit по требованию владельца. ABI/reflection/result-validator и exact owner fixture PASS; actual owner Windows не проверен, без VPS |
+| Fresh-PC: VPS binary preparation without old identity | `deploy/vps/{fresh-pc-ssh,fresh-vps-upgrade,production-upgrade,rotate-fresh-pc-ca}.py`, `tools/windows/bootstrap-fresh-pc.ps1`, `tools/fresh-pc/*`, deployment/PS/Go tests, docs/FRESH_PC_ENROLLMENT.md, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена. Один итоговый commit по требованию владельца. Только isolated tests; production SSH/upgrade/rotation не выполнялись |
 | Discord медленно, DIRECT+ для YouTube | не определены | никто | — | свободно для Codex после диагностики; Go-файлы застоя (выше) не трогать |
 | PR #8, `codex/direct-plus-flowseal` | — | не трогать | — | только владелец |
 
@@ -82,6 +83,7 @@
 ## (h) Журнал решений
 | Дата | Решение | Почему |
 |---|---|---|
+| 20.10.2026 | Explicit binary preparation перед CA: local VPS-only proof новой временной identity, persistent journal/revoke, backup + timer/boot recovery. Исправлен default_lease_seconds вместо lease_seconds | Потерянный PC bundle не нужен для server-side proof; прежний capability-check мог ложно обвинять уже совместимый relay |
 | 20.10.2026 | Token classes 18/20/40: out int + sizeof(int)=4, linked token: отдельная pointer-sized структура; failed/error=24 не успех | Владелец подтвердил TokenElevation ERROR_BAD_LENGTH при IntPtr.Size=8 в прежнем adapter |
 | 20.10.2026 | Default token: любая ошибка linked-query штатна; elevation/restriction/registry по-прежнему обязательны. Диагностика — фиксированные поля и точный reason | В b882d64 non-1312 linked-query исключение скрывалось generic отказом; владелец подтвердил Default/elevated/unrestricted/UAC-off |
 | 20.10.2026 | Дизайн VELIQ в `design/`, `website/`, `app-ui/`, `brand/`; позиционирование общее: без числа серверов и ПК, сервисы как примеры, для игр — «оптимальный маршрут» | Решение владельца; тексты — `brand/copy.md` |
@@ -983,3 +985,46 @@ Ownership включён в итоговый commit по прямому треб
 - ACL/SID/IPC/CA/enroll/install/rotation не менялись и не запускались.
   VPS/PR #8/direct-plus-flowseal не тронуты, force-push нет, новых dependencies нет.
 - Безопасная проверка на ПК без SSH/enroll: `. .\tools\windows\fresh-pc-execution.ps1; $e=Get-FreshExecutionEvidence; Format-FreshExecutionEvidence $e 'READ_ONLY'; Resolve-FreshExecutionMode $e`.
+
+
+## (x) VPS preparation без потерянной PC identity — только разработка
+
+20.10.2026, база `a86d5e5`; один commit
+«Подготовить VPS upgrade без старой device identity».
+Ownership-пометка включена в тот же commit по прямому требованию владельца.
+
+- Устранена найденная ошибка contract: relay публикует `default_lease_seconds`,
+  а SSH/CA checks искали `lease_seconds`. Поэтому old error сам по себе не
+  доказывал старые binaries. Read-only report показывает реальные capabilities;
+  совместимые binaries не обновляются. Контракт проверен Go+Python regressions.
+- `bootstrap-fresh-pc.ps1 -PreflightVps`: один SSH, Python engine/report в памяти,
+  без builds/CSR/enroll/backup/staging/locks на VPS. Отдельные flags
+  `-UpgradeVpsBinaries -ConfirmVpsUpgrade UPGRADE-VPS-2.56.177.4`; совместить
+  read-only с upgrade/rotation нельзя. Флаги rotation подтверждаются отдельно.
+- `fresh-vps-upgrade.py` использует production transaction engine. Минимальные hooks
+  base engine сохраняют прежний updater. Backup `/etc/neexitlag.bak-UTC-12hex`
+  root-only: full config/units, binaries, PG custom dump/globals, SHA/state/recovery.
+  Независимые timer/boot guard и shared old-updater mutex; незавершённая прежняя
+  transaction блокирует новую. Additive Store.Migrate после dump и до replacements;
+  relay запускается раньше CP/full publication. CA/keys/config не вращаются тут.
+- Root-only helper modes upgrade-migrate/local-probe/cleanup используют существующий
+  CA 0600/0640 без преждевременного требования нового credential dropin. Новая
+  временная identity только на VPS; CP/QUIC loopback, echo к собственному assigned
+  public IP с сохранением public-only. Root-only fsync journal позволяет revoke
+  после kill/SSH loss/boot; private probe state удаляется. Никаких старых PC credentials.
+- Commit после настоящего mTLS `/3` ticket TCP/UDP echo, отзыва+полной publication,
+  applied cache, health/ports/process SHA. Никакого pg_restore/replay rewind при
+  rollback; при несовместимости или недоступности security state службы fail-closed.
+  Legacy path >998 rows или config >48000 bytes требует отдельного reviewed plan.
+  После последующей смены CA/config ручной binary rollback тоже не автоматический.
+- Локально PASS: полный Go race с отдельным PostgreSQL17, включая 5000 revocations
+  и новый cleanup/publication failure/retry; vet, Linux/Windows amd64 build;
+  40 Python tests (12 новых), PS7.4.6 parser/confirmation/mode/one-SSH checks.
+  Real pinned TLS/mTLS signed-ticket TCP/UDP fixture PASS. Systemd/SSH production
+  сценарий и реальный ПК новой сборкой НЕ проверены. C#/GUI/routing code не менялись.
+- Документ FRESH_PC_ENROLLMENT.md содержит две будущие команды и точный backup
+  recovery. Для одного ПК owner inventory attestation не притворяется discovery
+  36 клиентов. Только владелец запускает после review; разработчик не выполнял
+  SSH/upgrade/CA rotation/install/enroll на 2.56.177.4 или veliq-swe-01.
+- Будущий read-only запуск из repo на ПК: `& .\tools\windows\bootstrap-fresh-pc.ps1 -VpsIP 2.56.177.4 -SSHUser root -SSHPort 22 -PreflightVps`.
+  Mutating combined command с ДВУМЯ confirmation tokens — в документе, не запускался.

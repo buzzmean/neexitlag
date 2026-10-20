@@ -13,12 +13,22 @@ $path=Join-Path $PSScriptRoot '..\..\tools\windows\bootstrap-fresh-pc.ps1'
 $tokens=$null;$errors=$null
 $ast=[System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw ($errors|Out-String)}
-foreach($name in @('Require-FreshPin','Fresh-Property','Assert-FreshSummary','Wait-FreshServiceStartup','Fresh-Quote')){
+foreach($name in @('Require-FreshPin','Fresh-Property','Assert-FreshSummary','Wait-FreshServiceStartup','Fresh-Quote','Assert-FreshVpsPreparation')){
  $fn=$ast.Find({param($a)$a -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $a.Name -eq $name},$true)
  if(!$fn){throw "Missing $name"};Invoke-Expression $fn.Extent.Text
 }
 function Check($ok,$message){if(!$ok){throw $message}}
 function Reject([scriptblock]$Action){$failed=$false;try{& $Action}catch{$failed=$true};Check $failed 'Invalid evidence accepted'}
+Assert-FreshVpsPreparation $true $false $false ''
+Assert-FreshVpsPreparation $false $true $true 'UPGRADE-VPS-2.56.177.4'
+Assert-FreshVpsPreparation $false $false $false ''
+Reject {Assert-FreshVpsPreparation $true $true $false 'UPGRADE-VPS-2.56.177.4'}
+Reject {Assert-FreshVpsPreparation $true $false $true ''}
+Reject {Assert-FreshVpsPreparation $false $true $false ''}
+Reject {Assert-FreshVpsPreparation $false $true $false 'ROTATE-CA-2.56.177.4'}
+Reject {Assert-FreshVpsPreparation $false $false $false 'UPGRADE-VPS-2.56.177.4'}
+$sshCalls=$ast.FindAll({param($a)$a -is [System.Management.Automation.Language.CommandAst] -and $a.GetCommandName() -eq 'Invoke-FreshSSH'},$true)
+Check ($sshCalls.Count -eq 1) 'Preparation/rotation/enrollment use more than one SSH invocation'
 # Verify the actual ABI, not only a synthesized policy snapshot. DWORD queries
 # must use out Int32 and four bytes; linked-token output has its own struct.
 $nativeType=[Veliq.FreshPCTokenV3]

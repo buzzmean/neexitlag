@@ -15,11 +15,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -30,6 +32,7 @@ import (
 	"github.com/buzzmean/neexitlag/core/transport"
 	"github.com/buzzmean/neexitlag/internal/e2eprobe"
 	cp "github.com/buzzmean/neexitlag/services/control-plane"
+	"github.com/jackc/pgx/v5"
 )
 
 func readJSON(path string, v any) error {
@@ -86,6 +89,9 @@ func checkHost(ip string) error {
 	return nil
 }
 func rootState(ip string) (*x509.Certificate, ed25519.PrivateKey, ed25519.PrivateKey, map[string]string, *cp.Store, error) {
+	return loadRootState(ip, true)
+}
+func loadRootState(ip string, requireCredential bool) (*x509.Certificate, ed25519.PrivateKey, ed25519.PrivateKey, map[string]string, *cp.Store, error) {
 	fail := func() (*x509.Certificate, ed25519.PrivateKey, ed25519.PrivateKey, map[string]string, *cp.Store, error) {
 		return nil, nil, nil, nil, nil, errors.New("SERVER_ENROLLMENT_PREFLIGHT_FAILED")
 	}
@@ -93,8 +99,11 @@ func rootState(ip string) (*x509.Certificate, ed25519.PrivateKey, ed25519.Privat
 		return fail()
 	}
 	credential, e := os.ReadFile("/etc/systemd/system/neexitlag-control-plane.service.d/91-veliq-fresh-ca.conf")
-	if e != nil || !strings.Contains(string(credential), "LoadCredential=veliq-device-ca-key:/etc/neexitlag/control/ca.key") || !rootPrivateCA("/etc/neexitlag/control/ca.key") {
+	if requireCredential && (e != nil || !strings.Contains(string(credential), "LoadCredential=veliq-device-ca-key:/etc/neexitlag/control/ca.key") || !rootPrivateCA("/etc/neexitlag/control/ca.key")) {
 		return nil, nil, nil, nil, nil, errors.New("CA_MIGRATION_REQUIRED: root-owned 0600 CA key and systemd credential required")
+	}
+	if !requireCredential && !rootUpgradeCA("/etc/neexitlag/control/ca.key") {
+		return fail()
 	}
 	raw, e := os.ReadFile("/etc/neexitlag/control/ca.pem")
 	if e != nil {
@@ -285,6 +294,7 @@ func run() error {
 	pin := f.String("ca-sha256", "", "expected DER CA SHA256 from authenticated SSH or owner")
 	ip := f.String("vps-ip", "", "explicit VPS IPv4")
 	out := f.String("out", "", "new CA staging directory")
+	journal := f.String("journal", "", "root-only upgrade probe journal")
 	if e := f.Parse(os.Args[2:]); e != nil {
 		return errors.New("ARGUMENTS_INVALID")
 	}
@@ -316,16 +326,48 @@ func run() error {
 		return freshpc.GenerateCA(*out, *ip)
 	case "migration-probe":
 		return migrationProbe(*ip)
+	case "upgrade-migrate":
+		_, _, _, _, store, e := loadRootState(*ip, false)
+		if e != nil {
+			return e
+		}
+		defer store.DB.Close()
+		ctx, stop := context.WithTimeout(context.Background(), 25*time.Second)
+		defer stop()
+		if store.Migrate(ctx) != nil {
+			return errors.New("ADDITIVE_MIGRATION_FAILED")
+		}
+		return nil
+	case "upgrade-local-probe":
+		if !validProbeJournal(*journal) {
+			return errors.New("UPGRADE_PROBE_JOURNAL_REQUIRED")
+		}
+		return healthProbe(*ip, true, *journal)
+	case "upgrade-cleanup":
+		return cleanupUpgradeProbe(*ip, *journal)
 	}
 	return errors.New("unknown mode")
 }
 func migrationProbe(ip string) (err error) {
-	ca, cak, signer, trust, store, e := rootState(ip)
+	return healthProbe(ip, false, "")
+}
+func healthProbe(ip string, local bool, journal string) (err error) {
+	if local && !localInterfaceIP(ip) {
+		return errors.New("VPS_PUBLIC_IP_NOT_LOCAL")
+	}
+	ca, cak, signer, trust, store, e := loadRootState(ip, !local)
 	if e != nil {
 		return e
 	}
 	defer store.DB.Close()
-	dir, e := os.MkdirTemp("/var/lib/neexitlag-fresh", "probe-")
+	base := "/var/lib/neexitlag-fresh"
+	var dir string
+	if local {
+		dir = filepath.Join(filepath.Dir(journal), "probe-state")
+		e = os.Mkdir(dir, 0700)
+	} else {
+		dir, e = os.MkdirTemp(base, "probe-")
+	}
 	if e != nil {
 		return errors.New("PROBE_STAGE_FAILED")
 	}
@@ -343,18 +385,37 @@ func migrationProbe(ip string) (err error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	if local {
+		f, je := os.OpenFile(journal, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if je != nil {
+			return errors.New("PROBE_JOURNAL_FAILED")
+		}
+		_, je = f.WriteString(r.DeviceID + "\n")
+		if je == nil {
+			je = f.Sync()
+		}
+		ce := f.Close()
+		if je != nil || ce != nil {
+			return errors.New("PROBE_JOURNAL_FAILED")
+		}
+		parent, je := os.Open(filepath.Dir(journal))
+		if je != nil {
+			return errors.New("PROBE_JOURNAL_FAILED")
+		}
+		je = parent.Sync()
+		ce = parent.Close()
+		if je != nil || ce != nil {
+			return errors.New("PROBE_JOURNAL_FAILED")
+		}
+	}
 	if e = store.Register(ctx, cp.Device{ID: r.DeviceID, Name: "CA rotation health probe", PublicKey: base64.RawURLEncoding.EncodeToString(pub)}); e != nil {
 		return errors.New("PROBE_REGISTER_FAILED")
 	}
 	defer func() {
 		cleanup, stop := context.WithTimeout(context.Background(), 10*time.Second)
 		defer stop()
-		if ce := store.Revoke(cleanup, r.DeviceID); ce != nil {
-			err = errors.New("PROBE_REVOKE_FAILED")
-			return
-		}
-		if _, ce := store.Publish(cleanup, "vps-1", signer, trust); ce != nil {
-			err = errors.New("PROBE_REVOCATION_PUBLICATION_FAILED")
+		if ce := revokePublishedProbe(cleanup, store, r.DeviceID, signer, trust); ce != nil {
+			err = ce
 		}
 	}()
 	token, e := e2eprobe.Token("/etc/neexitlag/echo/echo.token")
@@ -366,7 +427,75 @@ func migrationProbe(ip string) (err error) {
 	if e = os.WriteFile(filepath.Join(dir, "response.json"), raw, 0600); e != nil {
 		return e
 	}
+	if local {
+		// CP and QUIC connect only over loopback. The echo destination is this
+		// host's own public IP (kernel-local route), preserving public-only ACL.
+		return probeEndpoints(dir, ip, "https://127.0.0.1:8443", "127.0.0.1:4433", ip+":40000")
+	}
 	return probe(dir, ip)
+}
+
+func localInterfaceIP(ip string) bool {
+	addresses, e := net.InterfaceAddrs()
+	if e != nil {
+		return false
+	}
+	want := net.ParseIP(ip)
+	for _, a := range addresses {
+		if have, _, e := net.ParseCIDR(a.String()); e == nil && have.Equal(want) {
+			return true
+		}
+	}
+	return false
+}
+
+func validProbeJournal(path string) bool {
+	return regexp.MustCompile(`^/etc/neexitlag\.bak-\d{8}T\d{6}Z-[a-f0-9]{12}/probe\.id$`).MatchString(path)
+}
+func cleanupUpgradeProbe(ip, journal string) error {
+	if !validProbeJournal(journal) || checkHost(ip) != nil {
+		return errors.New("INVALID_PROBE_CLEANUP")
+	}
+	if _, e := os.Lstat(journal); os.IsNotExist(e) {
+		return nil
+	}
+	if !rootPrivateCA(journal) {
+		return errors.New("UNSAFE_PROBE_JOURNAL")
+	}
+	b, e := os.ReadFile(journal)
+	id := strings.TrimSpace(string(b))
+	if e != nil || !regexp.MustCompile(`^[a-f0-9]{32}$`).MatchString(id) {
+		return errors.New("PROBE_JOURNAL_INVALID")
+	}
+	_, _, signer, trust, store, e := loadRootState(ip, false)
+	if e != nil {
+		return e
+	}
+	defer store.DB.Close()
+	ctx, stop := context.WithTimeout(context.Background(), 20*time.Second)
+	defer stop()
+	if e = revokePublishedProbe(ctx, store, id, signer, trust); e != nil {
+		return e
+	}
+	if os.RemoveAll(filepath.Join(filepath.Dir(journal), "probe-state")) != nil {
+		return errors.New("PROBE_STATE_CLEANUP_FAILED")
+	}
+	return nil
+}
+
+func revokePublishedProbe(ctx context.Context, store *cp.Store, id string, signer ed25519.PrivateKey, trust map[string]string) error {
+	if _, e := store.Device(ctx, id); errors.Is(e, pgx.ErrNoRows) {
+		return nil
+	} else if e != nil {
+		return errors.New("PROBE_LOOKUP_FAILED")
+	}
+	if store.Revoke(ctx, id) != nil {
+		return errors.New("PROBE_REVOKE_FAILED")
+	}
+	if _, e := store.Publish(ctx, "vps-1", signer, trust); e != nil {
+		return errors.New("PROBE_REVOCATION_PUBLICATION_FAILED")
+	}
+	return nil
 }
 
 func main() {

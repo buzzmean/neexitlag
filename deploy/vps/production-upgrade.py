@@ -263,6 +263,24 @@ class Upgrade:
     def __init__(self, host):
         self.h = host
 
+    def backup_path(self, ident):
+        return self.h.path(BACKUPS + '/' + ident)
+
+    def create_backup(self, ident):
+        b = self.backup_path(ident)
+        b.mkdir(parents=True, mode=0o700)
+        os.chmod(b.parent, 0o700)
+        return b
+
+    def validate_schema(self, database):
+        for table, column in [('devices', 'last_authenticated_at'), ('relay_nodes', 'heartbeat_token_hash'), ('config_versions', 'document')]:
+            if self.h.sql("SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='%s' AND column_name='%s'" % (table, column), database) != '1':
+                raise UpgradeError('Unrecognized existing DB schema')
+
+    def migrate(self, state):
+        # Default deployment keeps the established CP startup migration path.
+        pass
+
     def preflight(self, bundle, expected, evidence):
         h = self.h
         manifest = verify_bundle(bundle, expected)
@@ -326,9 +344,7 @@ class Upgrade:
         client = h.run(['pg_dump', '--version'])[1].decode()
         if not re.search(r'\b' + str(version // 10000) + r'\.', client):
             raise UpgradeError('pg_dump/server major mismatch')
-        for table, column in [('devices', 'last_authenticated_at'), ('relay_nodes', 'heartbeat_token_hash'), ('config_versions', 'document')]:
-            if h.sql("SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='%s' AND column_name='%s'" % (table, column), name) != '1':
-                raise UpgradeError('Unrecognized existing DB schema')
+        self.validate_schema(name)
         if h.sql("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() AND state='idle in transaction'", name) != '0':
             raise UpgradeError('Open DB transaction blocks safe maintenance')
         db_size = int(h.sql('SELECT pg_database_size(current_database())', name))
@@ -404,6 +420,7 @@ class Upgrade:
 
     def arm(self, b, state):
         h = self.h
+        recovery_name = Path(RECOVERY).name
         h.path(STATE).mkdir(parents=True, exist_ok=True, mode=0o700)
         self.install(b / 'production-upgrade.py', STATE + '/production-upgrade.py', 0o700)
         # Persistent boot recovery runs before either application service. It
@@ -412,18 +429,18 @@ class Upgrade:
         unit.write_text('[Unit]\nDescription=VELIQ pending upgrade boot recovery\nAfter=postgresql.service\nRequires=postgresql.service\nBefore=neexitlag-relay.service neexitlag-control-plane.service\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/usr/bin/python3 ' + STATE + '/production-upgrade.py recover\nTimeoutStartSec=240\n[Install]\nWantedBy=multi-user.target\n')
         self.install(unit, RECOVERY, 0o644)
         guard = b / 'guard.conf'
-        guard.write_text('[Unit]\nRequires=neexitlag-upgrade-recover.service\nAfter=neexitlag-upgrade-recover.service\n')
+        guard.write_text('[Unit]\nRequires=' + recovery_name + '\nAfter=' + recovery_name + '\n')
         for service in SERVICES:
             self.install(guard, GUARD.format(service=service), 0o644)
         h.systemctl('daemon-reload')
-        h.systemctl('enable', '--now', 'neexitlag-upgrade-recover.service')
+        h.systemctl('enable', '--now', recovery_name)
         atomic_json(h.path(STATE + '/pending.json'), {'id': state['id']})
         h.run(['systemd-run', '--quiet', '--unit=neexitlag-upgrade-' + state['id'], '--on-active=10min', '--timer-property=AccuracySec=1s', '--property=TimeoutStartSec=15min', '/usr/bin/python3', STATE + '/production-upgrade.py', 'rollback', '--backup-id', state['id'], '--automatic'])
 
     def load(self, ident):
         if not ID_RE.fullmatch(ident):
             raise UpgradeError('Invalid backup identifier')
-        b = self.h.path(BACKUPS + '/' + ident)
+        b = self.backup_path(ident)
         state = json.loads((b / 'state.json').read_text())
         if state['id'] != ident:
             raise UpgradeError('Backup identifier mismatch')
@@ -439,9 +456,7 @@ class Upgrade:
                 raise UpgradeError('Unresolved prior transaction; inspect before a new upgrade')
         state = self.preflight(bundle, expected, evidence)
         ident = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ-') + os.urandom(6).hex()
-        b = h.path(BACKUPS + '/' + ident)
-        b.mkdir(parents=True, mode=0o700)
-        os.chmod(b.parent, 0o700)
+        b = self.create_backup(ident)
         state.update(id=ident, phase='prepared', backup_complete=False, transaction_version=1)
         self.save(b, state)
         h.log = open(b / 'private.log', 'ab', buffering=0)
@@ -481,6 +496,8 @@ class Upgrade:
                 finally:
                     os.close(fd)
             state['backup_complete'] = True
+            self.save(b, state)
+            self.migrate(state)
             state['phase'] = 'installing-relay'
             self.save(b, state)
             self.install(Path(bundle) / 'bin/relay', BIN + '/relay')

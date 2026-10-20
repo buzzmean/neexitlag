@@ -5,6 +5,9 @@ param(
  [Parameter(Mandatory=$true)][ValidatePattern('^[a-z_][a-z0-9_-]{0,31}$')][string]$SSHUser,
  [ValidateRange(1,65535)][int]$SSHPort=22,
  [string]$CaFingerprint='',
+ [switch]$PreflightVps,
+ [switch]$UpgradeVpsBinaries,
+ [string]$ConfirmVpsUpgrade='',
  [switch]$RotateCA,
  [string]$ConfirmCARotation='',
  [string]$ExpectedCurrentCAFingerprint='',
@@ -22,6 +25,11 @@ function Require-FreshPin([string]$Pin){
  $pin=$Pin.Replace(':','').ToLowerInvariant()
  if($pin -notmatch '^[a-f0-9]{64}$'){throw 'CA_SHA256_INVALID'}
  return $pin
+}
+function Assert-FreshVpsPreparation([bool]$ReadOnly,[bool]$Upgrade,[bool]$Rotate,[string]$Confirmation){
+ if($ReadOnly -and ($Upgrade -or $Rotate)){throw 'PREFLIGHT_IS_READ_ONLY'}
+ if($Upgrade -and $Confirmation -cne 'UPGRADE-VPS-2.56.177.4'){throw 'EXPLICIT_UPGRADE_CONFIRMATION_REQUIRED'}
+ if(!$Upgrade -and $Confirmation -ne ''){throw 'UPGRADE_CONFIRMATION_WITHOUT_FLAG'}
 }
 function Assert-FreshTools {
  foreach($tool in @('git','go','dotnet','ssh.exe')){[void](Get-Command $tool -ErrorAction Stop)}
@@ -126,28 +134,34 @@ function Invoke-FreshPC {
  if($mode -eq 'UAC_DISABLED_FULL_ADMIN'){
   Write-Warning 'UAC is disabled: service installation stays in this process; GUI will also run with full administrator rights, without token lowering. Owner SID/ACL/IPC checks remain enforced.'
  }
- if(Get-Service neexitlag -ErrorAction SilentlyContinue){throw 'EXISTING_INSTALLATION_PRESERVED: use the normal updater; fresh bootstrap does not rotate an installed identity'}
- if(Test-Path (Join-Path $env:ProgramData 'neexitlag')){throw 'PRESERVED_INSTALLATION_FOUND: do not delete credentials; use explicit reinstall/update'}
+ if(!$PreflightVps -and (Get-Service neexitlag -ErrorAction SilentlyContinue)){throw 'EXISTING_INSTALLATION_PRESERVED: use the normal updater; fresh bootstrap does not rotate an installed identity'}
+ if(!$PreflightVps -and (Test-Path (Join-Path $env:ProgramData 'neexitlag'))){throw 'PRESERVED_INSTALLATION_FOUND: do not delete credentials; use explicit reinstall/update'}
+ Assert-FreshVpsPreparation ([bool]$PreflightVps) ([bool]$UpgradeVpsBinaries) ([bool]$RotateCA) $ConfirmVpsUpgrade
  if($RotateCA -and $CaFingerprint -ne ''){throw 'Use ExpectedCurrentCAFingerprint for rotation; the new CA pin is generated on the VPS'}
  if($RotateCA -and $ConfirmCARotation -cne "ROTATE-CA-$VpsIP"){throw 'Explicit -ConfirmCARotation ROTATE-CA-2.56.177.4 required'}
  if(!$RotateCA -and $ConfirmCARotation -ne ''){throw 'Confirmation without -RotateCA is invalid'}
  if($CaFingerprint -ne ''){$script:CaFingerprint=Require-FreshPin $CaFingerprint}
  if($ExpectedCurrentCAFingerprint -ne ''){$script:ExpectedCurrentCAFingerprint=Require-FreshPin $ExpectedCurrentCAFingerprint}
- if(@(Get-Process -Name VELIQ,NeExitLag -ErrorAction SilentlyContinue).Count){throw 'Exit only VELIQ GUI before fresh bootstrap; Chrome/Edge are handled by existing activation'}
+ if(!$PreflightVps -and @(Get-Process -Name VELIQ,NeExitLag -ErrorAction SilentlyContinue).Count){throw 'Exit only VELIQ GUI before fresh bootstrap; Chrome/Edge are handled by existing activation'}
  Assert-FreshTools
+ if($UpgradeVpsBinaries){
+  $dirty=@(& git -C $root status --porcelain=1 --untracked-files=normal)
+  if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){throw 'CLEAN_SOURCE_REQUIRED_FOR_VPS_UPGRADE; local files preserved, no reset/delete performed'}
+ }
  foreach($directory in @($root,(Join-Path $root '.e2e'),$state)){
   if((Test-Path -LiteralPath $directory) -and ((Get-Item -LiteralPath $directory -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Reparse enrollment directories refused'}
  }
  New-Item -ItemType Directory -Force $state|Out-Null
  Protect-FreshState $state $sid
+ if(!$PreflightVps){
  $script:FreshStage='build'
  & (Join-Path $PSScriptRoot 'build-e2e.ps1')
  $nuget=Join-Path $state 'NuGet.Config'
  [IO.File]::WriteAllText($nuget,'<configuration><packageSources><clear/><add key="nuget.org" value="https://api.nuget.org/v3/index.json" /></packageSources></configuration>',[Text.UTF8Encoding]::new($false))
  $priorRestore=$env:RestoreConfigFile
- try{$env:RestoreConfigFile=$nuget;& (Join-Path $PSScriptRoot 'build-desktop.ps1')}
+ try{if(!$PreflightVps){$env:RestoreConfigFile=$nuget;& (Join-Path $PSScriptRoot 'build-desktop.ps1')}}
  finally{$env:RestoreConfigFile=$priorRestore}
- if(!(Test-Path (Join-Path $driver 'pins.json'))){& (Join-Path $PSScriptRoot 'fetch-windivert.ps1') -Destination $driver}
+ if(!$PreflightVps -and !(Test-Path (Join-Path $driver 'pins.json'))){& (Join-Path $PSScriptRoot 'fetch-windivert.ps1') -Destination $driver}
  Push-Location $root
  $oldOS=$env:GOOS;$oldArch=$env:GOARCH;$oldCGO=$env:CGO_ENABLED
  try{
@@ -157,18 +171,39 @@ function Invoke-FreshPC {
   $linux=Join-Path $bin 'linux\fresh-pc'
   & go build -trimpath -o $linux ./tools/fresh-pc;if($LASTEXITCODE){throw 'LINUX_ENROLL_HELPER_BUILD_FAILED'}
  }finally{$env:GOOS=$oldOS;$env:GOARCH=$oldArch;$env:CGO_ENABLED=$oldCGO;Pop-Location}
+ }
+ $request=$null
+ if(!$PreflightVps){
  $uuid=([string](Get-CimInstance Win32_ComputerSystemProduct -ErrorAction Stop).UUID).Trim().ToLowerInvariant()
  if($uuid -notmatch '^[a-f0-9-]{36}$' -or $uuid -match '^(0|-)+$|^(f|-)+$'){throw 'Stable unique SMBIOS UUID required; cloned/empty UUIDs cannot identify a machine safely'}
  $hash=[Security.Cryptography.SHA256]::Create();try{$machine=([BitConverter]::ToString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes('veliq-machine-v1|'+$uuid)))).Replace('-','').ToLowerInvariant()}finally{$hash.Dispose()}
  $script:FreshStage='csr'
  & $helper request --state $state --machine-hash $machine;if($LASTEXITCODE){throw 'CSR_GENERATION_FAILED'}
  $request=Get-Content (Join-Path $state 'request.json') -Raw|ConvertFrom-Json
- $payload=@{request=$request;vps_ip=$VpsIP;helper=[Convert]::ToBase64String([IO.File]::ReadAllBytes($linux));helper_sha256=(Get-FileHash $linux).Hash.ToLowerInvariant();rotate=[bool]$RotateCA;confirm=$ConfirmCARotation;expected_ca=$ExpectedCurrentCAFingerprint;enrollment_ca=$CaFingerprint;migration=[Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $root 'deploy\vps\rotate-fresh-pc-ca.py')))}|ConvertTo-Json -Depth 5 -Compress
+ }
+ function Fresh-Artifact([string]$Path){return @{data=[Convert]::ToBase64String([IO.File]::ReadAllBytes($Path));sha256=(Get-FileHash -LiteralPath $Path).Hash.ToLowerInvariant()}}
+ $body=@{request=$request;vps_ip=$VpsIP;rotate=[bool]$RotateCA;confirm=$ConfirmCARotation;expected_ca=$ExpectedCurrentCAFingerprint;enrollment_ca=$CaFingerprint;preflight_only=[bool]$PreflightVps;upgrade=[bool]$UpgradeVpsBinaries;upgrade_confirm=$ConfirmVpsUpgrade}
+ if(!$PreflightVps){
+  $body.helper=[Convert]::ToBase64String([IO.File]::ReadAllBytes($linux));$body.helper_sha256=(Get-FileHash $linux).Hash.ToLowerInvariant()
+  $body.migration=[Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $root 'deploy\vps\rotate-fresh-pc-ca.py')))
+ }
+ if($PreflightVps -or $UpgradeVpsBinaries){
+  $body.commit=(& git -C $root rev-parse HEAD).Trim();if($LASTEXITCODE){throw 'SOURCE_COMMIT_QUERY_FAILED'}
+  $body.upgrade_script=Fresh-Artifact (Join-Path $root 'deploy\vps\fresh-vps-upgrade.py')
+  $body.upgrade_engine=Fresh-Artifact (Join-Path $root 'deploy\vps\production-upgrade.py')
+  if($UpgradeVpsBinaries){$body.binaries=@{relay=(Fresh-Artifact (Join-Path $bin 'linux\relay'));'control-plane'=(Fresh-Artifact (Join-Path $bin 'linux\control-plane'))}}
+ }
+ $payload=$body|ConvertTo-Json -Depth 7 -Compress
  $remote=[IO.File]::ReadAllText((Join-Path $root 'deploy\vps\fresh-pc-ssh.py'))
  $responsePath=Join-Path $state 'response.json'
  try{
- $script:FreshStage='ssh_enrollment'
+ $script:FreshStage=if($PreflightVps){'vps_readonly_preflight'}elseif($UpgradeVpsBinaries){'vps_prepare_then_enrollment'}else{'ssh_enrollment'}
   $wire=Invoke-FreshSSH $payload $remote (Join-Path $state 'known_hosts')
+  if($PreflightVps){
+   $summary=$wire|ConvertFrom-Json
+   if((Fresh-Property $summary 'pass') -cne $true -or (Fresh-Property $summary 'read_only') -cne $true){throw 'VPS_PREFLIGHT_FAILED'}
+   Write-Host ($summary|ConvertTo-Json -Depth 7);return
+  }
   [IO.File]::WriteAllText($responsePath,$wire,[Text.UTF8Encoding]::new($false))
   $reply=$wire|ConvertFrom-Json
   # This pin arrives over owner-verified SSH, NOT untrusted HTTPS. Owner can
@@ -178,7 +213,7 @@ function Invoke-FreshPC {
   & $helper complete --state $state --ca-sha256 $pin;if($LASTEXITCODE){throw 'CA_PIN_OR_DEVICE_CERTIFICATE_REJECTED; service not installed'}
  $script:FreshStage='external_tcp_udp_probe'
   & $helper probe --state $state --vps-ip $VpsIP;if($LASTEXITCODE){throw 'REAL_CLIENT_RELAY_CHECK_FAILED; service not installed'}
- }finally{Remove-Item -LiteralPath $responsePath -Force -ErrorAction SilentlyContinue;$wire=$null;$payload=$null}
+ }finally{Remove-Item -LiteralPath $responsePath -Force -ErrorAction SilentlyContinue;$wire=$null;$payload=$null;$body=$null}
  # Install only after pin, device identity and real TCP/UDP relay verification.
  $script:FreshStage='service_install'
  Remove-Item (Join-Path $state 'service-install-proof.json') -Force -ErrorAction SilentlyContinue

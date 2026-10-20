@@ -155,6 +155,109 @@ python3 /etc/neexitlag.bak-<точный-UTC-random>/rollback.py rollback \
   --backup /etc/neexitlag.bak-<точный-UTC-random> --confirm ROLLBACK-CA-2.56.177.4
 ```
 
+## Подготовка существующего VPS без потерянной identity ПК
+
+Ошибка прежнего `EXISTING_PROTOCOL_3_REQUIRED` не доказывает старую версию:
+в a86d5e5 проверялось несуществующее поле `lease_seconds`, тогда как реальный
+`-version-json` публикует `default_lease_seconds`. Это исправлено и в SSH-entry,
+и в CA rotation. Теперь совместимые бинарники **не заменяются** только из-за
+старого сообщения. Нужен новый отчёт.
+
+После получения актуального `codex/work` из owner PowerShell в корне repo:
+
+```powershell
+# 1. Только отчёт: один интерактивный SSH, без install/enroll/CA/DB/systemd writes.
+& .\tools\windows\bootstrap-fresh-pc.ps1 -VpsIP 2.56.177.4 -SSHUser root -SSHPort 22 -PreflightVps
+# 2. ЯВНО разрешённые binary upgrade (если нужен), затем CA rotation и fresh install.
+& .\tools\windows\bootstrap-fresh-pc.ps1 -VpsIP 2.56.177.4 -SSHUser root -SSHPort 22 -UpgradeVpsBinaries -ConfirmVpsUpgrade 'UPGRADE-VPS-2.56.177.4' -RotateCA -ConfirmCARotation 'ROTATE-CA-2.56.177.4'
+```
+
+Это будущие команды владельца: разработчик **не выполнял их на production**.
+Первый вызов не строит бинарники/GUI, не создаёт device key, backup, server-side
+staging или lock: Python report и engine исполняются в памяти доверенной SSH-сессии.
+Он только читает version/capabilities, SHA256/пути, systemd/PID, локальные ports,
+PostgreSQL version/schema и наличие аддитивной колонки. Локально на ПК остаются
+repo-local known_hosts/служебный каталог. `read_only=true` не означает установленный ПК.
+При `upgrade_needed=false` второй вызов пропускает binary upgrade, но явно запрошенная
+CA rotation всё равно отдельный шаг. Если `ca_migration_required=false`, сервер уже
+переведён на новый credential path: **убрать RotateCA/ConfirmCARotation**, повторная
+ротация по этой схеме запрещена. После успешной первичной подготовки следующие
+freeze-установки используют обычную команду без Upgrade/Rotate.
+
+Этот recovery upgrade разрешён для единственного ПК владельца. Compatibility
+attestation записывает этот факт, а не выдаёт его за автоматическое обнаружение
+всех клиентов; для клуба с одновременно работающими старыми версиями нужен
+отдельный inventory/upgrade plan. Незавершённая транзакция прежнего
+production-upgrade блокирует новый запуск; используется и её общий lock.
+
+Второй вызов строит Linux relay/CP/helper на ПК из чистого commit, проверяет их
+SHA256 после передачи, Linux amd64 ELF, реальные capabilities и соответствие commit.
+Незакоммиченные/неигнорируемые файлы не удаляются — destructive upgrade откажет;
+личные diagnostics не коммитить. Новые зависимости/apt/provision/firewall не запускаются.
+Одна SSH-сессия с host-key checking и интерактивным root password используется для
+всей последовательности. Пароль и старые admin/device credentials в payload не нужны.
+
+Этап обновления использует существующий production transaction engine:
+
+1. Read-only report и строгий preflight: известные systemd paths/users/flags,
+   root-owned безопасные files/units, PG14–17 и matching pg_dump, исходная health,
+   TCP8443/UDP4433/TCP+UDP40000, свободное место и известная additive schema.
+2. Печать `VPS_UPGRADE_BACKUP=/etc/neexitlag.bak-<UTC>-<12 hex>` **до изменений**.
+   Постоянный root-only 0700 backup содержит config+units tar, все binaries tar,
+   старые relay/CP, pg_dump custom + globals, SHA256/transaction state, recovery
+   engine/entrypoint/helper. Никакие credentials не печатаются и не передаются на ПК.
+3. Независимый systemd timer 10 мин и boot recovery guard. После остановки CP —
+   pg_dump/проверка dump; после остановки relay — snapshot его состояния. Backup
+   fsync завершён до additive `Store.Migrate` и atomic binary replace. Конфигурация,
+   CA, signing/admin/echo/DB credentials и SCM/service users не меняются.
+4. Новый relay запускается раньше нового CP/publish, чтобы большой signed config
+   не попал в старый reader. CP получает owned seed-free override, старые bootstrap
+   seed flags повторно не исполняются. Проверяется полный опубликованный список
+   revocations и применение документа relay (до 1 MiB).
+5. `upgrade-local-probe`: **новая временная identity на VPS**, CSR и сертификат от
+   существующего CA. Старый CA key 0600/0640 читается root без смены прав и без
+   преждевременного требования нового LoadCredential. CP TLS и authenticated QUIC
+   `/3` — к **127.0.0.1**, ticket через существующий signed-device proof; настоящий
+   authenticated TCP+UDP echo. Destination — собственный public IP VPS: требуется
+   его наличие на local interface, поэтому kernel route локальный; public-only
+   destination policy не меняется. NAT-only VPS с не назначенным ему public IP
+   откажет до изменений, не будет внешнего обходного probe.
+6. Probe ID заранее fsync-записан в root-only `probe.id` под backup. Нормальное
+   завершение отзывает ID и публикует revocation; wrapper повторно проверяет cleanup.
+   При process kill/SSH loss/boot этот же journal используется recovery для отзыва.
+   Временный private state удаляется после cleanup. Проверяются health/metrics,
+   фактические process hashes/ports и applied full config; только затем commit и
+   остановка timer. Это **local VPS proof**, не Windows/ISP/Internet PASS и не новый
+   длительный lease-renewal тест. Production lease остаётся 1800 секунд.
+
+Проверки нового CA и fresh enrollment идут **после** этого этапа. Каждая стадия
+имеет свою транзакцию: если последующая CA rotation упала, она восстанавливает
+свой CA backup, а уже успешно committed binary upgrade остаётся. Если ошибка на
+ПК после enrollment/install, server credentials не удаляются и CA не вращается снова.
+
+### При отказе binary upgrade
+
+Не продолжать enroll/install и не повторять RotateCA вслепую. Нужный путь уже
+выведен как `VPS_UPGRADE_BACKUP`; root-only `state.json` показывает phase.
+Catchable failure вызывает rollback сразу, потерю процесса покрывают timer/boot
+recovery. В том же root SSH при необходимости (точные UTC/random из вывода):
+
+```bash
+python3 /etc/neexitlag.bak-<UTC>-<random>/production-upgrade.py rollback --backup-id <UTC>-<random>
+```
+
+Backup сохраняется после commit/rollback. DB dump — disaster recovery backup,
+**автоматический pg_restore не выполняется**: нельзя откатить новые revocations,
+nonce/replay/identity state. Аддитивная schema остаётся совместимой с прежним CP.
+Перед downgrade проверяется, что signed state ещё помещается в старые reader limits.
+Для legacy без full revocations этот короткий recovery path заранее откажет при
+>998 registrations или config >48000 байт: нужен отдельный reviewed migration,
+а не небезопасный автоматический rollback. Если DB недоступна или rollback уже
+несовместим с текущим security state, службы остаются остановленными до recovery;
+ложного PASS нет. После последующей смены CA/config ручной rollback бинарников
+также требует отдельного maintenance plan — инструмент откажет автоматически
+пересекать эту границу. Старый CA key должен реально существовать на VPS.
+
 ## Каждый пустой ПК/каждая перезагрузка после freeze
 
 На VPS нужны Linux amd64, Python >=3.9 и systemd >=247. Default enrollment
@@ -316,12 +419,13 @@ CP/mTLS/ticket/реальных TCP+UDP echo и actual browser PAC nonce, а н�
 retry/new identity/revocation/atomic publication rollback; Python transactional
 CA restore, backup corruption, late watchdog, unit parsing; PS5.1/7 parsing,
 StrictMode/status failures/quoting; native C# argument compatibility checks.
-Production SSH/password console, systemd credential/rotation на данном VPS и
-полный fresh-PC Windows install остаются **непроверенными на боевом окружении**.
+Владелец подтвердил SSH/password console на a86d5e5 до capability-check. Новые
+binary upgrade, systemd credential/CA rotation и полный fresh-PC Windows install
+остаются **непроверенными на боевом окружении**.
 Ни один тест не выполняет provision/install/SSH на production.
 
 
-Локальная проверка разработки: полный `go test -race ./...` с отдельным
+Первоначальная локальная проверка c0725d6: полный `go test -race ./...` с отдельным
 PostgreSQL 17, `go vet ./...`, Linux/Windows amd64 build — PASS; 28 Python-тестов
 (7 новых fresh-PC), 130 C# core tests, PowerShell 7.4.6 checks — PASS.
 WPF и native test host кросс-собраны SDK 8.0.426; native Windows execution и
@@ -336,3 +440,12 @@ ReturnLength. Exact owner fixture с elevation=1 и linked error=1312 прини
 error=24 для любого из обязательных DWORD-запросов отклоняется даже при stale value.
 Настоящие Win32-вызовы исполняются только в Windows CI/на ПК; Linux-тесты не
 выдаются за Windows runtime PASS.
+
+
+Подготовка VPS без старой identity: 40 isolated Python/deployment tests PASS
+(новые read-only/skip/confirmation/SHA/migration/probe-failure/boot-recovery cases),
+PS7.4.6 parsing/mode/confirmation/one-SSH checks PASS. Полный Go race с отдельным
+PostgreSQL 17, vet, Linux/Windows amd64 builds PASS. PostgreSQL test временной
+identity проверяет отзыв, ошибку публикации и безопасный retry; mTLS `/3` +
+signed ticket + TCP/UDP fixture остаётся настоящим локальным транспортным тестом.
+Это не production systemd/SSH upgrade PASS; разработчик на VPS ничего не запускал.
