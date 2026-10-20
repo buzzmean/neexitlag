@@ -473,7 +473,11 @@ YouTube имеет прежний отдельный learned family verdict. DNS
 На ошибке destination OPEN сохранено существующее bounded DNS recovery:
 независимые кандидаты проверяются через authenticated relay, с настоящим SNI,
 проверкой сертификата и HTTP GET. Auth/session failures не запускают recovery;
-неудачная проверка не разрешает DIRECT. Это не обещание исправить любой сервер,
+неудачная проверка не разрешает DIRECT. DNS recovery использует собственный
+существующий лимит 2 workers/singleflight/cooldown; не занимает четыре обычных
+AUTO probe slots. Иначе фоновые запросы Chrome могут заполнить все четыре слота,
+и отказ destination OPEN останется без DNS recovery (обнаружено actual Chrome CI).
+Это не обещание исправить любой сервер,
 который принимает TCP, но выдаёт неверный TLS: приложение не replay-ится после
 отправки его данных. TLS/owner-check, PAC, crash-guard и его список protected
 origin не менялись; новых гарантий при выключенной оптимизации/crash не добавлено.

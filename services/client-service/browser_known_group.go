@@ -28,12 +28,10 @@ func (c *Controller) openKnownBrowserGroup(ctx context.Context, current profiles
 	if err == nil || ctx.Err() != nil || !q.Secure || !recoverableKnownOriginOpen(err) {
 		return conn, p, err
 	}
-	select {
-	case c.browser.probes <- struct{}{}:
-		defer func() { <-c.browser.probes }()
-	default:
-		return nil, p, err
-	}
+	// DNSRecovery already has its own two-worker limit, singleflight and
+	// negative cooldown. Do not borrow ordinary AUTO probe slots: background
+	// browser origins can fill all four and starve this required DNS repair.
+
 	recovered, ok := c.recoverBrowserDNS(ctx, q, current, p)
 	if !ok {
 		return nil, recovered, err

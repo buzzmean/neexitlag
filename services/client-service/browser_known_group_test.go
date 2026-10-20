@@ -108,3 +108,25 @@ func TestBrowserKnownGroupsSuccessfulRelayAndDNSFailureScope(t *testing.T) {
 		}
 	}
 }
+
+func TestBrowserKnownGroupsDNSRecoveryNotStarvedByOrdinaryProbes(t *testing.T) {
+	c, cur := timeoutFixture(t)
+	for i := 0; i < cap(c.browser.probes); i++ {
+		c.browser.probes <- struct{}{}
+	}
+	calls := 0
+	c.BrowserAlternativeDNS = func(context.Context, string, browserproxy.DNSOpen) (browserproxy.DNSAnswer, error) {
+		calls++
+		return browserproxy.DNSAnswer{}, errors.New("isolated negative DNS answer")
+	}
+	p := boundedDirectPlan()
+	_, got, err := c.openBrowserPlan(context.Background(), cur, browserproxy.Request{Host: "web.telegram.org", Port: 443, Secure: true}, p, func(_ context.Context, _ browserproxy.Request, p browserproxy.Plan) (net.Conn, error) {
+		if p.Policy.Action != flowpolicy.RelayRequired {
+			t.Fatal("DIRECT leak", p)
+		}
+		return nil, &transport.OpenError{Reason: "upstream_dial_failed"}
+	})
+	if err == nil || calls != 1 || got.DNSRecovery == nil || got.DNSRecovery.Failure != "DNS_ALTERNATIVE_FAILED" {
+		t.Fatal("ordinary probes starved bounded DNS recovery", calls, got, err)
+	}
+}
