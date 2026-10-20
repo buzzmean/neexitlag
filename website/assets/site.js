@@ -62,6 +62,7 @@
         status.className = 'status status--on'; status.lastChild.textContent = 'Работает';
         go.setAttribute('aria-pressed', 'true');
       }
+      demo.querySelectorAll('[data-on]').forEach(function (v) { v.textContent = state === 'on' ? v.getAttribute('data-on') : '—'; });
       if (live) live.textContent = status.lastChild.textContent;
     }
     go.addEventListener('click', function () {

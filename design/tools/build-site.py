@@ -119,7 +119,7 @@ def footer():
           <img class="on-light" src="assets/img/veliq-wordmark-light.svg" alt="VELIQ" width="144" height="66">
           <img class="on-dark" src="assets/img/veliq-wordmark-dark.svg" alt="" width="144" height="66">
         </a>
-        <p class="muted" style="max-width:34ch;margin:16px 0 0">Оптимальный маршрут для каждого соединения. Для Windows.</p>
+        <p class="muted" style="max-width:34ch;margin:16px 0 0">Оптимальный маршрут для каждого соединения.</p>
       </div>
       <div>
         <h2>Продукт</h2>
@@ -162,7 +162,7 @@ def faq(items):
 # ---------------------------------------------------------------- тексты FAQ (общие)
 FAQ_MAIN = [
     ("Это VPN?", "<p>Нет. VPN отправляет весь трафик через один сервер, и всё становится медленнее. VELIQ выбирает путь для каждого соединения отдельно: через свою сеть — когда так открывается доступ или выходит быстрее, обычным путём — когда так лучше.</p>"),
-    ("Нужно ли перезапускать браузер?", "<p>Нет. Chrome и Edge подхватывают маршрут сразу после нажатия «Оптимизировать», открытые вкладки закрывать не нужно.</p>"),
+    ("Нужно ли что-то перезапускать?", "<p>Нет. Маршруты работают сразу после нажатия «Оптимизировать» — ничего закрывать и перезапускать не нужно.</p>"),
     ("Как VELIQ влияет на пинг в играх?", "<p>VELIQ сравнивает пути до игрового сервера и выбирает самый быстрый. Если путь через сеть VELIQ не быстрее обычного, маршрут не меняется. Замеры видно в программе.</p>"),
     ("Вы видите, что я открываю?", "<p>Нет. Мы не расшифровываем и не подменяем HTTPS. Сервер-релей видит только адрес назначения и объём данных — этого достаточно, чтобы переслать трафик. Подробности — в <a href=\"privacy.html\">политике конфиденциальности</a>.</p>"),
     ("Какие системы поддерживаются?", f"<p>{RELEASE['os']}. Нужны права администратора один раз — при установке службы.</p>"),
@@ -183,9 +183,9 @@ index_body = f"""
         <span class="slit-line"><span class="slit">Нажал —</span></span>
         <span class="slit-line"><span class="slit">работает.</span><span class="slit-bar" aria-hidden="true"></span></span>
       </h1>
-      <p class="lede">VELIQ сам выстраивает оптимальный маршрут для каждого соединения. Заблокированные сервисы открываются, игры получают самый быстрый путь до сервера. Браузер перезапускать не нужно.</p>
+      <p class="lede">VELIQ сам выстраивает оптимальный маршрут для каждого соединения. Заблокированные сервисы снова работают, игры получают самый быстрый путь до сервера.</p>
       <div class="hero__actions">
-        <a class="btn btn--lg" href="download.html">{icon('download')}Скачать для Windows</a>
+        <a class="btn btn--lg" href="download.html">{icon('download')}Скачать</a>
         <a class="btn btn--lg btn--ghost" href="clubs.html">Для компьютерных клубов</a>
       </div>
       <p class="hero__meta">Версия {RELEASE['version']}, {RELEASE['os']}</p>
@@ -200,10 +200,10 @@ index_body = f"""
         <span class="go__label"><span data-go-label>Оптимизировать</span><small data-go-sub>выключено</small></span>
       </button>
       <div class="route" aria-label="Маршруты">
-        <div class="route__row route__row--relay"><span class="route__name">YouTube</span><span class="route__line"></span><span class="route__via">открыт</span></div>
-        <div class="route__row route__row--relay"><span class="route__name">Discord</span><span class="route__line"></span><span class="route__via">открыт</span></div>
-        <div class="route__row route__row--relay"><span class="route__name">ChatGPT</span><span class="route__line"></span><span class="route__via">открыт</span></div>
-        <div class="route__row route__row--relay"><span class="route__name">Игры</span><span class="route__line"></span><span class="route__via">быстрый путь</span></div>
+        <div class="route__row route__row--relay"><span class="route__name">YouTube</span><span class="route__line"></span><span class="route__via" data-on="работает">—</span></div>
+        <div class="route__row route__row--relay"><span class="route__name">Discord</span><span class="route__line"></span><span class="route__via" data-on="работает">—</span></div>
+        <div class="route__row route__row--relay"><span class="route__name">ChatGPT</span><span class="route__line"></span><span class="route__via" data-on="работает">—</span></div>
+        <div class="route__row route__row--relay"><span class="route__name">Игры</span><span class="route__line"></span><span class="route__via" data-on="лучший маршрут">—</span></div>
       </div>
       <p class="demo__hint" id="demo-hint">Нажмите кнопку — так выглядит запуск в программе.</p>
       <span class="sr-only" aria-live="polite" data-demo-live></span>
@@ -214,13 +214,13 @@ index_body = f"""
 <section class="sec band--sunken" id="how">
   <div class="wrap">
     <div class="sec__head">
-      <h2 class="h2">Три шага, и всё открывается</h2>
-      <p>Никаких адресов серверов, ключей и настроек браузера. Всё это программа делает сама.</p>
+      <h2 class="h2">Три шага — и всё работает</h2>
+      <p>Никаких адресов серверов и настроек. Всё это программа делает сама.</p>
     </div>
     <ol class="steps" style="list-style:none;margin:0;padding:0">
-      <li class="step"><span class="step__n">1</span><h3 class="h3">Скачайте</h3><p>Один установщик для Windows 10 и 11.</p></li>
+      <li class="step"><span class="step__n">1</span><h3 class="h3">Скачайте установщик</h3><p>Один файл — и можно устанавливать.</p></li>
       <li class="step"><span class="step__n">2</span><h3 class="h3">Установите</h3><p>Windows один раз спросит права администратора — это для службы, которая строит маршруты.</p></li>
-      <li class="step"><span class="step__n">3</span><h3 class="h3">Нажмите «Оптимизировать»</h3><p>Маршруты строятся сразу. Заблокированное открывается в уже открытом браузере.</p></li>
+      <li class="step"><span class="step__n">3</span><h3 class="h3">Нажмите «Оптимизировать»</h3><p>Маршруты построятся сразу.</p></li>
     </ol>
   </div>
 </section>
@@ -259,7 +259,7 @@ index_body = f"""
 <section class="sec sec--tight">
   <div class="wrap">
     <div class="facts">
-      <div class="fact fact--wide"><h3>Браузер не нужно перезапускать</h3><p>Маршрут подхватывается в открытых Chrome и Edge. Вкладки, вход в аккаунты и загрузки остаются на месте.</p></div>
+      <div class="fact fact--wide"><h3>Ничего не нужно перезапускать</h3><p>Маршруты работают сразу и везде: открытые вкладки, входы в аккаунты и загрузки остаются на месте.</p></div>
       <div class="fact"><h3>Своя сеть серверов</h3><p>Собственные серверы в Европе, а не общие бесплатные узлы, где скорость делят тысячи людей.</p></div>
       <div class="fact fact--r"><h3>HTTPS не расшифровывается</h3><p>Сервер пересылает зашифрованный трафик как есть. Пароли и переписка ему не видны.</p></div>
       <div class="fact"><h3>Ничего не настраивать</h3><p>Одна кнопка. Если что-то пошло не так, программа скажет, что именно, и предложит решение.</p></div>
@@ -331,7 +331,7 @@ LD_FAQ = {"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [
     {"@type": "Question", "name": q, "acceptedAnswer": {"@type": "Answer", "text": html.unescape(a.replace("<p>", "").replace("</p>", ""))}} for q, a in FAQ_MAIN]}
 
 page("index.html", "VELIQ — нажал, и работает",
-     "VELIQ сам строит оптимальный маршрут: заблокированные сервисы открываются без перезапуска браузера, игры получают самый быстрый путь. Для Windows 10 и 11.",
+     "VELIQ сам строит оптимальный маршрут: заблокированные сервисы снова работают, игры получают самый быстрый путь. Для Windows 10 и 11.",
      "", index_body, [LD_APP, LD_FAQ])
 
 # ---------------------------------------------------------------- скачать
@@ -357,9 +357,10 @@ download_body = f"""
 
       <h2 class="h2" id="install" style="font-size:var(--fs-4xl);margin-bottom:var(--sp-5)">Как установить</h2>
       <ol class="olist">
-        <li><div><h3>Запустите {RELEASE['file']}</h3><p>Если Windows покажет окно «Система Windows защитила ваш компьютер», нажмите «Подробнее», затем «Выполнить в любом случае». Так бывает с новыми программами, которые Windows ещё не встречала.</p></div></li>
-        <li><div><h3>Разрешите установку службы</h3><p>Windows спросит права администратора один раз. Служба VELIQ строит маршруты и запускается вместе с системой.</p></div></li>
-        <li><div><h3>Нажмите «Оптимизировать»</h3><p>Программа откроется сама. После нажатия маршруты строятся сразу, заблокированное открывается в уже открытом браузере.</p></div></li>
+        <li><div><h3>Получите код активации клуба</h3><p>Он выдаётся после заявки и привязывает компьютеры к вашему клубу.</p></div></li>
+        <li><div><h3>Установите VELIQ на каждом ПК в техническом режиме</h3><p>В Langame или другой системе — так же, как для установки игр, чтобы программа осталась после перезагрузки.</p></div></li>
+        <li><div><h3>Введите код активации и включите режим клуба</h3><p>«Настройки» → «Режим клуба». Задайте пароль администратора и включите «Оптимизировать при входе».</p></div></li>
+        <li><div><h3>Проверьте после перезагрузки</h3><p>Значок VELIQ в трее должен стать «Работает» в течение 10 секунд.</p></div></li>
       </ol>
 
       <div class="note" style="margin-top:var(--sp-6)">{icon('info')}<div><strong>Компьютерный клуб?</strong> Для ПК с откатом после перезагрузки есть отдельная инструкция: <a href="clubs.html#setup">установка в образ</a>.</div></div>
@@ -379,7 +380,7 @@ download_body = f"""
       <div class="card card--sunken">
         <h2 class="h3" style="margin-bottom:12px">Что понадобится</h2>
         <ul style="margin:0;padding-left:18px;color:var(--text-muted);display:grid;gap:6px;font-size:var(--fs-sm)">
-          <li>Windows 10 или 11, 64-бит</li><li>Права администратора на время установки</li><li>Для сайтов — Chrome или Edge</li>
+          <li>Windows 10 или 11, 64-бит</li><li>Права администратора на время установки</li>
         </ul>
       </div>
     </aside>
@@ -434,7 +435,7 @@ clubs_body = f"""
   <div class="wrap">
     <div class="facts">
       <div class="fact"><h3>Запускается сам</h3><p>Кнопка «Оптимизировать» нажата заранее. Гость садится — маршруты уже построены.</p></div>
-      <div class="fact fact--r"><h3>Переживает откат</h3><p>Ставится в образ вместе с играми. После перезагрузки не нужно ничего восстанавливать.</p></div>
+      <div class="fact fact--r"><h3>Переживает откат</h3><p>Ставится на каждый ПК и остаётся после перезагрузки. Гость не может ему навредить.</p></div>
       <div class="fact"><h3>Лучший путь для игр</h3><p>VELIQ выбирает самый быстрый маршрут до игрового сервера и открывает доступ к закрытым.</p></div>
       <div class="fact fact--r"><h3>Гость ничего не сломает</h3><p>Упрощённый интерфейс: состояние и одна кнопка. Настройки закрыты паролем администратора.</p></div>
     </div>
@@ -453,8 +454,8 @@ clubs_body = f"""
       </ol>
     </div>
     <aside class="aside">
-      <div class="note">{icon('snow')}<div><strong>ПК с «заморозкой».</strong> Всё, что не попало в образ, исчезнет после перезагрузки. Ставьте VELIQ только в техническом режиме.</div></div>
-      <div class="note">{icon('info')}<div><strong>Нужна помощь с установкой?</strong> Напишите на <a href="mailto:{SITE['email']}">{SITE['email']}</a> — поможем настроить первый ПК вместе с администратором.</div></div>
+      <div class="note">{icon('snow')}<div><strong>ПК с «заморозкой».</strong> Всё, что установлено вне технического режима, исчезнет после перезагрузки. Устанавливайте VELIQ на каждом ПК только в техническом режиме.</div></div>
+      <div class="note">{icon('info')}<div><strong>Нужна помощь с установкой?</strong> Напишите на <a href="mailto:{SITE['email']}">{SITE['email']}</a> — получите код активации и поможем настроить первый ПК вместе с администратором.</div></div>
     </aside>
   </div>
 </section>
@@ -500,7 +501,7 @@ pricing_body = f"""
       <div class="plan plan--main">
         <h2 class="h3">Клуб</h2>
         <div class="plan__price">— ₽ <small>за ПК в месяц</small></div>
-        <p class="muted" style="margin:0">Для клубов от 10 компьютеров.</p>
+        <p class="muted" style="margin:0">Для компьютерных клубов.</p>
         <ul><li>{icon('check')}Всё из тарифа «Игрок»</li><li>{icon('check')}Режим клуба и работа после отката</li><li>{icon('check')}Пароль администратора</li><li>{icon('check')}Помощь с установкой в образ</li></ul>
         <a class="btn" href="mailto:{SITE['email']}?subject=Тариф%20Клуб">Оставить заявку</a>
       </div>
@@ -521,7 +522,7 @@ page("pricing.html", "Цены", "Тарифы VELIQ для игроков и к
 ERRORS = [
     ("Служба VELIQ не запущена", "Программа не может связаться со службой, которая направляет трафик.", "Нажмите «Запустить службу» в программе. Если не помогло — перезагрузите компьютер. Если служба удалена антивирусом, переустановите VELIQ и добавьте папку программы в исключения."),
     ("Нет связи с сервером", "Серверы VELIQ не отвечают с вашего подключения.", "Проверьте, что интернет работает без VELIQ. Затем нажмите «Повторить» — программа попробует другой сервер. Если не помогло, напишите нам: возможно, провайдер блокирует соединение."),
-    ("Браузер не подключился", "Chrome или Edge не принял маршрут.", "Нажмите «Повторить». Если браузером управляет организация (рабочий компьютер), её правила могут запрещать изменения — тогда маршруты работают только для приложений вне браузера."),
+    ("Часть сайтов не открывается", "Для сайтов маршрут пока не построен, а приложения работают.", "Нажмите «Повторить». Если компьютером управляет организация (рабочий компьютер), её правила могут запрещать изменения — тогда маршруты работают только для приложений."),
     ("Ключ устройства недействителен", "Компьютер не прошёл проверку на сервере — например после переустановки Windows.", "Нажмите «Зарегистрировать заново». В клубе после этого обновите образ."),
     ("Не хватает прав", "Действие требует прав администратора.", "Подтвердите запрос Windows. В режиме клуба — введите пароль администратора VELIQ."),
 ]
