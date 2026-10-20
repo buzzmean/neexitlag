@@ -1342,3 +1342,15 @@ masked activation и повторную загрузку на ПК. Реальн
 уточнение владельца); public runtime probe credential выдаётся только после
 валидного enrollment, root CA key/admin token клиенту не передаются; без SSH
 останавливаться на подготовленном deployment, не выдавать выдуманные рабочие коды.
+
+
+Дополнение к (af): implementation 4cdf2e5 запушен. При ревью смены кода обнаружен
+старый runtime-флаг connected после замены identity: activationAttempt останавливает
+прежний remote, и теперь менеджер обязательно создаёт новый remote. Регрессия
+на настоящем HTTPS/CSR проверяет смену кода, закрытие прежнего worker group и
+появление нового без перезапуска службы. Targeted race PASS.
+CI 4cdf2e5: isolated systemd/PostgreSQL upgrade PASS (run 39484588909), Verify core
+остановился в старой Telegram OpenSSL-фикстуре до новых Go tests: fixture не имела
+production -ign_eof и могла выходить на закрытом stdin до ClientHello. Исправлена
+только фикстура, assertions сохранены; локально 61 deployment tests PASS.
+Остальные CI ещё выполняются; production deployment по-прежнему не выполнялся.

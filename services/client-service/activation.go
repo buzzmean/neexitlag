@@ -426,6 +426,9 @@ func (c *Controller) activationLoop(managed bool) {
 				ctx, cancel := context.WithTimeout(c.ctx, 12*time.Second)
 				next, p, err := c.activationAttempt(ctx, m, r)
 				cancel()
+				// The attempt may have stopped the previous remote, including on a
+				// partial storage failure. Reconnect only the verified current identity.
+				connected = false
 				policy = p
 				e = err
 				c.activation.mu.Lock()

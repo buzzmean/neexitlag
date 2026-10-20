@@ -105,10 +105,13 @@ private body
         try:
             argv = ['openssl', 's_client', '-connect', '127.0.0.1:' + str(listener.getsockname()[1]),
                     '-servername', d.HOST, '-verify_return_error', '-verify_hostname', d.HOST,
-                    '-brief', '-msg', '-serverinfo', ','.join(str(n) for n in range(60000, 60400))]
+                    '-brief', '-msg', '-ign_eof', '-serverinfo', ','.join(str(n) for n in range(60000, 60400))]
             code, raw, cutoff = d.command(argv, timeout=5)
             summary = d.tls_summary(raw, code, cutoff)
-            self.assertTrue(observed and observed[0] >= 1500)
+            # Match the production probe: its stdin is closed after a bounded
+            # request. Older OpenSSL exits on that EOF before sending ClientHello
+            # unless -ign_eof is explicit. Do not mistake fixture EOF for TLS.
+            self.assertTrue(observed and observed[0] >= 1500, summary)
             self.assertTrue(summary['client_hello_handshake_bytes'][0] >= 1500)
             self.assertEqual(summary['first_records'][0]['length'], observed[0])
             self.assertFalse(summary['certificate_verified'])

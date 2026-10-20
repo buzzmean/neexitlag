@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"github.com/buzzmean/neexitlag/core/enrollment"
 	"github.com/buzzmean/neexitlag/core/freshpc"
@@ -107,6 +108,8 @@ func TestActivationHTTPSCSRPrivateKeyFreezeAndLostResponse(t *testing.T) {
 		return enrollment.Hardware{UUID: "00112233-4455-6677-8899-aabbccddeeff", BoardSerial: "BOARD123", MAC: "02:11:22:33:44:55"}, nil
 	}
 	var previousID string
+	var lastManifest Manifest
+	var lastRecord activationRecord
 	for i := 0; i < 5; i++ {
 		dir := t.TempDir()
 		caPath := filepath.Join(dir, "ca.pem")
@@ -146,9 +149,70 @@ func TestActivationHTTPSCSRPrivateKeyFreezeAndLostResponse(t *testing.T) {
 			}
 		}
 		previousID = id.ID
+		lastManifest, lastRecord = m, next
 	}
 	machines, e := store.CodeMachines(ctx, code.ID)
 	if e != nil || len(machines) != 1 || machines[0].Device != previousID {
 		t.Fatal("freeze slot count changed", e)
 	}
+	// Exercise the actual idle manager + Change path, not just enrollmentAttempt.
+	// Replacing a key stops old workers and must start workers for the new key.
+	lastManifest.ControlPlaneCAFile = lastManifest.CAFile
+	lastManifest.ProbeTarget = "127.0.0.1:40000"
+	b, _ := json.Marshal(lastRecord)
+	if e = protectedActivationWrite(activationFile(lastManifest), b); e != nil {
+		t.Fatal(e)
+	}
+	if !c.ConfigureActivation(lastManifest) {
+		t.Fatal("coded identity not managed")
+	}
+	wait := func(check func() bool) {
+		t.Helper()
+		until := time.Now().Add(6 * time.Second)
+		for !check() {
+			if time.Now().After(until) {
+				t.Fatal("activation worker transition not observed")
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	var oldDone chan struct{}
+	wait(func() bool {
+		c.remoteMu.Lock()
+		defer c.remoteMu.Unlock()
+		oldDone = c.remoteDone
+		return oldDone != nil
+	})
+	_, replacement, e := store.CreateCode(ctx, cp.ActivationCode{Kind: "personal", Limit: 2, Name: "replacement fixture", Expires: now.Add(time.Hour)})
+	if e != nil {
+		t.Fatal(e)
+	}
+	request, _ := json.Marshal(map[string]any{"code": replacement})
+	if _, e = c.Handle(ctx, "activation.set", request); e != nil {
+		t.Fatal(e)
+	}
+	wait(func() bool {
+		status := c.activationStatus()
+		r, e := readActivationRecord(activationFile(lastManifest))
+		if e != nil || r.Code != replacement || status.State != "ACTIVATED" {
+			return false
+		}
+		c.remoteMu.Lock()
+		defer c.remoteMu.Unlock()
+		if c.remoteDone == nil || c.remoteDone == oldDone {
+			return false
+		}
+		select {
+		case <-oldDone:
+		default:
+			return false
+		}
+		select {
+		case <-c.remoteDone:
+			return false
+		default:
+			return true
+		}
+	})
+
 }
