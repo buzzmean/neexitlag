@@ -4,6 +4,7 @@ function New-FreshExecutionEvidence {
   PolicyView='Registry64';EnableLUA=$null;EnableLUAKind='Unknown';ConsentPromptBehaviorAdmin=$null;ConsentKind='Unknown';PolicyReadError=$null
   IsAdministrator=$null;OwnerQueryError=$null;ElevationType=$null;Elevated=$null;Restricted=$null
   NativeReadError=$null;OpenTokenError=$null;ElevationTypeError=$null;ElevationError=$null;RestrictedError=$null
+  ElevationTypeBufferLength=$null;ElevationBufferLength=$null;RestrictedBufferLength=$null;LinkedTokenBufferLength=$null
   HasLinkedToken=$null;LinkedTokenQuery='NOT_RUN';LinkedTokenError=$null
  }
 }
@@ -24,7 +25,7 @@ function Resolve-FreshExecutionMode($Evidence) {
  # Default is independent Windows evidence of a non-split token. Any failed
  # linked query is normal for that type, not a failed elevation/restriction
  # query. Never make this exception for Full/Limited or a query not attempted.
- $defaultUnavailable=$Evidence.ElevationType -eq 1 -and $Evidence.LinkedTokenQuery -ceq 'ERROR' -and $null -eq $Evidence.HasLinkedToken -and $null -ne $Evidence.LinkedTokenError -and $Evidence.LinkedTokenError -ne 0
+ $defaultUnavailable=$Evidence.ElevationType -eq 1 -and $Evidence.LinkedTokenQuery -ceq 'ERROR' -and $Evidence.HasLinkedToken -cne $true -and $null -ne $Evidence.LinkedTokenError -and $Evidence.LinkedTokenError -ne 0
  if(!$absent -and !$present -and !$defaultUnavailable){throw 'LINKED_TOKEN_QUERY_UNAVAILABLE'}
  if($Evidence.ElevationType -eq 1 -and $present){throw 'DEFAULT_TOKEN_HAS_LINKED_TOKEN'}
  if($Evidence.EnableLUA -eq 0){
@@ -45,6 +46,14 @@ function Format-FreshExecutionEvidence($Evidence,[string]$Reason) {
   $p=if($null -ne $Evidence){$Evidence.PSObject.Properties[$name]}else{$null}
   $value=if($null -eq $p -or $null -eq $p.Value){'unknown'}elseif($p.Value -is [bool] -or $p.Value -is [int] -or $p.Value -is [long]){[string]$p.Value}elseif($p.Value -is [string] -and $p.Value -cmatch '^-?[0-9]{1,10}$'){[string]$p.Value}elseif($p.Value -in @('Registry64','Unknown','DWord','String','QWord','Binary','MultiString','ExpandString','None','NOT_RUN','ERROR','PRESENT','ABSENT')){[string]$p.Value}else{'unsupported'}
   $parts.Add($name+'='+$value)
+ }
+ foreach($query in @(@('TokenElevationType',18,'ElevationTypeError','ElevationTypeBufferLength'),@('TokenElevation',20,'ElevationError','ElevationBufferLength'),@('TokenIsRestricted',40,'RestrictedError','RestrictedBufferLength'),@('TokenLinkedToken',19,'LinkedTokenError','LinkedTokenBufferLength'))){
+  $errorProperty=if($null -ne $Evidence){$Evidence.PSObject.Properties[$query[2]]}else{$null}
+  if($null -ne $errorProperty -and $errorProperty.Value -is [int] -and $errorProperty.Value -ne 0){
+   $lengthProperty=$Evidence.PSObject.Properties[$query[3]]
+   $length=if($null -ne $lengthProperty -and $lengthProperty.Value -is [int]){[string]$lengthProperty.Value}else{'unknown'}
+   $parts.Add('call=GetTokenInformation; class='+$query[0]+'('+[string]$query[1]+'); error='+[string]$errorProperty.Value+'; buffer_length='+$length)
+  }
  }
  return $parts -join '; '
 }
@@ -67,57 +76,73 @@ function Get-FreshExecutionEvidence {
   }finally{$base.Dispose()}
  }catch{$e.PolicyReadError=$_.Exception.HResult}
  try{
-  # V2 prevents reusing the old Add-Type adapter after retry in the same PS.
-  if($null -eq ('Veliq.FreshPCTokenV2' -as [type])){
+  # V3 prevents reusing the incorrect DWORD ABI after retry in the same PS.
+  if($null -eq ('Veliq.FreshPCTokenV3' -as [type])){
    Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 namespace Veliq {
- public sealed class FreshPCTokenV2 {
+ public sealed class FreshPCTokenV3 {
   public int? ElevationType { get; private set; }
   public bool? Elevated { get; private set; }
   public bool? HasLinkedToken { get; private set; }
   public bool? Restricted { get; private set; }
   public int OpenTokenError, ElevationTypeError, ElevationError, RestrictedError, LinkedTokenError;
+  public readonly int ElevationTypeBufferLength=sizeof(int), ElevationBufferLength=sizeof(int), RestrictedBufferLength=sizeof(int);
+  public readonly int LinkedTokenBufferLength=Marshal.SizeOf(typeof(TokenLinkedToken));
+  [StructLayout(LayoutKind.Sequential)]
+  struct TokenLinkedToken { public IntPtr LinkedToken; }
   [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
   [DllImport("kernel32.dll", SetLastError=true)] static extern bool CloseHandle(IntPtr handle);
   [DllImport("advapi32.dll", SetLastError=true)] static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
-  [DllImport("advapi32.dll", SetLastError=true)] static extern bool GetTokenInformation(IntPtr token, int info, IntPtr buffer, int size, out int needed);
-  static int? Dword(IntPtr token, int kind, IntPtr buffer, out int error) {
-   int needed;
-   if(!GetTokenInformation(token, kind, buffer, IntPtr.Size, out needed)) { error=Marshal.GetLastWin32Error(); return null; }
-   error=0; return Marshal.ReadInt32(buffer);
+  [DllImport("advapi32.dll", EntryPoint="GetTokenInformation", ExactSpelling=true, SetLastError=true)]
+  static extern bool GetTokenInformationDword(IntPtr token, int info, out int value, int size, out int needed);
+  [DllImport("advapi32.dll", EntryPoint="GetTokenInformation", ExactSpelling=true, SetLastError=true)]
+  static extern bool GetTokenInformationLinked(IntPtr token, int info, out TokenLinkedToken value, int size, out int needed);
+  // Shared result validation is exercised without native calls in isolated tests.
+  internal static int? CheckedDwordResult(bool success, int value, int needed, int nativeError, out int error) {
+   if(!success) { error=nativeError!=0 ? nativeError : 13; return null; }
+   if(needed!=sizeof(int)) { error=24; return null; }
+   error=0; return value;
   }
-  public static FreshPCTokenV2 Read() {
-   var result=new FreshPCTokenV2();
+  static int? Dword(IntPtr token, int kind, out int error) {
+   int needed, value;
+   bool success=GetTokenInformationDword(token,kind,out value,sizeof(int),out needed);
+   int nativeError=success ? 0 : Marshal.GetLastWin32Error();
+   return CheckedDwordResult(success,value,needed,nativeError,out error);
+  }
+  public static FreshPCTokenV3 Read() {
+   var result=new FreshPCTokenV3();
    IntPtr token;
    // TOKEN_QUERY only: no privileges, token lowering or impersonation.
    if(!OpenProcessToken(GetCurrentProcess(), 8, out token)) { result.OpenTokenError=Marshal.GetLastWin32Error(); return result; }
-   IntPtr buffer=IntPtr.Zero;
    try {
-    buffer=Marshal.AllocHGlobal(IntPtr.Size);
-    result.ElevationType=Dword(token,18,buffer,out result.ElevationTypeError);
-    int? elevated=Dword(token,20,buffer,out result.ElevationError);
+    result.ElevationType=Dword(token,18,out result.ElevationTypeError);
+    int? elevated=Dword(token,20,out result.ElevationError);
     result.Elevated=elevated.HasValue ? (bool?)(elevated.Value!=0) : null;
     // TokenIsRestricted=40, matching the owner's actual token fact.
-    int? restricted=Dword(token,40,buffer,out result.RestrictedError);
+    int? restricted=Dword(token,40,out result.RestrictedError);
     result.Restricted=restricted.HasValue ? (bool?)(restricted.Value!=0) : null;
     int needed;
-    if(GetTokenInformation(token,19,buffer,IntPtr.Size,out needed)) {
-     IntPtr other=Marshal.ReadIntPtr(buffer);
+    TokenLinkedToken linked;
+    if(GetTokenInformationLinked(token,19,out linked,result.LinkedTokenBufferLength,out needed)) {
+     IntPtr other=linked.LinkedToken;
      result.HasLinkedToken=other!=IntPtr.Zero;
      if(other!=IntPtr.Zero) CloseHandle(other);
-    } else { result.LinkedTokenError=Marshal.GetLastWin32Error(); }
+    } else {
+     result.LinkedTokenError=Marshal.GetLastWin32Error();
+     if(result.ElevationType==1 && result.LinkedTokenError!=0) result.HasLinkedToken=false;
+    }
     return result;
-   } finally { if(buffer!=IntPtr.Zero) Marshal.FreeHGlobal(buffer); CloseHandle(token); }
+   } finally { CloseHandle(token); }
   }
  }
 }
 '@
   }
-  $token=[Veliq.FreshPCTokenV2]::Read()
-  foreach($name in @('ElevationType','Elevated','Restricted','HasLinkedToken','OpenTokenError','ElevationTypeError','ElevationError','RestrictedError','LinkedTokenError')){$e.$name=$token.$name}
-  $e.LinkedTokenQuery=if($e.HasLinkedToken -is [bool]){if($e.HasLinkedToken){'PRESENT'}else{'ABSENT'}}elseif($e.LinkedTokenError -ne 0){'ERROR'}else{'NOT_RUN'}
+  $token=[Veliq.FreshPCTokenV3]::Read()
+  foreach($name in @('ElevationType','Elevated','Restricted','HasLinkedToken','OpenTokenError','ElevationTypeError','ElevationError','RestrictedError','LinkedTokenError','ElevationTypeBufferLength','ElevationBufferLength','RestrictedBufferLength','LinkedTokenBufferLength')){$e.$name=$token.$name}
+  $e.LinkedTokenQuery=if($e.LinkedTokenError -ne 0){'ERROR'}elseif($e.HasLinkedToken -is [bool]){if($e.HasLinkedToken){'PRESENT'}else{'ABSENT'}}else{'NOT_RUN'}
   $e.NativeReadError=0
  }catch{$e.NativeReadError=$_.Exception.HResult}
  try{

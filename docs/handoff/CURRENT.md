@@ -1,6 +1,6 @@
 # CURRENT — состояние проекта (обновляется в конце каждой сессии)
 
-Обновлено: 20.10.2026, Codex; `codex/work`, база b882d64. Исправлен ложный UAC-off отказ при недоступном TokenLinkedToken для Default. Добавлены независимый TokenIsRestricted=40 и безопасные partial diagnostics с точным reason/Win32 errors. Один итоговый коммит; детали — (v). VPS/PR #8 не трогались, ПК владельца здесь не доступен.
+Обновлено: 20.10.2026, Codex; `codex/work`, база 34e042d. По данным владельца подтверждён ERROR_BAD_LENGTH=24: DWORD token query использовал IntPtr.Size=8. Исправлены out int/4-byte ABI классов 18/20/40, отдельная linked-token структура и query error diagnostics. Один итоговый коммит; детали — (w). VPS/PR #8 не трогались; actual owner ПК ещё не проверен на новой сборке.
 
 ## (a) Цель
 Чистый Windows 10/11: установил, нажал «Оптимизировать» — заблокированные в РФ сервисы работают без VPN: ChatGPT, Claude, YouTube, Discord, Telegram, браузеры Chrome и Edge. Первый заказчик — клуб на 36 ПК с откатом при перезагрузке.
@@ -54,6 +54,7 @@
 | Дизайн VELIQ: дизайн-система, сайт, макеты программы, бренд-материалы | только новые папки `design/`, `website/`, `app-ui/`, `brand/`; строка в `CURRENT.md` | Claude Code | `codex/work` | ГОТОВО 20.10.2026, область освобождена. Код программы, службы и VPS не менялся. Описание и допущения — `design/README.md`; перенос в WPF и новая иконка в `apps/desktop/Assets/` ещё не сделаны |
 | Fresh-PC: UAC-disabled execution | `tools/windows/bootstrap-fresh-pc.ps1`, новый `tools/windows/fresh-pc-execution.ps1`, `tests/windows-tools/fresh-pc-checks.ps1`, `docs/FRESH_PC_ENROLLMENT.md`, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; один итоговый коммит по требованию владельца. UAC-off поддержка и isolated tests; actual Windows UAC-off/full install не проверены; production install/enroll не запускались |
 | Fresh-PC: Default linked-query regression | `tools/windows/{fresh-pc-execution,bootstrap-fresh-pc}.ps1`, `tests/windows-tools/fresh-pc-checks.ps1`, `docs/FRESH_PC_ENROLLMENT.md`, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; один коммит по требованию владельца. Exact owner facts + Default query errors covered; actual owner Windows retest не выполнен; без VPS |
+| Fresh-PC: DWORD token ABI fix | `tools/windows/fresh-pc-execution.ps1`, `tests/windows-tools/fresh-pc-checks.ps1`, `docs/FRESH_PC_ENROLLMENT.md`, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; один итоговый commit по требованию владельца. ABI/reflection/result-validator и exact owner fixture PASS; actual owner Windows не проверен, без VPS |
 | Discord медленно, DIRECT+ для YouTube | не определены | никто | — | свободно для Codex после диагностики; Go-файлы застоя (выше) не трогать |
 | PR #8, `codex/direct-plus-flowseal` | — | не трогать | — | только владелец |
 
@@ -81,6 +82,7 @@
 ## (h) Журнал решений
 | Дата | Решение | Почему |
 |---|---|---|
+| 20.10.2026 | Token classes 18/20/40: out int + sizeof(int)=4, linked token: отдельная pointer-sized структура; failed/error=24 не успех | Владелец подтвердил TokenElevation ERROR_BAD_LENGTH при IntPtr.Size=8 в прежнем adapter |
 | 20.10.2026 | Default token: любая ошибка linked-query штатна; elevation/restriction/registry по-прежнему обязательны. Диагностика — фиксированные поля и точный reason | В b882d64 non-1312 linked-query исключение скрывалось generic отказом; владелец подтвердил Default/elevated/unrestricted/UAC-off |
 | 20.10.2026 | Дизайн VELIQ в `design/`, `website/`, `app-ui/`, `brand/`; позиционирование общее: без числа серверов и ПК, сервисы как примеры, для игр — «оптимальный маршрут» | Решение владельца; тексты — `brand/copy.md` |
 | 20.10.2026 | UAC-off: GUI может наследовать full-admin только при EnableLUA=0 + Default token без linked/restricted; служба в текущем процессе, SID/ACL прежние | Явное исключение владельца для freeze/Langame; при включённом UAC elevated bootstrap по-прежнему запрещён |
@@ -952,3 +954,32 @@ Ownership включён в этот же commit по прямому требо�
 - VPS, CA rotation и production enroll не запускались. PR #8/force-push запрещены
   и не выполнялись. Дополнительных dependencies нет.
 - Владелец может безопасно проверить локально без VPS: `. .\tools\windows\fresh-pc-execution.ps1; $e=Get-FreshExecutionEvidence; Format-FreshExecutionEvidence $e 'READ_ONLY'; Resolve-FreshExecutionMode $e`.
+
+
+## (w) Исправление DWORD token ABI / ERROR_BAD_LENGTH
+
+20.10.2026, база `34e042d`; один commit
+«Исправить четырёхбайтовый ABI запросов Windows token».
+Ownership включён в итоговый commit по прямому требованию владельца.
+
+- Причина подтверждена владельцем: на x64 предыдущий Dword() передавал
+  IntPtr.Size=8 в GetTokenInformation(TokenElevation=20), Win32 API
+  возвращал ERROR_BAD_LENGTH=24, Elevated оставался unknown. Это ошибка adapter,
+  не состояния UAC. Старое предположение (v) о конкретном linked error владельца
+  не подтверждалось; теперь есть точная ошибка elevation из ПК.
+- Классы 18/20/40 используют отдельный P/Invoke out int + sizeof(int)=4. Класс19 —
+  out TokenLinkedToken с IntPtr и Marshal.SizeOf этой структуры. Generic unmanaged
+  buffer убран. Native adapter V3 исключает reuse уже загруженного V2.
+- CheckedDwordResult сохраняет ошибку native call и отвергает неверный ReturnLength;
+  error24 никогда не даёт успешное обязательное evidence, даже со stale value=1.
+  Default/linked error1312 остаётся штатным, HasLinkedToken=false, ERROR/code сохранены.
+- Безопасная диагностика failed GetTokenInformation содержит call, класс/номер,
+  error и фактическую передаваемую длину. Не сериализуются ключи/токены/окружение.
+- Локально: PS7.4.6, C# adapter compile/reflection ABI, result-validator error24,
+  exact owner fixture UAC0/type1/elevated1/restricted0/linked1312 и существующие
+  restricted/UAC-on elevated/limited отказы PASS. Native Win32 queries — Windows
+  CI; реальный ПК владельца и полный bootstrap новой сборкой ещё не проверены.
+  Python deployment 28 tests и scoped Go race (core/freshpc, tools/fresh-pc) PASS.
+- ACL/SID/IPC/CA/enroll/install/rotation не менялись и не запускались.
+  VPS/PR #8/direct-plus-flowseal не тронуты, force-push нет, новых dependencies нет.
+- Безопасная проверка на ПК без SSH/enroll: `. .\tools\windows\fresh-pc-execution.ps1; $e=Get-FreshExecutionEvidence; Format-FreshExecutionEvidence $e 'READ_ONLY'; Resolve-FreshExecutionMode $e`.

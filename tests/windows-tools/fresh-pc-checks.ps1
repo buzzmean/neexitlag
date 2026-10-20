@@ -19,6 +19,28 @@ foreach($name in @('Require-FreshPin','Fresh-Property','Assert-FreshSummary','Wa
 }
 function Check($ok,$message){if(!$ok){throw $message}}
 function Reject([scriptblock]$Action){$failed=$false;try{& $Action}catch{$failed=$true};Check $failed 'Invalid evidence accepted'}
+# Verify the actual ABI, not only a synthesized policy snapshot. DWORD queries
+# must use out Int32 and four bytes; linked-token output has its own struct.
+$nativeType=[Veliq.FreshPCTokenV3]
+$flags=[Reflection.BindingFlags]'NonPublic,Static'
+$dword=$nativeType.GetMethod('GetTokenInformationDword',$flags)
+Check ($dword.GetParameters()[2].ParameterType -eq [int].MakeByRefType()) 'DWORD query still uses a pointer-sized output'
+Check ($dword.GetCustomAttributes([Runtime.InteropServices.DllImportAttribute],$false)[0].EntryPoint -ceq 'GetTokenInformation') 'DWORD import calls wrong native entrypoint'
+$layout=[Veliq.FreshPCTokenV3]::new()
+Check ($layout.ElevationTypeBufferLength -eq 4 -and $layout.ElevationBufferLength -eq 4 -and $layout.RestrictedBufferLength -eq 4) 'DWORD buffer length is not four'
+$linked=$nativeType.GetMethod('GetTokenInformationLinked',$flags)
+Check ($linked.GetParameters()[2].ParameterType.GetElementType().Name -ceq 'TokenLinkedToken' -and $layout.LinkedTokenBufferLength -eq [IntPtr]::Size) 'Linked token does not use its own pointer-sized struct'
+$normalize=$nativeType.GetMethod('CheckedDwordResult',$flags)
+foreach($needed in @(4,8)){
+ [object[]]$arguments=@($false,1,$needed,24,0)
+ $value=$normalize.Invoke($null,$arguments)
+ Check ($null -eq $value -and $arguments[4] -eq 24) 'ERROR_BAD_LENGTH treated as successful value'
+}
+[object[]]$arguments=@($true,1,8,0,0)
+Check ($null -eq $normalize.Invoke($null,$arguments) -and $arguments[4] -eq 24) 'Wrong returned DWORD length accepted'
+[object[]]$arguments=@($true,1,4,0,0)
+Check ($normalize.Invoke($null,$arguments) -eq 1 -and $arguments[4] -eq 0) 'Valid DWORD query rejected'
+Write-Host 'PASS native DWORD/linked-token ABI and ERROR_BAD_LENGTH result validation'
 Check ((Require-FreshPin ('AB:'*31+'AB')) -ceq ('ab'*32)) 'Pin normalization failed'
 Reject {Require-FreshPin 'invalid'}
 Reject {Require-FreshPin ('a'*63)}
@@ -53,6 +75,16 @@ function Execution-Fixture {
  foreach($name in @('PolicyReadError','OwnerQueryError','NativeReadError','OpenTokenError','ElevationTypeError','ElevationError','RestrictedError','LinkedTokenError')){$e.$name=0}
  $e.IsAdministrator=$true;$e.ElevationType=1;$e.Elevated=$true;$e.Restricted=$false;$e.HasLinkedToken=$false;$e.LinkedTokenQuery='ABSENT'
  return $e
+}
+$e=Execution-Fixture
+$e.HasLinkedToken=$false;$e.LinkedTokenQuery='ERROR';$e.LinkedTokenError=1312
+$e.ElevationBufferLength=4;$e.LinkedTokenBufferLength=[IntPtr]::Size
+Check ((Resolve-FreshExecutionMode $e) -ceq 'UAC_DISABLED_FULL_ADMIN') 'Exact owner facts rejected after typed DWORD query'
+foreach($case in @(@('ElevationError','ElevationBufferLength','TokenElevation',20),@('ElevationTypeError','ElevationTypeBufferLength','TokenElevationType',18),@('RestrictedError','RestrictedBufferLength','TokenIsRestricted',40))){
+ $e=Execution-Fixture;$e.($case[0])=24;$e.($case[1])=4
+ Reject {Resolve-FreshExecutionMode $e} # even if a stale success-looking value remains
+ $diag=Format-FreshExecutionEvidence $e 'REJECTED'
+ Check ($diag.Contains('call=GetTokenInformation; class='+$case[2]+'('+[string]$case[3]+'); error=24; buffer_length=4')) 'Native error lost call/class/code/length'
 }
 foreach($lua in @(0,1)){
  foreach($consent in @(0,5)){
@@ -140,5 +172,6 @@ if($env:OS -eq 'Windows_NT'){
  Check ($actual.EnableLUA -in @(0,1) -and $actual.ElevationType -in @(1,2,3)) 'Windows token/policy query failed'
  Check (($actual.HasLinkedToken -is [bool] -or ($actual.ElevationType -eq 1 -and $actual.LinkedTokenQuery -ceq 'ERROR' -and $actual.LinkedTokenError -ne 0)) -and $actual.Restricted -is [bool]) 'Linked/restricted token evidence missing'
  Check ($actual.PolicyReadError -eq 0 -and $actual.NativeReadError -eq 0 -and $actual.RestrictedError -eq 0 -and $actual.ElevationError -eq 0) (Format-FreshExecutionEvidence $actual 'CI_QUERY_FAILED')
+ Check ($actual.ElevationTypeBufferLength -eq 4 -and $actual.ElevationBufferLength -eq 4 -and $actual.RestrictedBufferLength -eq 4) 'Actual Windows DWORD buffer length changed'
 }
 Write-Host 'PASS UAC/token matrix, restricted-token refusal, same-SID dispatch and user-profile paths'

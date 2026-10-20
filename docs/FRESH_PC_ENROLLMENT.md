@@ -248,7 +248,23 @@ registry kinds; `IsAdministrator`, `ElevationType`, `Elevated`, `Restricted`;
 `unknown`, а не превращаются в false/0. Частичный отказ чтения реестра не мешает
 попытке собрать token evidence и наоборот. Сырые exception/окружение/identity не
 сериализуются. Для повторного запуска в той же PS-сессии новый adapter имеет
-отдельное имя `FreshPCTokenV2`, старый Add-Type не используется.
+отдельное имя `FreshPCTokenV3`, старые Add-Type с pointer-sized DWORD ABI не используются.
+
+Классы `TokenElevationType=18`, `TokenElevation=20` (структура из одного DWORD)
+и `TokenIsRestricted=40` читаются отдельной P/Invoke-сигнатурой с `out int`,
+`TokenInformationLength=sizeof(int)=4` и `out int ReturnLength`. Размер указателя
+не используется для DWORD даже на x64. Класс `TokenLinkedToken=19` использует
+другую сигнатуру с `out TokenLinkedToken` и размером собственной структуры
+(поле `IntPtr`, 8 байт на x64). Успешный DWORD-ответ также требует ReturnLength=4.
+
+Если GetTokenInformation отказал, к snapshot добавляется запись вида
+`call=GetTokenInformation; class=TokenElevation(20); error=24; buffer_length=4`.
+Это пример формата, не реальный вывод новой сборки с ПК владельца. Ошибка
+`ERROR_BAD_LENGTH=24` никогда не даёт подтверждённого elevation/type/restriction:
+соответствующее значение остаётся unknown, preflight отклоняется. Она не является
+штатным исключением linked-query. При Default и linked error 1312 отсутствие
+linked token нормализуется в `HasLinkedToken=False`, но исходные `ERROR/1312`
+остаются в диагностике, не заменяются успешным запросом.
 
 Локальная read-only проверка без bootstrap/SSH/install/enroll (из repo):
 
@@ -311,3 +327,12 @@ PostgreSQL 17, `go vet ./...`, Linux/Windows amd64 build — PASS; 28 Python-т�
 WPF и native test host кросс-собраны SDK 8.0.426; native Windows execution и
 PowerShell 5.1 локально не выполнялись (добавлены в существующий CI).
 Локальный authenticated TLS/mTLS `/3` TCP+UDP fixture — не Internet/VPS PASS.
+
+
+Регрессия DWORD ABI (после 34e042d): локальные проверки компилируют настоящий
+native adapter и через reflection проверяют out Int32, layout linked-token и
+размеры; вызывают общий result validator для failed/error=24 и неверного
+ReturnLength. Exact owner fixture с elevation=1 и linked error=1312 принимается;
+error=24 для любого из обязательных DWORD-запросов отклоняется даже при stale value.
+Настоящие Win32-вызовы исполняются только в Windows CI/на ПК; Linux-тесты не
+выдаются за Windows runtime PASS.
