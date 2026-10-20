@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Скачать VELIQ для Windows — VELIQ</title>
+  <title>Скачать VELIQ — VELIQ</title>
   <meta name="description" content="Скачайте VELIQ 1.0 beta для Windows 10 и 11. Установка за минуту, затем одна кнопка «Оптимизировать».">
   <link rel="canonical" href="https://veliq.app/download.html">
   <meta name="theme-color" content="#0A0A0B">
@@ -11,7 +11,7 @@
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="VELIQ">
   <meta property="og:locale" content="ru_RU">
-  <meta property="og:title" content="Скачать VELIQ для Windows — VELIQ">
+  <meta property="og:title" content="Скачать VELIQ — VELIQ">
   <meta property="og:description" content="Скачайте VELIQ 1.0 beta для Windows 10 и 11. Установка за минуту, затем одна кнопка «Оптимизировать».">
   <meta property="og:url" content="https://veliq.app/download.html">
   <meta property="og:image" content="https://veliq.app/assets/img/og-image.png">
@@ -27,7 +27,7 @@
   <link rel="stylesheet" href="assets/tokens.css">
   <link rel="stylesheet" href="assets/components.css">
   <link rel="stylesheet" href="assets/site.css">
-  <script>try{var t=localStorage.getItem('veliq-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+  <script>document.documentElement.classList.add('js');try{var t=localStorage.getItem('veliq-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
   <script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "VELIQ", "operatingSystem": "Windows 10, Windows 11", "applicationCategory": "UtilitiesApplication", "description": "VELIQ строит оптимальный маршрут для каждого соединения: заблокированные сервисы открываются, игры получают самый быстрый путь.", "softwareVersion": "1.0 beta", "url": "https://veliq.app"}</script>
 </head>
 <body>
@@ -40,7 +40,7 @@
       <img class="on-dark" src="assets/img/veliq-wordmark-dark.svg" alt="" width="144" height="66">
     </a>
     <nav class="nav" id="nav" aria-label="Основное меню">
-      <a href="index.html#how">Как работает</a>
+      <a href="vpn.html">Как работает</a>
       <a href="index.html#games">Игры</a>
       <a href="clubs.html">Клубам</a>
       <a href="pricing.html">Цены</a>
@@ -62,9 +62,28 @@
     <div class="crumbs"><a href="index.html">Главная</a> / Скачать</div>
     <h1 class="h1">Скачать VELIQ</h1>
     <p class="lede">Установка занимает около минуты. После неё остаётся нажать одну кнопку.</p>
+    <div class="platforms" role="group" aria-label="Устройство">
+      <button type="button" class="platforms__btn" data-platform-btn="win" aria-pressed="true">Компьютер</button>
+      <button type="button" class="platforms__btn" data-platform-btn="phone" aria-pressed="false">Телефон<span class="platforms__soon">скоро</span></button>
+    </div>
   </div>
 </section>
-<section class="sec sec--tight">
+<section class="sec sec--tight" data-platform="phone" hidden>
+  <div class="wrap">
+    <div class="soon">
+      <img class="get__icon" src="assets/img/app-icon.svg" alt="" width="88" height="88">
+      <div>
+        <h2 class="h3" style="font-size:var(--fs-3xl)">VELIQ для телефона готовится</h2>
+        <p class="muted" style="margin:10px 0 0;max-width:52ch">Тот же принцип: одна кнопка и свой путь для каждого соединения. Оставьте почту — напишем, когда приложение выйдет. А пока VELIQ можно поставить на компьютер.</p>
+      </div>
+      <div class="soon__actions">
+        <a class="btn btn--lg" href="mailto:support@veliq.app?subject=Сообщить%20о%20выходе%20VELIQ%20для%20телефона">Сообщить о выходе</a>
+        <button type="button" class="btn btn--lg btn--ghost" data-platform-btn="win" aria-pressed="false">Версия для компьютера</button>
+      </div>
+    </div>
+  </div>
+</section>
+<section class="sec sec--tight" data-platform="win">
   <div class="wrap cols">
     <div>
       <div class="get" style="margin-bottom:var(--sp-7)">
@@ -120,7 +139,7 @@
       </div>
       <div>
         <h2>Продукт</h2>
-        <ul><li><a href="download.html">Скачать</a></li><li><a href="index.html#how">Как работает</a></li><li><a href="index.html#games">Для игр</a></li><li><a href="pricing.html">Цены</a></li></ul>
+        <ul><li><a href="download.html">Скачать</a></li><li><a href="index.html#how">Как работает</a></li><li><a href="vpn.html">Отличие от VPN</a></li><li><a href="index.html#privacy">Что видит сервер</a></li><li><a href="index.html#games">Для игр</a></li><li><a href="pricing.html">Цены</a></li></ul>
       </div>
       <div>
         <h2>Клубам</h2>

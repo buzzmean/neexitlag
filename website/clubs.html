@@ -27,7 +27,7 @@
   <link rel="stylesheet" href="assets/tokens.css">
   <link rel="stylesheet" href="assets/components.css">
   <link rel="stylesheet" href="assets/site.css">
-  <script>try{var t=localStorage.getItem('veliq-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+  <script>document.documentElement.classList.add('js');try{var t=localStorage.getItem('veliq-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
 </head>
 <body>
 <script src="assets/icons.js"></script>
@@ -39,7 +39,7 @@
       <img class="on-dark" src="assets/img/veliq-wordmark-dark.svg" alt="" width="144" height="66">
     </a>
     <nav class="nav" id="nav" aria-label="Основное меню">
-      <a href="index.html#how">Как работает</a>
+      <a href="vpn.html">Как работает</a>
       <a href="index.html#games">Игры</a>
       <a href="clubs.html" aria-current="page">Клубам</a>
       <a href="pricing.html">Цены</a>
@@ -61,17 +61,53 @@
     <div class="crumbs"><a href="index.html">Главная</a> / Клубам</div>
     <h1 class="h1" style="max-width:15ch">VELIQ для компьютерных клубов</h1>
     <p class="lede">Гости приходят играть, а заодно смотреть стримы, сидеть в голосовых чатах и пользоваться нейросетями. Когда это не работает или игра лагает, они уходят туда, где всё в порядке.</p>
-    <div class="hero__actions" style="margin-top:32px"><a class="btn btn--lg" href="mailto:support@veliq.app?subject=VELIQ%20для%20клуба">Оставить заявку</a><a class="btn btn--lg btn--ghost" href="#calc">Посчитать выгоду</a></div>
+    <div class="hero__actions" style="margin-top:32px"><a class="btn btn--lg" href="#apply">Оставить заявку</a><a class="btn btn--lg btn--ghost" href="#calc">Посчитать выгоду</a></div>
   </div>
 </section>
 
 <section class="sec">
   <div class="wrap">
+    <div class="sec__head"><h2 class="h2">Что теряет клуб</h2><p>Каждая такая ситуация — гость, который сегодня ушёл раньше, а завтра выбрал другой клуб.</p></div>
+    <ol class="pains">
+      <li><span class="pains__n">01</span><h3 class="h3">Сервисы не открываются</h3><p>YouTube, Discord, Telegram, нейросети — гостю нечем заняться между матчами и не с кем говорить в голосовом чате.</p></li>
+      <li><span class="pains__n">02</span><h3 class="h3">Игры лагают</h3><p>Высокий пинг или закрытые игровые серверы — команда доигрывает и уходит туда, где играется лучше.</p></li>
+      <li><span class="pains__n">03</span><h3 class="h3">Администратор занят не тем</h3><p>Смена уходит на «почему не работает», а не на гостей.</p></li>
+    </ol>
+  </div>
+</section>
+
+<section class="sec band--sunken">
+  <div class="wrap">
+    <div class="sec__head"><h2 class="h2">Что меняется с VELIQ</h2><p>Одна программа на каждом ПК — и маршруты строятся сами.</p></div>
     <div class="facts">
       <div class="fact"><h3>Запускается сам</h3><p>Кнопка «Оптимизировать» нажата заранее. Гость садится — маршруты уже построены.</p></div>
       <div class="fact fact--r"><h3>Переживает откат</h3><p>Ставится на каждый ПК и остаётся после перезагрузки. Гость не может ему навредить.</p></div>
       <div class="fact"><h3>Лучший путь для игр</h3><p>VELIQ выбирает самый быстрый маршрут до игрового сервера и открывает доступ к закрытым.</p></div>
-      <div class="fact fact--r"><h3>Гость ничего не сломает</h3><p>Упрощённый интерфейс: состояние и одна кнопка. Настройки закрыты паролем администратора.</p></div>
+      <div class="fact fact--r"><h3>Заблокированное снова работает</h3><p>Стримы, голосовые чаты и нейросети открываются у гостя сразу, без настроек.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="sec">
+  <div class="wrap">
+    <div class="sec__head"><h2 class="h2">Кто что делает</h2><p>Вся настройка — один раз и у администратора. Гость просто садится играть.</p></div>
+    <div class="roles">
+      <div class="roles__col">
+        <div class="roles__who"><svg class="i" aria-hidden="true"><use href="#i-settings"/></svg><h3 class="h3">Администратор</h3></div>
+        <ul class="roles__list">
+          <li>Устанавливает VELIQ на каждый ПК и вводит код активации клуба</li>
+          <li>Задаёт пароль администратора — без него настройки не открыть</li>
+          <li>Если что-то не так — открывает диагностику на этом ПК</li>
+        </ul>
+      </div>
+      <div class="roles__col roles__col--guest">
+        <div class="roles__who"><svg class="i" aria-hidden="true"><use href="#i-games"/></svg><h3 class="h3">Гость</h3></div>
+        <ul class="roles__list">
+          <li>Садится за ПК — VELIQ уже работает</li>
+          <li>Видит только состояние и значок в трее</li>
+          <li>Не может изменить настройки или что-то сломать</li>
+        </ul>
+      </div>
     </div>
   </div>
 </section>
@@ -100,10 +136,10 @@
     
 <div class="calc" data-calc>
   <div class="calc__in">
-    <div class="calc__row"><label for="c-pcs">Компьютеров в клубе</label><input class="input" id="c-pcs" data-k="pcs" inputmode="numeric" value="30"><input type="range" data-k="pcs" min="5" max="200" step="1" value="30" aria-label="Компьютеров в клубе"></div>
+    <div class="calc__row"><label for="c-pcs">Компьютеров в клубе</label><input class="input" id="c-pcs" data-k="pcs" inputmode="numeric" value="20"><input type="range" data-k="pcs" min="5" max="200" step="1" value="20" aria-label="Компьютеров в клубе"></div>
     <div class="calc__row"><label for="c-hours">Часов работы в сутки</label><input class="input" id="c-hours" data-k="hours" inputmode="numeric" value="24"><input type="range" data-k="hours" min="6" max="24" step="1" value="24" aria-label="Часов работы в сутки"></div>
-    <div class="calc__row"><label for="c-load">Средняя загрузка, %</label><input class="input" id="c-load" data-k="load" inputmode="numeric" value="45"><input type="range" data-k="load" min="5" max="100" step="1" value="45" aria-label="Средняя загрузка"></div>
-    <div class="calc__row"><label for="c-price">Цена часа, ₽</label><input class="input" id="c-price" data-k="price" inputmode="numeric" value="120"><input type="range" data-k="price" min="40" max="500" step="10" value="120" aria-label="Цена часа"></div>
+    <div class="calc__row"><label for="c-load">Средняя загрузка, %</label><input class="input" id="c-load" data-k="load" inputmode="numeric" value="50"><input type="range" data-k="load" min="5" max="100" step="1" value="50" aria-label="Средняя загрузка"></div>
+    <div class="calc__row"><label for="c-price">Цена часа, ₽</label><input class="input" id="c-price" data-k="price" inputmode="numeric" value="150"><input type="range" data-k="price" min="40" max="500" step="10" value="150" aria-label="Цена часа"></div>
     <div class="calc__row"><label for="c-lost">Часов теряете из-за блокировок, %</label><input class="input" id="c-lost" data-k="lost" inputmode="decimal" value="3"><input type="range" data-k="lost" min="0" max="20" step="0.5" value="3" aria-label="Потерянные часы"><small>Гости, которые ушли или не пришли из-за недоступных сервисов или высокого пинга.</small></div>
     <div class="calc__row"><label for="c-cost">VELIQ за ПК в месяц, ₽</label><input class="input" id="c-cost" data-k="cost" inputmode="numeric" value="0"><input type="range" data-k="cost" min="0" max="1000" step="10" value="0" aria-label="Стоимость VELIQ"><small>Цена тарифа ещё не объявлена — подставьте свою оценку.</small></div>
   </div>
@@ -122,7 +158,18 @@
   </div>
 </section>
 
-<section class="sec sec--tight" style="padding-top:0">
+<section class="sec band--ink" id="apply">
+  <div class="wrap club-band">
+    <div>
+      <h2 class="h2">Поставим на один ПК — решите по факту</h2>
+      <p class="lede" style="margin-top:20px">Напишите, сколько у вас компьютеров и какая система управления. Пришлём код активации и поможем с первой установкой.</p>
+      <div class="hero__actions" style="margin-top:32px"><a class="btn btn--lg" href="mailto:support@veliq.app?subject=VELIQ%20для%20клуба">Оставить заявку</a><a class="btn btn--lg btn--ghost" href="pricing.html">Тарифы</a></div>
+    </div>
+    <div class="club-band__pcs" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  </div>
+</section>
+
+<section class="sec">
   <div class="wrap">
     <div class="sec__head"><h2 class="h2">Вопросы владельцев клубов</h2><p>Презентацию для партнёров и инструкцию для администратора пришлём по запросу.</p></div>
     <div class="faq"><details><summary>Как VELIQ переживает откат после перезагрузки?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary><div class="a"><p>Программа и служба устанавливаются на каждый ПК в техническом режиме, как игры. После отката они на месте и стартуют сами, без повторной настройки.</p></div></details>
@@ -146,7 +193,7 @@
       </div>
       <div>
         <h2>Продукт</h2>
-        <ul><li><a href="download.html">Скачать</a></li><li><a href="index.html#how">Как работает</a></li><li><a href="index.html#games">Для игр</a></li><li><a href="pricing.html">Цены</a></li></ul>
+        <ul><li><a href="download.html">Скачать</a></li><li><a href="index.html#how">Как работает</a></li><li><a href="vpn.html">Отличие от VPN</a></li><li><a href="index.html#privacy">Что видит сервер</a></li><li><a href="index.html#games">Для игр</a></li><li><a href="pricing.html">Цены</a></li></ul>
       </div>
       <div>
         <h2>Клубам</h2>

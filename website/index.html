@@ -27,8 +27,8 @@
   <link rel="stylesheet" href="assets/tokens.css">
   <link rel="stylesheet" href="assets/components.css">
   <link rel="stylesheet" href="assets/site.css">
-  <script>try{var t=localStorage.getItem('veliq-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
-  <script type="application/ld+json">[{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "VELIQ", "operatingSystem": "Windows 10, Windows 11", "applicationCategory": "UtilitiesApplication", "description": "VELIQ строит оптимальный маршрут для каждого соединения: заблокированные сервисы открываются, игры получают самый быстрый путь.", "softwareVersion": "1.0 beta", "url": "https://veliq.app"}, {"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Это VPN?", "acceptedAnswer": {"@type": "Answer", "text": "Нет. VPN отправляет весь трафик через один сервер, и всё становится медленнее. VELIQ выбирает путь для каждого соединения отдельно: через свою сеть — когда так открывается доступ или выходит быстрее, обычным путём — когда так лучше."}}, {"@type": "Question", "name": "Нужно ли что-то перезапускать?", "acceptedAnswer": {"@type": "Answer", "text": "Нет. Маршруты работают сразу после нажатия «Оптимизировать» — ничего закрывать и перезапускать не нужно."}}, {"@type": "Question", "name": "Как VELIQ влияет на пинг в играх?", "acceptedAnswer": {"@type": "Answer", "text": "VELIQ сравнивает пути до игрового сервера и выбирает самый быстрый. Если путь через сеть VELIQ не быстрее обычного, маршрут не меняется. Замеры видно в программе."}}, {"@type": "Question", "name": "Вы видите, что я открываю?", "acceptedAnswer": {"@type": "Answer", "text": "Нет. Мы не расшифровываем и не подменяем HTTPS. Сервер-релей видит только адрес назначения и объём данных — этого достаточно, чтобы переслать трафик. Подробности — в <a href=\"privacy.html\">политике конфиденциальности</a>."}}, {"@type": "Question", "name": "Какие системы поддерживаются?", "acceptedAnswer": {"@type": "Answer", "text": "Windows 10 и 11, 64-бит. Нужны права администратора один раз — при установке службы."}}, {"@type": "Question", "name": "Работает на компьютерах в клубе, которые откатываются после перезагрузки?", "acceptedAnswer": {"@type": "Answer", "text": "Да, для этого есть режим клуба: программа устанавливается на каждый ПК, запускается сама при входе и не требует настроек после отката. <a href=\"clubs.html\">Как это устроено</a>."}}]}]</script>
+  <script>document.documentElement.classList.add('js');try{var t=localStorage.getItem('veliq-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+  <script type="application/ld+json">[{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "VELIQ", "operatingSystem": "Windows 10, Windows 11", "applicationCategory": "UtilitiesApplication", "description": "VELIQ строит оптимальный маршрут для каждого соединения: заблокированные сервисы открываются, игры получают самый быстрый путь.", "softwareVersion": "1.0 beta", "url": "https://veliq.app"}, {"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Это VPN?", "acceptedAnswer": {"@type": "Answer", "text": "Нет. VPN отправляет весь трафик через один сервер, и всё становится медленнее. VELIQ выбирает путь для каждого соединения отдельно: через свою сеть — когда так открывается доступ или выходит быстрее, обычным путём — когда так лучше. <a href=\"vpn.html\">Подробнее о разнице</a>."}}, {"@type": "Question", "name": "Нужно ли что-то перезапускать?", "acceptedAnswer": {"@type": "Answer", "text": "Нет. Маршруты работают сразу после нажатия «Оптимизировать» — ничего закрывать и перезапускать не нужно."}}, {"@type": "Question", "name": "Как VELIQ влияет на пинг в играх?", "acceptedAnswer": {"@type": "Answer", "text": "VELIQ сравнивает пути до игрового сервера и выбирает самый быстрый. Если путь через сеть VELIQ не быстрее обычного, маршрут не меняется. Замеры видно в программе."}}, {"@type": "Question", "name": "Вы видите, что я открываю?", "acceptedAnswer": {"@type": "Answer", "text": "Нет. Мы не расшифровываем и не подменяем HTTPS. Сервер видит адрес назначения и объём данных — этого достаточно, чтобы переслать трафик. <a href=\"index.html#privacy\">Что видит сервер</a>. Подробности — в <a href=\"privacy.html\">политике конфиденциальности</a>."}}, {"@type": "Question", "name": "Какие системы поддерживаются?", "acceptedAnswer": {"@type": "Answer", "text": "Windows 10 и 11, 64-бит. Нужны права администратора один раз — при установке службы."}}, {"@type": "Question", "name": "Работает на компьютерах в клубе, которые откатываются после перезагрузки?", "acceptedAnswer": {"@type": "Answer", "text": "Да, для этого есть режим клуба: программа устанавливается на каждый ПК, запускается сама при входе и не требует настроек после отката. <a href=\"clubs.html\">Как это устроено</a>."}}]}]</script>
 </head>
 <body>
 <script src="assets/icons.js"></script>
@@ -40,7 +40,7 @@
       <img class="on-dark" src="assets/img/veliq-wordmark-dark.svg" alt="" width="144" height="66">
     </a>
     <nav class="nav" id="nav" aria-label="Основное меню">
-      <a href="index.html#how">Как работает</a>
+      <a href="vpn.html">Как работает</a>
       <a href="index.html#games">Игры</a>
       <a href="clubs.html">Клубам</a>
       <a href="pricing.html">Цены</a>
@@ -134,6 +134,7 @@
         <p class="split__note">VELIQ замеряет задержку и выбирает путь, на котором она меньше.</p>
       </div>
     </div>
+    <a class="more" href="vpn.html">Чем это отличается от VPN <svg class="i i--sm" aria-hidden="true"><use href="#i-chevron-right"/></svg></a>
   </div>
 </section>
 
@@ -145,6 +146,40 @@
       <div class="fact fact--r"><h3>HTTPS не расшифровывается</h3><p>Сервер пересылает зашифрованный трафик как есть. Пароли и переписка ему не видны.</p></div>
       <div class="fact"><h3>Ничего не настраивать</h3><p>Одна кнопка. Если что-то пошло не так, программа скажет, что именно, и предложит решение.</p></div>
       <div class="fact fact--r"><h3>Готово для клубов</h3><p>Работает на ПК, которые откатываются после перезагрузки: запускается сам, настройки не теряются.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="privacy">
+  <div class="wrap">
+    <div class="sec__head"><h2 class="h2">Что видит сервер</h2><p>Сервер VELIQ пересылает трафик, но не может его прочитать: соединения с сайтами и приложениями зашифрованы от начала до конца.</p></div>
+    <div class="seen">
+      <div class="seen__path" data-trace aria-label="Путь соединения: ваше устройство, сервер VELIQ, сервис. На всём пути данные зашифрованы.">
+        <span class="seen__end">Ваше устройство</span>
+        <span class="seen__wire"><svg class="i i--sm" aria-hidden="true"><use href="#i-lock"/></svg><em>зашифровано</em></span>
+        <span class="seen__mid">Сервер VELIQ</span>
+        <span class="seen__wire"><svg class="i i--sm" aria-hidden="true"><use href="#i-lock"/></svg><em>зашифровано</em></span>
+        <span class="seen__end">Сервис</span>
+      </div>
+      <div class="seen__cols">
+        <div>
+          <h3 class="h3">Видит</h3>
+          <ul class="seen__list">
+            <li><svg class="i i--sm" aria-hidden="true"><use href="#i-check"/></svg><span><strong>Куда</strong> идёт соединение — адрес сервиса, например youtube.com</span></li>
+            <li><svg class="i i--sm" aria-hidden="true"><use href="#i-check"/></svg><span><strong>Сколько</strong> данных передано</span></li>
+            <li><svg class="i i--sm" aria-hidden="true"><use href="#i-check"/></svg><span><strong>Ваше устройство</strong> — по ключу устройства, чтобы пускать только своих</span></li>
+          </ul>
+        </div>
+        <div>
+          <h3 class="h3">Не видит</h3>
+          <ul class="seen__list seen__list--no">
+            <li><svg class="i i--sm" aria-hidden="true"><use href="#i-close"/></svg><span>Что вы смотрите и открываете на странице</span></li>
+            <li><svg class="i i--sm" aria-hidden="true"><use href="#i-close"/></svg><span>Пароли, переписку и сообщения</span></li>
+            <li><svg class="i i--sm" aria-hidden="true"><use href="#i-close"/></svg><span>Файлы, платёжные данные и содержимое игр</span></li>
+          </ul>
+        </div>
+      </div>
+      <p class="seen__note">VELIQ не расшифровывает и не подменяет HTTPS. Почти все сайты и приложения сейчас работают по HTTPS; это и даёт защиту на всём пути.</p>
     </div>
   </div>
 </section>
@@ -196,10 +231,10 @@
   <div class="wrap">
     <div class="sec__head"><h2 class="h2">Частые вопросы</h2><p>Не нашли ответ — <a href="support.html">все вопросы и ошибки</a> или напишите на support@veliq.app.</p></div>
     <div class="faq">
-<details><summary>Это VPN?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary><div class="a"><p>Нет. VPN отправляет весь трафик через один сервер, и всё становится медленнее. VELIQ выбирает путь для каждого соединения отдельно: через свою сеть — когда так открывается доступ или выходит быстрее, обычным путём — когда так лучше.</p></div></details>
+<details><summary>Это VPN?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary><div class="a"><p>Нет. VPN отправляет весь трафик через один сервер, и всё становится медленнее. VELIQ выбирает путь для каждого соединения отдельно: через свою сеть — когда так открывается доступ или выходит быстрее, обычным путём — когда так лучше. <a href="vpn.html">Подробнее о разнице</a>.</p></div></details>
 <details><summary>Нужно ли что-то перезапускать?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary><div class="a"><p>Нет. Маршруты работают сразу после нажатия «Оптимизировать» — ничего закрывать и перезапускать не нужно.</p></div></details>
 <details><summary>Как VELIQ влияет на пинг в играх?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary><div class="a"><p>VELIQ сравнивает пути до игрового сервера и выбирает самый быстрый. Если путь через сеть VELIQ не быстрее обычного, маршрут не меняется. Замеры видно в программе.</p></div></details>
-<details><summary>Вы видите, что я открываю?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary><div class="a"><p>Нет. Мы не расшифровываем и не подменяем HTTPS. Сервер-релей видит только адрес назначения и объём данных — этого достаточно, чтобы переслать трафик. Подробности — в <a href="privacy.html">политике конфиденциальности</a>.</p></div></details>
+<details><summary>Вы видите, что я открываю?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary><div class="a"><p>Нет. Мы не расшифровываем и не подменяем HTTPS. Сервер видит адрес назначения и объём данных — этого достаточно, чтобы переслать трафик. <a href="index.html#privacy">Что видит сервер</a>. Подробности — в <a href="privacy.html">политике конфиденциальности</a>.</p></div></details>
 <details><summary>Какие системы поддерживаются?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary><div class="a"><p>Windows 10 и 11, 64-бит. Нужны права администратора один раз — при установке службы.</p></div></details>
 <details><summary>Работает на компьютерах в клубе, которые откатываются после перезагрузки?<svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></summary><div class="a"><p>Да, для этого есть режим клуба: программа устанавливается на каждый ПК, запускается сама при входе и не требует настроек после отката. <a href="clubs.html">Как это устроено</a>.</p></div></details>
     </div>
@@ -219,7 +254,7 @@
       </div>
       <div>
         <h2>Продукт</h2>
-        <ul><li><a href="download.html">Скачать</a></li><li><a href="index.html#how">Как работает</a></li><li><a href="index.html#games">Для игр</a></li><li><a href="pricing.html">Цены</a></li></ul>
+        <ul><li><a href="download.html">Скачать</a></li><li><a href="index.html#how">Как работает</a></li><li><a href="vpn.html">Отличие от VPN</a></li><li><a href="index.html#privacy">Что видит сервер</a></li><li><a href="index.html#games">Для игр</a></li><li><a href="pricing.html">Цены</a></li></ul>
       </div>
       <div>
         <h2>Клубам</h2>

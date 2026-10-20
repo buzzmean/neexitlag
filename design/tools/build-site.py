@@ -29,7 +29,7 @@ RELEASE = {
 }
 
 NAV = [
-    ("index.html#how", "Как работает", "how"),
+    ("vpn.html", "Как работает", "how"),
     ("index.html#games", "Игры", "games"),
     ("clubs.html", "Клубам", "clubs"),
     ("pricing.html", "Цены", "pricing"),
@@ -76,7 +76,7 @@ def head(title, desc, path, extra_ld=None):
   <link rel="stylesheet" href="assets/tokens.css">
   <link rel="stylesheet" href="assets/components.css">
   <link rel="stylesheet" href="assets/site.css">
-  <script>try{{var t=localStorage.getItem('veliq-theme');if(t)document.documentElement.setAttribute('data-theme',t)}}catch(e){{}}</script>{ld}
+  <script>document.documentElement.classList.add('js');try{{var t=localStorage.getItem('veliq-theme');if(t)document.documentElement.setAttribute('data-theme',t)}}catch(e){{}}</script>{ld}
 </head>
 <body>
 <script src="assets/icons.js"></script>
@@ -123,7 +123,7 @@ def footer():
       </div>
       <div>
         <h2>Продукт</h2>
-        <ul><li><a href="download.html">Скачать</a></li><li><a href="index.html#how">Как работает</a></li><li><a href="index.html#games">Для игр</a></li><li><a href="pricing.html">Цены</a></li></ul>
+        <ul><li><a href="download.html">Скачать</a></li><li><a href="index.html#how">Как работает</a></li><li><a href="vpn.html">Отличие от VPN</a></li><li><a href="index.html#privacy">Что видит сервер</a></li><li><a href="index.html#games">Для игр</a></li><li><a href="pricing.html">Цены</a></li></ul>
       </div>
       <div>
         <h2>Клубам</h2>
@@ -160,11 +160,70 @@ def faq(items):
 
 
 # ---------------------------------------------------------------- тексты FAQ (общие)
+
+def flow(kind):
+    """Схема: устройство → (сервер) → назначения. kind = 'vpn' | 'veliq'. HTML/CSS, без картинок."""
+    rows = [("YouTube", "заблокирован"), ("Онлайн-игра", "нужен низкий пинг"), ("Обычный сайт", "и так работает"), ("Банк", "и так работает")]
+    out = []
+    if kind == "vpn":
+        out.append('<div class="flow flow--vpn" data-trace>')
+        out.append('<div class="flow__src">Вы</div><div class="flow__hub">Сервер VPN</div>')
+        for i, (name, _) in enumerate(rows):
+            out.append(f'<span class="flow__a" style="grid-row:{i+1}"></span><span class="flow__b" style="grid-row:{i+1}"></span><span class="flow__dst" style="grid-row:{i+1}">{name}</span>')
+        out.append('</div>')
+        out.append('<p class="flow__cap">Весь трафик идёт через один сервер — и заблокированное, и то, что прекрасно работало без него.</p>')
+    else:
+        mids = [("relay", "VELIQ"), ("relay", "лучший путь"), ("plain", "как обычно"), ("plain", "как обычно")]
+        out.append('<div class="flow flow--veliq" data-trace>')
+        out.append('<div class="flow__src">Вы</div>')
+        for i, ((name, _), (mode, label)) in enumerate(zip(rows, mids)):
+            g = f'grid-row:{i+1}'
+            if mode == "relay":
+                out.append(f'<span class="flow__a is-sig" style="{g}"></span><span class="flow__node" style="{g}">{label}</span><span class="flow__b is-sig" style="{g}"></span><span class="flow__dst" style="{g}">{name}</span>')
+            else:
+                out.append(f'<span class="flow__plain" style="{g}"><em>{label}</em></span><span class="flow__dst is-plain" style="{g}">{name}</span>')
+        out.append('</div>')
+        out.append('<p class="flow__cap">Каждое соединение получает свой путь: заблокированное — через сеть VELIQ, игры — самый быстрый маршрут, остальное — как обычно.</p>')
+    return "\n".join(out)
+
+
+def privacy_block(head_tag="h2"):
+    return f"""<div class="sec__head"><{head_tag} class="h2">Что видит сервер</{head_tag}><p>Сервер VELIQ пересылает трафик, но не может его прочитать: соединения с сайтами и приложениями зашифрованы от начала до конца.</p></div>
+    <div class="seen">
+      <div class="seen__path" data-trace aria-label="Путь соединения: ваше устройство, сервер VELIQ, сервис. На всём пути данные зашифрованы.">
+        <span class="seen__end">Ваше устройство</span>
+        <span class="seen__wire">{icon('lock','i i--sm')}<em>зашифровано</em></span>
+        <span class="seen__mid">Сервер VELIQ</span>
+        <span class="seen__wire">{icon('lock','i i--sm')}<em>зашифровано</em></span>
+        <span class="seen__end">Сервис</span>
+      </div>
+      <div class="seen__cols">
+        <div>
+          <h3 class="h3">Видит</h3>
+          <ul class="seen__list">
+            <li>{icon('check','i i--sm')}<span><strong>Куда</strong> идёт соединение — адрес сервиса, например youtube.com</span></li>
+            <li>{icon('check','i i--sm')}<span><strong>Сколько</strong> данных передано</span></li>
+            <li>{icon('check','i i--sm')}<span><strong>Ваше устройство</strong> — по ключу устройства, чтобы пускать только своих</span></li>
+          </ul>
+        </div>
+        <div>
+          <h3 class="h3">Не видит</h3>
+          <ul class="seen__list seen__list--no">
+            <li>{icon('close','i i--sm')}<span>Что вы смотрите и открываете на странице</span></li>
+            <li>{icon('close','i i--sm')}<span>Пароли, переписку и сообщения</span></li>
+            <li>{icon('close','i i--sm')}<span>Файлы, платёжные данные и содержимое игр</span></li>
+          </ul>
+        </div>
+      </div>
+      <p class="seen__note">VELIQ не расшифровывает и не подменяет HTTPS. Почти все сайты и приложения сейчас работают по HTTPS; это и даёт защиту на всём пути.</p>
+    </div>"""
+
+
 FAQ_MAIN = [
-    ("Это VPN?", "<p>Нет. VPN отправляет весь трафик через один сервер, и всё становится медленнее. VELIQ выбирает путь для каждого соединения отдельно: через свою сеть — когда так открывается доступ или выходит быстрее, обычным путём — когда так лучше.</p>"),
+    ("Это VPN?", "<p>Нет. VPN отправляет весь трафик через один сервер, и всё становится медленнее. VELIQ выбирает путь для каждого соединения отдельно: через свою сеть — когда так открывается доступ или выходит быстрее, обычным путём — когда так лучше. <a href=\"vpn.html\">Подробнее о разнице</a>.</p>"),
     ("Нужно ли что-то перезапускать?", "<p>Нет. Маршруты работают сразу после нажатия «Оптимизировать» — ничего закрывать и перезапускать не нужно.</p>"),
     ("Как VELIQ влияет на пинг в играх?", "<p>VELIQ сравнивает пути до игрового сервера и выбирает самый быстрый. Если путь через сеть VELIQ не быстрее обычного, маршрут не меняется. Замеры видно в программе.</p>"),
-    ("Вы видите, что я открываю?", "<p>Нет. Мы не расшифровываем и не подменяем HTTPS. Сервер-релей видит только адрес назначения и объём данных — этого достаточно, чтобы переслать трафик. Подробности — в <a href=\"privacy.html\">политике конфиденциальности</a>.</p>"),
+    ("Вы видите, что я открываю?", "<p>Нет. Мы не расшифровываем и не подменяем HTTPS. Сервер видит адрес назначения и объём данных — этого достаточно, чтобы переслать трафик. <a href=\"index.html#privacy\">Что видит сервер</a>. Подробности — в <a href=\"privacy.html\">политике конфиденциальности</a>.</p>"),
     ("Какие системы поддерживаются?", f"<p>{RELEASE['os']}. Нужны права администратора один раз — при установке службы.</p>"),
     ("Работает на компьютерах в клубе, которые откатываются после перезагрузки?", "<p>Да, для этого есть режим клуба: программа устанавливается на каждый ПК, запускается сама при входе и не требует настроек после отката. <a href=\"clubs.html\">Как это устроено</a>.</p>"),
 ]
@@ -253,6 +312,7 @@ index_body = f"""
         <p class="split__note">VELIQ замеряет задержку и выбирает путь, на котором она меньше.</p>
       </div>
     </div>
+    <a class="more" href="vpn.html">Чем это отличается от VPN {icon('chevron-right','i i--sm')}</a>
   </div>
 </section>
 
@@ -265,6 +325,12 @@ index_body = f"""
       <div class="fact"><h3>Ничего не настраивать</h3><p>Одна кнопка. Если что-то пошло не так, программа скажет, что именно, и предложит решение.</p></div>
       <div class="fact fact--r"><h3>Готово для клубов</h3><p>Работает на ПК, которые откатываются после перезагрузки: запускается сам, настройки не теряются.</p></div>
     </div>
+  </div>
+</section>
+
+<section class="sec" id="privacy">
+  <div class="wrap">
+    {privacy_block()}
   </div>
 </section>
 
@@ -334,6 +400,75 @@ page("index.html", "VELIQ — нажал, и работает",
      "VELIQ сам строит оптимальный маршрут: заблокированные сервисы снова работают, игры получают самый быстрый путь. Для Windows 10 и 11.",
      "", index_body, [LD_APP, LD_FAQ])
 
+# ---------------------------------------------------------------- отличие от VPN
+VPN_ROWS = [
+    ("Какой трафик идёт через сервер", "Весь", "Только тот, которому это нужно"),
+    ("Сайты и приложения, которые и так работают", "Тоже идут через сервер и могут замедлиться", "Работают как обычно"),
+    ("Онлайн-игры", "Путь через выбранный сервер, даже если он дольше", "Самый быстрый путь до игрового сервера"),
+    ("Выбор сервера", "Обычно вручную", "Сам, для каждого соединения"),
+    ("Если сервер перестал отвечать", "Пропадает всё или нужно переключаться", "Перестраивает маршрут через другой"),
+    ("Что нужно сделать", "Выбрать сервер, иногда перезапустить приложения", "Нажать одну кнопку"),
+]
+vpn_table = "\n".join(f'<tr><th scope="row">{a}</th><td data-l="Обычный VPN">{b}</td><td data-l="VELIQ" class="vs__us">{c}</td></tr>' for a, b, c in VPN_ROWS)
+vpn_body = f"""
+<section class="page-head">
+  <div class="wrap">
+    <div class="crumbs"><a href="index.html">Главная</a> / Отличие от VPN</div>
+    <h1 class="h1" style="max-width:16ch">Чем VELIQ отличается от VPN</h1>
+    <p class="lede">VPN отправляет весь трафик через один сервер. VELIQ выбирает путь для каждого соединения отдельно — поэтому открывается заблокированное, а остальное не замедляется.</p>
+  </div>
+</section>
+
+<section class="sec">
+  <div class="wrap">
+    <div class="flows">
+      <figure class="flows__panel">
+        <figcaption><h2 class="h3">Обычный VPN</h2><span class="faint">один путь для всего</span></figcaption>
+        {flow('vpn')}
+      </figure>
+      <figure class="flows__panel flows__panel--main">
+        <figcaption><h2 class="h3">VELIQ</h2><span class="faint">свой путь для каждого соединения</span></figcaption>
+        {flow('veliq')}
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="sec band--sunken">
+  <div class="wrap">
+    <div class="sec__head"><h2 class="h2">По пунктам</h2><p>Как это ощущается в обычный день: в браузере, в игре, когда сервер перестал отвечать.</p></div>
+    <div class="vs-wrap">
+      <table class="vs">
+        <thead><tr><th scope="col"><span class="sr-only">Что сравниваем</span></th><th scope="col">Обычный VPN</th><th scope="col" class="vs__us">VELIQ</th></tr></thead>
+        <tbody>
+{vpn_table}
+        </tbody>
+      </table>
+    </div>
+    <p class="faint" style="font-size:var(--fs-sm);margin:var(--sp-4) 0 0">Сравнение с типичным VPN-приложением. Некоторые VPN умеют исключать отдельные приложения, но это настраивается вручную.</p>
+  </div>
+</section>
+
+<section class="sec">
+  <div class="wrap">
+    {privacy_block()}
+  </div>
+</section>
+
+<section class="sec band--ink">
+  <div class="wrap club-band">
+    <div>
+      <h2 class="h2">Нажал — работает.</h2>
+      <p class="lede" style="margin-top:20px">Никаких серверов на выбор и настроек. VELIQ строит маршруты сам.</p>
+      <div class="hero__actions" style="margin-top:32px"><a class="btn btn--lg" href="download.html">{icon('download')}Скачать</a><a class="btn btn--lg btn--ghost" href="support.html">Вопросы и ответы</a></div>
+    </div>
+  </div>
+</section>
+"""
+page("vpn.html", "Чем VELIQ отличается от VPN",
+     "VPN отправляет весь трафик через один сервер. VELIQ выбирает путь для каждого соединения: заблокированное открывается, игры получают самый быстрый маршрут, остальное работает как обычно.",
+     "how", vpn_body)
+
 # ---------------------------------------------------------------- скачать
 download_body = f"""
 <section class="page-head">
@@ -341,9 +476,28 @@ download_body = f"""
     <div class="crumbs"><a href="index.html">Главная</a> / Скачать</div>
     <h1 class="h1">Скачать VELIQ</h1>
     <p class="lede">Установка занимает около минуты. После неё остаётся нажать одну кнопку.</p>
+    <div class="platforms" role="group" aria-label="Устройство">
+      <button type="button" class="platforms__btn" data-platform-btn="win" aria-pressed="true">Компьютер</button>
+      <button type="button" class="platforms__btn" data-platform-btn="phone" aria-pressed="false">Телефон<span class="platforms__soon">скоро</span></button>
+    </div>
   </div>
 </section>
-<section class="sec sec--tight">
+<section class="sec sec--tight" data-platform="phone" hidden>
+  <div class="wrap">
+    <div class="soon">
+      <img class="get__icon" src="assets/img/app-icon.svg" alt="" width="88" height="88">
+      <div>
+        <h2 class="h3" style="font-size:var(--fs-3xl)">VELIQ для телефона готовится</h2>
+        <p class="muted" style="margin:10px 0 0;max-width:52ch">Тот же принцип: одна кнопка и свой путь для каждого соединения. Оставьте почту — напишем, когда приложение выйдет. А пока VELIQ можно поставить на компьютер.</p>
+      </div>
+      <div class="soon__actions">
+        <a class="btn btn--lg" href="mailto:{SITE['email']}?subject=Сообщить%20о%20выходе%20VELIQ%20для%20телефона">Сообщить о выходе</a>
+        <button type="button" class="btn btn--lg btn--ghost" data-platform-btn="win" aria-pressed="false">Версия для компьютера</button>
+      </div>
+    </div>
+  </div>
+</section>
+<section class="sec sec--tight" data-platform="win">
   <div class="wrap cols">
     <div>
       <div class="get" style="margin-bottom:var(--sp-7)">
@@ -386,7 +540,7 @@ download_body = f"""
   </div>
 </section>
 """
-page("download.html", "Скачать VELIQ для Windows",
+page("download.html", "Скачать VELIQ",
      f"Скачайте VELIQ {RELEASE['version']} для Windows 10 и 11. Установка за минуту, затем одна кнопка «Оптимизировать».",
      "", download_body, LD_APP)
 
@@ -401,10 +555,10 @@ CLUB_FAQ = [
 club_calc = """
 <div class="calc" data-calc>
   <div class="calc__in">
-    <div class="calc__row"><label for="c-pcs">Компьютеров в клубе</label><input class="input" id="c-pcs" data-k="pcs" inputmode="numeric" value="30"><input type="range" data-k="pcs" min="5" max="200" step="1" value="30" aria-label="Компьютеров в клубе"></div>
+    <div class="calc__row"><label for="c-pcs">Компьютеров в клубе</label><input class="input" id="c-pcs" data-k="pcs" inputmode="numeric" value="20"><input type="range" data-k="pcs" min="5" max="200" step="1" value="20" aria-label="Компьютеров в клубе"></div>
     <div class="calc__row"><label for="c-hours">Часов работы в сутки</label><input class="input" id="c-hours" data-k="hours" inputmode="numeric" value="24"><input type="range" data-k="hours" min="6" max="24" step="1" value="24" aria-label="Часов работы в сутки"></div>
-    <div class="calc__row"><label for="c-load">Средняя загрузка, %</label><input class="input" id="c-load" data-k="load" inputmode="numeric" value="45"><input type="range" data-k="load" min="5" max="100" step="1" value="45" aria-label="Средняя загрузка"></div>
-    <div class="calc__row"><label for="c-price">Цена часа, ₽</label><input class="input" id="c-price" data-k="price" inputmode="numeric" value="120"><input type="range" data-k="price" min="40" max="500" step="10" value="120" aria-label="Цена часа"></div>
+    <div class="calc__row"><label for="c-load">Средняя загрузка, %</label><input class="input" id="c-load" data-k="load" inputmode="numeric" value="50"><input type="range" data-k="load" min="5" max="100" step="1" value="50" aria-label="Средняя загрузка"></div>
+    <div class="calc__row"><label for="c-price">Цена часа, ₽</label><input class="input" id="c-price" data-k="price" inputmode="numeric" value="150"><input type="range" data-k="price" min="40" max="500" step="10" value="150" aria-label="Цена часа"></div>
     <div class="calc__row"><label for="c-lost">Часов теряете из-за блокировок, %</label><input class="input" id="c-lost" data-k="lost" inputmode="decimal" value="3"><input type="range" data-k="lost" min="0" max="20" step="0.5" value="3" aria-label="Потерянные часы"><small>Гости, которые ушли или не пришли из-за недоступных сервисов или высокого пинга.</small></div>
     <div class="calc__row"><label for="c-cost">VELIQ за ПК в месяц, ₽</label><input class="input" id="c-cost" data-k="cost" inputmode="numeric" value="0"><input type="range" data-k="cost" min="0" max="1000" step="10" value="0" aria-label="Стоимость VELIQ"><small>Цена тарифа ещё не объявлена — подставьте свою оценку.</small></div>
   </div>
@@ -426,17 +580,53 @@ clubs_body = f"""
     <div class="crumbs"><a href="index.html">Главная</a> / Клубам</div>
     <h1 class="h1" style="max-width:15ch">VELIQ для компьютерных клубов</h1>
     <p class="lede">Гости приходят играть, а заодно смотреть стримы, сидеть в голосовых чатах и пользоваться нейросетями. Когда это не работает или игра лагает, они уходят туда, где всё в порядке.</p>
-    <div class="hero__actions" style="margin-top:32px"><a class="btn btn--lg" href="mailto:{SITE['email']}?subject=VELIQ%20для%20клуба">Оставить заявку</a><a class="btn btn--lg btn--ghost" href="#calc">Посчитать выгоду</a></div>
+    <div class="hero__actions" style="margin-top:32px"><a class="btn btn--lg" href="#apply">Оставить заявку</a><a class="btn btn--lg btn--ghost" href="#calc">Посчитать выгоду</a></div>
   </div>
 </section>
 
 <section class="sec">
   <div class="wrap">
+    <div class="sec__head"><h2 class="h2">Что теряет клуб</h2><p>Каждая такая ситуация — гость, который сегодня ушёл раньше, а завтра выбрал другой клуб.</p></div>
+    <ol class="pains">
+      <li><span class="pains__n">01</span><h3 class="h3">Сервисы не открываются</h3><p>YouTube, Discord, Telegram, нейросети — гостю нечем заняться между матчами и не с кем говорить в голосовом чате.</p></li>
+      <li><span class="pains__n">02</span><h3 class="h3">Игры лагают</h3><p>Высокий пинг или закрытые игровые серверы — команда доигрывает и уходит туда, где играется лучше.</p></li>
+      <li><span class="pains__n">03</span><h3 class="h3">Администратор занят не тем</h3><p>Смена уходит на «почему не работает», а не на гостей.</p></li>
+    </ol>
+  </div>
+</section>
+
+<section class="sec band--sunken">
+  <div class="wrap">
+    <div class="sec__head"><h2 class="h2">Что меняется с VELIQ</h2><p>Одна программа на каждом ПК — и маршруты строятся сами.</p></div>
     <div class="facts">
       <div class="fact"><h3>Запускается сам</h3><p>Кнопка «Оптимизировать» нажата заранее. Гость садится — маршруты уже построены.</p></div>
       <div class="fact fact--r"><h3>Переживает откат</h3><p>Ставится на каждый ПК и остаётся после перезагрузки. Гость не может ему навредить.</p></div>
       <div class="fact"><h3>Лучший путь для игр</h3><p>VELIQ выбирает самый быстрый маршрут до игрового сервера и открывает доступ к закрытым.</p></div>
-      <div class="fact fact--r"><h3>Гость ничего не сломает</h3><p>Упрощённый интерфейс: состояние и одна кнопка. Настройки закрыты паролем администратора.</p></div>
+      <div class="fact fact--r"><h3>Заблокированное снова работает</h3><p>Стримы, голосовые чаты и нейросети открываются у гостя сразу, без настроек.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="sec">
+  <div class="wrap">
+    <div class="sec__head"><h2 class="h2">Кто что делает</h2><p>Вся настройка — один раз и у администратора. Гость просто садится играть.</p></div>
+    <div class="roles">
+      <div class="roles__col">
+        <div class="roles__who">{icon('settings')}<h3 class="h3">Администратор</h3></div>
+        <ul class="roles__list">
+          <li>Устанавливает VELIQ на каждый ПК и вводит код активации клуба</li>
+          <li>Задаёт пароль администратора — без него настройки не открыть</li>
+          <li>Если что-то не так — открывает диагностику на этом ПК</li>
+        </ul>
+      </div>
+      <div class="roles__col roles__col--guest">
+        <div class="roles__who">{icon('games')}<h3 class="h3">Гость</h3></div>
+        <ul class="roles__list">
+          <li>Садится за ПК — VELIQ уже работает</li>
+          <li>Видит только состояние и значок в трее</li>
+          <li>Не может изменить настройки или что-то сломать</li>
+        </ul>
+      </div>
     </div>
   </div>
 </section>
@@ -466,7 +656,18 @@ clubs_body = f"""
   </div>
 </section>
 
-<section class="sec sec--tight" style="padding-top:0">
+<section class="sec band--ink" id="apply">
+  <div class="wrap club-band">
+    <div>
+      <h2 class="h2">Поставим на один ПК — решите по факту</h2>
+      <p class="lede" style="margin-top:20px">Напишите, сколько у вас компьютеров и какая система управления. Пришлём код активации и поможем с первой установкой.</p>
+      <div class="hero__actions" style="margin-top:32px"><a class="btn btn--lg" href="mailto:{SITE['email']}?subject=VELIQ%20для%20клуба">Оставить заявку</a><a class="btn btn--lg btn--ghost" href="pricing.html">Тарифы</a></div>
+    </div>
+    <div class="club-band__pcs" aria-hidden="true">{''.join('<i></i>' for _ in range(27))}</div>
+  </div>
+</section>
+
+<section class="sec">
   <div class="wrap">
     <div class="sec__head"><h2 class="h2">Вопросы владельцев клубов</h2><p>Презентацию для партнёров и инструкцию для администратора пришлём по запросу.</p></div>
     <div class="faq">{faq(CLUB_FAQ)}</div>
@@ -620,7 +821,7 @@ nf_body = f"""
 page("404.html", "Страница не найдена", "Страница не найдена.", "", nf_body)
 
 # ---------------------------------------------------------------- служебные файлы
-pages = ["", "download.html", "clubs.html", "pricing.html", "support.html", "privacy.html", "terms.html"]
+pages = ["", "vpn.html", "download.html", "clubs.html", "pricing.html", "support.html", "privacy.html", "terms.html"]
 (OUT / "sitemap.xml").write_text(
     '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
     + "".join(f"  <url><loc>{SITE['url']}/{p}</loc></url>\n" for p in pages) + "</urlset>\n", encoding="utf-8")

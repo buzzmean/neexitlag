@@ -38,6 +38,41 @@
     window.addEventListener('scroll', onScroll, { passive: true }); onScroll();
   }
 
+  /* Сигнальная линия: прогресс чтения под шапкой */
+  if (top) {
+    var ticking = false;
+    var readProgress = function () {
+      ticking = false;
+      var h = document.documentElement.scrollHeight - window.innerHeight;
+      top.style.setProperty('--read', h > 0 ? Math.min(1, Math.max(0, window.scrollY / h)).toFixed(4) : '0');
+    };
+    window.addEventListener('scroll', function () { if (!ticking) { ticking = true; requestAnimationFrame(readProgress); } }, { passive: true });
+    window.addEventListener('resize', readProgress); readProgress();
+  }
+
+  /* Линии маршрутов прочерчиваются, когда блок появляется на экране */
+  var traced = document.querySelectorAll('.sec__head, [data-trace]');
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) { if (en.isIntersecting) { en.target.classList.add('is-in'); io.unobserve(en.target); } });
+    }, { rootMargin: '0px 0px -12% 0px', threshold: 0.2 });
+    traced.forEach(function (el) { io.observe(el); });
+  } else {
+    traced.forEach(function (el) { el.classList.add('is-in'); });
+  }
+
+  /* Скачать: компьютер или телефон */
+  var platformBtns = document.querySelectorAll('[data-platform-btn]');
+  if (platformBtns.length) {
+    var showPlatform = function (pl) {
+      document.querySelectorAll('[data-platform]').forEach(function (sec) { sec.hidden = sec.getAttribute('data-platform') !== pl; });
+      document.querySelectorAll('.platforms [data-platform-btn]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-platform-btn') === pl)); });
+    };
+    platformBtns.forEach(function (b) { b.addEventListener('click', function () { showPlatform(b.getAttribute('data-platform-btn')); }); });
+    var isPhone = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || location.hash === '#phone';
+    if (isPhone) showPlatform('phone');
+  }
+
   /* Демо большой кнопки на главной */
   var demo = document.querySelector('[data-demo]');
   if (demo) {
