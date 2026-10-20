@@ -18,9 +18,12 @@ $oldPath=$env:PATH
 try{
  $program=@'
 using System;
+using System.IO;
+using System.Text;
 public class ActivationSSHFixture {
  public static void Main(string[] args) {
-  var input=Console.In.ReadToEnd();
+  string input;
+  using(var reader=new StreamReader(Console.OpenStandardInput(),new UTF8Encoding(false),true)) { input=reader.ReadToEnd(); }
   if(input=="fail") {
    Console.Error.WriteLine("ACTIVATION_DEPLOYMENT_FAILED stage=CANDIDATE_READ_ONLY_PREFLIGHT exit_code=13 vps_modified=NO");
    Environment.Exit(23);

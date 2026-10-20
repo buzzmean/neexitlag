@@ -1449,3 +1449,10 @@ UTF-8 BOM в stdin .NET Framework: literal payload fail не был распоз
 любой неизвестный input (не принимает его как success). Это отдельный небольшой
 follow-up без rewrite; на VPS ничего не выполнялось. Локально PS parse/quoting PASS;
 actual native Windows rerun — после push, фактический результат отдельно в Actions.
+
+Уточнение stdin: StandardInputEncoding отсутствует в .NET Framework reference source.
+В 053e858 применение было без проверки; следующий маленький compatibility fix
+проверяет PSObject property и не использует его в PS5.1. Сервер json.loads(bytes)
+принимает optional BOM (существующий успешный путь owner SSH); native fixture теперь
+читает raw stdin StreamReader с BOM detection, как сервер, и проверяет оба exit path.
+На Core свойство позволяет задать UTF-8 явно. История не переписывается.

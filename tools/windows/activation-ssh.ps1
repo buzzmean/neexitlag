@@ -8,8 +8,9 @@ function Invoke-ActivationSSH {
  if($SSHUser -ne 'root'){$remote='sudo -n '+$remote}
  $arguments=@('-T','-F','none','-p',"$SSHPort",'-o','StrictHostKeyChecking=ask','-o',"UserKnownHostsFile=$KnownHosts",'-o','GlobalKnownHostsFile=NUL','-o','ConnectTimeout=15','-o','ServerAliveInterval=15','-o','ServerAliveCountMax=3',"${SSHUser}@${VpsIP}",$remote)
  $info=[Diagnostics.ProcessStartInfo]::new('ssh.exe',(($arguments|ForEach-Object {Quote-ActivationSSH $_}) -join ' '))
- # Windows PowerShell 5.1/.NET Framework otherwise emits a UTF-8 BOM.
- $info.StandardInputEncoding=[Text.UTF8Encoding]::new($false)
+ # .NET Framework lacks StandardInputEncoding. The JSON/base64 payload is
+ # ASCII; Python json.loads(bytes) accepts its optional BOM. Core can pin UTF-8.
+ if($null -ne $info.PSObject.Properties['StandardInputEncoding']){$info.StandardInputEncoding=[Text.UTF8Encoding]::new($false)}
  $info.UseShellExecute=$false;$info.RedirectStandardInput=$true;$info.RedirectStandardOutput=$true;$info.CreateNoWindow=$false
  # Leave stderr attached to the console: OpenSSH password prompts need it.
  # Remote Python emits only allowlisted diagnostics, never raw command stderr.
