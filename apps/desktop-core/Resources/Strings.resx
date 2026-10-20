@@ -578,14 +578,14 @@
   <data name="BrowsersNotCovered" xml:space="preserve"><value>Автоматически маршрутизируется только Chrome. Эти установленные браузеры не охвачены и работают напрямую:</value></data>
   <data name="ChromeAutoSetupFailed" xml:space="preserve"><value>Не удалось автоматически настроить Chrome, остальная оптимизация включается:</value></data>
   <data name="SelectChromeAuto" xml:space="preserve"><value>Выберите Chrome по полному пути и включите AUTO.</value></data>
-  <data name="ChromeSitesRestart" xml:space="preserve"><value>Для активации маршрутов по сайтам Chrome будет перезапущен. Сохраните незаписанную работу. Профиль сохраняется; Chrome попробует восстановить вкладки. Продолжить?</value></data>
-  <data name="ChromeSitesStillRunning" xml:space="preserve"><value>Chrome не завершился. Перезапуск отменён; процессы не будут принудительно остановлены.</value></data>
-  <data name="ChromeSitesLaunched" xml:space="preserve"><value>Chrome запущен с маршрутизацией по сайтам. Профиль сохранён; proxy Windows не изменён.</value></data>
+  <data name="ChromeSitesRestart" xml:space="preserve"><value>Политика VELIQ применяется без закрытия браузера. До подтверждения запросом: ожидается подхват policy; при отсутствии подхвата маршрут применится при следующем запуске браузера.</value></data>
+  <data name="ChromeSitesStillRunning" xml:space="preserve"><value>Политика VELIQ применяется без закрытия браузера. До подтверждения запросом: ожидается подхват policy; при отсутствии подхвата маршрут применится при следующем запуске браузера.</value></data>
+  <data name="ChromeSitesLaunched" xml:space="preserve"><value>Политика VELIQ применяется без закрытия браузера. До подтверждения запросом: ожидается подхват policy; при отсутствии подхвата маршрут применится при следующем запуске браузера.</value></data>
   <data name="DomainLabel" xml:space="preserve"><value>Домен</value></data>
   <data name="ReasonLabel" xml:space="preserve"><value>Причина</value></data>
   <data name="ChromeProxyManaged" xml:space="preserve"><value>В Chrome уже настроен другой или управляемый proxy. VELIQ не будет его перезаписывать.</value></data>
   <data name="DisableChromeSites" xml:space="preserve"><value>Отключить PAC Chrome</value></data>
-  <data name="ChromeSitesRemoved" xml:space="preserve"><value>Включён безопасный PAC: обычные сайты DIRECT, OpenAI остаётся защищён. Маршрут действующих соединений не изменён; перезапустите Chrome для полного применения.</value></data>
+  <data name="ChromeSitesRemoved" xml:space="preserve"><value>Политика VELIQ применяется без закрытия браузера. До подтверждения запросом: ожидается подхват policy; при отсутствии подхвата маршрут применится при следующем запуске браузера.</value></data>
   <data name="ChromeRoutesByDomain" xml:space="preserve"><value>Маршруты по сайтам</value></data>
   <data name="ChromeActivationFailed" xml:space="preserve"><value>Chrome AUTO не активирован: проверка транспорта, policy или профиля не завершилась. Обычные сайты восстановлены; защита OpenAI сохранена. Проверьте browser.status и журнал службы.</value></data>
   <data name="ChromeRollbackFailed" xml:space="preserve"><value>Chrome AUTO не активирован. Защитный PAC сохранён, но восстановление профиля не подтверждено. Проверьте доступность службы.</value></data>

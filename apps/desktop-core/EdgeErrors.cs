@@ -23,7 +23,7 @@ public static class EdgeErrors {
   ["EDGE_TIMEOUT"]="Истёк срок ожидания активации Edge.",
   ["EDGE_RECOVERY_FAILED"]="Не удалось запустить или настроить owner-scoped recovery-процесс Edge.",
   ["EDGE_BROWSER_POLICY_NOT_OBSERVED"]="Проверочный Edge не подтвердил реальную Microsoft Edge PAC-политику.",
-  ["EDGE_LAUNCH_FAILED"]="Не удалось штатно открыть/закрыть Edge.",
+  ["EDGE_LAUNCH_FAILED"]="Не удалось завершить подготовку Edge.",
   ["EDGE_SERVICE_UNAVAILABLE"]="Edge IPC недоступен; проверьте службу и владельца установки.",
   ["EDGE_OPERATION_FAILED"]="Активация отклонена; подробная фаза сохранена без секретов."
  };

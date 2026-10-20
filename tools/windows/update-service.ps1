@@ -70,6 +70,7 @@ try{
  Set-Service -Name neexitlag -DisplayName 'VELIQ Routing Service'
  if($NativeTcpFirewall){Write-Host 'Native TCP firewall admission verified: this service executable only; no global firewall or VPS changes.'}
  Write-Host "VELIQ Windows service updated. Backup: $backup"
+ foreach($lane in @('browser','edge')){try{$view=Invoke-ServiceIPC ($lane+'.status') $null (Join-Path $root 'ipc.token');$silent=$view.PSObject.Properties['silent_activation'];if($null -ne $silent){$state=[string]$silent.Value.state;if($state -notin @('NOT_CONFIGURED','POLICY_PENDING_BROWSER_REFRESH','PAC_REQUEST_OBSERVED','POLICY_OR_LISTENER_UNAVAILABLE')){$state='UNKNOWN'};Write-Host ($lane+' silent PAC: '+$state+'; browser processes untouched; effective uptake separate from update success')}}catch{Write-Host ($lane+' silent PAC: STATUS_UNAVAILABLE; no website PASS claimed')}}
  Write-Host 'Only service executable ACL changed: owner RX, SYSTEM/admins F. Identity, credentials, driver and state ACLs preserved.'
 }catch{
  $failure=$_.Exception.Message

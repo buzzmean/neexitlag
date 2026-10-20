@@ -5,7 +5,7 @@ public sealed class ChromeActivationException(string message, string phase = "ch
 }
 public sealed class BrowserRecoverySettings {public string GuardFile {get;set;}="";public string Primary {get;set;}="";public string Executable {get;set;}="";public string ProfileId {get;set;}="";public string[] ProtectedDomains {get;set;}=[];public bool Strict {get;set;}}
 public sealed class BrowserLaunch {public string RecoveryProgram {get;set;}="";public BrowserRecoverySettings RecoverySettings {get;set;}=new();public IEnumerable<string> UserArguments()=>Arguments.Where(p=>!p.StartsWith("--proxy-",StringComparison.Ordinal)&&p!="--no-proxy-server");public string[] RecoveryArguments {get;set;}=[]; public string HealthUrl {get;set;}=""; public string[] Arguments {get;set;}=[]; public string Address {get;set;}=""; public string Scope {get;set;}=""; }
-public sealed class BrowserTransportSnapshot {public bool PolicyReady {get;set;} public string ReadinessState {get;set;}="";public string LastError {get;set;}="";public string RecoveryAddress {get;set;}="";public string[] ReadyProfiles {get;set;}=[];public Dictionary<string,ulong> Failures {get;set;}=[];public bool Listening {get;set;}public bool Truncated {get;set;}public ulong Lost {get;set;}BrowserConnection[] records=[];public BrowserConnection[] Records {get=>records;set=>records=value??[];}}
+public sealed class BrowserTransportSnapshot {public BrowserSilentActivation SilentActivation {get;set;}=new(); public bool PolicyReady {get;set;} public string ReadinessState {get;set;}="";public string LastError {get;set;}="";public string RecoveryAddress {get;set;}="";public string[] ReadyProfiles {get;set;}=[];public Dictionary<string,ulong> Failures {get;set;}=[];public bool Listening {get;set;}public bool Truncated {get;set;}public ulong Lost {get;set;}BrowserConnection[] records=[];public BrowserConnection[] Records {get=>records;set=>records=value??[];}}
 public sealed class BrowserOwner {public uint Pid {get;set;} public ulong CreationTime {get;set;} public string Exe {get;set;}="";public string ProfileId {get;set;}="";}
 public sealed class BrowserPlan {public FlowPolicyEvidence Policy {get;set;}=new();public string Probe {get;set;}="";public int HttpStatus {get;set;}}
 public sealed class BrowserConnection {public string EvidenceSource {get;set;}="";public DateTimeOffset Started {get;set;}
@@ -19,7 +19,8 @@ public sealed class BrowserConnection {public string EvidenceSource {get;set;}="
 public sealed partial class DesktopViewModel {
  public ObservableCollection<BrowserConnection> BrowserDomains {get;}=[];
  BrowserTransportSnapshot primaryBrowser=new();
- public void ApplyBrowser(BrowserTransportSnapshot status){primaryBrowser=status;ApplyBrowserRecords(status);}
+ public string ChromePolicyState {get;private set;}="Chrome: policy ещё не настроена";
+ public void ApplyBrowser(BrowserTransportSnapshot status){primaryBrowser=status;ApplyBrowserRecords(status);ChromePolicyState="Chrome: "+status.SilentActivation.Notice;Changed(nameof(ChromePolicyState));}
  void ApplyBrowserRecords(BrowserTransportSnapshot status){
   // Only actual transport records are shown; no assumed success from TCP ACKs.
   Replace(BrowserDomains,status.Records.OrderByDescending(r=>r.Started).ThenByDescending(r=>r.Id).Take(32));

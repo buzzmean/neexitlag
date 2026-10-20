@@ -78,7 +78,7 @@ public sealed partial class DesktopViewModel
         Listening = pac.Listening || status.CaptureReady,
         Records = pac.Records.Concat(native.Where(r => profiles is null || profiles.Contains(r.Owner.ProfileId))).ToArray(),
         Truncated = pac.Truncated || status.Truncated, Lost = pac.Lost + status.Lost,
-        ReadyProfiles = pac.ReadyProfiles, RecoveryAddress = pac.RecoveryAddress
+        ReadyProfiles = pac.ReadyProfiles, RecoveryAddress = pac.RecoveryAddress, SilentActivation=pac.SilentActivation, PolicyReady=pac.PolicyReady, ReadinessState=pac.ReadinessState
     };
     public async Task ObserveNativeBrowsersAsync(CancellationToken ct = default)
     {

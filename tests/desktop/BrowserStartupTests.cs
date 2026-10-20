@@ -50,7 +50,7 @@ public sealed class BrowserStartupTests
         var chrome = Assert.Single(service.Inner.State.Profiles, BrowserCatalog.IsChrome);
         var edge = Assert.Single(service.Inner.State.Profiles, BrowserCatalog.IsEdge);
         Assert.Equal("DIRECT", chrome.Mode); Assert.True(vm.StartupChromeNeedsActivation(chrome));
-        Assert.Equal("AUTO", edge.Mode); Assert.Equal("edge-sites-pending", edge.PolicyData!["app_preset"].GetString());
+        Assert.Equal("DIRECT", edge.Mode); Assert.Equal("edge-sites-pending", edge.PolicyData!["app_preset"].GetString());
         foreach (var profile in service.Inner.State.Profiles) Assert.Contains(Assert.Single(profile.Executables), installed.Select(b => Path.GetFullPath(b.ExePath)));
         Assert.Equal(2, service.Inner.Calls.Count(c => c.Method == "profile.set"));
         Assert.All(vm.BrowserStartup!.Browsers, r => Assert.Equal("CREATED_PENDING_ACTIVATION", r.State));
@@ -89,14 +89,14 @@ public sealed class BrowserStartupTests
     });
 
     [Fact]
-    public Task StartupCannotIntroducePendingEdgeBlockIntoAlreadyEnabledCapture() => WithInstalled(async installed =>
+    public Task StartupStagesMissingEdgeDirectEvenDuringCaptureWithoutPolicyOrBlock() => WithInstalled(async installed =>
     {
         var service = new Service(); service.Inner.State.Optimizing = true;
         var vm = new DesktopViewModel(service); await vm.RefreshAsync(); await vm.EnsureStartupBrowserProfilesAsync(installed);
-        Assert.DoesNotContain(service.Inner.State.Profiles, BrowserCatalog.IsEdge);
-        Assert.Equal("ACTIVE_CAPTURE_PENDING_EDGE", vm.BrowserStartup!.Browsers.Single(b => b.Browser == "edge").Code);
-        service.Inner.State.Optimizing = false; await vm.EnsureStartupBrowserProfilesAsync(installed);
-        Assert.Equal("AUTO", Assert.Single(service.Inner.State.Profiles, BrowserCatalog.IsEdge).Mode);
+        var edge=Assert.Single(service.Inner.State.Profiles,BrowserCatalog.IsEdge);
+        Assert.Equal("DIRECT",edge.Mode);
+        Assert.Equal("edge-sites-pending",edge.PolicyData!["app_preset"].GetString());
+        Assert.Equal("CREATED_PENDING_ACTIVATION", vm.BrowserStartup!.Browsers.Single(b=>b.Browser=="edge").State);
     });
 
     [Fact]

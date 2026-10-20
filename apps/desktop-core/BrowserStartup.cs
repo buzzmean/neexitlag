@@ -17,7 +17,7 @@ public sealed partial class DesktopViewModel
         : "Профили браузеров: " + string.Join("; ", BrowserStartup.Browsers.Select(b => $"{b.Browser}: {b.State} {b.Mode} {b.Code}"))
           + ". Регистрация не подтверждает PAC или доступность сайтов.";
 
-    // Preserve the old Optimize -> PAC/dialog path for Chrome created on startup.
+    // Track Chrome created on startup for quiet PAC preparation on Optimize.
     // Existing DIRECT/custom profiles never enter this set.
     public bool StartupChromeNeedsActivation(Profile profile) => profile.Mode == "DIRECT" && startupChromeProfiles.Contains(profile.Id);
 
@@ -48,22 +48,13 @@ public sealed partial class DesktopViewModel
                         rows.Add(new(browser, "EXISTING", existing.Id, existing.Mode, existing.Executables.FirstOrDefault() ?? "", ""));
                         continue;
                     }
-                    // Pending Edge AUTO intentionally fails closed before PAC readiness.
-                    // Do not introduce that policy into an already active capture session
-                    // merely by opening the GUI. Retry when optimization is disabled.
-                    var status = await client.Call<Snapshot>("status", cancellationToken: ct);
-                    if (browser == "edge" && status.Optimizing)
-                    {
-                        rows.Add(new(browser, "DEFERRED", "", "", found.ExePath, "ACTIVE_CAPTURE_PENDING_EDGE"));
-                        continue;
-                    }
                     if (!Path.IsPathFullyQualified(found.ExePath) || !found.ExePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) || !File.Exists(found.ExePath))
                         throw new InvalidOperationException("Invalid installed browser path");
                     var path = Path.GetFullPath(found.ExePath);
                     var profile = new Profile
                     {
                         Id = "custom-" + Guid.NewGuid().ToString("N"), Name = found.Name,
-                        Executables = [path], Mode = browser == "edge" ? "AUTO" : "DIRECT", Custom = true
+                        Executables = [path], Mode = "DIRECT", Custom = true
                     };
                     if (browser == "edge")
                     {

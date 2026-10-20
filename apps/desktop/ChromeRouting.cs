@@ -9,13 +9,14 @@ public partial class MainWindow {
  static bool IsChrome(Profile profile)=>profile.Executables.Any(p=>p.Replace('\\','/').Split('/').Last().Equals("chrome.exe",StringComparison.OrdinalIgnoreCase));
  async void DisableChromeSites(object sender,RoutedEventArgs e)=>await Execute(async()=>{
   var profiles=model.Applications.Where(r=>r.Profile.Mode=="AUTO"&&IsChrome(r.Profile)).Select(r=>r.Profile.Copy()).ToArray();
-  if(profiles.Length==0)ChromePolicy.Recover();
-  else{ChromePolicy.Guard(profiles[0]);foreach(var profile in profiles){if(DesktopViewModel.NativeBrowser(profile))await model.DisableNativeBrowserAsync(profile,lifetime.Token);else await model.RestoreChromeAsync(profile,lifetime.Token);}}
+  var silent=await model.ChromeStatusAsync(lifetime.Token);
+  if(profiles.Length==0) {if(silent.SilentActivation.ConfiguredProfiles.Length==0)ChromePolicy.Recover();}
+  else{if(silent.SilentActivation.ConfiguredProfiles.Length>0)await model.GuardSilentChromeAsync(profiles[0],lifetime.Token);else ChromePolicy.Guard(profiles[0]);foreach(var profile in profiles){if(DesktopViewModel.NativeBrowser(profile))await model.DisableNativeBrowserAsync(profile,lifetime.Token);else await model.RestoreChromeAsync(profile,lifetime.Token);}}
   model.SetNotice(Text.Get("ChromeSitesRemoved"));
  });
  async void OpenChromeSites(object sender,RoutedEventArgs e){
   if(AppGrid.SelectedItem is not ApplicationRow row){ShowMessage("SelectApplication");return;}
-  await Execute(()=>ActivateChromeSites(row));
+  await Execute(async()=>{await ActivateChromeSites(row);await EnableOptimizationAsync();});
  }
  // Clean install: give Chrome a profile and run the normal PAC activation with no manual
  // steps. Failure here must not block the rest of the optimization (Telegram, Claude...).
@@ -38,8 +39,9 @@ public partial class MainWindow {
  }
  async Task EnableOptimizationAsync(){
   await model.EnsureStartupBrowserProfilesAsync(BrowserCatalog.Discover(File.Exists,Environment.GetEnvironmentVariable),lifetime.Token);
+  await EnsureSilentBrowserLanesAsync();
   await PrepareNativeBrowsersAsync(forOptimize:true);
-  // Legacy PAC buttons remain explicit and unchanged. No quit/dialog on this path.
+  // Quiet owned PAC is the crash guard; no browser process control.
   await model.OptimizeAsync(true,lifetime.Token);
  }
  async Task EnableOptimizationCoreAsync(){
@@ -49,45 +51,27 @@ public partial class MainWindow {
   }
   await model.OptimizeAsync(true,lifetime.Token);
  }
- async Task ProbeChromePolicyAsync(string exe,string healthUrl){
-  var directory=Path.Combine(Path.GetTempPath(),"neexitlag-chrome-readiness-"+Guid.NewGuid().ToString("N"));
-  Directory.CreateDirectory(directory);
-  var info=new ProcessStartInfo(exe){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};
-  foreach(var arg in new[]{"--headless=new","--dump-dom","--timeout=15000","--no-first-run","--user-data-dir="+directory,healthUrl})info.ArgumentList.Add(arg);
-  using var process=Process.Start(info)??throw new ChromeActivationException(Text.Get("ChromeActivationFailed"));
-  using var deadline=CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);deadline.CancelAfter(TimeSpan.FromSeconds(20));
-  var stdout=ReadAutoOutput(process.StandardOutput,deadline.Token);var stderr=ReadAutoOutput(process.StandardError,deadline.Token);
-  try{
-   await process.WaitForExitAsync(deadline.Token);
-   if(process.ExitCode!=0)throw new ChromeActivationException(Text.Get("ChromeActivationFailed"));
-   // Readiness is certified by browser.confirm's server-side nonce, not logs.
-   // A descendant retaining a redirected handle must not keep activation open
-   // after the actual helper Chrome exited with code 0.
-   deadline.Cancel();
-   try{await Task.WhenAll(stdout,stderr);}catch(OperationCanceledException)when(process.HasExited&&process.ExitCode==0){}
-  }finally{
-   deadline.Cancel(); // Also release diagnostic reads after non-zero exit/cancellation.
-   // Own disposable empty health profile ONLY, never the user's Chrome/profile.
-   if(!process.HasExited){process.Kill(entireProcessTree:true);await process.WaitForExitAsync(CancellationToken.None);}
-   try{Directory.Delete(directory,true);}catch(IOException){}catch(UnauthorizedAccessException){}
-  }
- }
  async Task<bool> ActivateChromeSites(ApplicationRow row){
   if(chromeActivating)throw new ChromeActivationException("Chrome activation already running", "chrome.activation", "CHROME_ACTIVATION_BUSY");chromeActivating=true;chromeActivationPhase="chrome.activation";
   try{return await ActivateChromeSitesCore(row);}
   catch(Exception error){
    var code=error is ChromeActivationException own && own.Code!="CHROME_ACTIVATION_FAILED"?own.Code:chromeActivationPhase switch {
-    "chrome.policy.check" or "chrome.policy.install"=>"CHROME_POLICY_FAILED",
+    "browser.silent.apply" or "chrome.policy.check" or "chrome.policy.install"=>"CHROME_POLICY_FAILED",
     "chrome.recovery"=>"CHROME_RECOVERY_START_FAILED", "browser.prepare"=>"CHROME_PREPARE_FAILED",
     "chrome.browser_probe" or "browser.confirm"=>"CHROME_READINESS_NOT_OBSERVED",
-    "chrome.quit"=>"CHROME_STILL_RUNNING", _=>"CHROME_ACTIVATION_FAILED"};
+    _=>"CHROME_ACTIVATION_FAILED"};
    throw new ChromeActivationException(chromeActivationPhase+": "+code+". "+Text.Get("ChromeActivationFailed"),chromeActivationPhase,code);
   }finally{chromeActivating=false;}
  }
  async Task MonitorChromeTransportAsync(bool wasOptimizing){
   await MonitorEdgeTransportAsync();
   if(model.Applications.Any(a=>IsChrome(a.Profile)&&DesktopViewModel.NativeBrowser(a.Profile)))return;
-  if(chromeActivating||chromeMonitoring||!ChromePolicy.Monitored)return;
+  if(chromeActivating||chromeMonitoring)return;
+  if(model.Available){var silent=await model.ChromeStatusAsync(lifetime.Token);if(silent.SilentActivation.ConfiguredProfiles.Length>0){
+    await chromeRecovery.StartAsync(lifetime.Token);
+    model.ApplyBrowser(silent);model.SetNotice(silent.SilentActivation.Notice);return;
+  }}
+  if(!ChromePolicy.Monitored)return;
   chromeMonitoring=true;
   try{
    try{await chromeRecovery.StartAsync(lifetime.Token);model.ApplyRecovery(await chromeRecovery.SnapshotAsync(lifetime.Token));}
@@ -111,66 +95,20 @@ public partial class MainWindow {
   }finally{chromeMonitoring=false;}
  }
  async Task<bool> ActivateChromeSitesCore(ApplicationRow row){
-  var exe=row.Profile.Executables.FirstOrDefault(p=>p.Replace('\\','/').Split('/').Last().Equals("chrome.exe",StringComparison.OrdinalIgnoreCase));
+  var original=row.Profile.Copy();
+  var exe=original.Executables.FirstOrDefault(p=>p.Replace('\\','/').Split('/').Last().Equals("chrome.exe",StringComparison.OrdinalIgnoreCase));
   if(exe is null||!Path.IsPathFullyQualified(exe)||!File.Exists(exe))throw new InvalidOperationException(Text.Get("SelectChromeAuto"));
-  chromeActivationPhase="chrome.policy.check";
-  ChromePolicy.Check(); // Refuse managed/foreign settings before asking Chrome to quit.
-  async Task<bool> Running(){
-   var identities=await model.ChromeProcessesAsync(exe,lifetime.Token);
-   foreach(var id in identities){try{using var process=Process.GetProcessById((int)id.PID);if(process.SessionId==Process.GetCurrentProcess().SessionId)return true;}catch(ArgumentException){}}
-   return false;
-  }
-  chromeActivationPhase="chrome.processes";
-  var wasRunning=await Running();
-  if(wasRunning&&System.Windows.MessageBox.Show(this,Text.Get("ChromeSitesRestart"),"VELIQ",MessageBoxButton.YesNo,MessageBoxImage.Information)!=MessageBoxResult.Yes)return false;
-  var original=row.Profile.Copy();var wasOptimizing=model.Optimizing;
+  chromeActivationPhase="chrome.recovery";
+  await chromeRecovery.StartAsync(lifetime.Token);
+  chromeActivationPhase="browser.prepare";
   var directory=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Google","Chrome","User Data");
-  BrowserLaunch? launch=null;bool installed=false;
-  try{
-   // Start both listeners before writing policy or requesting browser shutdown.
-   // A recovery/prepare failure leaves the previous profile and PAC untouched.
-   chromeActivationPhase="chrome.recovery";
-   await chromeRecovery.StartAsync(lifetime.Token);
-   chromeActivationPhase="browser.prepare";
-   launch=await model.PrepareChromeAsync(original,directory,lifetime.Token,chromeRecovery.Address);
-   launch.RecoverySettings.Executable=exe;
-   chromeActivationPhase="chrome.recovery";
-   await chromeRecovery.ConfigureAsync(launch.RecoverySettings,lifetime.Token);
-   chromeActivationPhase="chrome.policy.install";
-   ChromePolicy.Guard(original);installed=true;
-   if(wasRunning){
-    // Existing explicit restart path only; never kill a browser or delete its data.
-    chromeActivationPhase="chrome.quit";
-    var quit=new ProcessStartInfo(exe){UseShellExecute=false};quit.ArgumentList.Add("chrome://quit");using var started=Process.Start(quit);
-    var deadline=DateTime.UtcNow.AddSeconds(15);while(await Running()&&DateTime.UtcNow<deadline)await Task.Delay(200,lifetime.Token);
-    if(await Running())throw new ChromeActivationException(Text.Get("ChromeSitesStillRunning"),"chrome.quit","CHROME_STILL_RUNNING");
-   }
-   // Challenge belongs to the final guarded activation, not an older prepare.
-   chromeActivationPhase="browser.prepare";
-   launch=await model.PrepareChromeAsync(original,directory,lifetime.Token,chromeRecovery.Address);
-   launch.RecoverySettings.Executable=exe;
-   chromeActivationPhase="chrome.recovery";
-   await chromeRecovery.ConfigureAsync(launch.RecoverySettings,lifetime.Token);
-   chromeActivationPhase="chrome.policy.install";
-   ChromePolicy.Install(launch.Arguments,launch.RecoveryArguments);installed=true;
-   // Never restore real user tabs before AUTO is committed: those CONNECTs
-   // would race a still-DIRECT profile and get 502 despite a good readiness tab.
-   // An empty, isolated headless profile checks the ACTUAL HKCU policy first.
-   await model.ActivatePreparedChromeAsync(original,launch,
-    async ()=>{chromeActivationPhase="chrome.browser_probe";await ProbeChromePolicyAsync(exe,launch.HealthUrl);chromeActivationPhase="browser.confirm";},
-    ()=>{var info=new ProcessStartInfo(exe){UseShellExecute=false};foreach(var value in launch.UserArguments())info.ArgumentList.Add(value);info.ArgumentList.Add("--restore-last-session");using var process=Process.Start(info)??throw new ChromeActivationException(Text.Get("ChromeActivationFailed"));return Task.CompletedTask;},lifetime.Token,phase=>chromeActivationPhase=phase);
-   model.SetNotice(Text.Get("ChromeSitesLaunched"));
-   return true;
-  }catch(Exception error){
-   // Keep a mandatory protected-domain PAC guard. Removing PAC altogether can
-   // leak OpenAI while capture is unavailable; recovery only releases ordinary
-   // origins. Other applications and global Optimize are never disabled here.
-   if(!installed)throw;
-   ChromePolicy.Guard(original);
-   try{await model.RestoreChromeAsync(original,lifetime.Token);if(!wasOptimizing&&model.Optimizing)await model.RestoreOptimizationAsync(false,lifetime.Token);}catch(Exception){throw new ChromeActivationException(Text.Get("ChromeRollbackFailed"),"chrome.rollback","CHROME_ROLLBACK_FAILED");}
-   if(!await Running()){var recovery=new ProcessStartInfo(exe){UseShellExecute=false};recovery.ArgumentList.Add("--user-data-dir="+directory);recovery.ArgumentList.Add("--restore-last-session");using var reopened=Process.Start(recovery);}
-   var sourceCode=FreshBrowserDiagnostics.SafeCode(error.Message);
-   throw new ChromeActivationException(Text.Get("ChromeActivationFailed"),chromeActivationPhase,error is ChromeActivationException failure?failure.Code:sourceCode=="BROWSER_SETUP_FAILED"?"CHROME_ACTIVATION_FAILED":sourceCode);
-  }
+  var launch=await model.PrepareChromeAsync(original,directory,lifetime.Token,chromeRecovery.Address);
+  launch.RecoverySettings.Executable=exe;
+  await chromeRecovery.ConfigureAsync(launch.RecoverySettings,lifetime.Token);
+  chromeActivationPhase="browser.silent.apply";
+  await model.ApplySilentBrowserAsync(original,false,lifetime.Token);
+  BrowserNativePolicy.RequestRefresh();silentPolicyRefreshRequested=true;
+  model.SetNotice(BrowserSilentActivation.PendingNotice);
+  return true;
  }
 }

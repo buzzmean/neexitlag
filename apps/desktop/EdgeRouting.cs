@@ -37,65 +37,28 @@ public partial class MainWindow {
   foreach(var p in profiles)applied=DesktopViewModel.NativeBrowser(p)?await model.DisableNativeBrowserAsync(p,lifetime.Token):await model.RestoreEdgeAsync(p,lifetime.Token);
   edgeRecovery.Dispose();edgeNeedsActivation=true;model.ApplyEdgePolicyState(new());
   var ordinary=applied.TryGetProperty("ordinary_direct",out var allowed)&&allowed.ValueKind==JsonValueKind.True;
-  model.SetNotice("Рабочий PAC Edge заменён защитным: "+(ordinary?"обычные сайты DIRECT; защищённые домены закрыты до успешной активации.":"строгие/custom ограничения сохранены.")+" ProxySettings остаётся ради защиты всех запросов, включая подресурсы. Чужая политика и Chrome не изменены. Перезапустите Edge.");
+  model.SetNotice("Рабочий PAC Edge заменён защитным: "+(ordinary?"обычные сайты DIRECT; защищённые домены закрыты до успешной активации.":"строгие/custom ограничения сохранены.")+" ProxySettings остаётся ради защиты всех запросов, включая подресурсы. Чужая политика и Chrome не изменены. Новая политика применяется браузером без управления его процессами.");
  });
- async Task<bool> EdgeRunning(string exe){
-  foreach(var id in await model.ChromeProcessesAsync(exe,lifetime.Token)){
-   try{using var p=Process.GetProcessById((int)id.PID);if(p.SessionId==Process.GetCurrentProcess().SessionId)return true;}catch(ArgumentException){}
-  }return false;
- }
  async Task<bool> ActivateEdgeSites(Profile original){
-  if(edgeActivating)throw new InvalidOperationException("Активация Edge уже выполняется");edgeActivating=true;
-  try{var activated=await ActivateEdgeSitesCore(original);if(!activated&&EdgePending(original))await model.RestoreEdgeAsync(original,lifetime.Token);return activated;}finally{edgeActivating=false;}
- }
- async Task<bool> ActivateEdgeSitesCore(Profile original){
-  await model.RequireEdgeServiceAsync(lifetime.Token); // Read-only; before profile/PAC mutations.
-  var exe=original.Executables.FirstOrDefault(p=>p.Replace('\\','/').Split('/').Last().Equals("msedge.exe",StringComparison.OrdinalIgnoreCase));
-  if(exe is null||!Path.IsPathFullyQualified(exe)||!File.Exists(exe))throw new EdgeActivationException("edge.prepare","EDGE_CONFIGURATION_INVALID","Требуется полный путь установленного msedge.exe.");
-  if(original.Mode is not ("DIRECT" or "AUTO"))throw new EdgeActivationException("edge.prepare","EDGE_PROFILE_MODE_INVALID","Выберите DIRECT или AUTO; существующий профиль не изменён.");
-  var phase="edge.policy";
-  var directory=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Microsoft","Edge","User Data");
+  if(edgeActivating)return false;edgeActivating=true;
+  var phase="edge.prepare";
   try{
-  var running=await EdgeRunning(exe);
-  if(running&&System.Windows.MessageBox.Show(this,"Для включения маршрутов по сайтам нужно закрыть и снова открыть Edge. В браузере появится «Управляется вашей организацией»: VELIQ задаёт только PAC Edge. Продолжить?","VELIQ",MessageBoxButton.YesNo,MessageBoxImage.Information)!=MessageBoxResult.Yes)return false;
-  // No policy is written until both local listeners are started/configured.
-  phase="edge.recovery";await edgeRecovery.StartAsync(lifetime.Token);
-  phase="edge.prepare";var launch=await model.PrepareEdgeAsync(original,directory,edgeRecovery.Address,lifetime.Token);
-  launch.RecoverySettings.Executable=exe;
-  phase="edge.recovery";await edgeRecovery.ConfigureAsync(launch.RecoverySettings,lifetime.Token);
-  phase="edge.policy";
-  if(running){
-   await model.EdgePolicyAsync(original,"guard",lifetime.Token);
-   var quit=new ProcessStartInfo(exe){UseShellExecute=false};quit.ArgumentList.Add("edge://quit");using var launched=Process.Start(quit);
-   var deadline=DateTime.UtcNow.AddSeconds(15);
-   while(await EdgeRunning(exe)&&DateTime.UtcNow<deadline)await Task.Delay(200,lifetime.Token);
-   if(await EdgeRunning(exe))throw new InvalidOperationException("Edge не закрылся. Закройте Edge и фоновые окна Edge; VELIQ не завершает процесс принудительно.");
-  }
-  await model.EdgePolicyAsync(original,"guard",lifetime.Token);
-   // Guard invalidates all previous proofs, including prepare's nonce. Obtain a
-   // fresh challenge AFTER the final guard and browser shutdown, never before.
-   phase="edge.prepare";launch=await model.PrepareEdgeAsync(original,directory,edgeRecovery.Address,lifetime.Token);
+   await model.RequireEdgeServiceAsync(lifetime.Token);
+   var exe=original.Executables.FirstOrDefault(p=>p.Replace('\\','/').Split('/').Last().Equals("msedge.exe",StringComparison.OrdinalIgnoreCase));
+   if(exe is null||!Path.IsPathFullyQualified(exe)||!File.Exists(exe))throw new EdgeActivationException(phase,"EDGE_CONFIGURATION_INVALID","Требуется полный путь установленного Edge.");
+   phase="edge.recovery";await edgeRecovery.StartAsync(lifetime.Token);
+   phase="edge.prepare";
+   var directory=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Microsoft","Edge","User Data");
+   var launch=await model.PrepareEdgeAsync(original,directory,edgeRecovery.Address,lifetime.Token);
    launch.RecoverySettings.Executable=exe;
-   phase="edge.recovery";await edgeRecovery.ConfigureAsync(launch.RecoverySettings,lifetime.Token);
-   phase="edge.policy";await model.EdgePolicyAsync(original,"install",lifetime.Token);
-   // Empty health profile uses ACTUAL Edge policy, with no --proxy arguments.
-   phase="edge.browser_probe";await ProbeChromePolicyAsync(exe,launch.HealthUrl);
-   phase="edge.confirm";await model.ConfirmEdgeAsync(original,launch,lifetime.Token);
-   phase="profile.set";await model.CommitEdgeAsync(original,lifetime.Token);
-   phase="edge.launch";var start=new ProcessStartInfo(exe){UseShellExecute=false};foreach(var arg in launch.UserArguments())start.ArgumentList.Add(arg);start.ArgumentList.Add("--restore-last-session");
-   using var process=Process.Start(start)??throw new InvalidOperationException("Не удалось запустить Edge");
-   edgeNeedsActivation=false;
-   model.SetNotice("Edge AUTO готов: политика и CONNECT подтверждены Edge. Доступность сайтов проверяется отдельно.");
-   return true;
+   await edgeRecovery.ConfigureAsync(launch.RecoverySettings,lifetime.Token);
+   phase="edge.silent.apply";await model.ApplySilentBrowserAsync(original,true,lifetime.Token);
+   BrowserNativePolicy.RequestRefresh();silentPolicyRefreshRequested=true;
+   edgeNeedsActivation=false;model.SetNotice(BrowserSilentActivation.PendingNotice);return true;
   }catch(Exception error){
-   var failure=EdgeErrors.Wrap(phase,error);
-   try{await model.RestoreEdgeAsync(original,lifetime.Token);}catch(Exception rollback){await model.RecordEdgeFailureAsync(original,failure,lifetime.Token);throw EdgeErrors.Wrap("edge.policy",rollback);}
-   await model.RecordEdgeFailureAsync(original,failure,lifetime.Token);
-   edgeRecovery.Dispose();edgeNeedsActivation=true;
-   model.SetNotice("Активация Edge отменена: рабочий PAC заменён защитным. Обычные сайты DIRECT, защищённые закрыты; ProxySettings сохранён намеренно. Причина — в строке Edge.");
-   if(!await EdgeRunning(exe)){var start=new ProcessStartInfo(exe){UseShellExecute=false};start.ArgumentList.Add("--user-data-dir="+directory);start.ArgumentList.Add("--restore-last-session");using var reopened=Process.Start(start);}
-   throw failure;
-  }
+   // Failed prepare/apply never removes an existing owned guard or kills a browser.
+   var failure=EdgeErrors.Wrap(phase,error);model.ReportActionFailure(failure);throw failure;
+  }finally{edgeActivating=false;}
  }
  async Task MonitorEdgeTransportAsync(){
   if(model.Applications.Any(a=>BrowserCatalog.IsEdge(a.Profile)&&DesktopViewModel.NativeBrowser(a.Profile)))return;

@@ -3,6 +3,7 @@ using System.Text.Json;
 namespace Neexitlag.Desktop;
 
 public sealed class EdgeTransportStatus {
+ public BrowserSilentActivation SilentActivation {get;set;}=new();
  public int ActivationVersion {get;set;}
  public bool RollbackGuardActive {get;set;}
  public bool Listening {get;set;} public bool PolicyReady {get;set;} public bool Truncated {get;set;} public ulong Lost {get;set;}
@@ -62,7 +63,7 @@ public sealed partial class DesktopViewModel {
   return applied;
  }
  public void ApplyEdgePolicyState(EdgeTransportStatus status){
-  EdgeState=status.TransportMode=="NATIVE_ARMED_PAC_GUARD"?"Edge: "+status.ReadinessState+" · PAC listener="+status.Listening+" · owned guard="+status.OwnedGuardInstalled+" · PAC nonce="+status.PacNonceReadiness+(status.LastError!=""?" · "+status.LastError:""):status.LastError!=""?"Edge: "+status.LastError+" · "+status.ReadinessState+(status.RollbackGuardActive?" · защитный PAC: ordinary DIRECT, protected закрыты":""):status.Listening&&status.PolicyReady&&status.ReadyProfiles.Length>0?"Edge CONNECT/PAC готовы; доступность сайтов проверяется отдельно":"Edge PAC не подтверждён / guard: protected-домены без DIRECT";
+  EdgeState=status.SilentActivation.ConfiguredProfiles.Length>0?"Edge: "+status.SilentActivation.Notice:status.TransportMode=="NATIVE_ARMED_PAC_GUARD"?"Edge: "+status.ReadinessState+" · PAC listener="+status.Listening+" · owned guard="+status.OwnedGuardInstalled+" · PAC nonce="+status.PacNonceReadiness+(status.LastError!=""?" · "+status.LastError:""):status.LastError!=""?"Edge: "+status.LastError+" · "+status.ReadinessState+(status.RollbackGuardActive?" · защитный PAC: ordinary DIRECT, protected закрыты":""):status.Listening&&status.PolicyReady&&status.ReadyProfiles.Length>0?"Edge CONNECT/PAC готовы; доступность сайтов проверяется отдельно":"Edge PAC не подтверждён / guard: protected-домены без DIRECT";
   Changed(nameof(EdgeState));
  }
  public void ApplyEdge(BrowserTransportSnapshot status){

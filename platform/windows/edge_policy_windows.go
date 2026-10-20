@@ -15,16 +15,30 @@ const edgePolicyPath = `Software\Policies\Microsoft\Edge`
 // service IPC. It touches that owner's Edge policy, never HKCU of SYSTEM or Chrome.
 // Foreign machine/user policy is refused, including split ProxyMode values.
 func EdgeProxyPolicyWrite(sid string, owned []string, next string) error {
+	return browserProxyPolicyWrite(sid, owned, next, edgePolicyPath)
+}
+
+// Chrome uses the same owner-only, foreign-policy refusing service writer.
+func ChromeProxyPolicyWrite(sid string, owned []string, next string) error {
+	return browserProxyPolicyWrite(sid, owned, next, `Software\Policies\Google\Chrome`)
+}
+func browserProxyPolicyWrite(sid string, owned []string, next, policyPath string) error {
 	if _, err := windows.StringToSid(sid); err != nil {
 		return err
 	}
 	if !validEdgeProxyValue(next) {
 		return errors.New("invalid owned Edge PAC")
 	}
-	if err := edgeMachinePolicyAbsent(); err != nil {
+	if err := browserMachinePolicyAbsent(policyPath); err != nil {
 		return err
 	}
-	key, _, err := registry.CreateKey(registry.USERS, sid+`\`+edgePolicyPath, registry.QUERY_VALUE|registry.SET_VALUE)
+	// Never create a fake HKU\SID when SCM starts before owner logon.
+	owner, err := registry.OpenKey(registry.USERS, sid, registry.QUERY_VALUE)
+	if err != nil {
+		return errors.New("installation owner registry hive not loaded")
+	}
+	owner.Close()
+	key, _, err := registry.CreateKey(registry.USERS, sid+`\`+policyPath, registry.QUERY_VALUE|registry.SET_VALUE)
 	if err != nil {
 		return err
 	}
@@ -41,7 +55,7 @@ func EdgeProxyPolicyWrite(sid string, owned []string, next string) error {
 	if err == nil {
 		recognized := false
 		for _, value := range owned {
-			if value != "" && value == current {
+			if value != "" && sameOwnedProxyValue(value, current) {
 				recognized = true
 			}
 		}
@@ -51,8 +65,9 @@ func EdgeProxyPolicyWrite(sid string, owned []string, next string) error {
 	}
 	return key.SetStringValue("ProxySettings", next)
 }
-func edgeMachinePolicyAbsent() error {
-	key, err := registry.OpenKey(registry.LOCAL_MACHINE, edgePolicyPath, registry.QUERY_VALUE)
+func edgeMachinePolicyAbsent() error { return browserMachinePolicyAbsent(edgePolicyPath) }
+func browserMachinePolicyAbsent(policyPath string) error {
+	key, err := registry.OpenKey(registry.LOCAL_MACHINE, policyPath, registry.QUERY_VALUE)
 	if errors.Is(err, registry.ErrNotExist) {
 		return nil
 	}

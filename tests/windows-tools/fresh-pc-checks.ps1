@@ -195,7 +195,7 @@ function Write-Host {param($Object)$script:pacOutput.Add([string]$Object)}
 function Invoke-ServiceIPC {param($Method) return [pscustomobject]@{listening=$false;policy_ready=$false;ready_profiles=@();last_error='secret-must-not-escape'}}
 function Start-Process {
  param($FilePath,$ArgumentList,[switch]$PassThru)
- if($script:pacScenario -eq 'failed'){[IO.File]::WriteAllText($script:pacReport,'{"pass":false,"stage":"chrome.quit","code":"CHROME_STILL_RUNNING","browser":"chrome","secret":"do-not-print"}')}
+ if($script:pacScenario -eq 'failed'){[IO.File]::WriteAllText($script:pacReport,'{"pass":false,"stage":"browser.prepare","code":"CHROME_LISTENER_BIND_FAILED","browser":"chrome","secret":"do-not-print"}')}
  if($script:pacScenario -eq 'ready'){[IO.File]::WriteAllText($script:pacReport,'{"pass":true}')}
  $child=[pscustomobject]@{HasExited=($script:pacScenario -eq 'exit')}
  $child|Add-Member ScriptMethod Refresh {
@@ -206,7 +206,7 @@ function Start-Process {
 }
 try{
  Reject {Invoke-FreshPacReadiness 'fake.exe' $script:pacReport 0}
- Check (($script:pacOutput -join '\n').Contains('code=CHROME_STILL_RUNNING browser=chrome phase=chrome.quit')) 'Original GUI failure code missing'
+ Check (($script:pacOutput -join '\n').Contains('code=CHROME_LISTENER_BIND_FAILED browser=chrome phase=browser.prepare')) 'Original GUI failure code missing'
  Check (($script:pacOutput -join '\n').Contains('browser.status listening=False policy_ready=False readiness_state=UNKNOWN')) 'Missing optional fields broke status diagnostics'
  Check (($script:pacOutput -join '\n') -notmatch 'secret-must|do-not-print') 'Failure diagnostics exposed raw payload'
  $script:pacScenario='timeout';$script:pacOutput.Clear()

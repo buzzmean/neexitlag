@@ -62,7 +62,7 @@ dotnet test tests/desktop/NeExitLag.Client.Tests.csproj --nologo
 Фаззинг: см. `README.md` (`FuzzDecode`, `FuzzReadOpen`, `FuzzTicket`, `FuzzConfig`, `FuzzFrame`).
 
 ## Обновление установленной службы на ПК (только Windows, по просьбе владельца)
-1. Закрыть Chrome и GUI («Выход» в трее).
+1. Закрыть только GUI («Выход» в трее), если обновлению мешает recovery helper. Chrome и Edge не закрывать/не перезапускать: вариант A владельца, docs/BROWSER_SILENT_POLICY.md.
 2. `tools/windows/build-e2e.ps1` и `tools/windows/build-desktop.ps1`.
 3. `tools/windows/update-service.ps1` — из elevated PowerShell под тем же SID владельца установки.
 4. `tools/windows/install-desktop.ps1` (на пользователя).

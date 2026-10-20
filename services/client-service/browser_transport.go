@@ -25,6 +25,9 @@ import (
 )
 
 type browserRuntime struct {
+	silent          browserSilentState
+	chromeWrite     func(string, []string, string) error
+	chromeActive    func(string, string) bool
 	origins         *browserproxy.OriginHealth
 	native          nativeBrowserRuntime
 	usage           *browserRelayUsage
@@ -552,11 +555,15 @@ func (c *Controller) handleBrowser(method string, raw json.RawMessage) (result a
 		view.LastError = c.browser.lastError
 		view.ReadinessState = "PREPARED"
 		view.RecoveryAddress = c.browser.recoveryAddress
-		view.PolicyReady = wp.ChromeProxyPolicyActive(c.BrowserOwnerSID, c.browser.expectedPAC)
+		view.PolicyReady = c.chromePolicyActive()
 		if view.PolicyReady && len(view.ReadyProfiles) > 0 {
 			view.ReadinessState = "PAC_READY"
 		}
 		sort.Slice(view.Records, func(i, j int) bool { return view.Records[i].ID > view.Records[j].ID })
+		view.SilentActivation = c.silentViewLocked(false, view.Snapshot)
+		if len(view.SilentActivation.ConfiguredProfiles) > 0 {
+			view.ReadinessState = view.SilentActivation.State
+		}
 		view.bound()
 		return view, nil
 	}
@@ -573,7 +580,7 @@ func (c *Controller) handleBrowser(method string, raw json.RawMessage) (result a
 		if c.browser.server == nil || !c.browser.server.HealthVerified(q.Profile, q.HealthURL) {
 			return nil, errors.New("Chrome PAC readiness not observed: check Chrome policy, TCP owner/SID and browser.status failures")
 		}
-		if !wp.ChromeProxyPolicyActive(c.BrowserOwnerSID, c.browser.expectedPAC) {
+		if !c.chromePolicyActive() {
 			return nil, errors.New("Chrome mandatory online PAC not installed for the owner SID")
 		}
 		for _, p := range c.Profiles.List() {
@@ -667,6 +674,10 @@ func (c *Controller) handleBrowser(method string, raw json.RawMessage) (result a
 		recovery = append([]string(nil), args...)
 		c.browser.recoveryAddress = q.Recovery
 	}
+	// Adopt only an exact already-active legacy owner PAC before changing it.
+	if len(c.browser.silent.Owned) == 0 && c.chromePolicyActive() {
+		c.browser.silent.Owned = []string{edgePolicyValue(c.browser.expectedPAC)}
+	}
 	c.browser.expectedPAC = strings.TrimPrefix(args[1], "--proxy-pac-url=")
 	if c.customPath != "" {
 		if err := c.saveBrowserAddress(); err != nil {
@@ -678,8 +689,11 @@ func (c *Controller) handleBrowser(method string, raw json.RawMessage) (result a
 }
 
 func (c *Controller) saveBrowserAddress() error {
+	if c.customPath == "" {
+		return nil
+	}
 	path := filepath.Join(filepath.Dir(c.customPath), "browser-transport.json")
-	raw, _ := json.Marshal(map[string]any{"address": c.browser.address, "ready_profiles": c.browser.server.Snapshot().ReadyProfiles, "expected_pac": c.browser.expectedPAC, "recovery_address": c.browser.recoveryAddress})
+	raw, _ := json.Marshal(map[string]any{"address": c.browser.address, "ready_profiles": c.browser.server.Snapshot().ReadyProfiles, "expected_pac": c.browser.expectedPAC, "recovery_address": c.browser.recoveryAddress, "silent_activation": c.browser.silent})
 	f, err := os.CreateTemp(filepath.Dir(path), ".browser-transport-*")
 	if err != nil {
 		return err
@@ -719,10 +733,11 @@ func (c *Controller) RestoreBrowserTransport() error {
 		return err
 	}
 	var saved struct {
-		Address         string   `json:"address"`
-		ReadyProfiles   []string `json:"ready_profiles"`
-		ExpectedPAC     string   `json:"expected_pac"`
-		RecoveryAddress string   `json:"recovery_address"`
+		Address         string             `json:"address"`
+		ReadyProfiles   []string           `json:"ready_profiles"`
+		ExpectedPAC     string             `json:"expected_pac"`
+		RecoveryAddress string             `json:"recovery_address"`
+		Silent          browserSilentState `json:"silent_activation"`
 	}
 	if err = security.Parse(raw, &saved); err != nil {
 		return err
@@ -734,6 +749,7 @@ func (c *Controller) RestoreBrowserTransport() error {
 	}
 	c.browser.mu.Lock()
 	defer c.browser.mu.Unlock()
+	c.browser.silent = saved.Silent
 	c.browser.address = saved.Address
 	c.browser.expectedPAC = saved.ExpectedPAC
 	c.browser.recoveryAddress = saved.RecoveryAddress
@@ -743,6 +759,9 @@ func (c *Controller) RestoreBrowserTransport() error {
 	}
 	c.browser.server = server
 	server.RestoreConfirmed(saved.ReadyProfiles)
+	if len(c.browser.silent.Profiles) > 0 {
+		return c.reapplySilentLocked(false)
+	}
 	return nil
 }
 
@@ -768,7 +787,7 @@ func (c *Controller) requireChromeActivation() error {
 			}
 			continue
 		}
-		if browserAuto(p) && (c.browser.recoveryAddress == "" || c.browser.server == nil || !c.browser.server.Confirmed(p.ID) || !wp.ChromeProxyPolicyActive(c.BrowserOwnerSID, c.browser.expectedPAC)) {
+		if browserAuto(p) && (c.browser.recoveryAddress == "" || c.browser.server == nil || (!c.browser.server.Confirmed(p.ID) && !c.silentConfiguredLocked(p.ID, false)) || !c.chromePolicyActive()) {
 			return errors.New("Chrome AUTO requires verified CONNECT/PAC activation in Applications before Optimize; no capture state changed")
 		}
 	}

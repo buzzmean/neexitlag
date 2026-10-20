@@ -46,15 +46,16 @@ func runReady(ctx context.Context, path string, ready func()) error {
 	initDone := make(chan struct{})
 	go func() {
 		defer close(initDone)
+		// Restore listener and owned PAC before remote CP/network initialization.
+		if e := controller.RestoreBrowserTransport(); e != nil {
+			slog.Warn("Chrome transport not restored; proxy remains fail-closed", "error", e)
+		}
 		if manifest.ControlPlaneURL != "" {
 			if e := controller.ConnectRemote(ctx, manifest); e != nil {
 				slog.Warn("control plane initialization unavailable; capture remains DIRECT", "error", e)
 			}
 		}
 		controller.Start()
-		if e := controller.RestoreBrowserTransport(); e != nil {
-			slog.Warn("Chrome transport not restored; proxy remains fail-closed", "error", e)
-		}
 		if controller.Snapshot().Settings.Automatic {
 			if _, e := controller.Handle(ctx, "optimize", []byte(`{"enabled":true}`)); e != nil {
 				slog.Warn("automatic capture unavailable; networking remains DIRECT", "error", e)

@@ -23,12 +23,13 @@ import (
 )
 
 type edgeSaved struct {
-	Address     string   `json:"address"`
-	ExpectedPAC string   `json:"expected_pac"`
-	Recovery    string   `json:"recovery_address"`
-	Ready       []string `json:"ready_profiles"`
-	Owned       []string `json:"owned_policy"`
-	GuardPAC    string   `json:"guard_pac,omitempty"`
+	Address     string             `json:"address"`
+	ExpectedPAC string             `json:"expected_pac"`
+	Recovery    string             `json:"recovery_address"`
+	Ready       []string           `json:"ready_profiles"`
+	Owned       []string           `json:"owned_policy"`
+	GuardPAC    string             `json:"guard_pac,omitempty"`
+	Silent      browserSilentState `json:"silent_activation"`
 }
 type edgeRuntime struct {
 	lastError                string
@@ -46,7 +47,7 @@ func edgeExecutable(exe string) bool {
 }
 func edgeSitesProfile(p profiles.Profile) bool { return edgeProfile(p) && p.AppPreset == "edge-sites" }
 func isEdgeMutation(method string) bool {
-	return method == "edge.prepare" || method == "edge.confirm" || method == "edge.policy"
+	return method == "edge.silent.apply" || method == "edge.prepare" || method == "edge.confirm" || method == "edge.policy"
 }
 func edgeProfile(p profiles.Profile) bool {
 	if len(p.Executables) == 0 {
@@ -312,6 +313,7 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (result any,
 		snapshot.RecoveryAddress = e.saved.Recovery
 		snapshot.PolicyReady = e.policyActive(c.BrowserOwnerSID)
 		view := browserStatusView{Snapshot: snapshot, DirectTimeouts: c.browser.directTimeouts.Stats(), RelayUsage: c.relayUsageLocked()}
+		view.SilentActivation = c.silentViewLocked(true, snapshot)
 		view.bound()
 		state := "NOT_PREPARED"
 		if e.server != nil && e.healthProfile != "" {
@@ -319,6 +321,9 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (result any,
 		}
 		if e.readinessFailure != "" {
 			state = e.readinessFailure
+		}
+		if len(view.SilentActivation.ConfiguredProfiles) > 0 {
+			state = view.SilentActivation.State
 		}
 		nonceState := state
 		transportMode := "PAC_LEGACY"
@@ -523,7 +528,7 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (result any,
 }
 func (c *Controller) edgeReadyLocked(p profiles.Profile) bool {
 	e := c.browser.edge
-	return e != nil && e.server != nil && e.server.Snapshot().Listening && e.saved.Recovery != "" && e.server.Confirmed(p.ID) && e.policyActive(c.BrowserOwnerSID)
+	return e != nil && e.server != nil && e.server.Snapshot().Listening && e.saved.Recovery != "" && (e.server.Confirmed(p.ID) || c.silentConfiguredLocked(p.ID, true)) && e.policyActive(c.BrowserOwnerSID)
 }
 func (c *Controller) requireEdgeActivation() error {
 	if c.BrowserOwnerSID == "" {
@@ -611,6 +616,9 @@ func (c *Controller) loadEdgeTransport() error {
 		return err
 	}
 	e.server.RestoreConfirmed(saved.Ready)
+	if len(e.saved.Silent.Profiles) > 0 {
+		return c.reapplySilentLocked(true)
+	}
 	return nil
 }
 

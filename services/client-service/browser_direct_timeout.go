@@ -16,10 +16,11 @@ import (
 // load this cache puts on the relay is visible in diagnostics.
 type browserStatusView struct {
 	browserproxy.Snapshot
-	LastError      string                        `json:"last_error"`
-	ReadinessState string                        `json:"readiness_state"`
-	DirectTimeouts flowpolicy.DirectTimeoutStats `json:"direct_timeout_cache"`
-	RelayUsage     relayUsageSnapshot            `json:"relay_usage"`
+	SilentActivation browserSilentView             `json:"silent_activation"`
+	LastError        string                        `json:"last_error"`
+	ReadinessState   string                        `json:"readiness_state"`
+	DirectTimeouts   flowpolicy.DirectTimeoutStats `json:"direct_timeout_cache"`
+	RelayUsage       relayUsageSnapshot            `json:"relay_usage"`
 }
 
 // directTimeoutEligible limits the cache to ordinary DIRECT-first origins. Protected

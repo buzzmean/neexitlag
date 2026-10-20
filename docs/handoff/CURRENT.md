@@ -1,6 +1,6 @@
 # CURRENT — состояние проекта (обновляется в конце каждой сессии)
 
-Обновлено: 20.10.2026, Codex; `codex/work`, база 042869d. Владелец подтвердил TLS/HTTP отказ исходного Telegram IP с VPS и успех независимого кандидата с тем же SNI. Реализован bounded per-IP first-flight recovery для relay-first, negative TTL и диагностика .2; детали — (ab), docs/TELEGRAM_TLS_DIAGNOSTICS.md. На production VPS ничего не выполнялось; Windows/ISP ретест нового кода нужен. Этап (в) остаётся BLOCKED_CURRENT_BACKEND; PR #8 не тронут.
+Обновлено: 20.10.2026, Codex; `codex/work`, база 6d91aea (fast-forward сайта Claude сохранён; browser работа от 0d20db1). Владелец подтвердил TLS/HTTP отказ исходного Telegram IP с VPS и успех независимого кандидата с тем же SNI. Реализован bounded per-IP first-flight recovery для relay-first, negative TTL и диагностика .2; детали — (ab), docs/TELEGRAM_TLS_DIAGNOSTICS.md. На production VPS ничего не выполнялось; Владелец подтвердил per-IP recovery на ПК. Этап (в): вариант A, тихий owned PAC без browser restart, реализация и ограничения — (ac); PR #8 не тронут.
 
 ## (a) Цель
 Чистый Windows 10/11: установил, нажал «Оптимизировать» — заблокированные в РФ сервисы работают без VPN: ChatGPT, Claude, YouTube, Discord, Telegram, браузеры Chrome и Edge. Первый заказчик — клуб на 36 ПК с откатом при перезагрузке.
@@ -60,6 +60,7 @@
 | Этап (в): независимый guard / проверка реализуемости | `docs/BROWSER_NATIVE_GUARD.md` (новый), `docs/BROWSER_HOT_ATTACH.md`, CURRENT.md; runtime этапа (в) до подтверждения guard не менять | Codex | `codex/work` | BLOCKED_CURRENT_BACKEND 20.10.2026; аудит завершён, область освобождена; только docs в одном commit по пункту 4 владельца; runtime этапа (в) не менять до реализации/проверки независимого guard |
 | Telegram main origin: безопасная TLS-диагностика и read-only VPS proof | `core/browserproxy/{tls_wire*,proxy,close_evidence}.go`, `services/client-service/browser_native{,_pac}.go`, новый `browser_tls_test.go`, `platform/windows/telegram_hello_test.go`, `tests/integration/telegram_tls_test.go`, `tools/windows/diag-no-vpn.ps1`, `deploy/vps/diagnose-telegram-tls.py`, deployment/PS tests, docs/TELEGRAM_TLS_DIAGNOSTICS.md, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; один итоговый commit по требованию владельца; read-only script подготовлен, на VPS не запускался; Internet причина/Windows ретест остаются открытыми |
 | Relay-first: per-IP TLS silence recovery | `core/browserproxy/{origin_*,proxy,dns,dns_test,tls_wire,tls_wire_test}.go`, `services/client-service/browser_{transport,admission,known_group,native,native_pac,origin,origin_test}.go`, `tests/integration/relay_origin_test.go`, PS tests/diag-no-vpn.ps1, docs/TELEGRAM_TLS_DIAGNOSTICS.md, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; один итоговый commit по требованию владельца; actual Windows/ISP ещё не проверен; VPS не тронут |
+| Этап (в), вариант A: тихий owned PAC без browser restart | `services/client-service/browser_silent*.go`, browser/edge transport/controller; `platform/windows/*policy*`; desktop Browser/Chrome/Edge/Fresh routing; bootstrap/update/diag; acceptance/tests/docs | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; один итоговый commit включает ownership по требованию владельца; WFP/VPS/игры вне задачи; Windows uptake не измерен локально |
 | Discord медленно, DIRECT+ для YouTube | не определены | никто | — | свободно для Codex после диагностики; Go-файлы застоя (выше) не трогать |
 | PR #8, `codex/direct-plus-flowseal` | — | не трогать | — | только владелец |
 
@@ -70,7 +71,7 @@
 
 ## (f) Сборка и установка службы на ПК (по CLAUDE.md / docs/AGENT_RULES.md)
 Только по просьбе владельца, на его ПК:
-1. Закрыть Chrome, Edge и GUI («Выход» в трее). Сохранить локальные правки; `git switch codex/work`, `git pull --ff-only origin codex/work`. Полный stop-on-error блок: [BROWSER_DIRECT_FALLBACK.md](../BROWSER_DIRECT_FALLBACK.md#обновление-windows-без-vps).
+1. Браузеры оставить открытыми; закрыть только GUI («Выход» в трее) для замены recovery EXE. Сохранить локальные правки; `git switch codex/work`, `git pull --ff-only origin codex/work`. Полный stop-on-error блок: [BROWSER_DIRECT_FALLBACK.md](../BROWSER_DIRECT_FALLBACK.md#обновление-windows-без-vps).
 2. Обычное окно PowerShell: `& .\tools\windows\build-e2e.ps1`, затем `& .\tools\windows\build-desktop.ps1`.
 3. Elevated PowerShell под тем же SID владельца: `& .\tools\windows\update-service.ps1`.
 4. Обычное окно: `& .\tools\windows\install-desktop.ps1`.
@@ -85,6 +86,9 @@
 Управление флагом YouTube: `settings.set` с полным объектом Settings и `"youtube_via_relay": true` означает relay-first сразу для ordinary YouTube. По умолчанию выключен; аварийный fallback от него не зависит. Configured DIRECT+ и protected rules не заменяются.
 
 ## (h) Журнал решений
+
+- 20.10.2026: по явному решению владельца выбран вариант A этапа (в): quiet owned PAC + user policy refresh, никаких browser restart/dialog/process control. Независимый WFP guard — будущий B. Registry configuration и реальный owner ingress не смешиваются; pending browser uptake не валит bootstrap. Один итоговый commit включает ownership по требованию владельца.
+
 
 - 20.10.2026: после owner proof Telegram DNS добавлен общий bounded origin-IP health/retry, не IP hardcode. Replay только полного ClientHello до первого origin byte; ранний alert/partial reply влияет лишь на следующие connections. DNS через HTTPS/relay, не новый VPS resolver API. Детектор на actual QUIC boundary отличает session/auth failures. Один итоговый commit включает ownership по требованию владельца.
 
@@ -1228,3 +1232,45 @@ TCP OPEN успешен, TLS на исходном DNS IP не работает,
 Владельцу после обычной сборки/обновления службы: открыть Telegram Web в Chrome/Edge,
 затем `& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube` и смотреть .2
 `origin IP recovery` (выбранный IP/попытки), TLS framing и реальный результат страницы.
+
+
+## (ac) Вариант A этапа (в): тихая PAC policy без browser restart
+
+- Удалены MessageBox/restart/quit/restore-last-session, ожидание/launch браузеров из
+  Chrome/Edge activation и fresh/repair. Recovery helper остаётся служебным EXE,
+  с прежними owner SID/ACL/guard; Chrome/Edge процессы продукт не трогает.
+- Служебные browser.silent.apply / edge.silent.apply отдельно разрешают configured
+  lane после listener/recovery/mandatory PAC; никаких synthetic nonce/ReadyProfiles.
+  AUTO сохраняется только после successful apply. Chrome legacy journal мигрирует
+  при совпадении expected PAC (разный порядок JSON не конфликт). Чужую policy не
+  переписываем. Новая Edge staging DIRECT безопасна при уже активном capture.
+- Restore на каждом SCM boot идёт до CP/network initialization: стабильный listener
+  и owned policy восстанавливаются из ACL-защищённого journal. Неподключённый owner
+  hive не создаём; bounded maintenance retry через 5 с после logon. HKLM не меняем.
+- GUI user RefreshPolicy(false) — запрос, не доказательство. Silent state отдельно:
+  POLICY_PENDING_BROWSER_REFRESH, PAC_REQUEST_OBSERVED, POLICY_OR_LISTENER_UNAVAILABLE.
+  Для owner ingress есть timestamp/count/apply_to_request_ms. Nonce и page PASS
+  не подделываются. Bootstrap/fresh repair не падает лишь из-за отсутствия browser
+  uptake; реальные отказы listener/ACL/policy всё ещё FAIL. Update выводит safe status.
+- Chrome/Edge GUI + diag .3 показывают pending/observed честно. Клубный образ должен
+  содержать policy/identity/config и штатный автозапуск: если freeze стирает policy
+  и state, нельзя обещать применение до запуска браузера. Live uptake не гарантирован
+  для всех Chromium: при отсутствии подхвата — следующий естественный запуск,
+  без просьбы/диалога. Existing TCP pinned, reload может переиспользовать HTTP/2.
+- Windows CI добавлен actual running Chrome/Edge + registry/user-GP/CDP HTTP ingress
+  test без proxy launch flags, с PID/creation-time и elapsed-ms либо явным pending.
+  Это не Internet/TLS PASS. Исторический HTTPS/mTLS acceptance сохранён отдельно.
+- Тесты: полный `go test -race -p 1 -timeout 120s ./...` PASS (integration 43.621 с);
+  дополнительный race silent/owner/policy PASS, `go vet ./...`, Linux/Windows
+  `go build ./...`, Windows service tests compile PASS. C# 139 tests PASS,
+  WPF cross-build PASS (4 прежних CS8604 warnings, 0 errors), 52 Python tests PASS,
+  PowerShell fresh/browser-path checks + parser PASS. Actual Windows uptake
+  acceptance добавлен в CI, локально Linux не выполнялся. GitHub CLI Actions API
+  недоступен из среды (403), CI PASS до наблюдения не заявлять.
+- Не проверено: actual Windows/ISP в этой итерации, live policy uptake время, клубный
+  boot с браузером в автозапуске. Production VPS/credentials/CA/certs не тронуты;
+  игры и relay/lease policy без изменений. PR #8 не тронут.
+
+Владельцу: обычное обновление службы/GUI с открытыми браузерами; для необязательного
+отчёта `& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube`. В программе
+только «Оптимизировать»/автозапуск, никаких browser restart диалогов.

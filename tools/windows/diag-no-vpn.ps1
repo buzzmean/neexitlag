@@ -287,7 +287,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-20.2 (bounded per-IP relay origin recovery)'
+$ScriptVersion='2026-10-20.3 (silent owned PAC; observed uptake separate)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -522,6 +522,8 @@ function Write-TlsWireEvidence($snapshot,[string]$lane) {
 }
 
 function Write-BrowserPathEvidence($snapshot,[string]$lane) {
+ $silent=Prop $snapshot 'silent_activation' $null
+ if($null -ne $silent){Say ($lane+' silent PAC: state='+(Prop $silent 'state' 'UNKNOWN')+' configured_profiles='+(@(Prop $silent 'configured_profiles' @()).Count)+' applied_at='+(Prop $silent 'applied_at' 'NOT_OBSERVED')+' first_request_at='+(Prop $silent 'first_request_at' 'NOT_OBSERVED')+' apply_to_request_ms='+(Prop $silent 'apply_to_request_ms' -1)+' requests='+(Prop $silent 'observed_requests' 0)+' existing_tcp=PINNED_UNTIL_CLOSED');Say 'Registry policy configured != effective browser proxy proof; pending may apply on next browser launch. No browser closed/restarted; page PASS not inferred.'}
  Write-TlsWireEvidence $snapshot ($lane+'.PAC')
  try{$timing=Invoke-IPC ($lane+'.first-byte');Write-BrowserFirstByteEvidence $timing $lane}catch{Say ($lane+' first-byte: UNAVAILABLE (old service or IPC failure); no latency invented')}
  Say ($lane+' path='+(Prop $snapshot 'path' 'PAC_LEGACY_UNINSTRUMENTED')+' metrics_lost='+(Prop $snapshot 'metrics_lost' 0)+' failure_details_lost='+(Prop $snapshot 'failure_details_lost' 0))

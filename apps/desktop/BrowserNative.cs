@@ -26,7 +26,7 @@ public partial class MainWindow
                         if (!edgeLifetimeHook) { Closed += (_,_) => edgeRecovery.Dispose(); edgeLifetimeHook=true; }
                         if (File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NeExitLag", "edge-recovery.json")))
                             await edgeRecovery.StartAsync(lifetime.Token);
-                    } else if (ChromePolicy.Monitored) await chromeRecovery.StartAsync(lifetime.Token);
+                    } else if (ChromePolicy.Monitored || File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NeExitLag", "chrome-recovery.json"))) await chromeRecovery.StartAsync(lifetime.Token);
                     phase="browser.native.policy-refresh";
                     if (nativeBrowserPolicyRefreshed.Add(p.Id))
                     {

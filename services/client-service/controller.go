@@ -206,6 +206,8 @@ func (c *Controller) syncPolicies() {
 }
 func (c *Controller) Start() {
 	c.wg.Add(1)
+	go func() { defer c.wg.Done(); c.maintainSilentBrowserPolicies() }()
+	c.wg.Add(1)
 	go func() { defer c.wg.Done(); c.watchNetwork() }()
 	c.wg.Add(1)
 	go func() { defer c.wg.Done(); c.Measurements.Run(c.ctx, c.Selector.Observe) }()
@@ -522,7 +524,7 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		}()
 	}
 	switch method {
-	case "optimize", "profile.set", "profile.delete", "settings.set", "local.set", "local.preset.apply", "auto.commit", "browser.prepare", "browser.start", "browser.confirm", "browser.native.enable":
+	case "optimize", "profile.set", "profile.delete", "settings.set", "local.set", "local.preset.apply", "auto.commit", "browser.silent.guard", "browser.silent.apply", "browser.prepare", "browser.start", "browser.confirm", "browser.native.enable":
 		c.activationMu.Lock()
 		defer c.activationMu.Unlock()
 		if e := c.publishBrowserGuard(true); e != nil {
@@ -540,6 +542,8 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		return windowsplatform.InspectNativeFirewall(ctx), nil
 	case "browser.native.enable", "browser.native.status":
 		return c.handleNativeBrowser(ctx, method, raw)
+	case "edge.silent.apply", "browser.silent.apply", "browser.silent.guard":
+		return c.handleBrowserSilent(method, raw)
 	case "edge.prepare", "edge.confirm", "edge.policy", "edge.status", "edge.failure":
 		return c.handleEdge(method, raw)
 	case "browser.origin.check":

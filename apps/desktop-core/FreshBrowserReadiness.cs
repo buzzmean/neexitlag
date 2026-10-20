@@ -40,12 +40,12 @@ public sealed partial class DesktopViewModel
         if (edge)
         {
             var s = await EdgeStatusAsync(ct);
-            if (s.Listening && s.PolicyReady && s.ReadyProfiles.Contains(id)) return;
+            if (s.Listening && s.PolicyReady && (s.ReadyProfiles.Contains(id)||s.SilentActivation.ConfiguredProfiles.Contains(id))) return;
         }
         else
         {
             var s = await ChromeStatusAsync(ct);
-            if (s.Listening && s.PolicyReady && s.ReadyProfiles.Contains(id)) return;
+            if (s.Listening && s.PolicyReady && (s.ReadyProfiles.Contains(id)||s.SilentActivation.ConfiguredProfiles.Contains(id))) return;
         }
         throw new ChromeActivationException("Actual PAC/owner proof missing", "verify_pac", "BROWSER_PAC_NOT_READY");
     }

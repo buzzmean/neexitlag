@@ -1,5 +1,7 @@
 # Этап (в): браузеры без PAC и перезапуска — security blocker
 
+> Актуальное решение владельца 20.10.2026: выбран вариант A — тихий owned PAC без browser restart; см. [BROWSER_SILENT_POLICY.md](BROWSER_SILENT_POLICY.md). Независимый WFP/driver guard ниже — будущий вариант B. Исторические restart-инструкции не относятся к текущему UX.
+
 Дата: 20.10.2026. Аудит базы `2c4f75f`, ветка `codex/work`.
 **Статус: BLOCKED_CURRENT_BACKEND. Это архитектура, не реализованный guard.**
 

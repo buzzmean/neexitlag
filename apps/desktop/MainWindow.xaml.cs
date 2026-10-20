@@ -217,7 +217,8 @@ public partial class MainWindow : Window
     async void UseAuto(object sender, RoutedEventArgs e)
     {
         if (AppGrid.SelectedItem is not ApplicationRow row) { ShowMessage("SelectApplication"); return; }
-        if (row.Profile.Executables.Any(p=>p.Replace('\\','/').Split('/').Last().Equals("chrome.exe",StringComparison.OrdinalIgnoreCase))) { await Execute(()=>ActivateChromeSites(row)); return; }
+        if (IsChrome(row.Profile)) { await Execute(async()=>{await ActivateChromeSites(row);await EnableOptimizationAsync();}); return; }
+        if (BrowserCatalog.IsEdge(row.Profile)) { await Execute(async()=>{await ActivateEdgeSites(row.Profile);await EnableOptimizationAsync();}); return; }
         if(autoRunning)return;autoRunning=true;model.SetNotice(Text.Get("AutoChecking"));
         try { await Execute(async () => {
             await model.SetProfileAsync(row.Profile, "AUTO", row.Profile.RelayId, lifetime.Token);
