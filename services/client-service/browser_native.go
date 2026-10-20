@@ -55,6 +55,8 @@ type nativeBrowserProfileStatus struct {
 	FirstExchangeMS int64                `json:"enable_to_first_exchange_ms"`
 }
 type nativeBrowserRecord struct {
+	TLS         *browserproxy.TLSWireEvidence `json:"tls_wire,omitempty"`
+	tlsWire     *browserproxy.TLSWireObserver
 	Ingress     string             `json:"ingress"`
 	ID          uint64             `json:"id"`
 	Owner       browserproxy.Owner `json:"owner"`
@@ -132,6 +134,10 @@ func (c *Controller) nativeSnapshot() nativeBrowserSnapshot {
 	}
 	sort.Slice(s.Profiles, func(i, j int) bool { return s.Profiles[i].Profile < s.Profiles[j].Profile })
 	for _, r := range n.records {
+		if r.tlsWire != nil {
+			v := r.tlsWire.Snapshot()
+			r.TLS = &v
+		}
 		s.Records = append(s.Records, r)
 	}
 	sort.Slice(s.Records, func(i, j int) bool { return s.Records[i].ID > s.Records[j].ID })
@@ -497,10 +503,21 @@ func (c *Controller) openNativeBrowser(ctx context.Context, p profiles.Profile, 
 			n.mu.Unlock()
 		}}
 	}
-	return &nativeBrowserConn{Conn: conn, runtime: n, record: record}, d, nil
+	return newNativeBrowserConn(conn, n, record), d, nil
+}
+
+func newNativeBrowserConn(conn net.Conn, n *nativeBrowserRuntime, id uint64) *nativeBrowserConn {
+	wire := &browserproxy.TLSWireObserver{}
+	n.mu.Lock()
+	r := n.records[id]
+	r.tlsWire = wire
+	n.records[id] = r
+	n.mu.Unlock()
+	return &nativeBrowserConn{Conn: conn, runtime: n, record: id, wire: wire}
 }
 
 type nativeBrowserConn struct {
+	wire *browserproxy.TLSWireObserver
 	net.Conn
 	runtime *nativeBrowserRuntime
 	record  uint64
@@ -510,6 +527,9 @@ type nativeBrowserConn struct {
 func (c *nativeBrowserConn) Read(p []byte) (int, error) {
 	n, e := c.Conn.Read(p)
 	if n > 0 {
+		if c.wire != nil {
+			c.wire.ObserveOrigin(p[:n])
+		}
 		c.runtime.bytes(c.record, 0, uint64(n))
 	}
 	return n, e
@@ -517,6 +537,9 @@ func (c *nativeBrowserConn) Read(p []byte) (int, error) {
 func (c *nativeBrowserConn) Write(p []byte) (int, error) {
 	n, e := c.Conn.Write(p)
 	if n > 0 {
+		if c.wire != nil {
+			c.wire.ObserveClient(p[:n])
+		}
 		c.runtime.bytes(c.record, uint64(n), 0)
 	}
 	return n, e

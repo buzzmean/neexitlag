@@ -1,6 +1,6 @@
 # CURRENT — состояние проекта (обновляется в конце каждой сессии)
 
-Обновлено: 20.10.2026, Codex; `codex/work`, база 2c4f75f. Этап (в) разрешён владельцем: никаких browser dialogs/quit/restart. По пункту 4 остановлена runtime-реализация: у WinDivert нет постоянного независимого guard, WFP backend — заглушка. Только архитектурные документы и handoff; детали — (z), docs/BROWSER_NATIVE_GUARD.md. Старый PAC/restart не принят как временное решение. VPS/credentials/PR #8/runtime не менялись.
+Обновлено: 20.10.2026, Codex; `codex/work`, база c22c480. Telegram main origin: подготовлены безопасная TLS framing диагностика PAC/actual relay и отдельный read-only VPS script; детали — (aa), docs/TELEGRAM_TLS_DIAGNOSTICS.md. Причина Internet-отказа ещё не доказана; DNS/routing/TLS не менялись, Telegram PASS не заявляется. Этап (в) остаётся BLOCKED_CURRENT_BACKEND, см. (z). Production VPS/credentials/PR #8 не тронуты.
 
 ## (a) Цель
 Чистый Windows 10/11: установил, нажал «Оптимизировать» — заблокированные в РФ сервисы работают без VPN: ChatGPT, Claude, YouTube, Discord, Telegram, браузеры Chrome и Edge. Первый заказчик — клуб на 36 ПК с откатом при перезагрузке.
@@ -58,6 +58,7 @@
 | Fresh-PC: VPS binary preparation without old identity | `deploy/vps/{fresh-pc-ssh,fresh-vps-upgrade,production-upgrade,rotate-fresh-pc-ca}.py`, `tools/windows/bootstrap-fresh-pc.ps1`, `tools/fresh-pc/*`, deployment/PS/Go tests, docs/FRESH_PC_ENROLLMENT.md, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена. Один итоговый commit по требованию владельца. Только isolated tests; production SSH/upgrade/rotation не выполнялись |
 | Fresh-PC PAC readiness | `apps/desktop{,-core}/Fresh*`, `ChromeRouting.cs`, `BrowserNative.cs`, browser readiness/status/errors, `tools/windows/bootstrap-fresh-pc.ps1`, desktop/Go/PS tests, FRESH_PC_ENROLLMENT.md, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; один итоговый commit по требованию владельца; локальные проверки, реальный Windows/ISP ретест ещё нужен; VPS/CA/enroll не запускались |
 | Этап (в): независимый guard / проверка реализуемости | `docs/BROWSER_NATIVE_GUARD.md` (новый), `docs/BROWSER_HOT_ATTACH.md`, CURRENT.md; runtime этапа (в) до подтверждения guard не менять | Codex | `codex/work` | BLOCKED_CURRENT_BACKEND 20.10.2026; аудит завершён, область освобождена; только docs в одном commit по пункту 4 владельца; runtime этапа (в) не менять до реализации/проверки независимого guard |
+| Telegram main origin: безопасная TLS-диагностика и read-only VPS proof | `core/browserproxy/{tls_wire*,proxy,close_evidence}.go`, `services/client-service/browser_native{,_pac}.go`, новый `browser_tls_test.go`, `platform/windows/telegram_hello_test.go`, `tests/integration/telegram_tls_test.go`, `tools/windows/diag-no-vpn.ps1`, `deploy/vps/diagnose-telegram-tls.py`, deployment/PS tests, docs/TELEGRAM_TLS_DIAGNOSTICS.md, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; один итоговый commit по требованию владельца; read-only script подготовлен, на VPS не запускался; Internet причина/Windows ретест остаются открытыми |
 | Discord медленно, DIRECT+ для YouTube | не определены | никто | — | свободно для Codex после диагностики; Go-файлы застоя (выше) не трогать |
 | PR #8, `codex/direct-plus-flowseal` | — | не трогать | — | только владелец |
 
@@ -83,6 +84,8 @@
 Управление флагом YouTube: `settings.set` с полным объектом Settings и `"youtube_via_relay": true` означает relay-first сразу для ordinary YouTube. По умолчанию выключен; аварийный fallback от него не зависит. Configured DIRECT+ и protected rules не заменяются.
 
 ## (h) Журнал решений
+
+- 20.10.2026, Telegram TLS: не подменять origin IP и не replay браузерный handshake на основании пяти байтов. Добавлена пассивная framing диагностика на PAC и actual relay boundary; вывод первых 16 байт маскирует payload. Владелец отдельно запускает read-only `.40`/`.99` TLS/GET proof; до этого причина не считается установленной. Один итоговый commit включает ownership по явному требованию владельца.
 
 20.10.2026: этап (в) разрешён, UX с browser restart запрещён. Пункт 4 владельца:
 при отсутствии доказанного независимого fail-closed guard остановить runtime,
@@ -1131,3 +1134,52 @@ Ownership-пометка включена в тот же commit по прямо�
 - На ПК НИЧЕГО НЕ ЗАПУСКАТЬ: только документация. Новый install/repair с browser
   restart не предлагается для выполнения этапа (в). Дальше — решение о WFP scope,
   не очередной ручной browser test с перезапуском.
+
+
+## (aa) Telegram main origin: TLS framing и read-only воспроизведение
+
+База `c22c480`; пользовательский runtime `2c4f75f`. Работа этой итерации — диагностика,
+не изменение маршрутизации и не заявленный Telegram fix/PASS.
+
+- Проверены PAC CONNECT -> native delegation -> QUIC stream -> relay TCP copy.
+  Подтверждённого обрезания/перекодирования SNI/ALPN/ECH/ClientHello не найдено.
+- `openKnownBrowserGroup` восстанавливает DNS только после TCP OPEN rejection,
+  не после последующего TLS failure. Проверка `.40` против `.99` ещё нужна:
+  отсутствуют основания автоматически назначать постоянный IP или replay TLS.
+- Новые `tls_wire` поля: реальные размеры первых восьми TLS records, длина первого
+  ClientHello, complete/incomplete, actual accepted writes и reads до client delivery.
+  Пять байтов `TLS_HEADER_ONLY` не объявляются alert. Полный plaintext alert имеет
+  числовой level/description. Payload первых 16 байт маскируется; полные Hello,
+  random/session IDs/ECH/HTTP/ключи не сохраняются.
+- Инструментированы PAC и actual native relay boundary, включая PAC_NATIVE_UPSTREAM.
+  Счётчики двух точек нельзя суммировать как независимые flows. Metadata bounded;
+  прежние IPC record limits/truncated/lost остаются в силе. Игры/guard/policy без изменений.
+- `deploy/vps/diagnose-telegram-tls.py`: только OpenSSL/curl public GET с правильным
+  SNI/hostname и проверкой системной CA; `.40`/`.99` — кандидаты, не pins.
+  Есть обычный ClientHello, optional ML-KEM (SKIP на старом OpenSSL), большой
+  Hello с unknown extensions (~1953 байта в local OpenSSL), HTTP/1.1 и HTTP/2.
+  Время/вывод ограничены; raw trace/body/header не печатаются. Никаких installs,
+  служебных identity, ключей, /etc/neexitlag, systemd/firewall/credentials изменений.
+- `diag-no-vpn.ps1` версия `2026-10-20.1`; выводит framing и masked response prefix
+  отдельно для PAC и actual upstream. Старые данные не реконструируются.
+- Регрессии: реальный QUIC+mTLS+verified origin TLS/GET с большим ML-KEM Hello,
+  fragment writes по 73 байта, opaque ECH/GREASE-like stream byte equality,
+  5-byte header + EOF delivery, partial-write accounting, redaction/bounds,
+  native pre-read ML-KEM при complete и segment-limit, read-only script parsing.
+- Проверки PASS: новые Go race-регрессии в browserproxy/platform/windows/client-service/integration;
+  48 Python deployment tests (включая actual local OpenSSL large Hello); PowerShell 7
+  StrictMode/парсинг; go vet ./...; Linux/Windows amd64 builds; Windows native test compile.
+  Полный go test -race -p 1 -timeout 120s ./... НЕ зелёный: последний прогон падает
+  в существующем TestPoolTCPBurstContinuity/320 (OPEN timeout). Ранее full-run
+  также ловил revocation ACK race и demo deadline; standalone lease и demo PASS.
+  Чистый baseline c22c480 demo PASS за 24.1 с при лимите 25 с. Эти тесты и transport/
+  lease/demo production-код не менялись; причина burst-отказа не доказана, CI PASS
+  не заявляется. Не увеличивать production timeouts ради зелёного результата.
+- Не проверено: actual owner Chrome/Edge/ISP и direct OpenSSL/curl на VPS. Ни одного
+  production SSH/HTTP/TCP вызова из среды разработки, Telegram Internet PASS нет.
+
+Владельцу из корня репозитория (обычный PowerShell, пароль только в SSH prompt):
+`Get-Content -Raw .\deploy\vps\diagnose-telegram-tls.py | ssh -T -p 22 root@2.56.177.4 'python3 - --confirm-read-only'`.
+После обновления службы и нового Chrome/Edge соединения:
+`& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube`.
+Полная интерпретация и ограничения — `docs/TELEGRAM_TLS_DIAGNOSTICS.md`.

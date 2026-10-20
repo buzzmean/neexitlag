@@ -287,7 +287,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-19.8 (Telegram/Anthropic relay-first, observed no-reply reasons)'
+$ScriptVersion='2026-10-20.1 (bounded TLS framing at PAC and relay boundary)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -496,7 +496,27 @@ Step 'sni' {
  foreach($line in ($rows|Format-Table -AutoSize -Wrap|Out-String -Width 220).Split("`n")){if($line.Trim()){Say ("  "+$line.TrimEnd())}}
 }}
 
+function Write-TlsWireEvidence($snapshot,[string]$lane) {
+ $instrumented=$false
+ Say ($lane+' TLS scope: client_written=accepted upstream Write; origin_read=before delivery; no proof of HTTP success or remote receipt. Prefix masks payload with xx; 5 bytes alone are NOT a complete TLS alert.')
+ foreach($r in @(Prop $snapshot 'records' @())|Select-Object -First 48){
+  $wire=Prop $r 'tls_wire'
+  if($null -eq $wire){continue}
+  $instrumented=$true
+  foreach($side in @('client_written','origin_read')){
+   $m=Prop $wire $side
+   $records=@(Prop $m 'records' @())|Select-Object -First 8
+   $framing=@($records|ForEach-Object{('type='+(Prop $_ 'type' 0)+':len='+(Prop $_ 'payload_length' 0)+':complete='+(Prop $_ 'complete' $false))}) -join ','
+   $prefix=[string](Prop $m 'first_16_hex_masked' '')
+   if($prefix -notmatch '^(?:[0-9a-f]{2}|xx){0,16}$'){$prefix='INVALID_REDACTED'}
+   Say ($lane+' TLS: id='+(Prop $r 'id' 0)+' domain='+(Prop $r 'domain')+' destination='+(Prop (Prop $r 'plan') 'destination' (Prop $r 'upstream_destination'))+' side='+$side+' bytes='+(Prop $m 'bytes' 0)+' state='+(Prop $m 'state' 'UNINSTRUMENTED')+' hello_bytes='+(Prop $m 'client_hello_handshake_bytes' 0)+' records='+$framing+' first16_masked='+$prefix+' alert_level='+(Prop $m 'alert_level' 0)+' alert_description='+(Prop $m 'alert_description' 0)+' bounded='+(Prop $m 'bounded' $false))
+  }
+ }
+ if(!$instrumented){Say ($lane+' TLS: NO_INSTRUMENTED_FLOW (old service or no fresh TLS flow); old bytes are not reconstructed')}
+}
+
 function Write-BrowserPathEvidence($snapshot,[string]$lane) {
+ Write-TlsWireEvidence $snapshot ($lane+'.PAC')
  try{$timing=Invoke-IPC ($lane+'.first-byte');Write-BrowserFirstByteEvidence $timing $lane}catch{Say ($lane+' first-byte: UNAVAILABLE (old service or IPC failure); no latency invented')}
  Say ($lane+' path='+(Prop $snapshot 'path' 'PAC_LEGACY_UNINSTRUMENTED')+' metrics_lost='+(Prop $snapshot 'metrics_lost' 0)+' failure_details_lost='+(Prop $snapshot 'failure_details_lost' 0))
  foreach($m in @(Prop $snapshot 'path_metrics' @())) {
@@ -547,6 +567,7 @@ function Write-BrowserFirstByteEvidence($snapshot,[string]$lane) {
 }
 
 function Write-NativeIngressEvidence($native) {
+ Write-TlsWireEvidence $native 'native.actual_upstream'
  $state=Prop $native 'native_only_state' 'NATIVE_ONLY_UNINSTRUMENTED'
  $totals=Prop $native 'native_only_totals'
  if($state -eq 'NATIVE_ONLY_OBSERVED' -and ([long](Prop $totals 'bidirectional_exchanges' 0) -le 0 -or [long](Prop $totals 'sent_bytes' 0) -le 0 -or [long](Prop $totals 'received_bytes' 0) -le 0)){$state='NATIVE_ONLY_INVALID_EVIDENCE'}

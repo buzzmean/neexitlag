@@ -4,7 +4,7 @@ $path=Join-Path $PSScriptRoot '..\..\tools\windows\diag-no-vpn.ps1'
 $tokens=$null;$errors=$null
 $ast=[System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw ($errors|Out-String)}
-foreach($name in @('Prop','Write-BrowserPathEvidence','Write-NativeIngressEvidence','Write-NativeFirewallEvidence','Write-BrowserFirstByteEvidence')){
+foreach($name in @('Prop','Write-TlsWireEvidence','Write-BrowserPathEvidence','Write-NativeIngressEvidence','Write-NativeFirewallEvidence','Write-BrowserFirstByteEvidence')){
  $fn=$ast.Find({param($a)$a -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $a.Name -eq $name},$true)
  if(!$fn){throw "Missing function $name"};Invoke-Expression $fn.Extent.Text
 }
@@ -78,3 +78,9 @@ Check ($text -match 'without_request_payload=1 with_request_payload=2' -and $tex
 Check ($text -match 'only a preconnect candidate' -and $text -notmatch 'NEVER_LOG') 'Preconnect falsely claimed or unbounded properties logged'
 Check ($text -match 'comparison.*telegram.*after_relay_first_avg_ms=270' -and $text -match 'comparison.*anthropic.*after_relay_first_avg_ms=430') 'Known groups not compared'
 Write-Host 'PASS exact known groups, factual no-reply reasons, legacy unknowns and safe fixed fields under StrictMode'
+
+$script:lines=@()
+Write-TlsWireEvidence ([pscustomobject]@{records=@([pscustomobject]@{id=1;domain='web.telegram.org';tls_wire=[pscustomobject]@{origin_read=[pscustomobject]@{bytes=5;state='TLS_HEADER_ONLY';first_16_hex_masked='1503030002';records=@([pscustomobject]@{type=21;payload_length=2;complete=$false});secret='NEVER_LOG'}}})}) 'browser'
+$text=$script:lines -join "`n"
+Check ($text -match 'TLS_HEADER_ONLY' -and $text -match 'NOT a complete TLS alert' -and $text -notmatch 'NEVER_LOG') 'TLS header confused with complete alert or arbitrary field leaked'
+Write-Host 'PASS safe bounded TLS framing and incomplete alert evidence'

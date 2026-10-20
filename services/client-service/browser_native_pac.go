@@ -77,7 +77,7 @@ func (c *Controller) openNativePAC(ctx context.Context, q browserproxy.Request, 
 		if err != nil {
 			return nil, decision, err
 		}
-		return &nativeBrowserConn{Conn: conn, runtime: n, record: record}, decision, nil
+		return newNativeBrowserConn(conn, n, record), decision, nil
 	}
 	conn, err := backend.OpenBrowserNativeTCP(gate, browserIdentity(q), q.Source, plan.Destination, d)
 	if err != nil {

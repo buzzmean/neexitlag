@@ -13,8 +13,10 @@ import (
 // Observe the first directional I/O termination BEFORE our own teardown. A
 // cleanup-induced net.ErrClosed must not overwrite the actual upstream failure.
 // EOF is only observed input shutdown; it is not proof of a browser preconnect.
-// No payload is inspected, retained or replayed by this instrumentation.
+// Optional TLS instrumentation keeps bounded framing metadata only; application
+// payload is never inspected, retained or replayed.
 type tunnelCloseEvidence struct {
+	tlsWire    *TLSWireObserver
 	ctx        context.Context
 	forcing    atomic.Bool
 	clientData atomic.Bool
@@ -85,6 +87,9 @@ func (r closeReader) Read(p []byte) (int, error) {
 		}
 	} else if n > 0 {
 		r.evidence.originData.Store(true)
+		if r.evidence.tlsWire != nil {
+			r.evidence.tlsWire.ObserveOrigin(p[:n])
+		}
 	}
 	r.evidence.terminal(side, e)
 	return n, e
@@ -99,6 +104,9 @@ type closeWriter struct {
 func (w closeWriter) Write(p []byte) (int, error) {
 	n, e := w.Writer.Write(p)
 	side := "upstream-write"
+	if n > 0 && !w.client && w.evidence.tlsWire != nil {
+		w.evidence.tlsWire.ObserveClient(p[:n])
+	}
 	if w.client {
 		side = "client-write"
 	}

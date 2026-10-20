@@ -77,6 +77,8 @@ type Plan struct {
 	HTTPStatus       int                `json:"http_status,omitempty"`
 }
 type Record struct {
+	TLS                *TLSWireEvidence `json:"tls_wire,omitempty"`
+	tlsWire            *TLSWireObserver
 	NoReplyReason      string    `json:"-"`
 	RequestPayloadSeen bool      `json:"-"`
 	OriginPayloadSeen  bool      `json:"-"`
@@ -232,6 +234,10 @@ func (s *Server) Snapshot() Snapshot {
 		out.FailureDetails = append(out.FailureDetails, f)
 	}
 	for _, r := range s.records {
+		if r.tlsWire != nil {
+			v := r.tlsWire.Snapshot()
+			r.TLS = &v
+		}
 		if r.Plan.Policy.Action == flowpolicy.DirectPlus && !r.DirectPlusApplied && s.cfg.TransformApplied != nil {
 			source, _ := netip.ParseAddrPort(r.Source)
 			r.DirectPlusApplied = s.cfg.TransformApplied(Request{Owner: r.Owner, Source: source, Host: r.Domain, Port: r.Port}, r.Plan)
@@ -578,6 +584,14 @@ func (s *Server) handle(c net.Conn, acceptedAt time.Time) {
 	c.SetDeadline(time.Time{})
 	upstream.SetDeadline(time.Time{})
 	closeEvidence := &tunnelCloseEvidence{ctx: s.ctx}
+	if secure {
+		closeEvidence.tlsWire = &TLSWireObserver{}
+		s.mu.Lock()
+		r := s.records[id]
+		r.tlsWire = closeEvidence.tlsWire
+		s.records[id] = r
+		s.mu.Unlock()
+	}
 	setCloseCause := func() {
 		s.mu.Lock()
 		r := s.records[id]
