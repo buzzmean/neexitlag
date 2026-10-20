@@ -7,6 +7,9 @@ foreach($name in @('activation-ssh','verify-activation-vps','update-activation-v
  [void][Management.Automation.Language.Parser]::ParseFile((Join-Path $root ('tools/windows/'+$name+'.ps1')),[ref]$tokens,[ref]$errors)
  Check ($errors.Count -eq 0) ('Parse failed: '+$name)
 }
+$emptyRejected=$false
+try{$null=Invoke-ActivationSSH -Payload '' -RemoteCode '' -KnownHosts '' -VpsIP '' -SSHUser ''}catch{$emptyRejected=$_.Exception.Message -like 'ACTIVATION_SSH_ARGUMENTS_INVALID*'}
+Check $emptyRejected 'Empty transport arguments were not rejected before process start'
 Check ((Quote-ActivationSSH 'C:\Users\Test Owner\') -ceq '"C:\Users\Test Owner\\"') 'SSH argument quoting lost trailing slash'
 $source=[IO.File]::ReadAllText((Join-Path $root 'tools/windows/update-activation-vps.ps1'))
 Check (!$source.Contains("'bootstrap-fresh-pc.ps1'")) 'Deployment must not source enrollment bootstrap'
@@ -36,10 +39,10 @@ public class ActivationSSHFixture {
  Add-Type -TypeDefinition $program -OutputAssembly (Join-Path $fixture 'ssh.exe') -OutputType ConsoleApplication
  $env:PATH=$fixture+';'+$env:PATH
  $sshFixtureArguments=@{Payload='success';RemoteCode='print("unused fixture")';KnownHosts=(Join-Path $fixture 'known_hosts');VpsIP='127.0.0.1';SSHUser='fixture';SSHPort=1}
- $ok=Invoke-ActivationSSH @args
+ $ok=Invoke-ActivationSSH @sshFixtureArguments
  Check ($ok.Trim() -eq 'SAFE_FIXTURE_OK') 'Redirected success output/exit was lost'
  $sshFixtureArguments.Payload='fail';$failed=$false
- try{$null=Invoke-ActivationSSH @args}catch{$failed=$true;Check ($_.Exception.Message -like 'ACTIVATION_REMOTE_OPERATION_FAILED*') 'Wrong failure code';Check (!$_.Exception.Message.Contains('no installation performed')) 'False unchanged-installation claim'}
+ try{$null=Invoke-ActivationSSH @sshFixtureArguments}catch{$failed=$true;Check ($_.Exception.Message -like 'ACTIVATION_REMOTE_OPERATION_FAILED*') 'Wrong failure code';Check (!$_.Exception.Message.Contains('no installation performed')) 'False unchanged-installation claim'}
  Check $failed 'Nonzero redirected SSH exit was accepted'
  Write-Host 'PASS native redirected ssh.exe success/failure, wait/exit validation and no false VPS-unchanged claim'
 }finally{$env:PATH=$oldPath;Remove-Item -LiteralPath $fixture -Recurse -Force}

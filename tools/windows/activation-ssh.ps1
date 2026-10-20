@@ -3,6 +3,7 @@
 function Quote-ActivationSSH([string]$Value){return '"'+[regex]::Replace([regex]::Replace($Value,'(\\*)"','$1$1\"'),'(\\+)$','$1$1')+'"'}
 function Invoke-ActivationSSH {
  param([string]$Payload,[string]$RemoteCode,[string]$KnownHosts,[string]$VpsIP,[string]$SSHUser,[int]$SSHPort=22)
+ foreach($value in @($Payload,$RemoteCode,$KnownHosts,$VpsIP,$SSHUser)){if([string]::IsNullOrEmpty($value)){throw 'ACTIVATION_SSH_ARGUMENTS_INVALID; no process started; VPS unchanged by this request'}}
  $encoded=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($RemoteCode))
  $remote="python3 -c `"exec(__import__('base64').b64decode('$encoded'))`""
  if($SSHUser -ne 'root'){$remote='sudo -n '+$remote}

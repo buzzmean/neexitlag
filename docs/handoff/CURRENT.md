@@ -1456,3 +1456,12 @@ actual native Windows rerun — после push, фактический резу
 принимает optional BOM (существующий успешный путь owner SSH); native fixture теперь
 читает raw stdin StreamReader с BOM detection, как сервер, и проверяет оба exit path.
 На Core свойство позволяет задать UTF-8 явно. История не переписывается.
+
+Коррекция диагноза Windows fixture (09b7fa4 CI): BAD_FIXTURE_INPUT_LENGTH=0.
+Причина оказалась не BOM, а оставшийся @args после переименования hashtable в
+$sshFixtureArguments. В production updater аргументы передаются именованно, этот
+дефект относится к новому тесту. Исправлены оба splat; транспорт дополнительно
+отвергает пустые параметры до Process.Start без prompt/SSH. Предположение о BOM
+не является установленной причиной исходного VPS отказа. Conditional encoding
+на Core и BOM-aware raw reader fixture совместимы с Python JSON и Framework.
+CA/systemd исправление неизменно; оба actual isolated systemd variants PASS.
