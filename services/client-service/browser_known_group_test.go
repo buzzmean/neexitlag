@@ -130,3 +130,25 @@ func TestBrowserKnownGroupsDNSRecoveryNotStarvedByOrdinaryProbes(t *testing.T) {
 		t.Fatal("ordinary probes starved bounded DNS recovery", calls, got, err)
 	}
 }
+
+func TestBrowserKnownGroupsPreserveVerifiedDNSPlanForQueuedRequests(t *testing.T) {
+	c, cur := timeoutFixture(t)
+	dst := netip.MustParseAddrPort("8.8.8.8:443")
+	p := browserproxy.Plan{Enabled: true, Network: cur.network, Destination: dst, Policy: browserDNSPolicy(cur), Probe: "DNS_RELAY_HTTP_VERIFIED", HTTPStatus: 200, DNSRecovery: &browserproxy.DNSRecoveryResult{Verified: true, Destination: dst}}
+	_, got, _ := c.openBrowserPlan(context.Background(), cur, browserproxy.Request{Host: "web.telegram.org", Port: 443, Secure: true}, p, func(_ context.Context, _ browserproxy.Request, actual browserproxy.Plan) (net.Conn, error) {
+		if actual.Probe != "DNS_RELAY_HTTP_VERIFIED" || actual.Policy.Action != flowpolicy.RelayRequired || actual.Policy.Fallback != flowpolicy.Required || actual.Destination != dst || actual.DNSRecovery == nil || !actual.DNSRecovery.Verified {
+			t.Fatal("verified DNS evidence lost", actual)
+		}
+		return nil, errors.New("isolated session failure")
+	})
+	if got.Probe != p.Probe || got.HTTPStatus != 200 {
+		t.Fatal(got)
+	}
+	cur.profile.Rules = []flowpolicy.Rule{{ID: "block", Domains: []string{"telegram.org"}, Action: flowpolicy.Block}}
+	_, _, _ = c.openBrowserPlan(context.Background(), cur, browserproxy.Request{Host: "web.telegram.org", Port: 443, Secure: true}, p, func(_ context.Context, _ browserproxy.Request, actual browserproxy.Plan) (net.Conn, error) {
+		if actual.Policy.Action != flowpolicy.Block {
+			t.Fatal("cached Required plan ignored newer BLOCK", actual)
+		}
+		return nil, errors.New("blocked")
+	})
+}

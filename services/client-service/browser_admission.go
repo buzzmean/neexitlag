@@ -53,9 +53,16 @@ func (c *Controller) browserOpenPlan(ctx context.Context, q browserproxy.Request
 }
 func (c *Controller) openBrowserPlan(ctx context.Context, current profilesResult, q browserproxy.Request, p browserproxy.Plan, open func(context.Context, browserproxy.Request, browserproxy.Plan) (net.Conn, error)) (net.Conn, browserproxy.Plan, error) {
 	if p.Enabled && current.enabled && q.Port != 53 && flowpolicy.KnownBrowserRelayGroup(q.Host) != "" {
-		p.Policy = c.browserFlow(current.profile, current.id, wp.Tuple{Protocol: "tcp", Destination: p.Destination}, q.Host, current.network)
+		currentPolicy := c.browserFlow(current.profile, current.id, wp.Tuple{Protocol: "tcp", Destination: p.Destination}, q.Host, current.network)
+		if currentPolicy.Action == flowpolicy.Block || p.Policy.Action != flowpolicy.RelayRequired || p.Policy.Fallback != flowpolicy.Required {
+			p.Policy = currentPolicy
+		}
 		p.DirectAttempts, p.DirectIndex, p.DirectCandidates = 0, 0, nil
-		p.Probe = "KNOWN_RELAY_FIRST"
+		// A queued request may already hold the verified DNS pin. Keep its
+		// origin verification evidence rather than relabeling it as unprobed.
+		if p.DNSRecovery == nil || !p.DNSRecovery.Verified || p.Probe != "DNS_RELAY_HTTP_VERIFIED" {
+			p.Probe = "KNOWN_RELAY_FIRST"
+		}
 		return c.openKnownBrowserGroup(ctx, current, q, p, open)
 	}
 	// A sibling may have confirmed the group while this request was planning.
