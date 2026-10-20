@@ -1,6 +1,6 @@
 # CURRENT — состояние проекта (обновляется в конце каждой сессии)
 
-Обновлено: 20.10.2026, Codex; `codex/work`, база a86d5e5. Подготовлен explicit VPS binary upgrade без старых client credentials: memory-only read-only report, Root SSH/SHA/backup/pg_dump/recovery и локальная временная identity с отзывом. Исправлен capability key default_lease_seconds. Один итоговый commit; детали — (x). На production ничего не выполнялось; PR #8 не трогался.
+Обновлено: 20.10.2026, Codex; `codex/work`, база 9a355b6. Fresh-PC browser/PAC repair: explicit регистрация обоих браузеров при уже активной оптимизации, защита PAC-активации от native timer race, безопасные коды/состояния и локальный repair без SSH/enroll/CA rotation. Один итоговый commit; детали — (y). VPS не выполнялся; этап (в) и PR #8 без изменений.
 
 ## (a) Цель
 Чистый Windows 10/11: установил, нажал «Оптимизировать» — заблокированные в РФ сервисы работают без VPN: ChatGPT, Claude, YouTube, Discord, Telegram, браузеры Chrome и Edge. Первый заказчик — клуб на 36 ПК с откатом при перезагрузке.
@@ -56,6 +56,7 @@
 | Fresh-PC: Default linked-query regression | `tools/windows/{fresh-pc-execution,bootstrap-fresh-pc}.ps1`, `tests/windows-tools/fresh-pc-checks.ps1`, `docs/FRESH_PC_ENROLLMENT.md`, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; один коммит по требованию владельца. Exact owner facts + Default query errors covered; actual owner Windows retest не выполнен; без VPS |
 | Fresh-PC: DWORD token ABI fix | `tools/windows/fresh-pc-execution.ps1`, `tests/windows-tools/fresh-pc-checks.ps1`, `docs/FRESH_PC_ENROLLMENT.md`, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; один итоговый commit по требованию владельца. ABI/reflection/result-validator и exact owner fixture PASS; actual owner Windows не проверен, без VPS |
 | Fresh-PC: VPS binary preparation without old identity | `deploy/vps/{fresh-pc-ssh,fresh-vps-upgrade,production-upgrade,rotate-fresh-pc-ca}.py`, `tools/windows/bootstrap-fresh-pc.ps1`, `tools/fresh-pc/*`, deployment/PS/Go tests, docs/FRESH_PC_ENROLLMENT.md, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена. Один итоговый commit по требованию владельца. Только isolated tests; production SSH/upgrade/rotation не выполнялись |
+| Fresh-PC PAC readiness | `apps/desktop{,-core}/Fresh*`, `ChromeRouting.cs`, `BrowserNative.cs`, browser readiness/status/errors, `tools/windows/bootstrap-fresh-pc.ps1`, desktop/Go/PS tests, FRESH_PC_ENROLLMENT.md, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; один итоговый commit по требованию владельца; локальные проверки, реальный Windows/ISP ретест ещё нужен; VPS/CA/enroll не запускались |
 | Discord медленно, DIRECT+ для YouTube | не определены | никто | — | свободно для Codex после диагностики; Go-файлы застоя (выше) не трогать |
 | PR #8, `codex/direct-plus-flowseal` | — | не трогать | — | только владелец |
 
@@ -81,6 +82,12 @@
 Управление флагом YouTube: `settings.set` с полным объектом Settings и `"youtube_via_relay": true` означает relay-first сразу для ordinary YouTube. По умолчанию выключен; аварийный fallback от него не зависит. Configured DIRECT+ и protected rules не заменяются.
 
 ## (h) Журнал решений
+
+20.10.2026: после успешной установки identity восстановление browser lane — локальный
+`-RepairBrowserReadiness`; никаких повторных RotateCA/enroll. Fresh-регистрация
+использует DIRECT staging при активной оптимизации и требует AUTO + PAC/owner proof
+для каждого установленного браузера. Native timer не вмешивается в PAC activation.
+Старый диалог/штатный restart сохраняется, этап (в) не разрешён.
 | Дата | Решение | Почему |
 |---|---|---|
 | 20.10.2026 | Explicit binary preparation перед CA: local VPS-only proof новой временной identity, persistent journal/revoke, backup + timer/boot recovery. Исправлен default_lease_seconds вместо lease_seconds | Потерянный PC bundle не нужен для server-side proof; прежний capability-check мог ложно обвинять уже совместимый relay |
@@ -1028,3 +1035,48 @@ Ownership-пометка включена в тот же commit по прямо�
   SSH/upgrade/CA rotation/install/enroll на 2.56.177.4 или veliq-swe-01.
 - Будущий read-only запуск из repo на ПК: `& .\tools\windows\bootstrap-fresh-pc.ps1 -VpsIP 2.56.177.4 -SSHUser root -SSHPort 22 -PreflightVps`.
   Mutating combined command с ДВУМЯ confirmation tokens — в документе, не запускался.
+
+
+## (y) Fresh-PC browser/PAC readiness — локальное исправление
+
+20.10.2026, база `9a355b6`; один commit по требованию владельца.
+
+- Владелец сообщил: production CA rotation committed, desktop ChatGPT/Codex/Claude
+  работают; browser lane не готова. Разработчик VPS не трогал. Повторять CA/enroll
+  для browser failure нельзя. Историческое исключение Chrome было потеряно в
+  старом GUI/PS report; точную его причину на ПК без нового кода не утверждаем.
+- Кодовые дефекты: startup deferred Edge при уже активном capture, fresh setup
+  тихо пропускал его; Chrome cancel возвращался как Task success; report сохранял
+  только exception class и PS скрывал даже phase. Native preparation timer не
+  исключал chromeActivating/edgeActivating и мог менять profile/guard во время
+  legacy PAC nonce transaction. Теперь mutual exclusion и Windows WPF regression.
+- Explicit fresh/repair регистрирует отсутствующие Chrome/Edge как DIRECT staging
+  с полными exe paths, не отключая другие приложения и не вводя pending AUTO в
+  работающий capture. Existing ID/rules/mode сохранены до явной активации;
+  MANUAL/DIRECT+ не переписываются. Edge перед Chrome; каждый installed browser
+  обязан получить AUTO, listening, policy_ready и свой ready_profiles proof.
+  Нет браузеров / отмена / ambiguous profile не получают PASS.
+- Chrome: listeners/recovery до guard/quit, окончательный nonce после guard/quit,
+  реальный headless policy GET, confirm, AUTO commit, затем восстановление вкладок.
+  При отказе profile rollback и owned protected guard остаются; foreign policy не
+  меняется. Диалог и штатный quit/restart НЕ удалены; этап (в) не начат.
+- Chrome browser.status добавляет безопасные last_error/readiness_state без raw
+  ошибок/путей/nonce; Go regressions bind failure / missing proof / prepare при
+  active capture. GUI сохраняет fixed phase/code/browser + bounded state allowlist.
+  PS печатает PAC_READINESS_FAILED и browser/edge.status даже при optional полях,
+  отличает GUI early exit, timeout и malformed report; deadline sample не теряется.
+- `bootstrap-fresh-pc.ps1 -RepairBrowserReadiness` — только существующие service/
+  identity; owner/token проверки прежние, без SSH/build/enroll/rotation/install.
+  Запускается после обновления GUI/службы и выхода только VELIQ через трей.
+  Комбинации с server/ServicePhase flags отвергаются до каких-либо действий.
+  Инструкция — docs/FRESH_PC_ENROLLMENT.md, раздел browser/PAC repair.
+- Локально: C# 135 unit tests PASS; WPF/native-host cross-build PASS (прежние
+  nullable warnings в recovery); PS7 parser/token/mode/PAC redaction/timeout/
+  early-exit/boundary fixtures PASS; deployment Python 40 PASS; Go race, vet и
+  Linux/Windows amd64 builds проверены. Actual Windows WPF regression добавлена в CI; локально только cross-build.
+  Bootstrap на owner UAC-off ПК/Internet после fix НЕ проверен.
+- Не менялись TLS/mTLS/owner SID/ACL/WinDivert/маршрутизация игр/production VPS,
+  credentials/CA/сертификаты/PR #8. diag-result/cs-diag/observe-result не добавлены.
+- ПК: обновить службу/GUI существующими update scripts, затем
+  `& .\tools\windows\bootstrap-fresh-pc.ps1 -VpsIP 2.56.177.4 -SSHUser root -RepairBrowserReadiness`.
+  Принять старые dialogs штатного browser restart; при отказе не повторять enrollment.

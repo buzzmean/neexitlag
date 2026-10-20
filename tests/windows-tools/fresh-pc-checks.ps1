@@ -13,7 +13,7 @@ $path=Join-Path $PSScriptRoot '..\..\tools\windows\bootstrap-fresh-pc.ps1'
 $tokens=$null;$errors=$null
 $ast=[System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw ($errors|Out-String)}
-foreach($name in @('Require-FreshPin','Fresh-Property','Assert-FreshSummary','Wait-FreshServiceStartup','Fresh-Quote','Assert-FreshVpsPreparation')){
+foreach($name in @('Require-FreshPin','Fresh-Property','Assert-FreshSummary','Wait-FreshServiceStartup','Fresh-Quote','Assert-FreshVpsPreparation','Fresh-Optional','Fresh-SafeBrowserCode','Write-FreshPacFailure','Invoke-FreshPacReadiness')){
  $fn=$ast.Find({param($a)$a -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $a.Name -eq $name},$true)
  if(!$fn){throw "Missing $name"};Invoke-Expression $fn.Extent.Text
 }
@@ -185,3 +185,42 @@ if($env:OS -eq 'Windows_NT'){
  Check ($actual.ElevationTypeBufferLength -eq 4 -and $actual.ElevationBufferLength -eq 4 -and $actual.RestrictedBufferLength -eq 4) 'Actual Windows DWORD buffer length changed'
 }
 Write-Host 'PASS UAC/token matrix, restricted-token refusal, same-SID dispatch and user-profile paths'
+
+# Exercise the production PAC wait/report functions with a fake child only.
+# Never start a GUI, contact SSH, mutate policy or install a service here.
+$pacFolder=Join-Path ([IO.Path]::GetTempPath()) ('veliq-pac-test-'+[Guid]::NewGuid().ToString('N'))
+[void][IO.Directory]::CreateDirectory($pacFolder)
+$script:pacReport=Join-Path $pacFolder 'report.json';$script:pacScenario='failed';$script:pacOutput=[Collections.Generic.List[string]]::new()
+function Write-Host {param($Object)$script:pacOutput.Add([string]$Object)}
+function Invoke-ServiceIPC {param($Method) return [pscustomobject]@{listening=$false;policy_ready=$false;ready_profiles=@();last_error='secret-must-not-escape'}}
+function Start-Process {
+ param($FilePath,$ArgumentList,[switch]$PassThru)
+ if($script:pacScenario -eq 'failed'){[IO.File]::WriteAllText($script:pacReport,'{"pass":false,"stage":"chrome.quit","code":"CHROME_STILL_RUNNING","browser":"chrome","secret":"do-not-print"}')}
+ if($script:pacScenario -eq 'ready'){[IO.File]::WriteAllText($script:pacReport,'{"pass":true}')}
+ $child=[pscustomobject]@{HasExited=($script:pacScenario -eq 'exit')}
+ $child|Add-Member ScriptMethod Refresh {
+  if($script:pacScenario -eq 'boundary'){
+   [IO.File]::WriteAllText($script:pacReport,'{"pass":true}');$this.HasExited=$true
+  }
+ }; $child|Add-Member ScriptMethod Dispose {};return $child
+}
+try{
+ Reject {Invoke-FreshPacReadiness 'fake.exe' $script:pacReport 0}
+ Check (($script:pacOutput -join '\n').Contains('code=CHROME_STILL_RUNNING browser=chrome phase=chrome.quit')) 'Original GUI failure code missing'
+ Check (($script:pacOutput -join '\n').Contains('browser.status listening=False policy_ready=False readiness_state=UNKNOWN')) 'Missing optional fields broke status diagnostics'
+ Check (($script:pacOutput -join '\n') -notmatch 'secret-must|do-not-print') 'Failure diagnostics exposed raw payload'
+ $script:pacScenario='timeout';$script:pacOutput.Clear()
+ Reject {Invoke-FreshPacReadiness 'fake.exe' $script:pacReport 0}
+ Check (($script:pacOutput -join '\n').Contains('GUI_PAC_READINESS_TIMEOUT')) 'Timeout not diagnosed'
+ $script:pacScenario='exit';$script:pacOutput.Clear()
+ Reject {Invoke-FreshPacReadiness 'fake.exe' $script:pacReport 0}
+ Check (($script:pacOutput -join '\n').Contains('GUI_PAC_READINESS_NO_REPORT')) 'GUI singleton/early exit waits full deadline'
+ $script:pacScenario='ready'
+ Invoke-FreshPacReadiness 'fake.exe' $script:pacReport 0
+ $script:pacScenario='boundary'
+ Invoke-FreshPacReadiness 'fake.exe' $script:pacReport 0
+}finally{
+ Remove-Item Function:Write-Host,Function:Invoke-ServiceIPC,Function:Start-Process
+ Remove-Item -LiteralPath $pacFolder -Recurse -Force
+}
+Write-Host 'PASS PAC failure codes/status redaction, early exit, timeout and last-boundary report'

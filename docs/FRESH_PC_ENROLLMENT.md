@@ -449,3 +449,61 @@ PostgreSQL 17, vet, Linux/Windows amd64 builds PASS. PostgreSQL test време�
 identity проверяет отзыв, ошибку публикации и безопасный retry; mTLS `/3` +
 signed ticket + TCP/UDP fixture остаётся настоящим локальным транспортным тестом.
 Это не production systemd/SSH upgrade PASS; разработчик на VPS ничего не запускал.
+
+### Восстановление только browser/PAC после успешного enroll
+
+Если CA rotation уже committed, служба подключена и desktop-приложения работают,
+**не повторяйте RotateCA, enroll и установку службы с нуля**. Ошибка `pac_readiness`
+не отменяет уже установленную identity. Новый локальный режим не вызывает SSH,
+не читает CA private key, не меняет сертификаты или настройки VPS.
+
+В существующем репозитории под тем же владельцем установки: выйдите **только из
+VELIQ** через трей. Далее PowerShell (для обновления службы — администратор того
+же SID; при проверенном UAC-off используется текущее full-admin окно):
+
+```powershell
+git switch codex/work
+git pull --ff-only origin codex/work
+& .\tools\windows\build-e2e.ps1
+& .\tools\windows\build-desktop.ps1
+& .\tools\windows\update-service.ps1
+& .\tools\windows\install-desktop.ps1
+& .\tools\windows\bootstrap-fresh-pc.ps1 -VpsIP 2.56.177.4 -SSHUser root -RepairBrowserReadiness
+```
+
+Здесь IP/user сохраняют совместимость параметров bootstrap, SSH в этом режиме
+**не запускается**. Не совмещайте repair с PreflightVps/UpgradeVpsBinaries/RotateCA.
+При UAC-on GUI/repair запускается обычным владельцем; elevated нужен только
+update-service. При UAC-off token-проверки, owner SID и ACL не ослабляются.
+
+Этап (в) не выполнен: остаются прежние диалоги подтверждения штатного выхода и
+восстановления вкладок Edge/Chrome. VELIQ не завершает браузеры принудительно и
+не удаляет их данные. Если браузер не закрылся, код `CHROME_STILL_RUNNING`
+объясняет отказ до listener; разрешите штатное закрытие или закройте браузер
+самостоятельно, затем повторите **локальный repair**, а не CA rotation.
+Не заявляется применение нового PAC к старым соединениям давно открытого браузера.
+
+Исправлен отдельный путь fresh-регистрации: при уже активной оптимизации отсутствующий
+Edge создаётся как DIRECT staging, без блокирующего pending AUTO. Оба установленных
+браузера проходят PAC-подготовку (Edge перед Chrome), подтверждение owner/nonce и
+commit AUTO. Свежая регистрация не пропускает DEFERRED Edge и не считает пустой
+список браузеров успехом. Штатная пассивная регистрация GUI сохраняет свои правила.
+Рабочий PAC ставится после listener/recovery; при отказе остаётся защитный guard,
+а не открывается DIRECT для protected-доменов. Native AUTO не заменяет начальную
+проверку PAC и не включается без owned crash-guard.
+
+При ошибке выводятся `PAC_READINESS_FAILED code=... browser=... phase=...`, затем
+`browser.status` и `edge.status`: listening, policy_ready, readiness_state,
+last_error (фиксированный код), число ready_profiles. В GUI-отчёте
+`.e2e\fresh-pc\gui-readiness.json` только безопасные фазы/коды и состояния,
+без PAC, nonce, URL, ключей и произвольных текстов исключений. Нажатие «Нет»
+явно возвращает BROWSER_ACTIVATION_CANCELLED, а не продолжается как успех.
+Chrome IPC теперь сохраняет last_error/readiness_state аналогично Edge.
+
+Исходное исключение владельца до этого исправления было потеряно: точную причину
+неудачи именно Chrome на том ПК нельзя восстановить из RuntimeException.
+Подтверждены дефекты пропуска Edge при активной оптимизации, потери диагностики
+и возможность гонки GUI timer native-adoption с незавершённой PAC-активацией;
+на время активации обоих браузеров этот timer-путь теперь закрыт. Chrome сначала
+запускает listener/recovery, затем guard, штатный выход и новый nonce/рабочий PAC;
+новый путь требует короткой реальной Windows-проверки, Internet PASS не заявлен.

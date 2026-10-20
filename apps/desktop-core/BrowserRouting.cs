@@ -1,9 +1,11 @@
 using System.Collections.ObjectModel;
 namespace Neexitlag.Desktop;
-public sealed class ChromeActivationException(string message) : Exception(message) { }
+public sealed class ChromeActivationException(string message, string phase = "chrome.activation", string code = "CHROME_ACTIVATION_FAILED") : Exception(message) {
+ public string Phase {get;}=phase; public string Code {get;}=code;
+}
 public sealed class BrowserRecoverySettings {public string GuardFile {get;set;}="";public string Primary {get;set;}="";public string Executable {get;set;}="";public string ProfileId {get;set;}="";public string[] ProtectedDomains {get;set;}=[];public bool Strict {get;set;}}
 public sealed class BrowserLaunch {public string RecoveryProgram {get;set;}="";public BrowserRecoverySettings RecoverySettings {get;set;}=new();public IEnumerable<string> UserArguments()=>Arguments.Where(p=>!p.StartsWith("--proxy-",StringComparison.Ordinal)&&p!="--no-proxy-server");public string[] RecoveryArguments {get;set;}=[]; public string HealthUrl {get;set;}=""; public string[] Arguments {get;set;}=[]; public string Address {get;set;}=""; public string Scope {get;set;}=""; }
-public sealed class BrowserTransportSnapshot {public string RecoveryAddress {get;set;}="";public string[] ReadyProfiles {get;set;}=[];public Dictionary<string,ulong> Failures {get;set;}=[];public bool Listening {get;set;}public bool Truncated {get;set;}public ulong Lost {get;set;}BrowserConnection[] records=[];public BrowserConnection[] Records {get=>records;set=>records=value??[];}}
+public sealed class BrowserTransportSnapshot {public bool PolicyReady {get;set;} public string ReadinessState {get;set;}="";public string LastError {get;set;}="";public string RecoveryAddress {get;set;}="";public string[] ReadyProfiles {get;set;}=[];public Dictionary<string,ulong> Failures {get;set;}=[];public bool Listening {get;set;}public bool Truncated {get;set;}public ulong Lost {get;set;}BrowserConnection[] records=[];public BrowserConnection[] Records {get=>records;set=>records=value??[];}}
 public sealed class BrowserOwner {public uint Pid {get;set;} public ulong CreationTime {get;set;} public string Exe {get;set;}="";public string ProfileId {get;set;}="";}
 public sealed class BrowserPlan {public FlowPolicyEvidence Policy {get;set;}=new();public string Probe {get;set;}="";public int HttpStatus {get;set;}}
 public sealed class BrowserConnection {public string EvidenceSource {get;set;}="";public DateTimeOffset Started {get;set;}
@@ -36,10 +38,13 @@ public sealed partial class DesktopViewModel {
   var diagnostics=await ChromeStatusAsync(ct);
   throw new ChromeActivationException(Text.Get("ChromeActivationFailed")+" "+string.Join(", ",diagnostics.Failures.Where(p=>p.Value>0).Select(p=>p.Key).Take(8)));
  }
- public async Task ActivatePreparedChromeAsync(Profile original,BrowserLaunch launch,Func<Task> probe,Func<Task> launchUserChrome,CancellationToken ct=default){
+ public async Task ActivatePreparedChromeAsync(Profile original,BrowserLaunch launch,Func<Task> probe,Func<Task> launchUserChrome,CancellationToken ct=default,Action<string>? phase=null){
   await probe();
+  phase?.Invoke("browser.confirm");
   await VerifyChromeAsync(original,launch,ct);
+  phase?.Invoke("profile.set");
   await CommitChromeAsync(original,ct);
+  phase?.Invoke("chrome.launch");
   await launchUserChrome();
  }
  public async Task RestoreOptimizationAsync(bool enabled,CancellationToken ct=default){

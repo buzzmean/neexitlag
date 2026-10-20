@@ -90,6 +90,10 @@ func TestChromePrepareBindFailurePreservesPreviousRouting(t *testing.T) {
 	if c.enabled || c.browser.server != nil || current.Mode != profiles.Direct {
 		t.Fatal("failed prepare mutated routing/capture")
 	}
+	view, statusErr := c.Handle(context.Background(), "browser.status", nil)
+	if statusErr != nil || view.(browserStatusView).LastError != "browser.prepare: CHROME_LISTENER_BIND_FAILED" {
+		t.Fatal("listener failure was not diagnosed safely", view, statusErr)
+	}
 }
 
 func TestOptimizeCannotArmLegacyChromeAUTOWithoutPAC(t *testing.T) {

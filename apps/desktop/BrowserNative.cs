@@ -7,7 +7,7 @@ public partial class MainWindow
     readonly HashSet<string> nativeBrowserPolicyRefreshed = [];
     async Task PrepareNativeBrowsersAsync(bool forOptimize = false)
     {
-        if (nativeBrowsersActivating || !model.Available || model.Busy || (!forOptimize && !model.Optimizing)) return;
+        if (chromeActivating || edgeActivating || nativeBrowsersActivating || !model.Available || model.Busy || (!forOptimize && !model.Optimizing)) return;
         nativeBrowsersActivating = true;
         try
         {

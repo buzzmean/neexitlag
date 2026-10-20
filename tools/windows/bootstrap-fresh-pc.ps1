@@ -5,6 +5,7 @@ param(
  [Parameter(Mandatory=$true)][ValidatePattern('^[a-z_][a-z0-9_-]{0,31}$')][string]$SSHUser,
  [ValidateRange(1,65535)][int]$SSHPort=22,
  [string]$CaFingerprint='',
+ [switch]$RepairBrowserReadiness,
  [switch]$PreflightVps,
  [switch]$UpgradeVpsBinaries,
  [string]$ConfirmVpsUpgrade='',
@@ -59,6 +60,62 @@ function Wait-FreshServiceStartup([int]$TimeoutMilliseconds=60000){
   if([DateTime]::UtcNow -ge $until){throw 'SERVICE_CONTROLPLANE_OR_NETWORK_STARTUP_TIMEOUT'}
   Start-Sleep -Milliseconds 500
  }
+}
+function Fresh-Optional($Object,[string]$Name){
+ if($null -eq $Object){return $null};$p=$Object.PSObject.Properties[$Name];if($null -ne $p){return $p.Value};return $null
+}
+function Fresh-SafeBrowserCode($Value){
+ $code=[string]$Value
+ # Only fixed code vocabulary/prefixes; never arbitrary exception/IPC messages.
+ $allowed=@('BROWSER_SETUP_FAILED','BROWSER_PROFILE_AMBIGUOUS','BROWSER_PROFILE_REGISTRATION_FAILED','BROWSER_PROFILE_MODE_CONFLICT','BROWSER_NOT_INSTALLED','BROWSER_EXECUTABLE_UNAVAILABLE','BROWSER_AUTO_NOT_COMMITTED','BROWSER_PAC_NOT_READY','BROWSER_ACTIVATION_CANCELLED','BROWSER_SERVICE_UNAVAILABLE','BROWSER_OPTIMIZE_FAILED','CHROME_ACTIVATION_BUSY','CHROME_STILL_RUNNING','CHROME_ACTIVATION_FAILED','CHROME_LISTENER_BIND_FAILED','CHROME_PREPARE_FAILED','CHROME_READINESS_NOT_OBSERVED','CHROME_POLICY_NOT_OWNED','CHROME_RECOVERY_START_FAILED','CHROME_RECOVERY_FAILED','CHROME_ROLLBACK_FAILED','CHROME_POLICY_FAILED','EDGE_READINESS_NOT_OBSERVED','EDGE_READINESS_EXPIRED','EDGE_PREPARE_REQUIRED','EDGE_PROFILE_NOT_FOUND','EDGE_RECOVERY_FAILED','EDGE_BROWSER_POLICY_NOT_OBSERVED','EDGE_POLICY_MANAGED','EDGE_POLICY_ACCESS_DENIED','EDGE_OWNER_SID_REQUIRED','EDGE_LISTENER_BIND_FAILED','EDGE_OPERATION_FAILED','EDGE_IPC_ACCESS_DENIED','EDGE_IPC_UNSUPPORTED','EDGE_SERVICE_UNAVAILABLE','EDGE_LAUNCH_FAILED','EDGE_GUARD_STATE_WRITE_FAILED','NATIVE_OWNED_PAC_GUARD_REQUIRED','GUI_PAC_READINESS_TIMEOUT','GUI_PAC_READINESS_NO_REPORT','GUI_PAC_REPORT_INVALID','GUI_PAC_START_FAILED')
+ foreach($known in $allowed){if($code -ceq $known -or $code.EndsWith(': '+$known,[StringComparison]::Ordinal)){return $known}}
+ return 'BROWSER_SETUP_FAILED'
+}
+function Write-FreshPacFailure($Report,[string]$FallbackCode){
+ $code=Fresh-SafeBrowserCode (Fresh-Optional $Report 'code')
+ if($code -eq 'BROWSER_SETUP_FAILED'){$code=Fresh-SafeBrowserCode $FallbackCode}
+ $browser=[string](Fresh-Optional $Report 'browser');if($browser -notin @('chrome','edge','both')){$browser='both'}
+ $phase=[string](Fresh-Optional $Report 'stage')
+ if($phase -notin @('service','profiles','edge_pac','chrome_pac','optimize','verify_pac','chrome.activation','chrome.quit','chrome.processes','chrome.policy.check','chrome.policy.install','chrome.recovery','browser.prepare','browser.confirm','chrome.browser_probe','chrome.launch','chrome.rollback','edge.prepare','edge.confirm','edge.policy','edge.recovery','edge.browser_probe','edge.launch','profile.set')){$phase='pac_readiness'}
+ Write-Host "PAC_READINESS_FAILED code=$code browser=$browser phase=$phase"
+ foreach($lane in @('browser','edge')){
+  try{
+   $view=Invoke-ServiceIPC ($lane+'.status')
+   $listening=Fresh-Optional $view 'listening';if($listening -isnot [bool]){$listening='unknown'}
+   $policy=Fresh-Optional $view 'policy_ready';if($policy -isnot [bool]){$policy='unknown'}
+   $readiness=[string](Fresh-Optional $view 'readiness_state')
+   if($readiness -notin @('NOT_PREPARED','PREPARED','PAC_READY','READY','PAC_NONCE_CONFIRMED','NATIVE_ARMED_PAC_GUARD','GUARDED','LISTENER_UNAVAILABLE','OWNER_NONCE_VERIFIED','NONCE_INVALIDATED','NONCE_EXPIRED','WAITING_FOR_BROWSER_REQUEST','NATIVE_CAPTURE_NOT_READY','NATIVE_ARMED_NO_NEW_FLOW','NATIVE_UPSTREAM_OPENED_NO_EXCHANGE','NATIVE_TUNNEL_OBSERVED','PAC_TUNNEL_OBSERVED_NATIVE_IDLE')){$readiness='UNKNOWN'}
+   $last=[string](Fresh-Optional $view 'last_error');if($last -ne ''){$last=Fresh-SafeBrowserCode $last}
+   $profiles=Fresh-Optional $view 'ready_profiles';$count=@($profiles | Where-Object {$null -ne $_}).Count
+   Write-Host "$lane.status listening=$listening policy_ready=$policy readiness_state=$readiness last_error=$last ready_profiles_count=$count"
+  }catch{Write-Host "$lane.status query=FAILED listening=unknown policy_ready=unknown readiness_state=UNKNOWN last_error=STATUS_QUERY_FAILED"}
+ }
+}
+function Invoke-FreshPacReadiness([string]$Gui,[string]$Report,[int]$TimeoutMilliseconds=300000){
+ $ready=$null;$failure='GUI_PAC_START_FAILED';$process=$null
+ try{
+  Remove-Item -LiteralPath $Report -Force -ErrorAction SilentlyContinue
+  $process=Start-Process $Gui -ArgumentList @('--fresh-pc-setup',(Fresh-Quote $Report)) -PassThru
+  $failure='GUI_PAC_READINESS_TIMEOUT';$until=[DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+  while($true){
+   # Evidence check precedes deadline/exit, including the last boundary sample.
+   if(Test-Path -LiteralPath $Report){break}
+   $process.Refresh()
+   if($process.HasExited -or [DateTime]::UtcNow -ge $until){
+    # A report can be atomically published between the first sample and exit.
+    if(Test-Path -LiteralPath $Report){break}
+    if($process.HasExited){$failure='GUI_PAC_READINESS_NO_REPORT'};throw $failure
+   }
+   Start-Sleep -Milliseconds 500
+  }
+  $failure='GUI_PAC_REPORT_INVALID'
+  if((Get-Item -LiteralPath $Report).Length -gt 32768){throw $failure}
+  $ready=Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json
+  if((Fresh-Optional $ready 'pass') -cne $true){$failure=Fresh-SafeBrowserCode (Fresh-Optional $ready 'code');throw $failure}
+ }catch{
+  Write-FreshPacFailure $ready $failure
+  throw 'GUI_PAC_READINESS_FAILED; local browser setup retained, inspect PAC_READINESS_FAILED above; do not rotate CA again'
+ }finally{if($null -ne $process){$process.Dispose()}}
 }
 function Fresh-Quote([string]$Value){return '"'+[regex]::Replace([regex]::Replace($Value,'(\\*)"','$1$1\"'),'(\\+)$','$1$1')+'"'}
 function Invoke-FreshSSH([string]$Payload,[string]$RemoteCode,[string]$KnownHosts){
@@ -121,6 +178,7 @@ function Invoke-FreshPC {
  if($VpsIP -ne '2.56.177.4'){throw 'This owner bootstrap is scoped to existing VPS 2.56.177.4'}
  $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
  $bin=Join-Path $root 'bin\windows-e2e';$helper=Join-Path $bin 'fresh-pc.exe';$driver=Join-Path $root '.e2e\windivert'
+ if($RepairBrowserReadiness -and ($PreflightVps -or $UpgradeVpsBinaries -or $RotateCA -or $ServicePhase -or $ConfirmCARotation -ne '' -or $ConfirmVpsUpgrade -ne '' -or $CaFingerprint -ne '' -or $ExpectedCurrentCAFingerprint -ne '')){throw 'BROWSER_REPAIR_IS_LOCAL_ONLY'}
  if($ServicePhase){Install-FreshService $OwnerSid;return}
  $evidence=New-FreshExecutionEvidence
  try{
@@ -133,6 +191,21 @@ function Invoke-FreshPC {
  Write-Host ("Execution mode: $mode; "+(Format-FreshExecutionEvidence $evidence 'ACCEPTED'))
  if($mode -eq 'UAC_DISABLED_FULL_ADMIN'){
   Write-Warning 'UAC is disabled: service installation stays in this process; GUI will also run with full administrator rights, without token lowering. Owner SID/ACL/IPC checks remain enforced.'
+ }
+ if($RepairBrowserReadiness){
+  $script:FreshStage='browser_repair_preflight'
+  $manifest=Get-Content (Join-Path $env:ProgramData 'neexitlag\service.json') -Raw | ConvertFrom-Json
+  if((Fresh-Property $manifest 'owner_sid') -cne $sid){throw 'INSTALLED_OWNER_MISMATCH'}
+  Assert-FreshSummary (Invoke-ServiceIPC 'status')
+  foreach($directory in @($root,(Join-Path $root '.e2e'),$state)){
+   if((Test-Path -LiteralPath $directory) -and ((Get-Item -LiteralPath $directory -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'FRESH_REPARSE_POINT_REFUSED'}
+  }
+  [void][IO.Directory]::CreateDirectory($state)
+  Protect-FreshState $state $sid
+  $script:FreshStage='pac_readiness'
+  Invoke-FreshPacReadiness (Join-Path $env:LOCALAPPDATA 'Programs\VELIQ\VELIQ.exe') (Join-Path $state 'gui-readiness.json')
+  Write-Host 'PASS: local owned browser PAC readiness. No SSH, enroll, CA rotation or service reinstall performed.'
+  return
  }
  if(!$PreflightVps -and (Get-Service neexitlag -ErrorAction SilentlyContinue)){throw 'EXISTING_INSTALLATION_PRESERVED: use the normal updater; fresh bootstrap does not rotate an installed identity'}
  if(!$PreflightVps -and (Test-Path (Join-Path $env:ProgramData 'neexitlag'))){throw 'PRESERVED_INSTALLATION_FOUND: do not delete credentials; use explicit reinstall/update'}
@@ -244,15 +317,10 @@ function Invoke-FreshPC {
  Remove-Item $report -Force -ErrorAction SilentlyContinue
  # Reuses existing GUI PAC+nonce/owner readiness transaction. No fake IPC PASS.
  $script:FreshStage='pac_readiness'
- Start-Process $gui -ArgumentList @('--fresh-pc-setup',(Fresh-Quote $report))|Out-Null
- $until=[DateTime]::UtcNow.AddMinutes(5)
- while(!(Test-Path $report) -and [DateTime]::UtcNow -lt $until){Start-Sleep -Milliseconds 500}
- if(!(Test-Path $report)){throw 'GUI_PAC_READINESS_TIMEOUT; installation retained, no PASS'}
- $ready=Get-Content $report -Raw|ConvertFrom-Json
- if((Fresh-Property $ready 'pass') -cne $true){throw ('GUI_SETUP_FAILED: '+(Fresh-Property $ready 'stage'))}
+ Invoke-FreshPacReadiness $gui $report
  $script:FreshStage='service_status'
  Assert-FreshSummary (Invoke-ServiceIPC 'status')
  Write-Host 'PASS: fresh identity, pinned trust, real TCP+UDP relay, installed service/GUI, owned PAC and Optimize readiness. Website/ISP performance not asserted.'
 }
 if($MyInvocation.InvocationName -eq '.'){return}
-try{Invoke-FreshPC}catch{Write-Error ('FRESH_PC_BOOTSTRAP_FAILED stage='+$script:FreshStage+' class='+$_.Exception.GetType().Name+'; installation/state preserved; see last safe stage/error code above');exit 1}
+try{Invoke-FreshPC}catch{if($script:FreshStage -eq 'pac_readiness'){Write-Host 'FRESH_PC_PAC_FAILURE code=GUI_PAC_READINESS_FAILED; installation retained; use local -RepairBrowserReadiness, not enroll/RotateCA'};Write-Error ('FRESH_PC_BOOTSTRAP_FAILED stage='+$script:FreshStage+' class='+$_.Exception.GetType().Name+'; installation/state preserved; see last safe stage/error code above');exit 1}

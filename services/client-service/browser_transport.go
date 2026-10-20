@@ -30,6 +30,7 @@ type browserRuntime struct {
 	edge            *edgeRuntime // Independent Edge transport; Chrome fields stay unchanged.
 	dns             *browserproxy.DNSRecovery
 	address         string
+	lastError       string
 	expectedPAC     string
 	recoveryAddress string
 	mu              sync.Mutex
@@ -523,18 +524,32 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 	}
 	return plan, errors.New("bounded origin probes exhausted")
 }
-func (c *Controller) handleBrowser(method string, raw json.RawMessage) (any, error) {
+func (c *Controller) handleBrowser(method string, raw json.RawMessage) (result any, err error) {
 	c.browser.mu.Lock()
 	defer c.browser.mu.Unlock()
+	defer func() {
+		if method != "browser.status" {
+			if err != nil {
+				c.browser.lastError = method + ": " + chromeReadinessError(err)
+			} else {
+				c.browser.lastError = ""
+			}
+		}
+	}()
 	if method == "browser.status" {
 		if c.browser.server == nil {
-			view := browserStatusView{Snapshot: browserproxy.Snapshot{ReadyProfiles: []string{}, Failures: map[string]uint64{}, Records: []browserproxy.Record{}}, DirectTimeouts: c.browser.directTimeouts.Stats(), RelayUsage: c.relayUsageLocked()}
+			view := browserStatusView{Snapshot: browserproxy.Snapshot{ReadyProfiles: []string{}, Failures: map[string]uint64{}, Records: []browserproxy.Record{}}, DirectTimeouts: c.browser.directTimeouts.Stats(), RelayUsage: c.relayUsageLocked(), LastError: c.browser.lastError, ReadinessState: "NOT_PREPARED"}
 			view.bound()
 			return view, nil
 		}
 		view := browserStatusView{Snapshot: c.browser.server.Snapshot(), DirectTimeouts: c.browser.directTimeouts.Stats(), RelayUsage: c.relayUsageLocked()}
+		view.LastError = c.browser.lastError
+		view.ReadinessState = "PREPARED"
 		view.RecoveryAddress = c.browser.recoveryAddress
 		view.PolicyReady = wp.ChromeProxyPolicyActive(c.BrowserOwnerSID, c.browser.expectedPAC)
+		if view.PolicyReady && len(view.ReadyProfiles) > 0 {
+			view.ReadinessState = "PAC_READY"
+		}
 		sort.Slice(view.Records, func(i, j int) bool { return view.Records[i].ID > view.Records[j].ID })
 		view.bound()
 		return view, nil
@@ -608,7 +623,7 @@ func (c *Controller) handleBrowser(method string, raw json.RawMessage) (any, err
 	if c.browser.server == nil {
 		server, err := browserproxy.Listen(c.ctx, browserproxy.Config{RequireClientHelloReplay: true, Address: c.browser.address, Authorize: c.browserOwner, AuthorizeForwarded: c.browserRecoveryOwner, Plan: c.browserPlan, Open: c.browserOpen, OpenPlan: c.browserOpenPlan, TransformApplied: c.browserTransform, OnStall: c.browserStall, OnDirectAnswered: c.browserDirectAnswered})
 		if err != nil {
-			return nil, err
+			return nil, errors.New("CHROME_LISTENER_BIND_FAILED")
 		}
 		c.browser.server = server
 		c.browser.address = server.Address()
