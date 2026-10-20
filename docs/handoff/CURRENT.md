@@ -1,6 +1,6 @@
 # CURRENT — состояние проекта (обновляется в конце каждой сессии)
 
-Обновлено: 20.10.2026, Codex; ветка `codex/work`. Telegram/Anthropic browser relay-first реализован (5f413c6, 88a6f61, 5c0d2ec), no_reply причины и diag .8 готовы. Actual Chrome/Edge и Linux Verify tests PASS; workflows красные из-за artifact quota. Локально полный Go race/vet/Linux+Windows builds PASS; test-only async regression fix 5867936 запушен; повторные Chrome/Edge/Linux Verify tests PASS, upload-artifact блокируется квотой. PAC/guard/owner-check/TLS/игры/лимит 8 без изменений; Internet PASS не заявляется. Подробности — (s).
+Обновлено: 20.10.2026, Codex; ветка `codex/work`. Подготовлен fresh-PC bootstrap: локальный CSR, проверка CA pin, root-SSH enrollment и атомарная замена hardware-slot identity; отдельно подтверждаемая CA migration с бэкапом/watchdog/rollback. Один итоговый коммит по требованию владельца, база f51ec66; подробности и проверки — (t). Production/VPS/PR #8 не трогались. Полная установка Windows и production SSH/systemd ещё не проверены.
 
 ## (a) Цель
 Чистый Windows 10/11: установил, нажал «Оптимизировать» — заблокированные в РФ сервисы работают без VPN: ChatGPT, Claude, YouTube, Discord, Telegram, браузеры Chrome и Edge. Первый заказчик — клуб на 36 ПК с откатом при перезагрузке.
@@ -34,6 +34,8 @@
 ## (e) Кто чем владеет
 | Область | Файлы | Агент | Ветка | Статус |
 |---|---|---|---|---|
+| 20.10.2026 | Fresh-PC: SSH-authorized CSR, root-only CA storage, hardware-slot replacement и atomic full publication; CA rotation только по явному confirmation | Старый bundle потерян; нельзя раздавать CA/admin token или молча перепровиживать VPS |
+| 20.10.2026 | Дизайн VELIQ в `design/`, `website/`, `app-ui/`, `brand/`; позиционирование общее: без числа серверов и ПК, сервисы как примеры, для игр — «оптимальный маршрут» | Решение владельца; тексты — `brand/copy.md` |
 | B3 Chrome: каталог браузеров, автосоздание профиля DIRECT | `apps/desktop-core/BrowserCatalog.cs`, `DesktopViewModel.cs`, `Resources/Strings.resx`, `apps/desktop/ChromeRouting.cs`, `tests/desktop/BrowserCoverageTests.cs` | Claude Code | `claude/serene-cori-msra1u` | передано Codex. ГОТОВО (`9473d72`); C#/WPF-слой не компилировался, проверен только тестами core-логики; на ПК не проверен |
 | Edge-полоса (история) | `apps/desktop/EdgeRouting*.cs`, `services/client-service/edge_*.go` | Claude Code | `claude/serene-cori-msra1u` | передано Codex; реализовано в `1ceaf07`, состояние и ограничения см. (j) |
 | Застой YouTube (ноль байт после ClientHello): stallConn, кэш, повтор через релей, счётчики | `core/browserproxy/{proxy,stall}.go`, `core/flowpolicy/direct_timeout.go`, `services/client-service/{browser_direct_timeout,browser_transport,controller}.go` и тесты | Claude Code | `claude/serene-cori-msra1u` | передано Codex. ГОТОВО (`91c9016`, `28841f2`); только тесты, на ПК не проверено |
@@ -50,6 +52,7 @@
 | Cold-start browser retry / native-only audit | `core/browserproxy/{proxy,stall,path_metrics}*.go`, `core/browserproxy/*_test.go`, `services/client-service/browser_*.go`, `services/client-service/controller.go` (read-only browser IPC), `platform/windows/{tcp_capture_windows,tcp_state,browser*,native_firewall*}.go`, `platform/windows/native_firewall_probe.ps1` (embedded read-only probe), Windows browser tests, `internal/browserfixture/*` (cold-start fixture), `tools/windows/diag-no-vpn.ps1`, `tests/windows-tools/*`, `.github/workflows/{chrome-native,verify}.yml` (tests), `docs/BROWSER_HOT_ATTACH.md`, `CURRENT.md` | Codex | `codex/work` | ГОТОВО 19.10.2026, файлы освобождены: ae4fac1/f21bf68/bc79d6c; race gate 659c865. Cold retry и actual Windows regression PASS, firewall read-only и честные native-only counters; все-site native-only остаётся security blocker при PAC как единственном crash-guard. CI upload quota, подробности (q); этап (в) не начат |
 | Relay-first подтверждённых browser групп / first-byte timing | `core/flowpolicy/direct_timeout*.go`, `core/browserproxy/{proxy,stall,path_metrics}*.go`, новые group/timing файлы и тесты, `services/client-service/browser_*.go`, `services/client-service/controller.go` (только read-only timing IPC), `services/client-service/stall_end_to_end_test.go`, `internal/browserfixture/fixture.go` (только SAN тестовых origins), `tools/windows/diag-no-vpn.ps1`, `tests/windows-tools/browser-path-checks.ps1`, `platform/windows/browser_cold_windows_test.go`, `.github/workflows/chrome-native.yml` (тесты), `docs/BROWSER_HOT_ATTACH.md`, `CURRENT.md` | Codex | `codex/work` | ГОТОВО 19.10.2026, область освобождена: 5a3bd24 / 5f16ed5 / 432899d. Group relay-first, scoped timing IPC и actual Windows холодный benchmark PASS. PAC/лимит 8/VPS/game policy без изменений; общие CI упираются в artifact quota, ISP ретест владельца ещё нужен |
 | Telegram/Anthropic browser relay-first и no_reply причины | `core/flowpolicy/browser_group.go`, `core/browserproxy/{proxy,first_byte}*.go`, `core/browserproxy/path_metrics_test.go` (только ожидание обоих I/O counters), новые browser close-evidence файлы/тесты, `services/client-service/browser_*.go`, `tools/windows/diag-no-vpn.ps1`, `tests/windows-tools/browser-path-checks.ps1`, `.github/workflows/chrome-native.yml` (тесты), `docs/BROWSER_HOT_ATTACH.md`, `CURRENT.md` | Codex | `codex/work` | ГОТОВО 20.10.2026: 5f413c6 / 88a6f61 / 5c0d2ec, async test fix 5867936; область освобождена. Actual Chrome/Edge tests PASS, CI upload quota; ISP/no_reply breakdown ждёт короткой проверки владельца. PAC/guard/owner-check/TLS/игры/лимит 8 сохранены |
+| Fresh-PC CSR enrollment / подготовленная CA migration | `core/freshpc/*` (новые), `tools/fresh-pc/*` (новые), `services/control-plane/fresh_enrollment*.go` (новые), `store.go` (выделение publication transaction helper), `tools/windows/bootstrap-fresh-pc*.ps1` (новые), `deploy/vps/{rotate-fresh-pc-ca,fresh-pc-ssh}.py` (новые), `apps/desktop/App.xaml.cs` (bootstrap entry only), `apps/desktop/FreshPCSetup.cs` (new, reuse existing PAC transaction), `tests/desktop-native/{Program,FreshPCSetupChecks}.cs`, `tests/windows-tools/fresh-pc-checks.ps1`, `.github/workflows/verify.yml` (early tests), tests/CI fresh enrollment, `docs/FRESH_PC_ENROLLMENT.md`, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена. По требованию владельца один итоговый commit, ownership включён в него. Только isolated tests; VPS/veliq-swe-01/PR #8 не тронуты; production Windows/SSH/systemd не проверены |
 | Дизайн VELIQ: дизайн-система, сайт, макеты программы, бренд-материалы | только новые папки `design/`, `website/`, `app-ui/`, `brand/`; строка в `CURRENT.md` | Claude Code | `codex/work` | ГОТОВО 20.10.2026, область освобождена. Код программы, службы и VPS не менялся. Описание и допущения — `design/README.md`; перенос в WPF и новая иконка в `apps/desktop/Assets/` ещё не сделаны |
 | Discord медленно, DIRECT+ для YouTube | не определены | никто | — | свободно для Codex после диагностики; Go-файлы застоя (выше) не трогать |
 | PR #8, `codex/direct-plus-flowseal` | — | не трогать | — | только владелец |
@@ -78,7 +81,6 @@
 ## (h) Журнал решений
 | Дата | Решение | Почему |
 |---|---|---|
-| 20.10.2026 | Дизайн VELIQ в `design/`, `website/`, `app-ui/`, `brand/`; позиционирование общее: без числа серверов и ПК, сервисы как примеры, для игр — «оптимальный маршрут» | Решение владельца; тексты — `brand/copy.md` |
 | 19.10.2026 | Windows native TCP reflection требует app-scoped inbound admission; update-service получает явный -NativeTcpFirewall с owned rollback | Driver trace показала SYN без listener SYN/ACK; узкое правило восстановило nonce. Production helper проверен на отдельном EXE. Firewall не отключается, чужие правила/GPO не обходятся; PAC guard сохранён |
 | 19.10.2026 | Edge native OPEN без ответа не считается готовым туннелем; PAC nonce readiness показывать отдельно | Успешный upstream OPEN не доказывает завершённый local handoff или загрузку страницы |
 | 19.10.2026 | Считать PAC ingress и native upstream отдельно; CONNECT authority позволяет открыть известный план в native worker до ACK, без второго ClientHello | Online PAC забирает все browser origins на loopback, внешнего SYN браузера нет. Нельзя выдавать PAC bytes или RefreshPolicy REQUESTED за native uptake; прежняя защита opaque без metadata сохраняется |
@@ -845,3 +847,47 @@ Telegram/Claude/видео при VPN OFF и выполнить
 `& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube`.
 Нужен именно новый breakdown: старые no_reply не объявлены ни preconnect, ни
 исправленным Internet failure. Реальная скорость/работа сайта у провайдера ещё не доказана.
+
+
+## (t) Fresh-PC enrollment после freeze — подготовка, НЕ deployment
+
+20.10.2026, Codex, база `f51ec66`; реализация и handoff входят в один коммит
+«Подготовить fresh-PC регистрацию и подтверждаемую ротацию CA» (`git log -1 --stat`).
+Перед push выполнен fast-forward до `c67ff21`: новые дизайн-папки и обе записи Claude сохранены; код не пересекался.
+Владелец явно потребовал один коммит, поэтому предварительная ownership-пометка
+из PROTOCOL.md включена в итоговый коммит, отдельный служебный commit не делался.
+
+- Новый `bootstrap-fresh-pc.ps1`: SDK/build/pinned driver, один host-verified SSH,
+  новый ключ на ПК и CSR, явный DER SHA256 pin до доверия и регистрации,
+  реальный signed-ticket/mTLS `/3` TCP+UDP probe, same-owner UAC install,
+  unelevated GUI и прежняя PAC/nonce транзакция. Старый setup/provision не вызывается.
+- CA key остаётся root:root 0600 на VPS и в root-only backup. CP получает private
+  runtime-copy через systemd LoadCredential; это не изоляция от памяти CP.
+  Migration требует отдельного явного `-RotateCA`/confirmation, проверяет старый pin,
+  сохраняет `/etc/neexitlag.bak-*`, ставит независимый rollback timer, проверяет
+  CP TLS/QUIC `/3`/TCP+UDP и откатывается при отказе. На VPS не запускалось.
+- Hardware hash — inventory, не authentication. После нового freeze — новый ключ
+  и ID; SSH-авторизованная замена slot отзывает прежний ID и публикует полный
+  signed config в одной DB-транзакции. Legacy IDs без slot не удаляются молча.
+  Signing/admin/echo/DB identity и replay state не вращаются/не восстанавливаются.
+- Минимальные точки интеграции: CP `store.go` выделяет transaction publication;
+  `App.xaml.cs` — explicit fresh setup entry; desktop-native runner и CI добавляют
+  проверки. Routing/Chrome policy implementation/игры не менялись, этап (в) не начат.
+- Локально PASS: полный Go race с отдельным PostgreSQL 17 (включая 5000 revocations),
+  vet, Linux и Windows amd64 build; настоящий fixture TLS/mTLS QUIC `/3` + signed
+  ticket + TCP/UDP echo; атомарный DB rollback. Python: 28 tests, включая 7 fresh-PC;
+  PowerShell 7.4.6: parsing/StrictMode/pin/deadline; C# core: 130 tests; WPF/native
+  cross-build с SDK 8.0.426. Windows PS5.1/native execution — CI, не локальный PASS.
+- Непроверено: SSH password console Windows, реальная CA migration/systemd credential
+  на данном VPS, полностью пустой Windows с UAC/GUI/PAC. Никаких production SSH,
+  enroll/install/provision здесь не выполнялось. Старые CI страдают artifact quota;
+  новый green workflow до завершения не заявляется.
+- Ограничения: старый CA key должен существовать на VPS для безопасного rollback;
+  если он потерян и там, скрипт откажет. Server cert 30 дней: автоматическое
+  server-cert renewal не добавлено. Power-loss требует ручного backup rollback.
+  Root SSH + UAC интерактивны; прежние PAC/restart dialogs остаются по инвариантам.
+- Владельцу сейчас НЕ выполнять ротацию/установку на production без отдельного
+  разрешения. Будущая обычная команда после подготовки VPS, owner PowerShell
+  из `C:\neexitlag`: `& .\tools\windows\bootstrap-fresh-pc.ps1 -VpsIP 2.56.177.4 -SSHUser root -SSHPort 22`.
+  Первичная CA migration отдельно описана в `docs/FRESH_PC_ENROLLMENT.md` и требует
+  явного confirmation; никаких файлов старого bundle не нужно.

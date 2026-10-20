@@ -251,6 +251,18 @@ func (s *Store) Publish(ctx context.Context, kid string, key []byte, public map[
 		return nil, e
 	}
 	defer tx.Rollback(ctx)
+	raw, e := publishConfigTx(ctx, tx, kid, key, public)
+	if e != nil {
+		return nil, e
+	}
+	if e = tx.Commit(ctx); e != nil {
+		return nil, e
+	}
+	return raw, nil
+}
+
+func publishConfigTx(ctx context.Context, tx pgx.Tx, kid string, key []byte, public map[string]string) ([]byte, error) {
+	var e error
 	if _, e = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(724220)"); e != nil {
 		return nil, e
 	}
@@ -282,9 +294,7 @@ func (s *Store) Publish(ctx context.Context, kid string, key []byte, public map[
 	if _, e = tx.Exec(ctx, "INSERT INTO audit_log(actor,action,entity_id) VALUES('owner','config.publish',$1)", kid); e != nil {
 		return nil, e
 	}
-	if e = tx.Commit(ctx); e != nil {
-		return nil, e
-	}
+
 	return raw, nil
 }
 

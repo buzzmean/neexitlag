@@ -27,10 +27,12 @@ public partial class App : System.Windows.Application
             Shutdown();
             return;
         }
-        var window = new MainWindow();
+        var freshReport = FreshPCSetupArguments(e.Args);
+        var window = freshReport is null ? new MainWindow() : new MainWindow(LocalPreferences.Load(), false, true);
         MainWindow = window;
         window.Show();
         _ = ListenForActivation(lifetime.Token);
+        if (freshReport is not null) await window.RunFreshPCSetupAsync(freshReport);
     }
     async Task ListenForActivation(CancellationToken ct)
     {
