@@ -22,14 +22,15 @@ type TLSWireRecord struct {
 	Complete bool   `json:"complete"`
 }
 type TLSWireSide struct {
-	Bytes            uint64          `json:"bytes"`
-	Records          []TLSWireRecord `json:"records"`
-	ClientHelloBytes uint32          `json:"client_hello_handshake_bytes,omitempty"`
-	State            string          `json:"state"`
-	Prefix           string          `json:"first_16_hex_masked,omitempty"`
-	AlertLevel       uint8           `json:"alert_level,omitempty"`
-	AlertDescription uint8           `json:"alert_description,omitempty"`
-	Bounded          bool            `json:"bounded"`
+	ServerHelloComplete bool            `json:"server_hello_complete,omitempty"`
+	Bytes               uint64          `json:"bytes"`
+	Records             []TLSWireRecord `json:"records"`
+	ClientHelloBytes    uint32          `json:"client_hello_handshake_bytes,omitempty"`
+	State               string          `json:"state"`
+	Prefix              string          `json:"first_16_hex_masked,omitempty"`
+	AlertLevel          uint8           `json:"alert_level,omitempty"`
+	AlertDescription    uint8           `json:"alert_description,omitempty"`
+	Bounded             bool            `json:"bounded"`
 }
 type TLSWireEvidence struct {
 	Client TLSWireSide `json:"client_written"`
@@ -45,6 +46,7 @@ type tlsWireDirection struct {
 	meta             [4]byte
 	metaN            int
 	hello            uint32
+	handshakeSeen    uint32
 	invalid, bounded bool
 	firstHeader      [5]byte
 	alert            [2]byte
@@ -102,16 +104,17 @@ func (d *tlsWireDirection) observe(p []byte, client bool) {
 		if n > d.remaining {
 			n = d.remaining
 		}
-		if d.count == 1 {
-			if client && d.firstHeader[0] == 22 {
-				for i := 0; i < n && d.metaN < 4; i++ {
-					d.meta[d.metaN] = p[i]
-					d.metaN++
-				}
-				if d.metaN == 4 && d.meta[0] == 1 {
-					d.hello = 4 + (uint32(d.meta[1]) << 16) + (uint32(d.meta[2]) << 8) + uint32(d.meta[3])
-				}
+		if d.firstHeader[0] == 22 && d.records[d.count-1].Type == 22 {
+			d.handshakeSeen += uint32(n)
+			for i := 0; i < n && d.metaN < 4; i++ {
+				d.meta[d.metaN] = p[i]
+				d.metaN++
 			}
+			if client && d.metaN == 4 && d.meta[0] == 1 {
+				d.hello = 4 + (uint32(d.meta[1]) << 16) + (uint32(d.meta[2]) << 8) + uint32(d.meta[3])
+			}
+		}
+		if d.count == 1 {
 			if !client && d.firstHeader[0] == 21 && d.records[0].Length == 2 {
 				for i := 0; i < n && d.alertN < 2; i++ {
 					d.alert[d.alertN] = p[i]
@@ -128,6 +131,10 @@ func (d *tlsWireDirection) observe(p []byte, client bool) {
 }
 func (d *tlsWireDirection) snapshot() TLSWireSide {
 	s := TLSWireSide{Bytes: d.bytes, Records: append([]TLSWireRecord{}, d.records[:d.count]...), ClientHelloBytes: d.hello, Bounded: d.bounded, State: "NOT_OBSERVED"}
+	if d.metaN == 4 && d.meta[0] == 2 {
+		expected := 4 + (uint32(d.meta[1]) << 16) + (uint32(d.meta[2]) << 8) + uint32(d.meta[3])
+		s.ServerHelloComplete = d.handshakeSeen >= expected
+	}
 	if d.bytes == 0 {
 		return s
 	}

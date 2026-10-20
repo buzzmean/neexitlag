@@ -65,9 +65,17 @@ func (c *Controller) openBrowserPlan(ctx context.Context, current profilesResult
 		}
 		return c.openKnownBrowserGroup(ctx, current, q, p, open)
 	}
+	// Extend health selection to protected/YouTube origins already planned RELAY_REQUIRED.
+	// Do not change policy: DIRECT/DIRECT+ and ordinary DIRECT-first stay outside.
+	if p.Enabled && current.enabled && q.Secure && q.Port == 443 && p.Policy.Action == flowpolicy.RelayRequired && p.Policy.Fallback == flowpolicy.Required && browserproxy.ValidPublicDNSName(q.Host) {
+		return c.openKnownBrowserGroup(ctx, current, q, p, open)
+	}
 	// A sibling may have confirmed the group while this request was planning.
 	if p.Enabled {
 		if steered, ok := c.steerTimedOutOrigin(p, current, q, time.Now()); ok {
+			if q.Secure && steered.Policy.Action == flowpolicy.RelayRequired && browserproxy.ValidPublicDNSName(q.Host) {
+				return c.openKnownBrowserGroup(ctx, current, q, steered, open)
+			}
 			conn, err := open(ctx, q, steered)
 			return conn, steered, err
 		}

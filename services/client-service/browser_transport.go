@@ -25,6 +25,7 @@ import (
 )
 
 type browserRuntime struct {
+	origins         *browserproxy.OriginHealth
 	native          nativeBrowserRuntime
 	usage           *browserRelayUsage
 	edge            *edgeRuntime // Independent Edge transport; Chrome fields stay unchanged.
@@ -43,7 +44,7 @@ type browserRuntime struct {
 }
 
 func newBrowserRuntime() *browserRuntime {
-	return &browserRuntime{dns: browserproxy.NewDNSRecovery(), learned: flowpolicy.NewBrowserLearning(), probes: make(chan struct{}, 4), local: map[string]*localstrategy.LocalStrategyEngine{}, plans: map[flowpolicy.LearnKey]chan struct{}{}, directTimeouts: flowpolicy.NewDirectTimeoutCache()}
+	return &browserRuntime{origins: browserproxy.NewOriginHealth(), dns: browserproxy.NewDNSRecovery(), learned: flowpolicy.NewBrowserLearning(), probes: make(chan struct{}, 4), local: map[string]*localstrategy.LocalStrategyEngine{}, plans: map[flowpolicy.LearnKey]chan struct{}{}, directTimeouts: flowpolicy.NewDirectTimeoutCache()}
 }
 func (c *Controller) browserOwner(ctx context.Context, source, local netip.AddrPort) (browserproxy.Owner, error) {
 	id, err := wp.LookupTCPPeer(source, local)
@@ -285,9 +286,14 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 		if !duplicate {
 			candidates = append(candidates, a)
 		}
-		if len(candidates) == 3 {
+		if len(candidates) == 64 {
 			break
 		}
+	}
+	relayCandidates := append([]netip.AddrPort(nil), candidates...)
+	// Ordinary route probes keep their existing three-address budget.
+	if len(candidates) > 3 && flowpolicy.BrowserRelayGroup(q.Host) == "" && !protectedBrowserDomain(q.Host) {
+		candidates = candidates[:3]
 	}
 	dest := candidates[0]
 	tuple := wp.Tuple{Protocol: "tcp", Source: q.Source, Destination: dest}
@@ -297,7 +303,7 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 	} else if !current.enabled && !protectedBrowserDomain(q.Host) {
 		result = flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailOpen, Source: "optimization_disabled", Reason: "user disabled optimization"}
 	}
-	plan := browserproxy.Plan{Network: current.network, Enabled: current.enabled, Policy: result, Destination: dest, Probe: "NOT_PROBED"}
+	plan := browserproxy.Plan{RelayCandidates: relayCandidates, Network: current.network, Enabled: current.enabled, Policy: result, Destination: dest, Probe: "NOT_PROBED"}
 	if !current.enabled || protectedBrowserDomain(q.Host) || result.Source == "rule" {
 		return plan, nil
 	}

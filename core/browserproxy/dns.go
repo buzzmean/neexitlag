@@ -128,7 +128,7 @@ func decodeDNS(data []byte, name dnsmessage.Name) (DNSAnswer, error) {
 						duplicate = true
 					}
 				}
-				if !duplicate && len(out.Addresses) < 3 {
+				if !duplicate && len(out.Addresses) < 64 {
 					out.Addresses = append(out.Addresses, ip)
 				}
 			}
@@ -230,3 +230,53 @@ func (r *DoHResolver) query(ctx context.Context, p dohProvider, data []byte, nam
 }
 
 func ValidPublicDNSName(host string) bool { _, _, err := dnsQuestion(host); return err == nil }
+
+// LookupAll merges independently authenticated provider answers for origin-IP
+// repair. A syntactically valid but quarantined first provider's answer must not
+// hide a working address returned by the other provider. Still max two queries,
+// 64 unique public IPv4s, and the caller's SINGLE bounded deadline.
+func (r *DoHResolver) LookupAll(ctx context.Context, host string, open DNSOpen) (DNSAnswer, error) {
+	name, data, err := dnsQuestion(host)
+	if err != nil {
+		return DNSAnswer{}, err
+	}
+	out := DNSAnswer{Source: "RELAY_DOH_MULTIPROVIDER", ObtainedAt: time.Now(), TTL: 5 * time.Minute}
+	last := errors.New("DNS_DOH_UNAVAILABLE")
+	for i, p := range r.providers {
+		budget := 600 * time.Millisecond
+		if deadline, ok := ctx.Deadline(); ok {
+			if share := time.Until(deadline) / time.Duration(len(r.providers)-i); share < budget {
+				budget = share
+			}
+		}
+		if budget <= 0 {
+			break
+		}
+		sub, cancel := context.WithTimeout(ctx, budget)
+		a, e := r.query(sub, p, data, name, open)
+		cancel()
+		if e != nil {
+			last = e
+			continue
+		}
+		if a.TTL < out.TTL {
+			out.TTL = a.TTL
+		}
+		for _, ip := range a.Addresses {
+			found := false
+			for _, old := range out.Addresses {
+				if old == ip {
+					found = true
+					break
+				}
+			}
+			if !found && len(out.Addresses) < 64 {
+				out.Addresses = append(out.Addresses, ip)
+			}
+		}
+	}
+	if len(out.Addresses) == 0 {
+		return DNSAnswer{}, last
+	}
+	return out, nil
+}

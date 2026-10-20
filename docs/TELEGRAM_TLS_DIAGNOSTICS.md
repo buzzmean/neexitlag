@@ -123,6 +123,61 @@ native handoff. Если оба передали одинаковые record siz
 - Передача оригинальных байтов нарушена только в VELIQ: исправлять конкретный
   участок с байтовой регрессией; не отключать TLS validation, ECH или fail-closed.
 
-Production VPS из среды разработки не проверялся. Нужен короткий owner-run
-результат этого скрипта и свежая Windows TLS-диагностика; Telegram Internet PASS
+Production VPS из среды разработки не проверялся. Owner-run результат скрипта
+уже получен и учтён в следующем разделе; повторять VPS-диагностику не требуется.
+Для нового кода нужна свежая Windows TLS-диагностика; Telegram Internet PASS
 не заявляется. Игры, PAC guard, protected policy и сертификаты не менялись.
+
+## Восстановление relay-first по IP (после owner proof 042869d)
+
+Владелец проверил с VPS: исходный DNS endpoint не проходит TLS/GET, независимый
+кандидат с тем же SNI проходит проверку сертификата и возвращает HTTP 200.
+IP не зашит в routing. Новая логика применяется к TLS relay-first: известным
+Telegram/Anthropic, protected OpenAI и остальным публичным доменам, уже выбранным
+`RELAY_REQUIRED` (включая YouTube relay-first). DIRECT и DIRECT+ не меняются.
+
+- До первого ответа допускается повтор **только полного ClientHello + dummy CCS**,
+  максимум 64 КиБ. Application/early-data TLS records запрещают повтор.
+  Gate сериализует replay с concurrent Write; первый origin byte необратимо
+  выключает повтор. Existing TLS/HTTP/TCP data flow не меняет egress/route.
+- Тишина после первого flight: 900 мс на адрес; максимум три application OPEN,
+  включая исходный. Общий бюджет с первого client flight — 4 с, включая DNS,
+  новые OPEN и replay. Каждый retry OPEN ограничен 900 мс; DoH — 750 мс.
+  Первоначальный OPEN имеет прежний отдельный бюджет до 3 с.
+- Отрицательный кэш: 60 с по (network, profile/revision, domain, port, relay, IP).
+  1024 записи; истечение TTL разрешает очередную реальную попытку, постоянного
+  успешного IP pin нет. При неизвестном network fingerprint кэш между flows
+  не используется; общий лимит двух DNS workers сохраняется. При насыщении кэша новые записи не добавляются, а попытки
+  всё равно ограничены. Неисправность IP не портит route health целого VPS.
+- Origin alert или partial reply/EOF: IP идёт в negative cache, **текущий поток
+  не повторяется**. После хотя бы одного байта нельзя безопасно скрыть отказ
+  повтором, согласно требованию владельца. Новый браузерный connection сможет
+  выбрать другой IP; первая страница при раннем alert может завершиться ошибкой.
+  Неполные 1–5 байт не дают бесконечного ожидания: без полного ServerHello handshake
+  flow закрывается по общему четырёхсекундному бюджету, без replay.
+- Auth/session errors не считаются нездоровым origin IP. При native PAC handoff
+  детектор стоит у **фактического QUIC stream**, до превращения ошибки в EOF
+  виртуального TCP сокета; его report передаётся в PAC отдельно. Серверный
+  protocol `/3`, tickets/mTLS и lease не меняются.
+- Сохраняются все DNS-кандидаты в ограниченном ответе (до 64), вместо первых трёх;
+  пробовать все подряд нельзя: после трёх попыток flow fail-closed. Обычные AUTO
+  probes сохраняют прежний бюджет трёх адресов. Альтернативный DNS — HTTPS DoH
+  через authenticated VPS egress, объединение Google и Cloudflare. Это **не**
+  вызов ОС resolver на VPS: `/3` OPEN передаёт только IP. Без deployment существующий
+  relay уже поддерживает такой путь; DNS/53 и DNS остальных программ не меняются.
+- DoH answers: singleflight по scope, две одновременные resolution, 256 cache
+  entries, DNS TTL максимум 5 мин и короткий error cooldown. TLS/hostname DoH
+  проверяются. Ответ DNS не становится доказательством доступности origin.
+- Альтернативный адрес проверяется против BLOCK/IP rules исходного policy snapshot;
+  нельзя сменить required route на DIRECT/другой relay. Реальный OPEN сохраняет
+  текущие owner SID/process/network/enabled проверки. HTTP/TLS proof прежнего IP
+  снимается при retarget; TLS/certificate проверяет сам браузер, без MITM.
+
+Диагностика `2026-10-20.2`: `origin IP recovery`, `addresses_tried`, `selected`,
+`negative_skips`, `dns`, `attempts` с фиксированными причинами,
+`replayed_client_hello_bytes`, `state`. PAC и native report относятся к одному flow;
+их нельзя складывать. Replayed bytes учтены отдельно от application-write TLS
+metadata. `ORIGIN_BYTES_NO_REPLAY` — транспортное наблюдение, не TLS/page PASS.
+Новые интеграционные тесты проверяют настоящий ticket-authenticated QUIC+mTLS,
+ML-KEM ClientHello, origin certificate и два HTTP GET на одном TLS соединении.
+Результат на Windows/ISP владельца после изменения ещё не проверен.

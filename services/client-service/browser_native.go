@@ -55,22 +55,24 @@ type nativeBrowserProfileStatus struct {
 	FirstExchangeMS int64                `json:"enable_to_first_exchange_ms"`
 }
 type nativeBrowserRecord struct {
-	TLS         *browserproxy.TLSWireEvidence `json:"tls_wire,omitempty"`
-	tlsWire     *browserproxy.TLSWireObserver
-	Ingress     string             `json:"ingress"`
-	ID          uint64             `json:"id"`
-	Owner       browserproxy.Owner `json:"owner"`
-	Started     time.Time          `json:"started"`
-	Domain      string             `json:"domain"`
-	Destination string             `json:"destination"`
-	Upstream    string             `json:"upstream_destination"`
-	Policy      flowpolicy.Result  `json:"policy"`
-	Probe       string             `json:"origin_probe"`
-	Result      string             `json:"result"`
-	Failure     string             `json:"failure_reason,omitempty"`
-	Sent        uint64             `json:"sent_bytes"`
-	Received    uint64             `json:"received_bytes"`
-	Active      bool               `json:"active"`
+	Origin         *browserproxy.OriginReport `json:"origin_attempts,omitempty"`
+	originReporter browserproxy.OriginReporter
+	TLS            *browserproxy.TLSWireEvidence `json:"tls_wire,omitempty"`
+	tlsWire        *browserproxy.TLSWireObserver
+	Ingress        string             `json:"ingress"`
+	ID             uint64             `json:"id"`
+	Owner          browserproxy.Owner `json:"owner"`
+	Started        time.Time          `json:"started"`
+	Domain         string             `json:"domain"`
+	Destination    string             `json:"destination"`
+	Upstream       string             `json:"upstream_destination"`
+	Policy         flowpolicy.Result  `json:"policy"`
+	Probe          string             `json:"origin_probe"`
+	Result         string             `json:"result"`
+	Failure        string             `json:"failure_reason,omitempty"`
+	Sent           uint64             `json:"sent_bytes"`
+	Received       uint64             `json:"received_bytes"`
+	Active         bool               `json:"active"`
 }
 type nativeBrowserSnapshot struct {
 	NativeOnlyState    string                       `json:"native_only_state"`
@@ -134,6 +136,13 @@ func (c *Controller) nativeSnapshot() nativeBrowserSnapshot {
 	}
 	sort.Slice(s.Profiles, func(i, j int) bool { return s.Profiles[i].Profile < s.Profiles[j].Profile })
 	for _, r := range n.records {
+		if r.originReporter != nil {
+			v := r.originReporter.OriginAttempts()
+			r.Origin = &v
+			if v.Selected != "" {
+				r.Upstream = v.Selected
+			}
+		}
 		if r.tlsWire != nil {
 			v := r.tlsWire.Snapshot()
 			r.TLS = &v
@@ -511,6 +520,9 @@ func newNativeBrowserConn(conn net.Conn, n *nativeBrowserRuntime, id uint64) *na
 	n.mu.Lock()
 	r := n.records[id]
 	r.tlsWire = wire
+	if reporter, ok := conn.(browserproxy.OriginReporter); ok {
+		r.originReporter = reporter
+	}
 	n.records[id] = r
 	n.mu.Unlock()
 	return &nativeBrowserConn{Conn: conn, runtime: n, record: id, wire: wire}

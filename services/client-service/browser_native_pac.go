@@ -28,6 +28,8 @@ func (c *Controller) openNativePAC(ctx context.Context, q browserproxy.Request, 
 	gate, stopGate := context.WithCancel(ctx)
 	defer stopGate()
 	failures := make(chan error, 1)
+	originReport := &originReportRef{}
+	watchOrigin := relayOriginEligible(q, plan)
 	d.OriginDomain = q.Host
 	d.NewConnectionsOnly = true
 	d.BlockOnFailure = true
@@ -77,6 +79,10 @@ func (c *Controller) openNativePAC(ctx context.Context, q browserproxy.Request, 
 		if err != nil {
 			return nil, decision, err
 		}
+		if watchOrigin {
+			conn = c.watchKnownOrigin(conn, current, q, plan, c.browserOpen)
+			originReport.set(conn)
+		}
 		return newNativeBrowserConn(conn, n, record), decision, nil
 	}
 	conn, err := backend.OpenBrowserNativeTCP(gate, browserIdentity(q), q.Source, plan.Destination, d)
@@ -86,6 +92,9 @@ func (c *Controller) openNativePAC(ctx context.Context, q browserproxy.Request, 
 			return nil, nativePACError(actual)
 		default:
 		}
+	}
+	if err == nil && watchOrigin {
+		conn = &originPACConn{Conn: conn, report: originReport}
 	}
 	return conn, nativePACError(err)
 }

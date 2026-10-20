@@ -63,20 +63,25 @@ type Trial struct {
 	DurationMS       int64  `json:"duration_ms"`
 }
 type Plan struct {
-	DirectIndex      int                `json:"direct_address_slot,omitempty"`
-	DirectCandidates []netip.AddrPort   `json:"direct_candidates,omitempty"`
-	DirectDeadline   time.Time          `json:"-"`
-	DirectAttempts   int                `json:"direct_attempts,omitempty"`
-	DNSRecovery      *DNSRecoveryResult `json:"dns_recovery,omitempty"`
-	Trials           []Trial            `json:"trials,omitempty"`
-	Network          string             `json:"network"`
-	Enabled          bool               `json:"optimizing"`
-	Policy           flowpolicy.Result  `json:"policy"`
-	Destination      netip.AddrPort     `json:"destination"`
-	Probe            string             `json:"probe"`
-	HTTPStatus       int                `json:"http_status,omitempty"`
+	OriginPrior         []OriginAttempt    `json:"-"`
+	OriginNegativeSkips int                `json:"-"`
+	RelayCandidates     []netip.AddrPort   `json:"-"`
+	DirectIndex         int                `json:"direct_address_slot,omitempty"`
+	DirectCandidates    []netip.AddrPort   `json:"direct_candidates,omitempty"`
+	DirectDeadline      time.Time          `json:"-"`
+	DirectAttempts      int                `json:"direct_attempts,omitempty"`
+	DNSRecovery         *DNSRecoveryResult `json:"dns_recovery,omitempty"`
+	Trials              []Trial            `json:"trials,omitempty"`
+	Network             string             `json:"network"`
+	Enabled             bool               `json:"optimizing"`
+	Policy              flowpolicy.Result  `json:"policy"`
+	Destination         netip.AddrPort     `json:"destination"`
+	Probe               string             `json:"probe"`
+	HTTPStatus          int                `json:"http_status,omitempty"`
 }
 type Record struct {
+	Origin             *OriginReport `json:"origin_attempts,omitempty"`
+	originReporter     OriginReporter
 	TLS                *TLSWireEvidence `json:"tls_wire,omitempty"`
 	tlsWire            *TLSWireObserver
 	NoReplyReason      string    `json:"-"`
@@ -234,6 +239,13 @@ func (s *Server) Snapshot() Snapshot {
 		out.FailureDetails = append(out.FailureDetails, f)
 	}
 	for _, r := range s.records {
+		if r.originReporter != nil {
+			v := r.originReporter.OriginAttempts()
+			r.Origin = &v
+			if dst, e := netip.ParseAddrPort(v.Selected); e == nil {
+				r.Plan = RetargetOrigin(r.Plan, dst)
+			}
+		}
 		if r.tlsWire != nil {
 			v := r.tlsWire.Snapshot()
 			r.TLS = &v
@@ -584,6 +596,13 @@ func (s *Server) handle(c net.Conn, acceptedAt time.Time) {
 	c.SetDeadline(time.Time{})
 	upstream.SetDeadline(time.Time{})
 	closeEvidence := &tunnelCloseEvidence{ctx: s.ctx}
+	if reporter, ok := upstream.(OriginReporter); ok {
+		s.mu.Lock()
+		r := s.records[id]
+		r.originReporter = reporter
+		s.records[id] = r
+		s.mu.Unlock()
+	}
 	if secure {
 		closeEvidence.tlsWire = &TLSWireObserver{}
 		s.mu.Lock()
@@ -698,6 +717,9 @@ func (w countWriter) Write(p []byte) (int, error) {
 
 // Return only stable error classes/OS codes, never remote messages or secrets.
 func openFailure(err error) string {
+	if errors.Is(err, ErrOriginCandidatePolicy) {
+		return "ORIGIN_CANDIDATE_POLICY_BLOCK"
+	}
 	var typed interface{ FailureReason() string }
 	if errors.As(err, &typed) {
 		switch reason := typed.FailureReason(); reason {

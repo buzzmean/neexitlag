@@ -1,6 +1,6 @@
 # CURRENT — состояние проекта (обновляется в конце каждой сессии)
 
-Обновлено: 20.10.2026, Codex; `codex/work`, база c22c480. Telegram main origin: подготовлены безопасная TLS framing диагностика PAC/actual relay и отдельный read-only VPS script; детали — (aa), docs/TELEGRAM_TLS_DIAGNOSTICS.md. Причина Internet-отказа ещё не доказана; DNS/routing/TLS не менялись, Telegram PASS не заявляется. Этап (в) остаётся BLOCKED_CURRENT_BACKEND, см. (z). Production VPS/credentials/PR #8 не тронуты.
+Обновлено: 20.10.2026, Codex; `codex/work`, база 042869d. Владелец подтвердил TLS/HTTP отказ исходного Telegram IP с VPS и успех независимого кандидата с тем же SNI. Реализован bounded per-IP first-flight recovery для relay-first, negative TTL и диагностика .2; детали — (ab), docs/TELEGRAM_TLS_DIAGNOSTICS.md. На production VPS ничего не выполнялось; Windows/ISP ретест нового кода нужен. Этап (в) остаётся BLOCKED_CURRENT_BACKEND; PR #8 не тронут.
 
 ## (a) Цель
 Чистый Windows 10/11: установил, нажал «Оптимизировать» — заблокированные в РФ сервисы работают без VPN: ChatGPT, Claude, YouTube, Discord, Telegram, браузеры Chrome и Edge. Первый заказчик — клуб на 36 ПК с откатом при перезагрузке.
@@ -59,6 +59,7 @@
 | Fresh-PC PAC readiness | `apps/desktop{,-core}/Fresh*`, `ChromeRouting.cs`, `BrowserNative.cs`, browser readiness/status/errors, `tools/windows/bootstrap-fresh-pc.ps1`, desktop/Go/PS tests, FRESH_PC_ENROLLMENT.md, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; один итоговый commit по требованию владельца; локальные проверки, реальный Windows/ISP ретест ещё нужен; VPS/CA/enroll не запускались |
 | Этап (в): независимый guard / проверка реализуемости | `docs/BROWSER_NATIVE_GUARD.md` (новый), `docs/BROWSER_HOT_ATTACH.md`, CURRENT.md; runtime этапа (в) до подтверждения guard не менять | Codex | `codex/work` | BLOCKED_CURRENT_BACKEND 20.10.2026; аудит завершён, область освобождена; только docs в одном commit по пункту 4 владельца; runtime этапа (в) не менять до реализации/проверки независимого guard |
 | Telegram main origin: безопасная TLS-диагностика и read-only VPS proof | `core/browserproxy/{tls_wire*,proxy,close_evidence}.go`, `services/client-service/browser_native{,_pac}.go`, новый `browser_tls_test.go`, `platform/windows/telegram_hello_test.go`, `tests/integration/telegram_tls_test.go`, `tools/windows/diag-no-vpn.ps1`, `deploy/vps/diagnose-telegram-tls.py`, deployment/PS tests, docs/TELEGRAM_TLS_DIAGNOSTICS.md, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; один итоговый commit по требованию владельца; read-only script подготовлен, на VPS не запускался; Internet причина/Windows ретест остаются открытыми |
+| Relay-first: per-IP TLS silence recovery | `core/browserproxy/{origin_*,proxy,dns,dns_test,tls_wire,tls_wire_test}.go`, `services/client-service/browser_{transport,admission,known_group,native,native_pac,origin,origin_test}.go`, `tests/integration/relay_origin_test.go`, PS tests/diag-no-vpn.ps1, docs/TELEGRAM_TLS_DIAGNOSTICS.md, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; один итоговый commit по требованию владельца; actual Windows/ISP ещё не проверен; VPS не тронут |
 | Discord медленно, DIRECT+ для YouTube | не определены | никто | — | свободно для Codex после диагностики; Go-файлы застоя (выше) не трогать |
 | PR #8, `codex/direct-plus-flowseal` | — | не трогать | — | только владелец |
 
@@ -84,6 +85,8 @@
 Управление флагом YouTube: `settings.set` с полным объектом Settings и `"youtube_via_relay": true` означает relay-first сразу для ordinary YouTube. По умолчанию выключен; аварийный fallback от него не зависит. Configured DIRECT+ и protected rules не заменяются.
 
 ## (h) Журнал решений
+
+- 20.10.2026: после owner proof Telegram DNS добавлен общий bounded origin-IP health/retry, не IP hardcode. Replay только полного ClientHello до первого origin byte; ранний alert/partial reply влияет лишь на следующие connections. DNS через HTTPS/relay, не новый VPS resolver API. Детектор на actual QUIC boundary отличает session/auth failures. Один итоговый commit включает ownership по требованию владельца.
 
 - 20.10.2026, Telegram TLS: не подменять origin IP и не replay браузерный handshake на основании пяти байтов. Добавлена пассивная framing диагностика на PAC и actual relay boundary; вывод первых 16 байт маскирует payload. Владелец отдельно запускает read-only `.40`/`.99` TLS/GET proof; до этого причина не считается установленной. Один итоговый commit включает ownership по явному требованию владельца.
 
@@ -1183,3 +1186,45 @@ Ownership-пометка включена в тот же commit по прямо�
 После обновления службы и нового Chrome/Edge соединения:
 `& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube`.
 Полная интерпретация и ограничения — `docs/TELEGRAM_TLS_DIAGNOSTICS.md`.
+
+
+## (ab) Relay-first origin-IP health/recovery
+
+База `042869d`; owner read-only VPS proof принят как причина Telegram main-host:
+TCP OPEN успешен, TLS на исходном DNS IP не работает, независимый IP с тем же SNI
+проходит certificate/GET. Никаких IP pins/изменений DNS Windows/VPS.
+
+- Новый OriginHealth: scope network/profile revision/domain/port/relay/IP,
+  negative 60 с (1024 entries), TTL expiry -> lazy real retry. DNS answers TTL
+  <=5 мин (256 entries), singleflight, 2 workers, error cooldown.
+- Новый originConn: три application OPEN максимум, 900 мс silence/retry OPEN,
+  4 с с первого flight; только complete ClientHello/CCS <=64 КиБ. Никакого replay
+  application/early-data records или после одного origin byte. Ранний alert/EOF
+  с байтами -> отрицательный кэш для следующих flows; частичный TLS reply не висит
+  бесконечно. Уже работающие TLS/HTTP flows pinned, без смены relay egress.
+- При native PAC детектор оборачивает actual QUIC stream; report-ref переносит
+  статистику в PAC, не теряя session/auth error class. Эти ошибки не отравляют IP.
+- Все ограниченные DNS ответы до 64 IP участвуют в выборе; ordinary route probes
+  сохраняют 3 адреса. Independent Google+Cloudflare DoH объединяются через relay
+  HTTPS/443, TLS проверяется. /3 не умеет hostname OPEN; ОС DNS VPS не вызывался,
+  deployment не требуется. DNS/53 не relayed.
+- Protected/known и выбранные REQUIRED browser origins: только прежний relay/fallback;
+  IP BLOCK исходного policy snapshot сохраняется, owner/network checks на каждом OPEN.
+  Proof/HTTPStatus старого IP не переносится на новый, byte/ACK не объявляется PASS.
+- Диаг .2: addresses_tried/selected/negative_skips/dns/replayed bytes/attempt reasons;
+  PAC+native один flow, не суммировать. GUI/игры/DIRECT+/guard/lease/credentials без правок.
+- Тесты: focused Go race (origin/DNS/metadata/native PAC + actual QUIC/mTLS TLS/HTTP) PASS;
+  `go vet ./...`, Linux и Windows `go build ./...`, Windows service tests compile PASS;
+  48 Python deployment tests и PowerShell browser-path checks PASS. Полный
+  `go test -race -p 1 ./...` НЕ PASS: TestLeaseRenewalReplayAndDeviceBinding
+  (device_revoked), TestPool160SimultaneousRequiredFlowsAndFreshTickets
+  (OPEN/admission timeout). Оба отдельно повторены с race: PASS, 2.213 с.
+  Эти фикстуры/lease/pool не менялись; причину нестабильности общий прогон не доказал.
+- Не проверено: настоящий Windows WinDivert + Chrome/Edge после изменения и ISP;
+  никакого production SSH/HTTP/deploy/CA действия из среды разработки. Первый flow
+  с ранним origin alert может FAIL согласно запрету replay после первого байта;
+  следующий connection использует negative cache. Не обещать обратного/Internet PASS.
+
+Владельцу после обычной сборки/обновления службы: открыть Telegram Web в Chrome/Edge,
+затем `& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube` и смотреть .2
+`origin IP recovery` (выбранный IP/попытки), TLS framing и реальный результат страницы.

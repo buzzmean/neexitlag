@@ -271,3 +271,54 @@ func TestDoHHTTPAgeAndCacheControlNeverExtendDNSLifetime(t *testing.T) {
 		})
 	}
 }
+
+func TestAlternativeDNSRetainsAllBoundedAddressesForIPHealthSelection(t *testing.T) {
+	name, _, _ := dnsQuestion("example.com")
+	msg := dnsmessage.Message{Header: dnsmessage.Header{Response: true}, Questions: []dnsmessage.Question{{Name: name, Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET}}}
+	for i := 1; i <= 8; i++ {
+		msg.Answers = append(msg.Answers, dnsmessage.Resource{Header: dnsmessage.ResourceHeader{Name: name, Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET, TTL: 60}, Body: &dnsmessage.AResource{A: [4]byte{8, 8, 8, byte(i)}}})
+	}
+	raw, err := msg.Pack()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := decodeDNS(raw, name)
+	if err != nil || len(a.Addresses) != 8 {
+		t.Fatal(a, err)
+	}
+	h := NewOriginHealth()
+	candidates := []netip.AddrPort{}
+	now := time.Now()
+	for i, ip := range a.Addresses {
+		dst := netip.AddrPortFrom(ip, 443)
+		candidates = append(candidates, dst)
+		if i < 5 {
+			h.Failed("network/profile/domain", dst, now)
+		}
+	}
+	selected, skipped := h.Pick("network/profile/domain", candidates, nil, now)
+	if selected != candidates[5] || skipped != 5 {
+		t.Fatal("candidate after third address was lost", selected, skipped)
+	}
+}
+
+func TestAlternativeDNSAllProvidersCanRepairValidButBadFirstAnswer(t *testing.T) {
+	var calls atomic.Int32
+	target := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := calls.Add(1)
+		w.Header().Set("Content-Type", "application/dns-message")
+		w.Write(dnsWire(t, "web.telegram.org", 60, [4]byte{8, 8, 8, byte(n)}))
+	}))
+	defer target.Close()
+	roots := x509.NewCertPool()
+	roots.AddCert(target.Certificate())
+	resolver := &DoHResolver{roots: roots, providers: []dohProvider{{"example.com", netip.MustParseAddrPort("8.8.8.8:443")}, {"example.com", netip.MustParseAddrPort("1.1.1.1:443")}}}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	a, err := resolver.LookupAll(ctx, "web.telegram.org", func(ctx context.Context, _ netip.AddrPort) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "tcp", target.Listener.Addr().String())
+	})
+	if err != nil || calls.Load() != 2 || len(a.Addresses) != 2 || a.Addresses[1] != netip.MustParseAddr("8.8.8.2") {
+		t.Fatal(a, err, calls.Load())
+	}
+}

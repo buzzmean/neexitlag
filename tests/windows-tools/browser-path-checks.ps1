@@ -84,3 +84,9 @@ Write-TlsWireEvidence ([pscustomobject]@{records=@([pscustomobject]@{id=1;domain
 $text=$script:lines -join "`n"
 Check ($text -match 'TLS_HEADER_ONLY' -and $text -match 'NOT a complete TLS alert' -and $text -notmatch 'NEVER_LOG') 'TLS header confused with complete alert or arbitrary field leaked'
 Write-Host 'PASS safe bounded TLS framing and incomplete alert evidence'
+
+$script:lines=@()
+Write-TlsWireEvidence ([pscustomobject]@{records=@([pscustomobject]@{domain='web.telegram.org';origin_attempts=[pscustomobject]@{addresses_tried=2;selected='149.154.167.99:443';negative_cache_skips=1;dns='RELAY_DOH';client_hello_replayed_bytes=1900;state='ORIGIN_BYTES_NO_REPLAY';attempts=@([pscustomobject]@{destination='149.154.167.40:443';reason='ORIGIN_EOF_NO_BYTES'},[pscustomobject]@{destination='149.154.167.99:443';reason='CLIENT_HELLO_RETRY'});secret='NEVER_LOG'}})}) 'browser'
+$text=$script:lines -join "`n"
+Check ($text -match 'addresses_tried=2 selected=149.154.167.99:443 negative_skips=1 dns=RELAY_DOH' -and $text -match 'ORIGIN_EOF_NO_BYTES' -and $text -notmatch 'NEVER_LOG') 'Scoped per-IP attempt evidence or redaction missing'
+Write-Host 'PASS per-IP attempts/selected address without arbitrary properties'

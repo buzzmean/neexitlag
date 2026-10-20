@@ -287,7 +287,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-20.1 (bounded TLS framing at PAC and relay boundary)'
+$ScriptVersion='2026-10-20.2 (bounded per-IP relay origin recovery)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -500,6 +500,12 @@ function Write-TlsWireEvidence($snapshot,[string]$lane) {
  $instrumented=$false
  Say ($lane+' TLS scope: client_written=accepted upstream Write; origin_read=before delivery; no proof of HTTP success or remote receipt. Prefix masks payload with xx; 5 bytes alone are NOT a complete TLS alert.')
  foreach($r in @(Prop $snapshot 'records' @())|Select-Object -First 48){
+  $attempts=Prop $r 'origin_attempts'
+  if($null -ne $attempts){
+   $tried=@(Prop $attempts 'attempts' @())|Select-Object -First 3
+   $summary=@($tried|ForEach-Object{([string](Prop $_ 'destination'))+':'+(Prop $_ 'reason')}) -join ','
+   Say ($lane+' origin IP recovery: domain='+(Prop $r 'domain')+' addresses_tried='+(Prop $attempts 'addresses_tried' 0)+' selected='+(Prop $attempts 'selected')+' negative_skips='+(Prop $attempts 'negative_cache_skips' 0)+' dns='+(Prop $attempts 'dns')+' replayed_client_hello_bytes='+(Prop $attempts 'client_hello_replayed_bytes' 0)+' state='+(Prop $attempts 'state')+' attempts='+$summary+' (transport evidence, not TLS/HTTP PASS)')
+  }
   $wire=Prop $r 'tls_wire'
   if($null -eq $wire){continue}
   $instrumented=$true
@@ -509,7 +515,7 @@ function Write-TlsWireEvidence($snapshot,[string]$lane) {
    $framing=@($records|ForEach-Object{('type='+(Prop $_ 'type' 0)+':len='+(Prop $_ 'payload_length' 0)+':complete='+(Prop $_ 'complete' $false))}) -join ','
    $prefix=[string](Prop $m 'first_16_hex_masked' '')
    if($prefix -notmatch '^(?:[0-9a-f]{2}|xx){0,16}$'){$prefix='INVALID_REDACTED'}
-   Say ($lane+' TLS: id='+(Prop $r 'id' 0)+' domain='+(Prop $r 'domain')+' destination='+(Prop (Prop $r 'plan') 'destination' (Prop $r 'upstream_destination'))+' side='+$side+' bytes='+(Prop $m 'bytes' 0)+' state='+(Prop $m 'state' 'UNINSTRUMENTED')+' hello_bytes='+(Prop $m 'client_hello_handshake_bytes' 0)+' records='+$framing+' first16_masked='+$prefix+' alert_level='+(Prop $m 'alert_level' 0)+' alert_description='+(Prop $m 'alert_description' 0)+' bounded='+(Prop $m 'bounded' $false))
+   Say ($lane+' TLS: id='+(Prop $r 'id' 0)+' domain='+(Prop $r 'domain')+' destination='+(Prop (Prop $r 'plan') 'destination' (Prop $r 'upstream_destination'))+' side='+$side+' bytes='+(Prop $m 'bytes' 0)+' state='+(Prop $m 'state' 'UNINSTRUMENTED')+' server_hello_complete='+(Prop $m 'server_hello_complete' $false)+' hello_bytes='+(Prop $m 'client_hello_handshake_bytes' 0)+' records='+$framing+' first16_masked='+$prefix+' alert_level='+(Prop $m 'alert_level' 0)+' alert_description='+(Prop $m 'alert_description' 0)+' bounded='+(Prop $m 'bounded' $false))
   }
  }
  if(!$instrumented){Say ($lane+' TLS: NO_INSTRUMENTED_FLOW (old service or no fresh TLS flow); old bytes are not reconstructed')}

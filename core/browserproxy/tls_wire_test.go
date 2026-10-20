@@ -72,3 +72,22 @@ func TestTLSWireCountsOnlySuccessfulWritesIncludingPartialError(t *testing.T) {
 		t.Fatal(n, err, o.Snapshot())
 	}
 }
+
+func TestTLSWireServerHelloHeaderSplitAcrossRecordsIsNotPrematureProgress(t *testing.T) {
+	var wire TLSWireObserver
+	first := []byte{22, 3, 3, 0, 2, 2, 0}
+	second := []byte{22, 3, 3, 0, 6, 0, 4, 1, 2, 3, 4}
+	wire.ObserveOrigin(first)
+	if wire.Snapshot().Origin.ServerHelloComplete {
+		t.Fatal("record completion confused with ServerHello completion")
+	}
+	for i, b := range second {
+		wire.ObserveOrigin([]byte{b})
+		if i < len(second)-1 && wire.Snapshot().Origin.ServerHelloComplete {
+			t.Fatal("truncated ServerHello confirmed")
+		}
+	}
+	if !wire.Snapshot().Origin.ServerHelloComplete {
+		t.Fatal("complete fragmented ServerHello not detected")
+	}
+}
