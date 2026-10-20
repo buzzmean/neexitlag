@@ -1354,3 +1354,8 @@ CI 4cdf2e5: isolated systemd/PostgreSQL upgrade PASS (run 39484588909), Verify c
 production -ign_eof и могла выходить на закрытом stdin до ClientHello. Исправлена
 только фикстура, assertions сохранены; локально 61 deployment tests PASS.
 Остальные CI ещё выполняются; production deployment по-прежнему не выполнялся.
+
+CI: добавлен focused activation.yml без upload artifacts: isolated PostgreSQL/race,
+Go vet/build, deployment tests; Windows native SYSTEM/admin ACL, activation contracts,
+145 C# tests/WPF и PS5.1 parsing. Это отделяет новые проверки от прежнего quota-blocked
+общего Verify; не заменяет Internet/production acceptance.
