@@ -1,6 +1,6 @@
 # CURRENT — состояние проекта (обновляется в конце каждой сессии)
 
-Обновлено: 20.10.2026, Codex; `codex/work`, база 9a355b6. Fresh-PC browser/PAC repair: explicit регистрация обоих браузеров при уже активной оптимизации, защита PAC-активации от native timer race, безопасные коды/состояния и локальный repair без SSH/enroll/CA rotation. Один итоговый commit; детали — (y). VPS не выполнялся; этап (в) и PR #8 без изменений.
+Обновлено: 20.10.2026, Codex; `codex/work`, база 2c4f75f. Этап (в) разрешён владельцем: никаких browser dialogs/quit/restart. По пункту 4 остановлена runtime-реализация: у WinDivert нет постоянного независимого guard, WFP backend — заглушка. Только архитектурные документы и handoff; детали — (z), docs/BROWSER_NATIVE_GUARD.md. Старый PAC/restart не принят как временное решение. VPS/credentials/PR #8/runtime не менялись.
 
 ## (a) Цель
 Чистый Windows 10/11: установил, нажал «Оптимизировать» — заблокированные в РФ сервисы работают без VPN: ChatGPT, Claude, YouTube, Discord, Telegram, браузеры Chrome и Edge. Первый заказчик — клуб на 36 ПК с откатом при перезагрузке.
@@ -57,6 +57,7 @@
 | Fresh-PC: DWORD token ABI fix | `tools/windows/fresh-pc-execution.ps1`, `tests/windows-tools/fresh-pc-checks.ps1`, `docs/FRESH_PC_ENROLLMENT.md`, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; один итоговый commit по требованию владельца. ABI/reflection/result-validator и exact owner fixture PASS; actual owner Windows не проверен, без VPS |
 | Fresh-PC: VPS binary preparation without old identity | `deploy/vps/{fresh-pc-ssh,fresh-vps-upgrade,production-upgrade,rotate-fresh-pc-ca}.py`, `tools/windows/bootstrap-fresh-pc.ps1`, `tools/fresh-pc/*`, deployment/PS/Go tests, docs/FRESH_PC_ENROLLMENT.md, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена. Один итоговый commit по требованию владельца. Только isolated tests; production SSH/upgrade/rotation не выполнялись |
 | Fresh-PC PAC readiness | `apps/desktop{,-core}/Fresh*`, `ChromeRouting.cs`, `BrowserNative.cs`, browser readiness/status/errors, `tools/windows/bootstrap-fresh-pc.ps1`, desktop/Go/PS tests, FRESH_PC_ENROLLMENT.md, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; один итоговый commit по требованию владельца; локальные проверки, реальный Windows/ISP ретест ещё нужен; VPS/CA/enroll не запускались |
+| Этап (в): независимый guard / проверка реализуемости | `docs/BROWSER_NATIVE_GUARD.md` (новый), `docs/BROWSER_HOT_ATTACH.md`, CURRENT.md; runtime этапа (в) до подтверждения guard не менять | Codex | `codex/work` | BLOCKED_CURRENT_BACKEND 20.10.2026; аудит завершён, область освобождена; только docs в одном commit по пункту 4 владельца; runtime этапа (в) не менять до реализации/проверки независимого guard |
 | Discord медленно, DIRECT+ для YouTube | не определены | никто | — | свободно для Codex после диагностики; Go-файлы застоя (выше) не трогать |
 | PR #8, `codex/direct-plus-flowseal` | — | не трогать | — | только владелец |
 
@@ -82,6 +83,13 @@
 Управление флагом YouTube: `settings.set` с полным объектом Settings и `"youtube_via_relay": true` означает relay-first сразу для ordinary YouTube. По умолчанию выключен; аварийный fallback от него не зависит. Configured DIRECT+ и protected rules не заменяются.
 
 ## (h) Журнал решений
+
+20.10.2026: этап (в) разрешён, UX с browser restart запрещён. Пункт 4 владельца:
+при отсутствии доказанного независимого fail-closed guard остановить runtime,
+не снимать PAC/owned checks и не маскировать проблему watchdog polling. Новый
+проект WFP enforcement/redirect/signing/native failure injection нужен до выпуска;
+подробности — [BROWSER_NATIVE_GUARD.md](../BROWSER_NATIVE_GUARD.md). Существующий
+legacy restart path не принимается как временный пользовательский сценарий.
 
 20.10.2026: после успешной установки identity восстановление browser lane — локальный
 `-RepairBrowserReadiness`; никаких повторных RotateCA/enroll. Fresh-регистрация
@@ -1080,3 +1088,46 @@ Ownership-пометка включена в тот же commit по прямо�
 - ПК: обновить службу/GUI существующими update scripts, затем
   `& .\tools\windows\bootstrap-fresh-pc.ps1 -VpsIP 2.56.177.4 -SSHUser root -RepairBrowserReadiness`.
   Принять старые dialogs штатного browser restart; при отказе не повторять enrollment.
+
+
+## (z) Этап (в): остановка на независимом guard, только документация
+
+20.10.2026, база `2c4f75f`; один итоговый commit по требованию владельца.
+
+- Цель утверждена: одна кнопка/автостарт, без dialogs/quit/browser restart/user
+  reconnect/PowerShell. Новые flows native, старые TCP PINNED_UNTIL_CLOSED.
+- Найден security blocker текущей реализации, применён прямой пункт 4 задания.
+  WinDivert 2.2.2 (версия из pins/download helper): dynamic WFP session, lifetime
+  handles; cleanup может reinject не просроченные NETWORK queue/work queue packets,
+  destroy удаляет callouts/закрывает engine. Watchdog, реагирующий ПОСЛЕ crash,
+  не делает запрет атомарным. Второй процесс/duplicate handle сам по себе не
+  доказывает boot/last-handle/guard-crash безопасность.
+- Persistent user-mode WFP/Firewall BLOCK возможен без собственного драйвера,
+  но не перенаправляет исходный connect в существующий NETWORK reflector.
+  SOCKET layer block не позволяет изменить/inject connect. Production WFPBackend
+  — явная unavailable заглушка, как и описывает ADR-001. Нельзя назвать такой
+  block работоспособным браузером или снять owned PAC check ради false READY.
+- Рекомендация — подписанный ALE connect-redirection/enforcement callout с
+  постоянными per-app+owner v4/v6 rules, независимым broker/watchdog, generation/
+  heartbeat, bounded admission и защитой boot/recovery. WFP сам не раскрывает
+  ECH/H2/H3 origin; coalescing/DNS/opaque правила требуют отдельного no-leak gate.
+  Shared PID/tuple/impostor не являются доверенным permit; games и desktop apps
+  должны остаться вне browser guard scope.
+- Новый docs/BROWSER_NATIVE_GUARD.md содержит подтверждённые места кода и
+  upstream/Microsoft первичные источники, контрпримеры, архитектуру, ограничения,
+  безопасную миграцию уже прочитанного PAC, diagnostics proposal и failure-injection
+  acceptance. Proposed states/codes/≤3s/≤2s/≤10s — не существующий IPC/измерения.
+- Runtime, GUI, bootstrap, diag-скрипт и WinDivert pins не менялись. Диалоги старого
+  кода НЕ объявлены временным продуктовым решением; этап (в) НЕ выполнен.
+  Снятие PAC до нового guard не разрешено. Нужны WDK/signing/Windows kernel test
+  возможности и решение владельца о новом driver scope; нет оснований объявлять
+  stage (в) безопасно реализованным на имеющихся компонентах.
+- Проверка — чтение соответствующих исходников и официальных docs, существование
+  relative links/якорных методов и git diff --check. Нового guard нет: kill/hang/
+  boot/native browser acceptance НЕ выполнялись и PASS не заявляется. Go/C#/CI
+  runtime suite не перезапускалась для docs-only изменения.
+- Production VPS, CA, сертификаты, credentials, PR #8, игровые и desktop policies
+  не тронуты. diag-result/cs-diag/observe-result не добавлялись.
+- На ПК НИЧЕГО НЕ ЗАПУСКАТЬ: только документация. Новый install/repair с browser
+  restart не предлагается для выполнения этапа (в). Дальше — решение о WFP scope,
+  не очередной ручной browser test с перезапуском.
