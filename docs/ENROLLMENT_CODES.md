@@ -181,3 +181,8 @@ python3 /var/backups/neexitlag-activation/<id>/deploy-activation.py rollback --b
 Hardware spoofing/администратор, имеющий клубный код, не устраняются без аппаратной
 аттестации. При долгой freeze-эксплуатации revocations растут; лимит подписанного
 конфига 1 MiB остаётся fail-closed, очистка security history автоматически не делается.
+
+Плановое продление leaf перезапускает CP и relay согласно согласованному порядку:
+это maintenance-событие с возможным кратким разрывом активных relay-соединений.
+Оно отличается от 30-минутного same-session lease renewal, который не менялся.
+Горячая перезагрузка server TLS без restart в этот этап не входит.

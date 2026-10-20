@@ -183,6 +183,23 @@ func TestActivationHTTPSCSRPrivateKeyFreezeAndLostResponse(t *testing.T) {
 		oldDone = c.remoteDone
 		return oldDone != nil
 	})
+	badCode, _ := enrollment.NewCode()
+	badRequest, _ := json.Marshal(map[string]any{"code": badCode})
+	if _, e = c.Handle(ctx, "activation.set", badRequest); e != nil {
+		t.Fatal(e)
+	}
+	wait(func() bool { return c.activationStatus().Error == "ACTIVATION_INVALID" })
+	c.remoteMu.Lock()
+	same := c.remoteDone == oldDone
+	select {
+	case <-oldDone:
+		same = false
+	default:
+	}
+	c.remoteMu.Unlock()
+	if !same {
+		t.Fatal("rejected code interrupted working remote")
+	}
 	_, replacement, e := store.CreateCode(ctx, cp.ActivationCode{Kind: "personal", Limit: 2, Name: "replacement fixture", Expires: now.Add(time.Hour)})
 	if e != nil {
 		t.Fatal(e)

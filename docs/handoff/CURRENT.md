@@ -1365,3 +1365,17 @@ CI уточнение 7ea0769: реальный ClientHello фикстуры 713
 custom extensions по-разному. В test-only ALPN добавлены 8 bounded protocol names
 для фактического большого ClientHello; размер/framing assertions не ослаблены,
 production TLS/probe не изменены. Причина прежнего CI отказа уточнена по safe summary.
+
+CI b84bdb3: focused Activation and leaf renewal PASS на Linux+Windows
+(run 39485374085); реальные native protected ACL tests, activation contracts,
+145 C# tests/WPF и PS5.1 PASS. Isolated production upgrade PASS (39485374001).
+General Verify Windows остановился на upload-artifact quota (39485374049), не
+ошибке новых тестов. Полный общий CI зелёным не объявляется; deployment не выполнен.
+
+Дополнительная regression смены кода: неверный новый код не должен перезапускать
+работающие remote workers/потоки. connected теперь проверяет реальное состояние
+worker group, а не сбрасывается от одного GUI wake. HTTPS regression последовательно
+проверяет invalid change (старый worker жив) и valid change (старый закрыт, новый
+создан). Полный client-service race PASS (6.606 s); остальные маршруты не менялись.
+Документировано maintenance-ограничение leaf timer: CP/relay restart может кратко
+прервать relay-сессии; это не изменение same-session lease renewal.

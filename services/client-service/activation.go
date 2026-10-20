@@ -426,9 +426,9 @@ func (c *Controller) activationLoop(managed bool) {
 				ctx, cancel := context.WithTimeout(c.ctx, 12*time.Second)
 				next, p, err := c.activationAttempt(ctx, m, r)
 				cancel()
-				// The attempt may have stopped the previous remote, including on a
-				// partial storage failure. Reconnect only the verified current identity.
-				connected = false
+				// A rejected code must preserve established workers. A successful
+				// replacement (or interrupted file commit) actually stops them.
+				connected = connected && c.activationRemoteRunning()
 				policy = p
 				e = err
 				c.activation.mu.Lock()
@@ -511,7 +511,6 @@ func (c *Controller) activationLoop(managed bool) {
 		case <-c.activation.wake:
 			timer.Stop()
 			managed = true
-			connected = false
 			backoff = time.Second
 		case <-timer.C:
 		}
@@ -545,6 +544,10 @@ func activationDeadlines(ctx context.Context, m Manifest) (enrollment.Policy, er
 // Keep their retry/established-flow lifecycle; retry only actual setup failures.
 func (c *Controller) activationConnect(ctx context.Context, m Manifest) bool {
 	_ = c.ConnectRemote(ctx, m)
+	return c.activationRemoteRunning()
+}
+
+func (c *Controller) activationRemoteRunning() bool {
 	c.remoteMu.Lock()
 	defer c.remoteMu.Unlock()
 	if c.remoteDone == nil {
