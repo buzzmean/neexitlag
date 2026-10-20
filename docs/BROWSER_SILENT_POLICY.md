@@ -96,3 +96,15 @@ Edge policy acceptance и в диагностике ПК; до этого рез
 Владельцу достаточно обычного обновления службы/GUI и открытых браузеров; для
 необязательного отчёта: `& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube`.
 Закрывать браузеры для проверки не требуется. Действия с VPS не предусмотрены.
+
+
+### Первый Windows CI на 5d47ff0 (20.10.2026)
+
+Edge: `POLICY_PENDING_BROWSER_REFRESH`, requests=0 за окно примерно 30 секунд,
+PID/creation time не менялись, user RefreshPolicy запрос принят. Следовательно,
+мгновенный live uptake **не доказан**, нельзя обещать его этим браузерам.
+Chrome: CDP fixture не появилась за 10 секунд; это ошибка instrumentation, не
+доказательство отказа продуктового PAC. Причина запуска CDP ещё не установлена.
+Run: https://github.com/buzzmean/neexitlag/actions/runs/39474255693 .
+Старый Edge HTTPS/mTLS шаг прошёл, новый общий acceptance не PASS. Upload artifacts
+также не прошёл из-за квоты. Эти данные не являются проверкой ISP владельца.

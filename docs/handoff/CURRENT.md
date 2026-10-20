@@ -61,6 +61,7 @@
 | Telegram main origin: безопасная TLS-диагностика и read-only VPS proof | `core/browserproxy/{tls_wire*,proxy,close_evidence}.go`, `services/client-service/browser_native{,_pac}.go`, новый `browser_tls_test.go`, `platform/windows/telegram_hello_test.go`, `tests/integration/telegram_tls_test.go`, `tools/windows/diag-no-vpn.ps1`, `deploy/vps/diagnose-telegram-tls.py`, deployment/PS tests, docs/TELEGRAM_TLS_DIAGNOSTICS.md, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; один итоговый commit по требованию владельца; read-only script подготовлен, на VPS не запускался; Internet причина/Windows ретест остаются открытыми |
 | Relay-first: per-IP TLS silence recovery | `core/browserproxy/{origin_*,proxy,dns,dns_test,tls_wire,tls_wire_test}.go`, `services/client-service/browser_{transport,admission,known_group,native,native_pac,origin,origin_test}.go`, `tests/integration/relay_origin_test.go`, PS tests/diag-no-vpn.ps1, docs/TELEGRAM_TLS_DIAGNOSTICS.md, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; один итоговый commit по требованию владельца; actual Windows/ISP ещё не проверен; VPS не тронут |
 | Этап (в), вариант A: тихий owned PAC без browser restart | `services/client-service/browser_silent*.go`, browser/edge transport/controller; `platform/windows/*policy*`; desktop Browser/Chrome/Edge/Fresh routing; bootstrap/update/diag; acceptance/tests/docs | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; один итоговый commit включает ownership по требованию владельца; WFP/VPS/игры вне задачи; Windows uptake не измерен локально |
+| Windows freeze-фикстура: настоящий SID + post-push CI handoff | `services/client-service/browser_silent_test.go`, `docs/BROWSER_SILENT_POLICY.md`, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; дополнительный commit явно разрешён владельцем; production runtime без правок |
 | Discord медленно, DIRECT+ для YouTube | не определены | никто | — | свободно для Codex после диагностики; Go-файлы застоя (выше) не трогать |
 | PR #8, `codex/direct-plus-flowseal` | — | не трогать | — | только владелец |
 
@@ -86,6 +87,9 @@
 Управление флагом YouTube: `settings.set` с полным объектом Settings и `"youtube_via_relay": true` означает relay-first сразу для ordinary YouTube. По умолчанию выключен; аварийный fallback от него не зависит. Configured DIRECT+ и protected rules не заменяются.
 
 ## (h) Журнал решений
+
+- 20.10.2026: владелец разрешил дополнительный test/docs commit после 5d47ff0. Windows freeze-фикстура получает SID фактического процесса через существующий discovery/token API, а не синтетический S-1-test; CI ошибки/неподтверждённый live uptake записаны без ложного PASS. Force-push/rewrite не используются.
+
 
 - 20.10.2026: по явному решению владельца выбран вариант A этапа (в): quiet owned PAC + user policy refresh, никаких browser restart/dialog/process control. Независимый WFP guard — будущий B. Registry configuration и реальный owner ingress не смешиваются; pending browser uptake не валит bootstrap. Один итоговый commit включает ownership по требованию владельца.
 
@@ -1274,3 +1278,16 @@ TCP OPEN успешен, TLS на исходном DNS IP не работает,
 Владельцу: обычное обновление службы/GUI с открытыми браузерами; для необязательного
 отчёта `& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube`. В программе
 только «Оптимизировать»/автозапуск, никаких browser restart диалогов.
+
+
+Post-push CI 5d47ff0: Edge real HTTPS/mTLS step PASS; silent Edge uptake за ~30 с
+не наблюдался (PID/creation unchanged). Chrome CDP instrumentation unavailable
+за 10 с -> новый acceptance FAIL, не Internet failure. Verify Linux упал в старом
+OpenSSL diagnostics test, Verify Windows прерван artifact quota до Go tests.
+Выявлена native-only ошибка новой freeze-фикстуры: S-1-test нельзя использовать
+в Windows ACL publication. Локально подготовлен minimal actual-user-SID fixture
+fix, portable race и Windows compile PASS. Владелец явно разрешил дополнительный
+test/docs commit 20.10.2026: только actual SID для Windows freeze-фикстуры и
+результаты CI, без переписывания истории. Исправление не меняет production-код,
+policy/guard/ACL contract, CDP readiness и маршруты. Нативный Windows запуск этого
+исправления локально не выполнялся; cross-compile не является runtime PASS.

@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
 	"github.com/buzzmean/neexitlag/core/browserproxy"
 	"github.com/buzzmean/neexitlag/core/profiles"
+	wp "github.com/buzzmean/neexitlag/platform/windows"
 )
 
 func silentFixture(t *testing.T, edge bool) (*Controller, profiles.Profile, *string) {
@@ -106,6 +109,19 @@ func TestSilentPACBootFreezeReapplyAndForeignPolicy(t *testing.T) {
 	for _, edge := range []bool{false, true} {
 		t.Run(map[bool]string{false: "chrome", true: "edge"}[edge], func(t *testing.T) {
 			c, _, value := silentFixture(t, edge)
+			// Restore publishes the real ACL-protected recovery guard. A dummy
+			// SID works only on portable stubs, never on native Windows ACLs.
+			if runtime.GOOS == "windows" {
+				identity, err := wp.NewDiscovery().Lookup(uint32(os.Getpid()))
+				if err != nil {
+					t.Fatal(err)
+				}
+				sid, err := wp.ProcessUserSID(identity)
+				if err != nil {
+					t.Fatal(err)
+				}
+				c.BrowserOwnerSID = sid
+			}
 			c.customPath = filepath.Join(t.TempDir(), "profiles.json")
 			method := "browser.silent.apply"
 			if edge {
