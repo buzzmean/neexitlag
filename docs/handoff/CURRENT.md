@@ -1572,3 +1572,8 @@ CA/systemd исправление неизменно; оба actual isolated sys
   тяжёлые jobs; concurrency отменяет устаревшие прогоны; fail-fast=false даёт
   независимые результаты layout. Это снижение расхода, не обход billing gate.
 - Работа продолжается: local actual scenario и найденные deployment regressions.
+
+- Первый local runner ff70fd3 остановился ДО deployment: source archive в /tmp
+  исчез при boot/mount/tmpfiles systemd. Staging перенесён в /var/tmp, добавлено
+  ожидание systemd running/degraded и непустой failure JSON даже до source copy.
+  Docker/PKI cleanup выполнен; ни VPS, ни host /etc не менялись.
