@@ -65,7 +65,12 @@ rollback timers. Это лаборатория, не Internet/VPS acceptance.
 & .\tools\windows\test-activation-local.ps1
 ```
 
-Запускает native activation/helper tests, C# tests/WPF build и fake-SSH fixture.
+Перед тестами проверяет официальный nuget.org через SDK и добавляет его в
+пользовательскую NuGet-конфигурацию, если URL отсутствует. Другие источники не
+меняются; уже включённый URL распознаётся независимо от имени. Явно отключённый
+источник или конфликт имени диагностируется, без перезаписи настройки. Затем
+запускает isolated NuGet-config regression, native activation/helper tests,
+C# tests/WPF build и fake-SSH fixture.
 Не устанавливает службу, не вызывает bootstrap/enroll, не подключается к VPS.
 Linux cross-build не заменяет эту проверку. Если Windows runtime недоступен,
 результат остаётся неподтверждённым до этого прогона или разблокировки GitHub.
@@ -123,3 +128,14 @@ git pull --ff-only origin codex/work
 ```
 Затем локальный Windows test runner выше (не меняет VPS/установку). Mutating
 update не запускать на основании одного зелёного лабораторного отчёта.
+
+## Подтверждение владельца: чистый Windows, c9c8af1
+
+Владелец выполнил test-activation-local.ps1 на c9c8af1: Go platform/windows,
+client-service и fresh-pc PASS; C# 145/145; WPF 0 errors/4 CS8604;
+PS5.1 redirected fake SSH fixture PASS. Это подтверждение именно c9c8af1,
+не native Windows проверка последующих production-изменений 5adc8e5.
+На ПК потребовались Git/Python3.12/Go/.NET SDK8.0.426. Источников NuGet не было,
+NU1100 устранён ручным добавлением nuget.org; теперь runner делает это сам.
+Одна загрузка testhost17.11.1 прошла после повтора из-за сетевого timeout60s;
+автоматический retry restore в этой задаче не добавлялся.

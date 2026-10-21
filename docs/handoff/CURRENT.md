@@ -69,7 +69,7 @@
 | Отказ READ_ONLY_SNAPSHOT: причины, Windows CRLF/BOM, общий deployment guard | `deploy/vps/{activation-diagnostics,inspect-activation,production-upgrade,deploy-activation,activation-release-ssh}.py`, `tools/windows/{verify-activation-vps,activation-ssh}.ps1`, deployment/PS tests, docs | Codex | `codex/work` | ГОТОВО 21.10.2026; область освобождена; неверный default baseline (38 hex) воспроизведён и исправлен; безопасная общая диагностика, CRLF/BOM и rollback packaging покрыты тестами; VPS не выполнялся |
 | Leaf renewal после activation deploy, повтор schema 2 и safe rollback | `tools/fresh-pc/{main.go,upgrade_test.go}`, `deploy/vps/{renew-server-cert,deploy-activation,activation-release-ssh,activation-diagnostics,inspect-activation}.py`, deployment/PS tests, workflows, docs | Codex | `codex/work` | РЕАЛИЗОВАНО 21.10.2026; область освобождена; CI после push; VPS не выполнять; security-monotonic rollback, схема 2 сохраняется явно; полный DB restore не реализован (см. (al)) |
 | Ранний отказ CI и локальная воспроизводимая systemd/leaf проверка | `.github/workflows/{activation,production-upgrade}.yml`, `tests/deployment/*`, deployment fixes по найденным регрессиям, docs | Codex | `codex/work` | ГОТОВО 21.10.2026; область освобождена; fresh + legacy offline systemd/PG PASS на 5adc8e5, 90 Python/Go race/build/vet/C# PASS; native Windows недоступен локально; GitHub billing gate, не объявлены PASS; VPS не выполнять |
-| NuGet clean-PC preflight тестового runner + Windows PASS владельца | `tools/windows/{test-activation-local,activation-nuget}.ps1`, `tests/windows-tools/activation-nuget-checks.ps1`, docs/CI_LOCAL_ACCEPTANCE.md, CURRENT.md | Codex | `codex/work` | В РАБОТЕ 21.10.2026; добавить только отсутствующий nuget.org, не менять чужие sources; VPS вне области |
+| NuGet clean-PC preflight тестового runner + Windows PASS владельца | `tools/windows/{test-activation-local,activation-nuget}.ps1`, `tests/windows-tools/activation-nuget-checks.ps1`, docs/CI_LOCAL_ACCEPTANCE.md, CURRENT.md | Codex | `codex/work` | ГОТОВО 21.10.2026; область освобождена; NuGet helper/real SDK config regression PASS на PS7/Linux; native Windows результат нового helper ещё не проверен; VPS вне области |
 | Discord медленно, DIRECT+ для YouTube | не определены | никто | — | свободно для Codex после диагностики; Go-файлы застоя (выше) не трогать |
 | PR #8, `codex/direct-plus-flowseal` | — | не трогать | — | только владелец |
 
@@ -1619,3 +1619,25 @@ CA/systemd исправление неизменно; оба actual isolated sys
   результаты/границы и local Linux runner: docs/CI_LOCAL_ACCEPTANCE.md. Полный
   production допуск не объявлен. Область Codex освобождена; работа остановлена
   на внешнем billing gate/native Windows подтверждении, не на Linux сценарии.
+
+
+## (an) 21.10.2026 — NuGet на чистом тестовом ПК
+- Владелец подтвердил test-activation-local.ps1 на c9c8af1: native Windows Go
+  platform/windows/client-service/fresh-pc PASS, C#145/145, WPF 0 errors/4 CS8604,
+  PS5.1 fake SSH fixture PASS. Это не отдельный native прогон 5adc8e5/ecd310a.
+- ecd310a — только ownership CURRENT.md для этой задачи; production код равен
+  e6dbe3f. Windows SSH/deploy scripts после c9c8af1 не менялись; production engine
+  fixes 06ce3d7/5adc8e5 покрыты чистыми Linux full fresh/legacy из (am).
+- На чистом ПК не было NuGet sources (NU1100). Runner теперь до C# вызывает
+  activation-nuget.ps1: SDK list source, official URL enabled -> no-op, missing ->
+  add nuget.org в user config. Чужие sources не заменяются, disabled/name-conflict
+  явно диагностируются без печати потенциально секретных feed URLs.
+- Добавлен real SDK regression с isolated NuGet.Config: empty, unrelated feed,
+  repeated run, official URL под другим именем, conflict, disabled — PASS на
+  PS7/Linux; parser всех трёх PS файлов PASS. Регрессия включена в local runner.
+  Новая Windows runtime проверка helper ещё не выполнена. Runtime/Go/VPS вне правок.
+- SDK/install/download retry не добавлялись: единичный timeout testhost60s у
+  владельца прошёл со второго раза, это отдельный сетевой сбой. Зависимости не
+  менялись; нужен установленный .NET SDK8, runtime-only по-прежнему недостаточен.
+- Команда с ПК: git pull --ff-only origin codex/work; затем
+  & .\tools\windows\test-activation-local.ps1. Это тесты/build, не deployment.
