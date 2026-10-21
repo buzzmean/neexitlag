@@ -208,7 +208,7 @@ class Host:
 
 def env_value(path, name):
     found = []
-    for line in Path(path).read_text().splitlines():
+    for line in Path(path).read_text(encoding='utf-8-sig').splitlines():
         if line.strip().startswith(name + '='):
             value = shlex.split(line.strip().partition('=')[2], comments=False)
             if len(value) != 1:

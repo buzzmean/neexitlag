@@ -8,11 +8,18 @@ import os
 from pathlib import Path
 import re
 import subprocess
+
+import importlib.util as _diagnostic_import
+try:
+ import activation_diagnostics as diagnostics
+except ModuleNotFoundError:
+ _spec=_diagnostic_import.spec_from_file_location('activation_diagnostics',Path(__file__).with_name('activation-diagnostics.py'))
+ diagnostics=_diagnostic_import.module_from_spec(_spec);_spec.loader.exec_module(diagnostics)
 import sys
 import tempfile
 
 STAGE='ENTRY'
-NAMES={'deploy-activation.py','fresh-vps-upgrade.py','production-engine.py','renew-server-cert.py','fresh-pc','codes','relay','control-plane','veliq-certificate-renewal.service','veliq-certificate-renewal.timer','92-veliq-activation.conf'}
+NAMES={'deploy-activation.py','fresh-vps-upgrade.py','production-engine.py','renew-server-cert.py','fresh-pc','codes','relay','control-plane','veliq-certificate-renewal.service','veliq-certificate-renewal.timer','92-veliq-activation.conf','activation-diagnostics.py'}
 def decode(item):
  raw=base64.b64decode(item['data'],validate=True)
  if len(raw)>32*1024*1024 or hashlib.sha256(raw).hexdigest()!=item['sha256']:raise RuntimeError('ARTIFACT_HASH_OR_SIZE_MISMATCH')
@@ -22,7 +29,7 @@ def main():
  global STAGE
  STAGE='REMOTE_IDENTITY'
  if os.geteuid()!=0 or os.uname().nodename.split('.')[0].lower()=='veliq-swe-01':raise RuntimeError('ROOT_REQUIRED_OR_EXCLUDED_HOST')
- if 'VPS_PUBLIC_IP=2.56.177.4' not in Path('/etc/neexitlag/public/relay.env').read_text().splitlines():raise RuntimeError('VPS_IDENTITY_MISMATCH')
+ diagnostics.require_vps_identity('/etc/neexitlag/public/relay.env')
  raw=sys.stdin.buffer.read(160*1024*1024+1)
  if len(raw)>160*1024*1024:raise RuntimeError('BOUNDED_REQUEST_EXCEEDED')
  STAGE='ARTIFACT_MANIFEST'
@@ -52,4 +59,4 @@ if __name__=='__main__':
  except BaseException as exc:
   if isinstance(exc,SystemExit):raise
   code=str(exc) if str(exc) in ('ROOT_REQUIRED_OR_EXCLUDED_HOST','VPS_IDENTITY_MISMATCH','BOUNDED_REQUEST_EXCEEDED','RELEASE_MANIFEST_INVALID','EXPLICIT_DEPLOYMENT_CONFIRMATION_REQUIRED','ARTIFACT_HASH_OR_SIZE_MISMATCH','ACTIVATION_RELEASE_FAILED_SEE_SAFE_CODE') else 'SAFE_RELEASE_FAILED'
-  print('ACTIVATION_RELEASE_FAILED '+json.dumps({'code':code,'stage':STAGE,'exit_code':getattr(exc,'returncode',None),'vps_modified':'UNKNOWN' if STAGE=='DEPLOYMENT_PROCESS' else 'NO'}),file=sys.stderr);sys.exit(1)
+  print('ACTIVATION_RELEASE_FAILED '+json.dumps({'code':code,'stage':STAGE,'exit_code':getattr(exc,'returncode',None),'vps_modified':'UNKNOWN' if STAGE=='DEPLOYMENT_PROCESS' else 'NO','diagnostics':diagnostics.failure(exc,STAGE)}),file=sys.stderr);sys.exit(1)

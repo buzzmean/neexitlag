@@ -19,6 +19,28 @@ $fixture=Join-Path ([IO.Path]::GetTempPath()) ('veliq-ssh-fixture-'+[Guid]::NewG
 New-Item -ItemType Directory -Path $fixture|Out-Null
 $oldPath=$env:PATH
 try{
+ # Execute the exact read-only launcher locally through a Windows PS5.1 pipe.
+ # No SSH, root, registry or VPS access; both source and stdin cross CRLF/BOM.
+ $verify=[IO.File]::ReadAllText((Join-Path $root 'tools/windows/verify-activation-vps.ps1'))
+ $pattern='(?s)\$remote=@'+[char]39+'\r?\n(.*?)\r?\n'+[char]39+'@'
+ $match=[regex]::Match($verify,$pattern)
+ Check $match.Success 'Read-only launcher fixture could not locate shipped source'
+ $codeFile=Join-Path $fixture 'readonly-wire.py'
+ $wrapped=Get-ActivationRemoteCode (([string][char]0xfeff)+$match.Groups[1].Value.Replace("`r`n","`n").Replace("`n","`r`n"))
+ [IO.File]::WriteAllText($codeFile,$wrapped,[Text.UTF8Encoding]::new($false))
+ foreach($case in @('success','VPS_IDENTITY_MISMATCH','PRIVATE_SENTINEL')){
+  $audit=if($case -eq 'success'){"def run(p):`r`n return {'read_only':True}`r`n"}else{"def run(p):`r`n raise RuntimeError('$case')`r`n"}
+  $raw=[Text.UTF8Encoding]::new($true).GetPreamble()+[Text.Encoding]::UTF8.GetBytes($audit)
+  $payload=@{audit=[Convert]::ToBase64String($raw)}|ConvertTo-Json -Compress
+  $savedPreference=$ErrorActionPreference
+  try{$ErrorActionPreference='Continue';$response=($payload|& python $codeFile 2>&1|Out-String);$exit=$LASTEXITCODE}finally{$ErrorActionPreference=$savedPreference}
+  Check (!$response.Contains('PRIVATE_SENTINEL')) 'Secret exception text escaped redaction'
+  if($case -eq 'success'){Check ($exit -eq 0 -and $response.Contains('read_only')) 'Windows CRLF/BOM success failed'}
+  else{
+   $expected=if($case -eq 'VPS_IDENTITY_MISMATCH'){$case}else{'SAFE_OPERATION_FAILED'}
+   Check ($exit -eq 1 -and $response.Contains($expected) -and $response.Contains('traceback')) 'Windows pipe lost safe RuntimeError cause'
+  }
+ }
  $program=@'
 using System;
 using System.IO;

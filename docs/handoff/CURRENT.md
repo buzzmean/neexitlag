@@ -66,6 +66,7 @@
 | Windows freeze-фикстура: настоящий SID + post-push CI handoff | `services/client-service/browser_silent_test.go`, `docs/BROWSER_SILENT_POLICY.md`, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026; область освобождена; дополнительный commit явно разрешён владельцем; production runtime без правок |
 | Коды активации club/personal, повторный CSR после freeze, leaf renewal | `core/enrollment/*`, control-plane/migrations/API/store, client-service activation/manifest/startup, desktop Activation*, tools/codes, fresh hardware adapter, deploy/vps certificate renewal + tests/docs | Codex | `codex/work` | ГОТОВО 20.10.2026, область освобождена; 4cdf2e5 / 82f6f84 / 7ea0769 / b84bdb3 / 0d3883b. Local checks и focused Linux/Windows CI PASS; финальные CI ссылки ниже. SSH недоступен, production/codes не изменены; deployment передан владельцу; veliq-swe-01/PR #8 вне области |
 | Отказ activation deployment после preflight | `deploy/vps/{production-upgrade,fresh-vps-upgrade,deploy-activation,activation-release-ssh,renew-server-cert,inspect-activation}.py`, `tools/windows/{activation-ssh,verify-activation-vps,update-activation-vps}.ps1`, deployment/PS tests, `.github/workflows/{activation,production-upgrade}.yml`, `docs/ENROLLMENT_CODES.md`, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026, область освобождена; 70 Python tests и PS parsing/fresh checks PASS. Actual Windows redirected process/systemd matrix — в CI после push; production не выполнялся. Ownership включён в отдельный fix-коммит по требованию владельца |
+| Отказ READ_ONLY_SNAPSHOT: причины, Windows CRLF/BOM, общий deployment guard | `deploy/vps/{activation-diagnostics,inspect-activation,production-upgrade,deploy-activation,activation-release-ssh}.py`, `tools/windows/{verify-activation-vps,activation-ssh}.ps1`, deployment/PS tests, docs | Codex | `codex/work` | ГОТОВО 21.10.2026; область освобождена; неверный default baseline (38 hex) воспроизведён и исправлен; безопасная общая диагностика, CRLF/BOM и rollback packaging покрыты тестами; VPS не выполнялся |
 | Discord медленно, DIRECT+ для YouTube | не определены | никто | — | свободно для Codex после диагностики; Go-файлы застоя (выше) не трогать |
 | PR #8, `codex/direct-plus-flowseal` | — | не трогать | — | только владелец |
 
@@ -1465,3 +1466,26 @@ $sshFixtureArguments. В production updater аргументы передают�
 не является установленной причиной исходного VPS отказа. Conditional encoding
 на Core и BOM-aware raw reader fixture совместимы с Python JSON и Framework.
 CA/systemd исправление неизменно; оба actual isolated systemd variants PASS.
+
+
+## (ak) 21.10.2026 — READ_ONLY_SNAPSHOT / неверный default baseline
+- Фикс отдельным коммитом в codex/work; история сайта Claude до 40ca824 сохранена fast-forward.
+- Причина RuntimeError воспроизведена на точном Python source: baseline по умолчанию
+  имел 38 символов, пропущено `7d`; верный полный hash
+  `2c06089f61c7b7a27cdf575f5cea4b834992426d` получен из git. Это проверяется тестом;
+  malformed baseline по-прежнему отклоняется. В PowerShell default проверяется до SSH.
+- Общий formatter read-only/update: code/step/exit/command, безопасные категории stderr,
+  bounded traceback только file/line, без source/locals/сырого exception. Read-only
+  psql stderr сохраняется приватно до классификации; stdout виден и при SSH error.
+- CRLF/BOM проверяются на реальных модулях в памяти; отдельная Windows PS5.1 fixture
+  исполняет точный launcher через локальный Python/pipe, без SSH/VPS. EnvironmentFile
+  BOM/CRLF/quoted address принимается; неверный/повторный адрес отклоняется.
+- Модуль диагностики входит в SHA256 release manifest и постоянный backup rollback.
+- Локально: 76 deployment Python tests PASS; PS parsing/quoting PASS.
+  Windows5.1 native pipe/child process — в CI после push, локально Linux.
+- Никаких команд на VPS, enroll, сертификатах, БД/сервисах не выполнялось.
+  Реальное состояние Debian/VPS не проверено. PR #8 не тронут.
+- Владельцу, PowerShell из корня клона: `git pull --ff-only origin codex/work; & .\tools\windows\verify-activation-vps.ps1` (только read-only).
+- Решение: CRLF/BOM не объявляем причиной исторического отказа; доказанный дефект —
+  38-символьный baseline и потеря кода исключения. Unknown exceptions остаются
+  санированными, а не выводятся целиком ради диагностики.

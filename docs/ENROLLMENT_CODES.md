@@ -216,7 +216,7 @@ PID/start-time/состояния служб, порты, схему/колич�
 не выдаются. SSH-аудит и обычная статистика ОС/БД при чтении естественно меняются.
 
 Для этого неудачного запуска baseline по умолчанию — установленные binaries
-`2c06089f61c7b7a2cf575f5cea4b834992426d`, migration 1. Поля:
+`2c06089f61c7b7a27cdf575f5cea4b834992426d`, migration 1. Поля:
 - `binary[].same_binary`: running hash равен installed; `commit` сверяется с baseline.
 - `database.activation_migration_not_applied`: migration 002 и её таблицы отсутствуют.
 - `ca_access`: root-only ключ, прямое чтение службой и совпадение runtime-копии.
@@ -252,3 +252,37 @@ preflight; его rollback мог перезапустить службы даж
 Повторный изменяющий запуск — только после разбора read-only отчёта и зелёных
 проверок нового commit; в `-ExpectedCommit` нужен новый полный SHA, не `3f31c1f`.
 На production в ходе разработки исправления ничего не выполнялось.
+
+
+### Отказ read-only снимка (21.10.2026)
+
+Причина `READ_ONLY_SNAPSHOT / RuntimeError` в 81b99ed воспроизведена:
+в значении baseline по умолчанию было 38 hex-символов (пропущено `7d`),
+а Python требует полный 40-символьный commit. PowerShell не валидировал
+значение параметра по умолчанию. Исправлены оба defaults и добавлена проверка
+до SSH. Этот дефект не относится к паролю, правам CA или версии Debian.
+
+Общая диагностика read-only/update теперь содержит `code`, `step`, `command`,
+`exit_code`, классифицированный `stderr`, `traceback` (только имя проверенного
+исходника и номер строки; без текста строки, переменных и аргументов).
+Неизвестный текст исключения и stderr скрываются. `READ_ONLY_COMMAND_PSQL`
+отличает отказ БД от `READ_ONLY_REMOTE_IDENTITY`, `READ_ONLY_BASELINE`
+и `READ_ONLY_CA_METADATA`. Для updater сохраняются backup/rollback/change state.
+Вывод stdout больше не теряется при ненулевом SSH exit.
+
+Фактический транспорт — ProcessStartInfo + base64 исходников + JSON stdin,
+без scp и без shell heredoc; `Get-Content -Raw | ssh` не используется.
+Исходники CRLF/UTF-8 BOM проверены через `compile(bytes)`; JSON bytes допускает
+BOM. Launcher нормализует собственный CRLF/BOM, EnvironmentFile читается как
+UTF-8 BOM-aware с проверкой единственного точного адреса (без shell/eval).
+Updater использует тот же guard/диагностику; модуль включён в SHA256 manifest
+и в постоянную копию rollback, поэтому rollback не зависит от временной папки.
+
+Повторить только read-only проверку (PowerShell, корень клона, SSH root пароль):
+```powershell
+git pull --ff-only origin codex/work
+& .\tools\windows\verify-activation-vps.ps1
+```
+Эта команда не обновляет бинарники, не вызывает enroll/миграции/rollback,
+не перезапускает службы. Настоящий результат Debian/VPS требует запуска владельцем;
+локальные фикстуры не доказывают состояние production.

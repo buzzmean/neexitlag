@@ -14,6 +14,13 @@ import secrets
 import shutil
 import sys
 import subprocess
+
+import importlib.util as _diagnostic_import
+try:
+ import activation_diagnostics as diagnostics
+except ModuleNotFoundError:
+ _spec=_diagnostic_import.spec_from_file_location('activation_diagnostics',Path(__file__).with_name('activation-diagnostics.py'))
+ diagnostics=_diagnostic_import.module_from_spec(_spec);_spec.loader.exec_module(diagnostics)
 import tempfile
 
 ROOT=Path('/var/backups/neexitlag-activation')
@@ -40,7 +47,7 @@ def save(path,state):
 
 def guard():
  if os.geteuid()!=0 or os.uname().nodename.split('.')[0].lower()=='veliq-swe-01':raise RuntimeError('ROOT_REQUIRED_OR_EXCLUDED_HOST')
- if 'VPS_PUBLIC_IP=2.56.177.4' not in Path('/etc/neexitlag/public/relay.env').read_text().splitlines():raise RuntimeError('VPS_IDENTITY_MISMATCH')
+ diagnostics.require_vps_identity('/etc/neexitlag/public/relay.env')
 
 def restore(directory,automatic=False,boot=False):
  directory=Path(directory);state=json.loads((directory/'state.json').read_text())
@@ -115,6 +122,7 @@ class Progress:
         self.stage='ENTRY';self.backup=None;self.modified='NO';self.rollback='NOT_NEEDED'
     def step(self,name):
         self.stage=name
+        diagnostics.step(name)
         print('ACTIVATION_DEPLOYMENT_STEP '+name,file=sys.stderr,flush=True)
     def failure(self,exc):
         text=str(exc)
@@ -124,7 +132,7 @@ class Progress:
         if command not in PROGRAMS:command='NOT_REPORTED'
         exit_code=getattr(exc,'exit_code',getattr(exc,'returncode',None))
         if not isinstance(exit_code,int):exit_code=None
-        return {'code':code,'stage':self.stage,'step':self.stage,'exception':type(exc).__name__ if type(exc).__name__ in ('RuntimeError','UpgradeError','PermissionError','FileNotFoundError','ValueError','TimeoutExpired','OSError','CalledProcessError') else 'OPERATION_ERROR','command':command,'exit_code':exit_code,'stderr':safe_stderr(getattr(exc,'command_stderr','')),'vps_modified':self.modified,'backup':self.backup,'rollback':self.rollback}
+        return {'code':code,'stage':self.stage,'step':self.stage,'exception':type(exc).__name__ if type(exc).__name__ in ('RuntimeError','UpgradeError','PermissionError','FileNotFoundError','ValueError','TimeoutExpired','OSError','CalledProcessError') else 'OPERATION_ERROR','command':command,'exit_code':exit_code,'stderr':safe_stderr(getattr(exc,'command_stderr','')),'vps_modified':self.modified,'backup':self.backup,'rollback':self.rollback,'diagnostics':diagnostics.failure(exc,self.stage)}
 
 PROGRESS=Progress()
 
@@ -159,7 +167,7 @@ def apply(stage,commit,confirm):
  # Permanent full configuration backup. Binary transaction separately pg_dumps
  # and saves all binaries/units before replacing anything.
  shutil.copytree('/etc/neexitlag',directory/'config')
- for name in ('deploy-activation.py','fresh-vps-upgrade.py','renew-server-cert.py'):
+ for name in ('activation-diagnostics.py','deploy-activation.py','fresh-vps-upgrade.py','renew-server-cert.py'):
   shutil.copy2(stage/name,directory/name)
  shutil.copy2(stage/'production-engine.py',directory/'production-engine.py')
  run=leaf.command
