@@ -10,7 +10,7 @@
 
 | Работа | Файлы | Агент | Ветка | Статус |
 |---|---|---|---|---|
-| A1–A6, B1, C1–C2, D1–D2, E1–E2 | browser lifecycle/remote/activation/controller и тесты; desktop/core модели/UI/активация и тесты; tools/windows install/update/diagnostics; новый installer/ и workflow; browser DNS и тесты; новый пассивный observer; docs/; brand/assets только после инвентаризации | Codex | codex/work | В РАБОТЕ; по одному коммиту и push на пункт; production не выполнять |
+| A1–A6, B1, C1–C2, D1–D2, E1–E2 | browser lifecycle/remote/activation/controller и тесты; desktop/core модели/UI/активация и тесты; tools/windows install/update/diagnostics; новый installer/ и workflow; browser DNS и тесты; новый пассивный observer; docs/; brand/assets только после инвентаризации | Codex | codex/work | ПАУЗА после merge-проверки: A1–A6 опубликованы, B1 и merge локальны; race integration revocation FAIL. C1–E2 не начаты, их область свободна до возобновления; production не выполнять |
 
 ## (a) Цель
 Чистый Windows 10/11: установил, нажал «Оптимизировать» — заблокированные в РФ сервисы работают без VPN: ChatGPT, Claude, YouTube, Discord, Telegram, браузеры Chrome и Edge. Первый заказчик — клуб на 36 ПК с откатом при перезагрузке.
@@ -1829,3 +1829,33 @@ GUI различает отзыв кода, отзыв конкретного к
 ### B1
 
 Добавлен offline Inno Setup 6.4.3 payload/compiler workflow, SHA256 и public CA pin, install/update/uninstall без browser control, same-SID owner, экран активации существующего GUI; тихий club staging из ACL-protected файла через stage_for_boot. Код не в EXE/args/logs. Unsigned/signing оставлен решением владельца. Python 4 контрактных теста и PS7 functional integrity fixture/parse PASS (driver hashes mocked), WPF cross-build; настоящий ISCC/Setup/Windows UAC/freeze не проверен. Production trust/подпись/Release не публиковались; при отсутствии public vars CI только non-distributable fixture. Детали INSTALLER_BUILD.md.
+
+## Остановка после разрешённого merge (21.10.2026)
+
+Владелец разрешил обычный merge df2a4bc и потребовал остановиться при сбое
+проверок, не исправляя молча. Сохранены локальные коммиты:
+
+- B1 `5cb7f89` (ещё НЕ опубликован).
+- `cee7d64`: merge df2a4bc, только CURRENT.md, без конфликтов.
+- `9dca1e6`: сохранены появившиеся после df2a4bc изменения сайта до a01b36f;
+  только website/, brand/*.md, design/README.md, design/tools/build-site.py,
+  CURRENT.md. Никакого force-push/переписывания. Сравнение с 5cb7f89 для apps/,
+  services/, core/, platform/, tools/, installer/ и lease_test.go — пустое.
+
+Повторные проверки: go vet ./... PASS; C# 165/165 PASS; WPF cross-build PASS
+(0 ошибок, 4 прежних CS8604); Python installer contracts 4 PASS; синтаксис
+генератора сайта PASS. Полный go test -race -p 1 ./... — FAIL:
+TestLeaseRenewalReplayAndDeviceBinding, tests/integration/lease_test.go:375,
+Application error 0xb (remote): device_revoked. Это запрос после verifier.Update
+со списком отзыва. Тест требует отрицательный ACK; periodic lease guard в
+services/relay/server.go вправе первым закрыть сессию как revoked. Файлы теста,
+relay, transport/security не изменены слияниями. Другие опубликованные локальные
+проверки не заменяют этот failed gate; native Windows не выполнялся.
+
+Код/тест НЕ исправлялся после сбоя. Предложение владельцу: отдельная регрессия,
+допускающая отрицательный ACK либо закрытие с точным RevokedCode; никакого
+принятия произвольной сетевой ошибки/timeout или успешного renewal. До решения
+владельца B1/merge не пушить, C1–E2 не начинать. Первое незавершённое действие:
+решение по failed gate, затем повтор проверки и обычный push сохранённых коммитов.
+На VPS и ПК ничего не выполнялось. Команды обновления ПК пока не выдаются:
+опубликованный клиент остаётся A1–A6, installer/source merge ещё локальны.
