@@ -1489,3 +1489,10 @@ CA/systemd исправление неизменно; оба actual isolated sys
 - Решение: CRLF/BOM не объявляем причиной исторического отказа; доказанный дефект —
   38-символьный baseline и потеря кода исключения. Unknown exceptions остаются
   санированными, а не выводятся целиком ради диагностики.
+
+- Post-push CI 0274127: isolated systemd/PostgreSQL legacy + fresh-credential PASS
+  ([run](https://github.com/buzzmean/neexitlag/actions/runs/39544537587)). Windows
+  native Go, 145 C# tests, WPF, parse и все assertions pipe/child process PASS;
+  job ошибочно failed из-за ожидаемого Python exit=1, оставшегося в LASTEXITCODE.
+  Отдельный маленький follow-up очищает его только после всех assertions;
+  неожиданный exit по-прежнему приводит к Check/throw. История не переписывается.

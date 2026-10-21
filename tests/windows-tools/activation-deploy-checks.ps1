@@ -41,6 +41,9 @@ try{
    Check ($exit -eq 1 -and $response.Contains($expected) -and $response.Contains('traceback')) 'Windows pipe lost safe RuntimeError cause'
   }
  }
+ # Every expected nonzero exit was asserted above. Do not let its native
+ # LASTEXITCODE make the GitHub PowerShell wrapper fail a successful fixture.
+ $global:LASTEXITCODE=0
  $program=@'
 using System;
 using System.IO;
