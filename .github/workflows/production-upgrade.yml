@@ -10,6 +10,8 @@ on:
       - 'tools/fresh-pc/**'
       - 'tools/vps-provision/**'
       - 'tools/route-test/**'
+      - 'tools/remote-echo/**'
+      - 'tools/enroll/**'
       - 'tools/codes/**'
       - 'deploy/vps/**'
       - 'tests/deployment/**'

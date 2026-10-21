@@ -69,3 +69,57 @@ rollback timers. Это лаборатория, не Internet/VPS acceptance.
 Не устанавливает службу, не вызывает bootstrap/enroll, не подключается к VPS.
 Linux cross-build не заменяет эту проверку. Если Windows runtime недоступен,
 результат остаётся неподтверждённым до этого прогона или разблокировки GitHub.
+
+## Результаты 21.10.2026
+
+Чистые offline прогоны исходного кода `5adc8e52b0e50ec84281ece204a2f1d5810f96cb`:
+
+| Проверка | Результат |
+|---|---|
+| fresh-credential, полный deployment/leaf/rollback/retry | PASS, exit 0 |
+| legacy, binary transaction/real relay/rollback | PASS, exit 0 |
+| systemd / PostgreSQL | 257.13 / 17.11, Debian 13 |
+| 5000 revoked IDs, signed publication >64 KiB | PASS, оба layout |
+| fresh leaf failure injection + outer failure после renewal | PASS, сертификаты восстановлены, security records сохранены |
+| fresh успешный повтор schema 2 | PASS, CA unchanged, renewal service Result=success/ExecMainStatus=0, renewal timer active |
+| временные probe identities | active=0; fresh revoked=5004 (включая четыре тестовых probe), legacy revoked=5000 |
+| deployment Python | 90 PASS |
+| Linux activation Go race с отдельной PostgreSQL 17 | PASS: core/enrollment, control-plane, client-service, tools/fresh-pc |
+| Go build/vet ./... | PASS |
+| Windows amd64 cross-build service/fresh-pc/codes | PASS, не runtime test |
+| C# desktop-core | 145 PASS на Linux |
+| WPF Windows targeting build | PASS на Linux, 4 существующих nullable warning, 0 errors |
+| PowerShell parsing/quoting fixture | PASS на PS7/Linux; Windows redirected ssh.exe не выполнялся |
+| native Windows / GitHub CI | НЕ ПОДТВЕРЖДЕНО: billing gate до первого шага |
+
+Не выдавать legacy PASS за проверку renewal.service: полный activation/leaf
+сценарий выполняется только в fresh-credential, соответствующем нынешнему VPS.
+Оба контейнера и временная тестовая PKI удалены; production не контактировался.
+Публичные JSON остаются локально в `.e2e`, не в git. После этого SHA изменены
+только handoff/docs, полнота workflow paths и дополнительные parse-проверки
+локального Windows runner; production код не менялся.
+
+Найден и исправлен реальный дефект первого запуска: installer держал оба flock,
+`systemctl enable --now` ждал recovery, а recovery ждал те же flock. Теперь
+recovery при живом installer возвращает `live-transaction-owner`, как основной
+production updater; watchdog rollback всё ещё ждёт lock. Регрессии проверяют
+настоящий flock и CLI. Engine apply сохраняет оригинальную ошибку после rollback,
+не подменяет её общим UpgradeError. Ошибки тестовой fixture (relay_health до
+wait_health, /tmp staging, D-Bus, mount propagation) также устранены.
+
+Последние проверенные через API GitHub результаты исходного кода:
+[Activation Linux/Windows](https://github.com/buzzmean/neexitlag/actions/runs/39585387093)
+и [systemd matrix](https://github.com/buzzmean/neexitlag/actions/runs/39585387157):
+failure, нет steps/logs. Устранить billing gate может только владелец аккаунта.
+После исправления Billing & plans повторить эти проверки; менять permissions,
+runner labels или удалять artifacts для этого отказа не требуется.
+
+Полный допуск к production НЕ объявлен: Windows native transport fixture и
+внешний VPS ещё не проверены на этих изменениях. Сначала на ПК владельца из
+корня клона — только read-only VPS snapshot:
+```powershell
+git pull --ff-only origin codex/work
+& .\tools\windows\verify-activation-vps.ps1 -VpsIP 2.56.177.4 -SSHUser root -SSHPort 22
+```
+Затем локальный Windows test runner выше (не меняет VPS/установку). Mutating
+update не запускать на основании одного зелёного лабораторного отчёта.

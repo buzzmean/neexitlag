@@ -68,7 +68,7 @@
 | Отказ activation deployment после preflight | `deploy/vps/{production-upgrade,fresh-vps-upgrade,deploy-activation,activation-release-ssh,renew-server-cert,inspect-activation}.py`, `tools/windows/{activation-ssh,verify-activation-vps,update-activation-vps}.ps1`, deployment/PS tests, `.github/workflows/{activation,production-upgrade}.yml`, `docs/ENROLLMENT_CODES.md`, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026, область освобождена; 70 Python tests и PS parsing/fresh checks PASS. Actual Windows redirected process/systemd matrix — в CI после push; production не выполнялся. Ownership включён в отдельный fix-коммит по требованию владельца |
 | Отказ READ_ONLY_SNAPSHOT: причины, Windows CRLF/BOM, общий deployment guard | `deploy/vps/{activation-diagnostics,inspect-activation,production-upgrade,deploy-activation,activation-release-ssh}.py`, `tools/windows/{verify-activation-vps,activation-ssh}.ps1`, deployment/PS tests, docs | Codex | `codex/work` | ГОТОВО 21.10.2026; область освобождена; неверный default baseline (38 hex) воспроизведён и исправлен; безопасная общая диагностика, CRLF/BOM и rollback packaging покрыты тестами; VPS не выполнялся |
 | Leaf renewal после activation deploy, повтор schema 2 и safe rollback | `tools/fresh-pc/{main.go,upgrade_test.go}`, `deploy/vps/{renew-server-cert,deploy-activation,activation-release-ssh,activation-diagnostics,inspect-activation}.py`, deployment/PS tests, workflows, docs | Codex | `codex/work` | РЕАЛИЗОВАНО 21.10.2026; область освобождена; CI после push; VPS не выполнять; security-monotonic rollback, схема 2 сохраняется явно; полный DB restore не реализован (см. (al)) |
-| Ранний отказ CI и локальная воспроизводимая systemd/leaf проверка | `.github/workflows/{activation,production-upgrade}.yml`, `tests/deployment/*`, deployment fixes по найденным регрессиям, docs | Codex | `codex/work` | В РАБОТЕ 21.10.2026; VPS не выполнять; изолированный Docker/VM разрешён владельцем |
+| Ранний отказ CI и локальная воспроизводимая systemd/leaf проверка | `.github/workflows/{activation,production-upgrade}.yml`, `tests/deployment/*`, deployment fixes по найденным регрессиям, docs | Codex | `codex/work` | ГОТОВО 21.10.2026; область освобождена; fresh + legacy offline systemd/PG PASS на 5adc8e5, 90 Python/Go race/build/vet/C# PASS; native Windows недоступен локально; GitHub billing gate, не объявлены PASS; VPS не выполнять |
 | Discord медленно, DIRECT+ для YouTube | не определены | никто | — | свободно для Codex после диагностики; Go-файлы застоя (выше) не трогать |
 | PR #8, `codex/direct-plus-flowseal` | — | не трогать | — | только владелец |
 
@@ -1599,3 +1599,22 @@ CA/systemd исправление неизменно; оба actual isolated sys
   на тех же locks. Recover теперь nonblocking как основной production updater:
   live-transaction-owner не запускает rollback; automatic rollback по-прежнему
   ждёт lock. Добавлены реальные flock и CLI regression; Python: 90 PASS.
+
+- Итог 21.10: clean fresh-credential И legacy на 5adc8e5 завершились exit=0,
+  Debian13/systemd257.13/PG17.11. Fresh: полный deployment/leaf renewal, реальный
+  leaf failure и outer failure injection/rollback, retry schema2, CA unchanged,
+  temporary active probes=0, renewal.service success, timer active, rollback
+  timers отсутствуют. Legacy: base binary transaction/5000 revocations/real /3
+  TCP+UDP/2 renewal/restore dump в отдельную БД/bad binary rollback PASS.
+- Дополнительные проверки: Python 90; real-PG Linux activation Go race (четыре
+  пакета), go build/vet ./...; Windows amd64 service/helper/codes cross-build;
+  C# 145; WPF Windows targeting compile (4 nullable warnings, 0 errors); PS7
+  parsing/quoting PASS. Native Windows НЕ выполнен, GitHub steps отсутствуют.
+- CI: activation 39585387093, systemd matrix 39585387157 — отказ до шагов, billing
+  gate владельца. После Billing & plans нужны rerun/native Windows; кодом оплату
+  не исправить. Оба собственных контейнера/PKI удалены. VPS/PR8 не трогались.
+- Решение: до отдельного mutating deployment сначала только verify-activation-vps
+  read-only с ПК владельца; затем test-activation-local.ps1. Подробные команды,
+  результаты/границы и local Linux runner: docs/CI_LOCAL_ACCEPTANCE.md. Полный
+  production допуск не объявлен. Область Codex освобождена; работа остановлена
+  на внешнем billing gate/native Windows подтверждении, не на Linux сценарии.

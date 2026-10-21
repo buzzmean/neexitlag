@@ -16,6 +16,11 @@ try{
  if($LASTEXITCODE){throw 'DESKTOP_TESTS_FAILED'}
  & dotnet build apps/desktop/Neexitlag.Desktop.csproj --nologo
  if($LASTEXITCODE){throw 'DESKTOP_BUILD_FAILED'}
+ foreach($p in @('install','stage-club-activation','update-activation-vps','activation-ssh','verify-activation-vps')) {
+  $tokens=$null;$errors=$null
+  [void][Management.Automation.Language.Parser]::ParseFile((Join-Path $root ('tools/windows/'+$p+'.ps1')),[ref]$tokens,[ref]$errors)
+  if($errors.Count){throw ('PS_PARSE_FAILED: '+$p+'; '+($errors.Message -join ';'))}
+ }
  & .\tests\windows-tools\activation-deploy-checks.ps1
  if($LASTEXITCODE){throw 'SSH_FIXTURE_FAILED'}
  Write-Host 'PASS local native Windows activation, C#, WPF, PS5.1/fake SSH fixture; no installation or VPS access'
