@@ -4,6 +4,14 @@
 
 Обновлено: 20.10.2026, Codex; `codex/work`, база 6d91aea (fast-forward сайта Claude сохранён; browser работа от 0d20db1). Владелец подтвердил TLS/HTTP отказ исходного Telegram IP с VPS и успех независимого кандидата с тем же SNI. Реализован bounded per-IP first-flight recovery для relay-first, negative TTL и диагностика .2; детали — (ab), docs/TELEGRAM_TLS_DIAGNOSTICS.md. На production VPS ничего не выполнялось; Владелец подтвердил per-IP recovery на ПК. Этап (в): вариант A, тихий owned PAC без browser restart, реализация и ограничения — (ac); PR #8 не тронут.
 
+## Очередь владельца A1–E2 (21.10.2026)
+
+Владелец подтвердил e03ff8a: чистый ПК, активация, relay/PAC READY, Chrome/Edge/Telegram работают; отключение возвращает браузеры в исходное состояние.
+
+| Работа | Файлы | Агент | Ветка | Статус |
+|---|---|---|---|---|
+| A1–A6, B1, C1–C2, D1–D2, E1–E2 | browser lifecycle/remote/activation/controller и тесты; desktop/core модели/UI/активация и тесты; tools/windows install/update/diagnostics; новый installer/ и workflow; browser DNS и тесты; новый пассивный observer; docs/; brand/assets только после инвентаризации | Codex | codex/work | В РАБОТЕ; по одному коммиту и push на пункт; production не выполнять |
+
 ## (a) Цель
 Чистый Windows 10/11: установил, нажал «Оптимизировать» — заблокированные в РФ сервисы работают без VPN: ChatGPT, Claude, YouTube, Discord, Telegram, браузеры Chrome и Edge. Первый заказчик — клуб на 36 ПК с откатом при перезагрузке.
 
