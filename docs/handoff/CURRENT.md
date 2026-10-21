@@ -1871,3 +1871,7 @@ relay, transport/security не изменены слияниями. Другие
 ### C2
 
 Добавлен пассивный OS endpoint observer ExitLag: exact PID/name, creation time, bounded snapshots/CSV/время, TCP remote и только UDP local, без памяти/injection/сетевых probes. RTT честно NOT_MEASURED, смена endpoint не доказательство маршрута. Pure PS fixtures/parse PASS, Windows CI fixture добавлен в Verify. Реальный ExitLag/Windows не запускался; смотрите EXITLAG_OBSERVATION.md.
+
+### D1
+
+Только GAME_ROUTER_DESIGN.md: РФ ingress/common egress, authenticated multipath UDP/dedup, pinned TCP/NAT, hysteresis, bounded resources, WFP и матрица EAC/BattlEye/VAC/FACEIT, P0–P2/измеримые критерии. Текущие игры DIRECT и production не менялись; никакие latency/anti-cheat claims не подтверждены.
