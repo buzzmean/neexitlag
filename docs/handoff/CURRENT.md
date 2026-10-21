@@ -1972,3 +1972,7 @@ wall-clock overrun не установлена, результат не скры
 ### Регрессия выключения — C
 
 По коду обнаружен отдельный --chrome-recovery owner child того же EXE, прежде живший до GUI stdin EOF; watchdog CONNECT не слушает и Stopped SCM не перезапускает. Реальная роль PID20012 без owner read-only вывода не установлена. Новый child проверяет read-only SCM и завершает listener при STOP_PENDING/STOPPED (250мс), deliberate host stop публикует DIRECT до удаления policy и Close. Добавлены process_role/process_id и diagnose-browser-processes.ps1 без вывода command line; watchdog допустимо остаётся без TCP. Race stop/guard/watchdog PASS, PS parse PASS, Windows host/native test compile PASS. Настоящий SCM/браузер после Stop-Service ещё не выполнялся.
+
+### Регрессия выключения — D
+
+Поздняя browser подготовка теперь проверяет generation перед следующим IPC: disable/exit/state change отменяет старый ticket, запрещены late silent.apply и rollback поверх новой команды. Background не начинает lane при выключенном/неподключённом режиме. Edge/Chrome phase/code остаются в GUI журнале; UI — нейтральный статус, без ложной активации/Exception type; transient Notice сбрасывается на успехе, historical diagnostic сохраняется. UI-контракты обновлены по новому требованию, packet/security checks не ослаблены. C#178/178 PASS, WPF/native fixture compile0 errors/4 прежних CS8604. Реальный GUI на Windows не запускался.

@@ -5,6 +5,7 @@ namespace NeExitLag.Tests;
 public sealed class BrowserSilentActivationTests {
  sealed class Service:IServiceClient {
   public readonly PickerService Inner=new();public bool Reject;
+  public Service(){Inner.State.Optimizing=true;Inner.State.Connected=true;Inner.State.Settings.Automatic=true;}
   public Task<T> Call<T>(string method,object? payload=null,CancellationToken cancellationToken=default){
    if(method is "browser.silent.apply" or "edge.silent.apply"){
     Inner.Calls.Add((method,payload));
@@ -21,7 +22,7 @@ public sealed class BrowserSilentActivationTests {
  }
  [Theory][InlineData(false)][InlineData(true)]
  public async Task QuietApplyCommitsAutoWithoutProofLaunchOrOptimize(bool edge){
-  var s=new Service();var p=new Profile{Id="browser",Mode="DIRECT",Executables=[edge?"msedge.exe":"chrome.exe"]};s.Inner.State.Profiles=[p];var vm=new DesktopViewModel(s);
+  var s=new Service();var p=new Profile{Id="browser",Mode="DIRECT",Executables=[edge?"msedge.exe":"chrome.exe"]};s.Inner.State.Profiles=[p];var vm=new DesktopViewModel(s);vm.Apply(s.Inner.State);
   await vm.ApplySilentBrowserAsync(p,edge);await vm.VerifyFreshBrowserAsync(p.Id,edge);
   Assert.Equal("AUTO",Assert.Single(s.Inner.State.Profiles).Mode);
   Assert.DoesNotContain(s.Inner.Calls,c=>c.Method is "browser.confirm" or "edge.confirm" or "optimize");

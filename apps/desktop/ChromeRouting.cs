@@ -16,7 +16,7 @@ public partial class MainWindow {
  });
  async void OpenChromeSites(object sender,RoutedEventArgs e){
   if(AppGrid.SelectedItem is not ApplicationRow row){ShowMessage("SelectApplication");return;}
-  await Execute(async()=>{await ActivateChromeSites(row);await EnableOptimizationAsync();});
+  await Execute(async()=>{await EnableOptimizationAsync();if(model.BrowserPreparationAllowed)await ActivateChromeSites(row);});
  }
  // Clean install: give Chrome a profile and run the normal PAC activation with no manual
  // steps. Failure here must not block the rest of the optimization (Telegram, Claude...).
@@ -45,6 +45,7 @@ public partial class MainWindow {
  async Task<bool> ActivateChromeSites(ApplicationRow row){
   if(chromeActivating)throw new ChromeActivationException("Chrome activation already running", "chrome.activation", "CHROME_ACTIVATION_BUSY");chromeActivating=true;chromeActivationPhase="chrome.activation";
   try{return await ActivateChromeSitesCore(row);}
+  catch(BrowserPreparationDeferredException error){model.ReportBrowserPreparationFailure(error,"chrome.prepare");return false;}
   catch(Exception error){
    var code=error is ChromeActivationException own && own.Code!="CHROME_ACTIVATION_FAILED"?own.Code:chromeActivationPhase switch {
     "browser.silent.apply" or "chrome.policy.check" or "chrome.policy.install"=>"CHROME_POLICY_FAILED",
@@ -90,13 +91,17 @@ public partial class MainWindow {
   var original=row.Profile.Copy();
   var exe=original.Executables.FirstOrDefault(p=>p.Replace('\\','/').Split('/').Last().Equals("chrome.exe",StringComparison.OrdinalIgnoreCase));
   if(exe is null||!Path.IsPathFullyQualified(exe)||!File.Exists(exe))throw new InvalidOperationException(Text.Get("SelectChromeAuto"));
+  var ticket=model.CaptureBrowserPreparation();
   chromeActivationPhase="chrome.recovery";
   await chromeRecovery.StartAsync(lifetime.Token);
+  model.CheckBrowserPreparation(ticket);
   chromeActivationPhase="browser.prepare";
   var directory=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Google","Chrome","User Data");
   var launch=await model.PrepareChromeAsync(original,directory,lifetime.Token,chromeRecovery.Address);
+  model.CheckBrowserPreparation(ticket);
   launch.RecoverySettings.Executable=exe;
   await chromeRecovery.ConfigureAsync(launch.RecoverySettings,lifetime.Token);
+  model.CheckBrowserPreparation(ticket);
   chromeActivationPhase="browser.silent.apply";
   await model.ApplySilentBrowserAsync(original,false,lifetime.Token);
   BrowserNativePolicy.RequestRefresh();silentPolicyRefreshRequested=true;

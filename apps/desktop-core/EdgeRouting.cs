@@ -63,12 +63,13 @@ public sealed partial class DesktopViewModel {
   return applied;
  }
  public void ApplyEdgePolicyState(EdgeTransportStatus status){
-  EdgeState=status.SilentActivation.ConfiguredProfiles.Length>0?"Edge: "+status.SilentActivation.Notice:status.TransportMode=="NATIVE_ARMED_PAC_GUARD"?"Edge: "+status.ReadinessState+" · PAC listener="+status.Listening+" · owned guard="+status.OwnedGuardInstalled+" · PAC nonce="+status.PacNonceReadiness+(status.LastError!=""?" · "+status.LastError:""):status.LastError!=""?"Edge: "+status.LastError+" · "+status.ReadinessState+(status.RollbackGuardActive?" · защитный PAC: ordinary DIRECT, protected закрыты":""):status.Listening&&status.PolicyReady&&status.ReadyProfiles.Length>0?"Edge CONNECT/PAC готовы; доступность сайтов проверяется отдельно":"Edge PAC не подтверждён / guard: protected-домены без DIRECT";
+  EdgeState=!Optimizing?"Edge: прямая сеть (оптимизация выключена)":status.TransportMode=="NATIVE_ARMED_PAC_GUARD"&&status.ReadinessState=="NATIVE_TUNNEL_OBSERVED"?"Edge: есть обмен через native upstream; проверка страницы и PAC отдельно":status.SilentActivation.State=="POLICY_PENDING_BROWSER_REFRESH"?"Edge: настройки записаны, ожидаем подхват браузером":status.Listening&&status.PolicyReady?"Edge: маршруты подготовлены; доступность сайтов проверяется отдельно":"Edge: подготавливаем маршруты, повторная проверка автоматически";
+  if(status.Listening&&status.PolicyReady)ClearBrowserPreparationIssue();
   Changed(nameof(EdgeState));
  }
  public void ApplyEdge(BrowserTransportSnapshot status){
   Replace(EdgeDomains,status.Records.OrderByDescending(r=>r.Started).ThenByDescending(r=>r.Id).Take(32).Select(r=>new EdgeDomainRow(r)));
-  EdgeState=status.Listening?"Edge CONNECT: слушает; AUTO требует подтверждённого PAC":"Edge CONNECT: недоступен; защищённые домены закрыты";
+  EdgeState=!Optimizing?"Edge: прямая сеть (оптимизация выключена)":status.Listening?"Edge: проверяем готовность маршрутов":"Edge: подготавливаем маршруты";
   Changed(nameof(EdgeState));
   foreach(var row in Applications.Where(a=>BrowserCatalog.IsEdge(a.Profile)))row.ApplyEdgeRecords(status);
  }

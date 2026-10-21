@@ -19,11 +19,11 @@ public class GuiFailureBoundaryTests {
   Assert.DoesNotContain("private",vm.Notice);
   vm.ReportActionFailure(new InvalidOperationException("helper stopped"));Assert.True(vm.Available);Assert.Single(vm.Applications);
  }
- [Fact]public async Task EdgePolicyFailurePreservesTableAndShowsMethodAndCode(){
+ [Fact]public async Task EdgePolicyFailureKeepsTechnicalCauseInJournalInsteadOfActivationError(){
   var vm=new DesktopViewModel(new FakeService());await vm.RefreshAsync();var original=vm.Applications[0];
   vm.ReportActionFailure(EdgeErrors.Wrap("edge.policy",new ServiceException(ServiceFailure.Rejected,"EDGE_POLICY_ACCESS_DENIED secret=private")));
-  Assert.True(vm.CanControl);Assert.Same(original,vm.Applications[0]);Assert.Contains("edge.policy",vm.Error);Assert.Contains("EDGE_POLICY_ACCESS_DENIED",vm.Error);Assert.DoesNotContain("private",vm.Error);
-  await vm.RefreshAsync();Assert.Contains("EDGE_POLICY_ACCESS_DENIED",vm.EdgeState);Assert.Single(vm.Applications);Assert.True(vm.CanControl);
+  Assert.True(vm.CanControl);Assert.Same(original,vm.Applications[0]);Assert.Empty(vm.Error);Assert.DoesNotContain("edge.policy",vm.Notice);Assert.DoesNotContain("EDGE_",vm.Notice);Assert.DoesNotContain("private",vm.Notice);Assert.Equal("edge.policy",vm.LastGuiFailure!.Phase);Assert.Equal("EDGE_POLICY_ACCESS_DENIED",vm.LastGuiFailure.Code);
+  await vm.RefreshAsync();Assert.DoesNotContain("EDGE_POLICY_ACCESS_DENIED",vm.EdgeState);Assert.Empty(vm.Notice);Assert.Single(vm.Applications);Assert.True(vm.CanControl);
  }
  [Fact]public async Task RealStatusFailureStillDisablesControls(){
   var service=new FakeService();var vm=new DesktopViewModel(service);await vm.RefreshAsync();

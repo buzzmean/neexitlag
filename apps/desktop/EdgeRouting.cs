@@ -26,6 +26,7 @@ public partial class MainWindow {
   var profile=EdgeProfileSelection.Select((AppGrid.SelectedItem as ApplicationRow)?.Profile,model.Applications.Select(r=>r.Profile));
   profile ??= await model.EnsureEdgeProfileAsync(BrowserCatalog.Discover(File.Exists,Environment.GetEnvironmentVariable),lifetime.Token);
   if(profile is null)throw new EdgeActivationException("edge.prepare","EDGE_PROFILE_NOT_FOUND","Установленный Microsoft Edge не найден.");
+  await model.OptimizeAsync(true,lifetime.Token);
   if(!await ActivateEdgeSites(profile))return;
   // The regular optimization transaction still validates BOTH browser lanes.
   try{await model.OptimizeEdgeAsync(lifetime.Token);}catch(Exception error){var failure=EdgeErrors.Wrap("optimize",error);await model.RecordEdgeFailureAsync(profile,failure,lifetime.Token);throw failure;}
@@ -43,19 +44,25 @@ public partial class MainWindow {
   if(edgeActivating)return false;edgeActivating=true;
   var phase="edge.prepare";
   try{
+   var ticket=model.CaptureBrowserPreparation();
    await model.RequireEdgeServiceAsync(lifetime.Token);
+   model.CheckBrowserPreparation(ticket);
    var exe=original.Executables.FirstOrDefault(p=>p.Replace('\\','/').Split('/').Last().Equals("msedge.exe",StringComparison.OrdinalIgnoreCase));
    if(exe is null||!Path.IsPathFullyQualified(exe)||!File.Exists(exe))throw new EdgeActivationException(phase,"EDGE_CONFIGURATION_INVALID","Требуется полный путь установленного Edge.");
    phase="edge.recovery";await edgeRecovery.StartAsync(lifetime.Token);
+   model.CheckBrowserPreparation(ticket);
    phase="edge.prepare";
    var directory=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Microsoft","Edge","User Data");
    var launch=await model.PrepareEdgeAsync(original,directory,edgeRecovery.Address,lifetime.Token);
+   model.CheckBrowserPreparation(ticket);
    launch.RecoverySettings.Executable=exe;
    await edgeRecovery.ConfigureAsync(launch.RecoverySettings,lifetime.Token);
+   model.CheckBrowserPreparation(ticket);
    phase="edge.silent.apply";await model.ApplySilentBrowserAsync(original,true,lifetime.Token);
    BrowserNativePolicy.RequestRefresh();silentPolicyRefreshRequested=true;
    edgeNeedsActivation=false;model.SetNotice(BrowserSilentActivation.PendingNotice);return true;
-  }catch(Exception error){
+  }catch(BrowserPreparationDeferredException error){model.ReportBrowserPreparationFailure(error,phase);return false;}
+  catch(Exception error){
    // Failed prepare/apply never removes an existing owned guard or kills a browser.
    var failure=EdgeErrors.Wrap(phase,error);model.ReportActionFailure(failure);throw failure;
   }finally{edgeActivating=false;}

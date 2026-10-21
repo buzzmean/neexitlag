@@ -100,7 +100,7 @@ public class EdgeRoutingTests {
 
  [Fact]public async Task ManualMsedgePickerCannotPublishPendingAutoToOldService(){
   var dir=Path.Combine(Path.GetTempPath(),"veliq-old-edge-"+Guid.NewGuid());Directory.CreateDirectory(dir);var exe=Path.Combine(dir,"msedge.exe");await File.WriteAllBytesAsync(exe,[0]);
-  try{var picker=new PickerService();var vm=new DesktopViewModel(new VersionedEdgeService(picker,2));Assert.False(await vm.AddApplicationAsync(exe));Assert.DoesNotContain(picker.Calls,c=>c.Method=="profile.set");Assert.Contains("EDGE_IPC_UNSUPPORTED",vm.Error);}finally{Directory.Delete(dir,true);}
+  try{var picker=new PickerService();var vm=new DesktopViewModel(new VersionedEdgeService(picker,2));Assert.False(await vm.AddApplicationAsync(exe));Assert.DoesNotContain(picker.Calls,c=>c.Method=="profile.set");Assert.Empty(vm.Error);Assert.Equal("EDGE_IPC_UNSUPPORTED",vm.LastGuiFailure!.Code);Assert.DoesNotContain("EDGE_IPC_UNSUPPORTED",vm.Notice);}finally{Directory.Delete(dir,true);}
  }
 
 }

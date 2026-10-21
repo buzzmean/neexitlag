@@ -180,6 +180,7 @@ public sealed partial class DesktopViewModel : Observable
     public void Apply(Snapshot status, ProcessIdentity[]? processes = null, CaptureEvidence? capture = null)
     {
         var previous = HomeValues();
+        ObserveBrowserControlState(status);
         Snapshot = status;
         Available = true;
         Connection = ServiceConnectionText.Describe(status);
@@ -210,6 +211,7 @@ public sealed partial class DesktopViewModel : Observable
         if (!Relays.SequenceEqual(availableRelays))
             Replace(Relays, availableRelays);
         RenderHistory(status.History);
+        ClearBrowserPreparationIssue();
         NotifyHomeChanges(previous);
     }
     void RenderHistory(JsonElement history)
@@ -236,6 +238,7 @@ public sealed partial class DesktopViewModel : Observable
     }
     public void SetUnavailable(Exception e)
     {
+        InvalidateBrowserPreparation();
         Notice = "";
         Available = false;
         Snapshot = null;
@@ -273,7 +276,8 @@ public sealed partial class DesktopViewModel : Observable
     }
     public async Task OptimizeAsync(bool enabled, CancellationToken ct = default)
     {
-        if (await Act(async () => { await client.Call<Snapshot>("optimize", new { enabled }, ct); }, ct))
+        if(!enabled)InvalidateBrowserPreparation();
+        if (await Act(async () => { if(!enabled)InvalidateBrowserPreparation();await client.Call<Snapshot>("optimize", new { enabled }, ct); }, ct))
             await RefreshAsync(ct);
     }
     public RunningApplicationsViewModel CreateApplicationPicker() => new(client);
@@ -402,6 +406,7 @@ public sealed partial class DesktopViewModel : Observable
             Error = Text.Get("BlockUnsupported");
             return false;
         }
+        if(!settings.Automatic)InvalidateBrowserPreparation();
         return await Act(async () => { await client.Call<ServiceSettings>("settings.set", settings, ct); }, ct);
     }
     public async Task DiagnoseAsync(CancellationToken ct = default)
