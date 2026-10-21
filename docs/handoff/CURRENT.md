@@ -12,6 +12,7 @@
 
 | Работа | Файлы | Агент | Ветка | Статус |
 |---|---|---|---|---|
+| Регрессия выключения A–E (6adefe5) | services/client-service/browser*, edge*, cmd/service/*, controller lifecycle; core/browserproxy/*; platform/windows/*policy*; desktop recovery/status/startup и тесты; tools/windows watchdog/acceptance; docs/ | Codex | codex/work | В РАБОТЕ 21.10.2026: DIRECT compatibility для cached PAC, policy notification, SCM/recovery role, честный GUI; отдельные коммиты A–E; production не выполнять |
 | A1–A6, B1, C1–C2, D1–D2, E1–E2 | browser lifecycle/remote/activation/controller и тесты; desktop/core модели/UI/активация и тесты; tools/windows install/update/diagnostics; новый installer/ и workflow; browser DNS и тесты; новый пассивный observer; docs/; brand/assets только после инвентаризации | Codex | codex/work | ЗАВЕРШЕНО В КОДЕ/ДОКУМЕНТАХ 21.10.2026; область освобождена. Native Windows/SCM/freeze/Setup/ISP gates остаются непроверенными; WFP только проект. Production не выполнять |
 
 ## (a) Цель
