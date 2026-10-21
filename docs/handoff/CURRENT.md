@@ -1550,3 +1550,25 @@ CA/systemd исправление неизменно; оба actual isolated sys
   [systemd](https://github.com/buzzmean/neexitlag/actions/runs/39568106065).
   Полный новый systemd/leaf сценарий и Windows на этом изменении НЕ выполнены;
   перед любым mutating deployment требуется успешный повтор этих jobs.
+
+
+## (am) 21.10.2026 — CI billing gate / offline Debian 13 acceptance
+- Владелец предоставил точную аннотацию GitHub: job not started because recent
+  account payments failed OR spending limit needs increasing. Это billing gate,
+  не YAML/runner/permissions и не artifact upload quota; fresh matrix cancelled
+  после legacy через fail-fast. Различить платёж и лимит может только владелец
+  в Settings → Billing & plans. Агент не меняет платёжные настройки.
+- gh получает HTTP 403 в текущей managed среде; GitHub connector смог повторить
+  activation run 39568106123 (attempt 2), снова отказ до steps. Endpoints
+  annotations/billing для коннектора недоступны; аннотация получена от владельца.
+- Подготовлен offline local Docker runner: настоящий Debian 13/systemd 257/PG17,
+  отдельные PID/network/cgroup namespaces, network none/только lo, без bind mounts
+  host /etc/repo/socket/credentials, только git archive и тестовые loopback PKI.
+  Тот же isolated-upgrade/activation сценарий; guard требует root+systemd PID1+
+  image marker+нет других интерфейсов/route. Product deps/TLS не менялись.
+- Local Windows equivalent: tools/windows/test-activation-local.ps1, только тесты
+  и build, PS5.1+Go+.NET8+Python; без install/enroll/VPS. На Linux не исполняется.
+- Production-upgrade paths ограничены relevant кодом, docs/site не запускают
+  тяжёлые jobs; concurrency отменяет устаревшие прогоны; fail-fast=false даёт
+  независимые результаты layout. Это снижение расхода, не обход billing gate.
+- Работа продолжается: local actual scenario и найденные deployment regressions.

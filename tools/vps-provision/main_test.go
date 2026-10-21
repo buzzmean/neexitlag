@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -55,8 +56,12 @@ func TestIsolatedUpgradeBundleExport(t *testing.T) {
 	if root == "" {
 		t.Skip("disposable CI VM fixture only")
 	}
-	if os.Getenv("GITHUB_ACTIONS") != "true" || !filepath.IsAbs(root) || filepath.Dir(root) != "/var/tmp" {
+	local := os.Getenv("VELIQ_LOCAL_FIXTURE_EXPORT") == "loopback-only" && strings.HasPrefix(filepath.Base(root), "veliq-local-fixture-")
+	if (os.Getenv("GITHUB_ACTIONS") != "true" && !local) || !filepath.IsAbs(root) || filepath.Dir(root) != "/var/tmp" {
 		t.Fatal("unsafe fixture destination/environment")
+	}
+	if _, err := os.Lstat(root); !os.IsNotExist(err) {
+		t.Fatal("fixture path must not exist")
 	}
 	if err := createBundle(root, netip.MustParseAddr("127.0.0.1")); err != nil {
 		t.Fatal(err)

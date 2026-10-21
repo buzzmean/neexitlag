@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Disposable GitHub-hosted VM ONLY. Never an operational/VPS command.
+# Disposable GitHub VM or explicitly isolated offline Docker ONLY. Never a VPS command.
 set -euo pipefail
-[[ ${GITHUB_ACTIONS:-} == true && ${RUNNER_ENVIRONMENT:-} == github-hosted && ${NEEXITLAG_ISOLATED_UPGRADE:-} == github-disposable-runner && $EUID == 0 ]] || exit 90
+python3 tests/deployment/isolated_environment.py || exit 90
 [[ ! -e /etc/neexitlag && ! -e /opt/neexitlag && -f /var/tmp/neexitlag-ci-bundle/server/ca.pem ]] || exit 91
 repo=$PWD
 bundle=$repo/dist/relay
 fixture=/var/tmp/neexitlag-ci-bundle
 umask 077
-commit=$(git rev-parse HEAD)
+commit=$(python3 tests/deployment/isolated_environment.py --commit)
 mkdir -m 0700 /var/tmp/neexitlag-upgrade-private
 private=/var/tmp/neexitlag-upgrade-private
 # Everything below is local to this throw-away runner, including test identities.

@@ -12,9 +12,8 @@ import subprocess
 import sys
 from types import SimpleNamespace
 
-if (os.environ.get('GITHUB_ACTIONS')!='true' or os.environ.get('RUNNER_ENVIRONMENT')!='github-hosted'
-    or os.environ.get('NEEXITLAG_ISOLATED_UPGRADE')!='github-disposable-runner' or os.geteuid()!=0):
-    raise SystemExit(90)
+import isolated_environment
+isolated_environment.require()
 root=Path('/var/tmp/neexitlag-upgrade-private')
 if not root.is_dir() or not Path('/var/tmp/neexitlag-ci-bundle/server/ca.pem').is_file():raise SystemExit(91)
 repo=Path.cwd()
@@ -22,7 +21,7 @@ def load(name):
     spec=importlib.util.spec_from_file_location(name,repo/'deploy/vps'/name)
     m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);return m
 leaf=load('renew-server-cert.py');release=load('deploy-activation.py')
-commit=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+commit=isolated_environment.commit()
 # All addresses remain loopback, including the public-only relay destination.
 subprocess.run(['ip','addr','add','2.56.177.4/32','dev','lo'],check=True)
 Path('/etc/neexitlag/public/relay.env').write_text('VPS_PUBLIC_IP=2.56.177.4\n')

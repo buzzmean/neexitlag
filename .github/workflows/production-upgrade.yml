@@ -1,5 +1,26 @@
 name: Isolated production upgrade
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+    paths: &deployment-paths
+      - '.github/workflows/production-upgrade.yml'
+      - 'core/**'
+      - 'internal/**'
+      - 'services/**'
+      - 'platform/**'
+      - 'tools/fresh-pc/**'
+      - 'tools/vps-provision/**'
+      - 'tools/route-test/**'
+      - 'tools/codes/**'
+      - 'deploy/vps/**'
+      - 'tests/deployment/**'
+      - 'go.mod'
+      - 'go.sum'
+  pull_request:
+    paths: *deployment-paths
+  workflow_dispatch:
+concurrency:
+  group: isolated-upgrade-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
@@ -7,6 +28,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
+      fail-fast: false
       matrix:
         ca-layout: [legacy, fresh-credential]
     steps:
