@@ -19,7 +19,7 @@ jobs:
         run: |
           mkdir -p dist/relay/bin dist/relay/deploy/vps
           for tool in relay control-plane; do go build -trimpath -o dist/relay/bin/$tool ./services/$tool/cmd/$tool; done
-          for tool in remote-echo enroll; do go build -trimpath -o dist/relay/bin/$tool ./tools/$tool; done
+          for tool in remote-echo enroll fresh-pc codes; do go build -trimpath -o dist/relay/bin/$tool ./tools/$tool; done
           go build -trimpath -o dist/relay/bin/neexitlag-route-test-linux-amd64 ./tools/route-test
           cp deploy/vps/production-upgrade.py dist/relay/deploy/vps/
           python3 deploy/vps/upgrade-manifest.py dist/relay "$(git rev-parse HEAD)"

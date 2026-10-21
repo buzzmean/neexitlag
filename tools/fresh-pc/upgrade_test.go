@@ -26,10 +26,11 @@ func TestUpgradeCapabilityAndJournalContracts(t *testing.T) {
 		t.Fatal("lease capability wire contract changed")
 	}
 	good := "/etc/neexitlag.bak-20261020T100000Z-aabbccddeeff/probe.id"
-	if !validProbeJournal(good) {
+	leafJournal := "/var/backups/neexitlag-certificates/20261021T074452Z-7cf97ecb/probe.id"
+	if !validProbeJournal(good) || !validProbeJournal(leafJournal) {
 		t.Fatal("valid journal rejected")
 	}
-	for _, bad := range []string{"/tmp/probe.id", good + "/../identity.json", "/etc/neexitlag/probe.id"} {
+	for _, bad := range []string{"/tmp/probe.id", good + "/../identity.json", "/etc/neexitlag/probe.id", leafJournal + "/../probe.id", "/var/backups/neexitlag-certificates/probe.id", "/var/backups/neexitlag-certificates/20261021T074452Z-7cf97ecb00/probe.id"} {
 		if validProbeJournal(bad) {
 			t.Fatal("unbounded journal path accepted")
 		}
@@ -103,5 +104,79 @@ func TestUpgradeProbeRevokePublicationRetryPostgres(t *testing.T) {
 	}
 	if e = revokePublishedProbe(ctx, store, "missing-device", key, trust); e != nil {
 		t.Fatal("pre-register interruption cleanup failed", e)
+	}
+}
+
+// The old binary executes only migration 001. Reapplying that exact additive
+// SQL must not remove activation tables, salt, device revocations or config rows.
+func TestSchema2RemainsCompatibleWithBaselineMigrationPostgres(t *testing.T) {
+	database := os.Getenv("NEEXITLAG_TEST_DATABASE_URL")
+	if database == "" {
+		t.Skip("isolated PostgreSQL required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	root, e := pgxpool.New(ctx, database)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer root.Close()
+	id, _ := security.NewID()
+	schema := "test_compat_" + id
+	if _, e = root.Exec(ctx, "CREATE SCHEMA "+schema); e != nil {
+		t.Fatal(e)
+	}
+	defer root.Exec(context.Background(), "DROP SCHEMA "+schema+" CASCADE")
+	config, e := pgxpool.ParseConfig(database)
+	if e != nil {
+		t.Fatal(e)
+	}
+	config.ConnConfig.RuntimeParams["search_path"] = schema
+	db, e := pgxpool.NewWithConfig(ctx, config)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer db.Close()
+	store := &cp.Store{DB: db}
+	if e = store.Migrate(ctx); e != nil {
+		t.Fatal(e)
+	}
+	var salt []byte
+	if e = db.QueryRow(ctx, "SELECT hardware_salt FROM activation_policy").Scan(&salt); e != nil {
+		t.Fatal(e)
+	}
+	if e = store.Register(ctx, cp.Device{ID: id, Name: "fixture", PublicKey: "fixture-" + id}); e != nil {
+		t.Fatal(e)
+	}
+	if e = store.Revoke(ctx, id); e != nil {
+		t.Fatal(e)
+	}
+	legacy, e := os.ReadFile("../../services/control-plane/migrations/001_initial.sql")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = db.Exec(ctx, string(legacy)); e != nil {
+		t.Fatal(e)
+	}
+	if e = store.Migrate(ctx); e != nil {
+		t.Fatal(e)
+	}
+	var version, count int
+	var revoked bool
+	var after []byte
+	if e = db.QueryRow(ctx, "SELECT max(version) FROM schema_migrations").Scan(&version); e != nil {
+		t.Fatal(e)
+	}
+	if e = db.QueryRow(ctx, "SELECT count(*) FROM information_schema.tables WHERE table_schema=$1 AND table_name IN ('activation_codes','activation_slots','activation_policy')", schema).Scan(&count); e != nil {
+		t.Fatal(e)
+	}
+	if e = db.QueryRow(ctx, "SELECT revoked FROM devices WHERE id=$1", id).Scan(&revoked); e != nil {
+		t.Fatal(e)
+	}
+	if e = db.QueryRow(ctx, "SELECT hardware_salt FROM activation_policy").Scan(&after); e != nil {
+		t.Fatal(e)
+	}
+	if version != 2 || count != 3 || !revoked || string(salt) != string(after) {
+		t.Fatal("schema2 downgrade/retry lost security state")
 	}
 }

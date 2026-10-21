@@ -67,7 +67,7 @@
 | Коды активации club/personal, повторный CSR после freeze, leaf renewal | `core/enrollment/*`, control-plane/migrations/API/store, client-service activation/manifest/startup, desktop Activation*, tools/codes, fresh hardware adapter, deploy/vps certificate renewal + tests/docs | Codex | `codex/work` | ГОТОВО 20.10.2026, область освобождена; 4cdf2e5 / 82f6f84 / 7ea0769 / b84bdb3 / 0d3883b. Local checks и focused Linux/Windows CI PASS; финальные CI ссылки ниже. SSH недоступен, production/codes не изменены; deployment передан владельцу; veliq-swe-01/PR #8 вне области |
 | Отказ activation deployment после preflight | `deploy/vps/{production-upgrade,fresh-vps-upgrade,deploy-activation,activation-release-ssh,renew-server-cert,inspect-activation}.py`, `tools/windows/{activation-ssh,verify-activation-vps,update-activation-vps}.ps1`, deployment/PS tests, `.github/workflows/{activation,production-upgrade}.yml`, `docs/ENROLLMENT_CODES.md`, CURRENT.md | Codex | `codex/work` | ГОТОВО 20.10.2026, область освобождена; 70 Python tests и PS parsing/fresh checks PASS. Actual Windows redirected process/systemd matrix — в CI после push; production не выполнялся. Ownership включён в отдельный fix-коммит по требованию владельца |
 | Отказ READ_ONLY_SNAPSHOT: причины, Windows CRLF/BOM, общий deployment guard | `deploy/vps/{activation-diagnostics,inspect-activation,production-upgrade,deploy-activation,activation-release-ssh}.py`, `tools/windows/{verify-activation-vps,activation-ssh}.ps1`, deployment/PS tests, docs | Codex | `codex/work` | ГОТОВО 21.10.2026; область освобождена; неверный default baseline (38 hex) воспроизведён и исправлен; безопасная общая диагностика, CRLF/BOM и rollback packaging покрыты тестами; VPS не выполнялся |
-| Leaf renewal после activation deploy, повтор schema 2 и safe rollback | `tools/fresh-pc/{main.go,upgrade_test.go}`, `deploy/vps/{renew-server-cert,deploy-activation,activation-release-ssh,activation-diagnostics,inspect-activation}.py`, deployment/PS tests, workflows, docs | Codex | `codex/work` | В РАБОТЕ 21.10.2026; только код/изолированные тесты; VPS не выполнять; security records сохранять |
+| Leaf renewal после activation deploy, повтор schema 2 и safe rollback | `tools/fresh-pc/{main.go,upgrade_test.go}`, `deploy/vps/{renew-server-cert,deploy-activation,activation-release-ssh,activation-diagnostics,inspect-activation}.py`, deployment/PS tests, workflows, docs | Codex | `codex/work` | РЕАЛИЗОВАНО 21.10.2026; область освобождена; CI после push; VPS не выполнять; security-monotonic rollback, схема 2 сохраняется явно; полный DB restore не реализован (см. (al)) |
 | Discord медленно, DIRECT+ для YouTube | не определены | никто | — | свободно для Codex после диагностики; Go-файлы застоя (выше) не трогать |
 | PR #8, `codex/direct-plus-flowseal` | — | не трогать | — | только владелец |
 
@@ -1502,3 +1502,38 @@ CA/systemd исправление неизменно; оба actual isolated sys
   Workflow dispatch через доступный GitHub CLI отклонён HTTP 403; добавлен
   отсутствовавший path-trigger на саму Windows activation-фикстуру, чтобы её
   изменения всегда проверялись CI автоматически, без ручного dispatch.
+
+
+## (al) 21.10.2026 — LEAF_RENEWAL_FAILED / безопасный повтор schema 2
+- Причина подтверждена по исходникам: renewal передаёт сертификатный journal
+  /var/backups/neexitlag-certificates/<UTC>-<8hex>/probe.id, а Go-helper 5bbf629
+  разрешал только /etc/neexitlag.bak-<UTC>-<12hex>/probe.id. Локальная проба
+  отказывала до Register; stderr терялся внешним subprocess, mixed-case code
+  превращался в SAFE_OPERATION_FAILED. Точные два формата теперь проверяются,
+  отдельный read-only helper contract вызывается до любых изменений.
+- Все child-процессы activation/leaf: stdout/stderr/exit санированы, фиксированные
+  codes и file/line trace, без свободного текста/ключей/кодов. Для binary engine
+  включён такой же observer. Итоговый снимок binaries/schema/tables/units/timers/
+  certificates передаётся parent; при невозможности снимка — явная причина.
+- Read-only verify показывает срок leaf/CA, состояние renewal service/timer,
+  безопасные временные probe ID/даты/отзыв и последние версии публикаций.
+- Schema 2 additive и совместима с baseline SQL 001; старый бинарник не реализует
+  activation API. +1/+1 согласуется с revoke binary proof; точная причинность
+  +19 по одному snapshot не доказана. Повтор сохраняет соль/nonce/отзывы.
+- Выбран путь доведения deployment вперёд из schema 2. Полный byte-for-byte
+  rollback живой БД несовместим с сохранением новых revocations/replay; его НЕ
+  реализуем и НЕ заявляем. Security-monotonic rollback восстанавливает runtime/
+  units/config/leaf, сохраняет additive schema/security rows. Полная DB атомарность
+  требует отдельного maintenance/security-epoch дизайна. Это открытое ограничение.
+- Renewal CLI/rollback сериализуются; успешный commit/rollback останавливает
+  transient timer. StateDirectory создаёт private каталог systemd sandbox;
+  deploy проверяет реальный service due=false до commit. CA не ротируется.
+- Локально: 81 Python tests, helper Go race/vet, Linux/Windows build и PS parser
+  PASS (PG-тесты локально пропущены без DB). В CI добавлены native Windows helper
+  contracts, PG baseline/schema2 совместимость, полноценный systemd activation/
+  leaf/failure-injection/повтор в disposable fresh-credential VM.
+- Подробно и read-only команда: docs/ACTIVATION_DEPLOYMENT_RECOVERY.md.
+  Владелец сначала запускает из корня клона `git pull --ff-only origin codex/work`,
+  затем `& .\tools\windows\verify-activation-vps.ps1`. Никаких mutating VPS
+  команд агент не выполнял. Deployment и установка renewal до 19.11.2026
+  16:05:54 МСК остаются за владельцем после отдельного разрешения.

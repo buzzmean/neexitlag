@@ -3,6 +3,8 @@
 A present-day snapshot cannot prove that every historical DB write was absent.
 """
 import hashlib
+import datetime as dt
+import ssl
 import json
 import os
 from pathlib import Path
@@ -17,6 +19,28 @@ except ModuleNotFoundError:
  diagnostics=_diagnostic_import.module_from_spec(_spec);_spec.loader.exec_module(diagnostics)
 
 BASELINE='2c06089f61c7b7a27cdf575f5cea4b834992426d'
+
+def certificate_status(root,now=None):
+    now=now or dt.datetime.now(dt.timezone.utc)
+    result={}
+    for kind,path in [('leaf','control/server.pem'),('ca','control/ca.pem')]:
+        cert=ssl._ssl._test_decode_cert(str(Path(root)/'etc/neexitlag'/path))
+        expiry=dt.datetime.fromtimestamp(ssl.cert_time_to_seconds(cert['notAfter']),dt.timezone.utc)
+        result[kind+'_not_after']=expiry.isoformat()
+        result[kind+'_remaining_seconds']=int((expiry-now).total_seconds())
+    result['renewal_due']=result['leaf_remaining_seconds']<=10*86400
+    result['ca_rotation_required']=result['ca_remaining_seconds']<=31*86400
+    result['leaf_matches_relay']=(Path(root)/'etc/neexitlag/control/server.pem').read_bytes()==(Path(root)/'etc/neexitlag/relay/server.pem').read_bytes()
+    return result
+
+def state_verdict(binary,database,backups,baseline):
+    pending=any(x['phase'] in ('pending','pending-verification','maintenance-compatibility','quiescing','migrating','installing-relay','installing-control-plane') for x in backups)
+    if pending:return 'PENDING_RECOVERY_REQUIRES_REVIEW'
+    if baseline:return 'BASELINE_WITH_DEPLOYMENT_ARTIFACTS' if backups else 'BASELINE_CURRENT_STATE_ONLY'
+    if database['schema_version']==2 and database['activation_tables']==3:
+        return 'COMPATIBLE_ADDITIVE_SCHEMA2_SECURITY_STATE_PRESERVED'
+    return 'BASELINE_DIFFERENT_REQUIRES_REVIEW'
+
 
 def inspect(fresh,engine,expected=BASELINE,root=Path('/'),host=None):
     root=Path(root)
@@ -49,13 +73,22 @@ def inspect(fresh,engine,expected=BASELINE,root=Path('/'),host=None):
         service=name+'.service'
         drops=h.systemctl('show','--value','--property=DropInPaths',service,check=False).split()
         safe_drops=[Path(x).name if re.fullmatch('[A-Za-z0-9_.-]+',Path(x).name) else 'UNREVIEWED_PATH' for x in drops]
-        units.append({'unit':service,'dropins':safe_drops,'active':h.systemctl('is-active',service,check=False),'enabled':h.systemctl('is-enabled',service,check=False),'load':h.systemctl('show','--value','--property=LoadState',service,check=False),'pid':h.systemctl('show','--value','--property=MainPID',service,check=False),'started':h.systemctl('show','--value','--property=ExecMainStartTimestamp',service,check=False)})
+        units.append({'unit':service,'dropins':safe_drops,'active':h.systemctl('is-active',service,check=False),'enabled':h.systemctl('is-enabled',service,check=False),'load':h.systemctl('show','--value','--property=LoadState',service,check=False),'pid':h.systemctl('show','--value','--property=MainPID',service,check=False),'started':h.systemctl('show','--value','--property=ExecMainStartTimestamp',service,check=False),'last_result':h.systemctl('show','--value','--property=Result',service,check=False),'last_exit_code':h.systemctl('show','--value','--property=ExecMainStatus',service,check=False)})
     _,timers=h.run(['systemctl','list-units','--all','--plain','--no-legend','--no-pager','--type=timer'],check=False)
     names=[line.split()[0] for line in timers.decode().splitlines() if line.split() and re.fullmatch(r'(veliq-(activation-rollback|leaf-rollback)-[0-9TZa-f-]+|veliq-certificate-renewal|neexitlag-upgrade-[0-9TZa-f-]+)\.timer',line.split()[0])]
     if len(names)>100:raise RuntimeError('READ_ONLY_TIMER_LIST_TOO_LARGE')
     timer_states=[{'unit':n,'active':h.systemctl('is-active',n,check=False),'enabled':h.systemctl('is-enabled',n,check=False)} for n in names]
     tables=int(h.sql("SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('activation_codes','activation_slots','activation_policy')",h.database))
     database={'schema_version':report['applied_schema_version'],'activation_tables':tables,'devices':int(h.sql('SELECT count(*) FROM devices',h.database)),'revoked':int(h.sql('SELECT count(*) FROM devices WHERE revoked',h.database)),'config_version':int(h.sql('SELECT coalesce(max(version),0) FROM config_versions',h.database)),'activation_migration_not_applied':report['applied_schema_version']==1 and tables==0,'historical_writes_unchanged':'NOT_PROVABLE_WITHOUT_BEFORE_SNAPSHOT'}
+    # Public IDs/timestamps only, no names/keys/codes/nonce values. Bounded, and
+    # no silent truncation: too many probe rows is an explicit audit condition.
+    probe_rows=json.loads(h.sql("SELECT coalesce(json_agg(t),'[]'::json) FROM (SELECT id,revoked,created_at,last_authenticated_at FROM devices WHERE name='CA rotation health probe' AND id ~ '^[a-f0-9]{32}$' ORDER BY created_at DESC LIMIT 1001) t",h.database))
+    if not isinstance(probe_rows,list) or len(probe_rows)>1000:raise RuntimeError('READ_ONLY_PROBE_REPORT_TOO_LARGE')
+    database['temporary_probes']=probe_rows
+    database['recent_config_publications']=json.loads(h.sql("SELECT coalesce(json_agg(t),'[]'::json) FROM (SELECT version,generated_at,expires_at FROM config_versions ORDER BY version DESC LIMIT 25) t",h.database))
+    if report['applied_schema_version']==2 and tables==3:
+        database['activation_row_counts']={table:int(h.sql('SELECT count(*) FROM '+table,h.database)) for table in ('activation_codes','activation_slots','activation_policy')}
+    database['rollback_policy']='SECURITY_MONOTONIC_NO_PG_RESTORE'
     diagnostics.step('READ_ONLY_BACKUPS')
     backups=[]
     for base in (root/'var/backups/neexitlag-activation',root/'var/backups/neexitlag-certificates'):
@@ -99,8 +132,13 @@ def inspect(fresh,engine,expected=BASELINE,root=Path('/'),host=None):
         if phase not in ('prepared','pending','pending-verification','committed','rolled_back','rolled-back','aborted','maintenance-compatibility','quiescing','migrating','installing-relay','installing-control-plane','INCOMPLETE_BACKUP'):phase='UNKNOWN'
         backups.append({'path':'/'+str(directory.relative_to(root)),'phase':phase,'backup_type':kind})
     baseline=all(x['commit']==expected and x['same_binary'] for x in binary) and database['schema_version']==1 and tables==0
-    pending=any(x['phase'] in ('pending','pending-verification','maintenance-compatibility','quiescing','migrating','installing-relay','installing-control-plane') for x in backups)
-    return {'read_only':True,'expected_baseline_commit':expected,'binary':binary,'services':report['services'],'units':units,'ports':report['ports'],'database':database,'ca_credential_dropin_exists':not report['ca_migration_required'],'ca_access':ca,'backups':backups,'timers':timer_states,'binaries_and_schema_at_baseline':baseline,'verdict':'PENDING_RECOVERY_REQUIRES_REVIEW' if pending else 'BASELINE_WITH_DEPLOYMENT_ARTIFACTS' if baseline and backups else 'BASELINE_CURRENT_STATE_ONLY' if baseline else 'BASELINE_DIFFERENT_REQUIRES_REVIEW','historical_no_changes_proven':False}
+    diagnostics.step('READ_ONLY_CERTIFICATE_EXPIRY')
+    certificates=certificate_status(root)
+    certificates['renewal_service_installed']=any(u['unit']=='veliq-certificate-renewal.service' and u['load']=='loaded' for u in units)
+    certificates['renewal_timer_active']=h.systemctl('is-active','veliq-certificate-renewal.timer',check=False)=='active'
+    certificates['renewal_status']='EXPIRED' if certificates.get('leaf_remaining_seconds',1)<=0 else 'RENEWAL_NOT_INSTALLED' if not certificates['renewal_service_installed'] else 'RENEWAL_TIMER_INACTIVE' if not certificates['renewal_timer_active'] else 'RENEWAL_DUE' if certificates['renewal_due'] else 'SCHEDULED'
+    return {'read_only':True,'expected_baseline_commit':expected,'binary':binary,'services':report['services'],'units':units,'ports':report['ports'],'database':database,'certificates':certificates,'ca_credential_dropin_exists':not report['ca_migration_required'],'ca_access':ca,'backups':backups,'timers':timer_states,'binaries_and_schema_at_baseline':baseline,'verdict':state_verdict(binary,database,backups,baseline),'historical_no_changes_proven':False}
+
 
 # Called by the small SSH console launcher, without writing this file on VPS.
 def run(payload):

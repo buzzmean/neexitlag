@@ -43,7 +43,7 @@ class ActivationReleaseTests(unittest.TestCase):
     release.save(backup/'state.json',state);calls=[]
     fake=SimpleNamespace(e=SimpleNamespace(Host=lambda:None),LocalUpgrade=lambda h:SimpleNamespace(rollback=lambda i,**kw:calls.append(('rollback',i,kw))),transaction_lock=contextlib.nullcontext)
     renewal=leaf.Renewal(root/'config',lambda args:calls.append(args) or '')
-    with mock.patch.object(release,'module',side_effect=[fake,leaf]),mock.patch.object(leaf,'command',side_effect=lambda args:calls.append(args) or ''),mock.patch.object(leaf,'BACKUPS',root/'leaf-backups'),mock.patch.object(leaf,'Renewal',return_value=renewal):release.restore(backup,boot=boot)
+    with mock.patch.object(leaf,'transaction_lock',side_effect=contextlib.nullcontext),mock.patch.object(release,'module',side_effect=[fake,leaf]),mock.patch.object(leaf,'command',side_effect=lambda args:calls.append(args) or ''),mock.patch.object(leaf,'BACKUPS',root/'leaf-backups'),mock.patch.object(leaf,'Renewal',return_value=renewal):release.restore(backup,boot=boot)
     self.assertEqual(old.read_bytes(),b'old-leaf');self.assertFalse(added.exists());self.assertEqual(db.read_bytes(),b'current-nonce-current-revocations-new-devices')
     self.assertEqual(json.loads((backup/'state.json').read_text())['phase'],'rolled-back')
     self.assertIn(('rollback','fixture',{'boot':boot}),calls)
@@ -54,7 +54,7 @@ class ActivationReleaseTests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as tmp:
    root=Path(tmp);(root/'saved').mkdir();dest=root/'leaf';dest.write_bytes(b'new');(root/'saved/0').write_bytes(b'corrupt')
    release.save(root/'state.json',{'phase':'pending','files':{str(dest):{'name':'0','sha256':'0'*64}},'timer_active':False})
-   with mock.patch.object(release,'module',side_effect=[SimpleNamespace(),leaf]),mock.patch.object(leaf,'command',return_value=''),mock.patch.object(leaf,'BACKUPS',root/'none'):
+   with mock.patch.object(leaf,'transaction_lock',side_effect=contextlib.nullcontext),mock.patch.object(release,'module',side_effect=[SimpleNamespace(),leaf]),mock.patch.object(leaf,'command',return_value=''),mock.patch.object(leaf,'BACKUPS',root/'none'):
     with self.assertRaisesRegex(RuntimeError,'BACKUP_HASH_MISMATCH'):release.restore(root)
    self.assertEqual(dest.read_bytes(),b'new')
 
@@ -118,7 +118,7 @@ class DeploymentFailureDiagnosticsTests(unittest.TestCase):
    def __init__(self,s):self.s=s
    def __truediv__(self,s):return FakePath(self.s+'/'+s)
    def is_file(self):return True
-  engine=SimpleNamespace(e=SimpleNamespace(Host=lambda:None),report=lambda h:{'capabilities':{'relay':{},'control-plane':{}},'systemd_version':257},compatible=lambda *a:True)
+  engine=SimpleNamespace(e=SimpleNamespace(Host=lambda:None),report=lambda h:{'capabilities':{'relay':{},'control-plane':{}},'systemd_version':257,'applied_schema_version':1},compatible=lambda *a:True)
   def reject(*a,**kw):
    self.assertTrue(kw['validate_only']);events.append('candidate_preflight');raise RuntimeError('ROOT_ONLY_CA_KEY_REQUIRED')
   engine.prepare=reject

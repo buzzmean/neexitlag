@@ -26,6 +26,7 @@ import tempfile
 ROOT=Path('/var/backups/neexitlag-activation')
 RECOVERY=Path('/etc/systemd/system/veliq-activation-recover.service')
 MANAGED={
+ 'activation-diagnostics.py':'/opt/neexitlag/maintenance/activation-diagnostics.py',
  'renew-server-cert.py':'/opt/neexitlag/maintenance/renew-server-cert.py',
  'fresh-pc':'/opt/neexitlag/maintenance/veliq-fresh-helper',
  'codes':'/opt/neexitlag/maintenance/veliq-codes',
@@ -49,6 +50,10 @@ def guard():
  if os.geteuid()!=0 or os.uname().nodename.split('.')[0].lower()=='veliq-swe-01':raise RuntimeError('ROOT_REQUIRED_OR_EXCLUDED_HOST')
  diagnostics.require_vps_identity('/etc/neexitlag/public/relay.env')
 
+def disarm(directory,run):
+ timer='veliq-activation-rollback-'+Path(directory).name+'.timer'
+ if run(['systemctl','show','--value','--property=LoadState',timer]).strip()!='not-found':run(['systemctl','stop',timer])
+
 def restore(directory,automatic=False,boot=False):
  directory=Path(directory);state=json.loads((directory/'state.json').read_text())
  if automatic and state['phase']!='pending':return
@@ -66,7 +71,7 @@ def restore(directory,automatic=False,boot=False):
      if (p.parent/'probe.id').exists():run(['/opt/neexitlag/maintenance/veliq-fresh-helper','upgrade-cleanup','--vps-ip','2.56.177.4','--journal',str(p.parent/'probe.id')])
      prior['phase']='rolled-back';save(p,prior)
  else:
-  leaf.Renewal().recover_pending(leaf.BACKUPS)
+  with leaf.transaction_lock():leaf.Renewal().recover_pending(leaf.BACKUPS)
   run(['systemctl','stop','neexitlag-control-plane','neexitlag-relay'])
  if str(RECOVERY) in state['files'] and RECOVERY.exists():run(['systemctl','disable',RECOVERY.name])
  for path,meta in state['files'].items():
@@ -84,7 +89,7 @@ def restore(directory,automatic=False,boot=False):
  elif not boot:
   run(['systemctl','start','neexitlag-control-plane']);run(['systemctl','start','neexitlag-relay'])
  if state['timer_active']:run(['systemctl','enable','veliq-certificate-renewal.timer'] if boot else ['systemctl','enable','--now','veliq-certificate-renewal.timer'])
- state['phase']='rolled-back';save(directory/'state.json',state)
+ state['phase']='rolled-back';save(directory/'state.json',state);disarm(directory,run)
  # No SQL restore: nonce, revocations, new devices and additive tables survive.
 
 
@@ -137,15 +142,17 @@ class Progress:
 PROGRESS=Progress()
 
 def apply(stage,commit,confirm):
+ PROGRESS.modified='NO';PROGRESS.backup=None;PROGRESS.rollback='NOT_NEEDED'
  PROGRESS.step('IDENTITY_AND_CONFIRMATION')
  guard()
  if confirm!='ACTIVATE-CODES-2.56.177.4':raise RuntimeError('EXPLICIT_DEPLOYMENT_CONFIRMATION_REQUIRED')
  stage=Path(stage)
- engine=module('activation_upgrade',stage/'fresh-vps-upgrade.py');leaf=module('activation_leaf',stage/'renew-server-cert.py')
+ engine=module('activation_upgrade',stage/'fresh-vps-upgrade.py');engine.e.PROCESS_OBSERVER=diagnostics.emit_process;leaf=module('activation_leaf',stage/'renew-server-cert.py')
  PROGRESS.step('CURRENT_READ_ONLY_PREFLIGHT')
  report=engine.report(engine.e.Host());print('ACTIVATION_PREFLIGHT='+json.dumps(report),file=sys.stderr,flush=True)
  if not engine.compatible(report['capabilities']['relay'],'relay') or not engine.compatible(report['capabilities']['control-plane'],'control-plane'):
   raise RuntimeError('CURRENT_PROTOCOL_3_BASELINE_REQUIRED')
+ if report['applied_schema_version'] not in (1,2):raise RuntimeError('UNSUPPORTED_SCHEMA_VERSION')
  if report['systemd_version']<247:raise RuntimeError('SYSTEMD_LOADCREDENTIAL_REQUIRES_247')
  if not Path('/etc/neexitlag/echo/echo.token').is_file():raise RuntimeError('EXISTING_ECHO_CREDENTIAL_REQUIRED')
  # Read-only preflight verifies same CA/SAN/root key before any upgrade writes.
@@ -154,6 +161,8 @@ def apply(stage,commit,confirm):
  # Crucially validate *all* binary/layout prerequisites before backup/units/stops.
  PROGRESS.step('CANDIDATE_READ_ONLY_PREFLIGHT')
  engine.prepare(stage/'bundle',stage/'fresh-pc',commit,'UPGRADE-VPS-2.56.177.4',force_update=True,validate_only=True)
+ PROGRESS.step('HELPER_READ_ONLY_PREFLIGHT')
+ leaf.validate_helper(stage/'fresh-pc')
  PROGRESS.step('OUTER_BACKUP')
  PROGRESS.modified='BACKUP_ONLY'
  ROOT.mkdir(mode=0o700,parents=True,exist_ok=True)
@@ -167,12 +176,12 @@ def apply(stage,commit,confirm):
  # Permanent full configuration backup. Binary transaction separately pg_dumps
  # and saves all binaries/units before replacing anything.
  shutil.copytree('/etc/neexitlag',directory/'config')
- for name in ('activation-diagnostics.py','deploy-activation.py','fresh-vps-upgrade.py','renew-server-cert.py'):
+ for name in ('inspect-activation.py','activation-diagnostics.py','deploy-activation.py','fresh-vps-upgrade.py','renew-server-cert.py'):
   shutil.copy2(stage/name,directory/name)
  shutil.copy2(stage/'production-engine.py',directory/'production-engine.py')
  run=leaf.command
  active=engine.e.Host().systemctl('is-enabled','veliq-certificate-renewal.timer',check=False)=='enabled'
- state={'phase':'pending','binary_id':'','files':{},'timer_active':active,'recovery_enabled':engine.e.Host().systemctl('is-enabled',RECOVERY.name,check=False)=='enabled'}
+ state={'phase':'pending','binary_id':'','files':{},'database_before':{'schema_version':report['applied_schema_version']},'database_rollback':'SECURITY_MONOTONIC_ADDITIVE_SCHEMA_PRESERVED','timer_active':active,'recovery_enabled':engine.e.Host().systemctl('is-enabled',RECOVERY.name,check=False)=='enabled'}
  for index,path in enumerate([*MANAGED.values(),str(RECOVERY),*[str(Path('/etc/neexitlag')/x) for x in leaf.FILES]]):
   p=Path(path)
   if p.is_symlink():raise RuntimeError('MANAGED_PATH_SYMLINK_REFUSED')
@@ -211,9 +220,9 @@ def apply(stage,commit,confirm):
   run(['systemctl','daemon-reload']);run(['systemctl','restart','neexitlag-control-plane'])
   # Leaf operation has its own durable backup and independent watchdog/proof.
   PROGRESS.step('RENEW_SERVER_LEAF')
-  p=subprocess.run(['/usr/bin/python3',MANAGED['renew-server-cert.py'],'run','--force','--confirm','RENEW-SERVER-2.56.177.4'],timeout=165,check=False)
+  p=diagnostics.run_process(['/usr/bin/python3',MANAGED['renew-server-cert.py'],'run','--force','--confirm','RENEW-SERVER-2.56.177.4'],timeout=165,check=False)
   if p.returncode:
-   error=RuntimeError('LEAF_RENEWAL_FAILED');error.exit_code=p.returncode;error.command='python3'
+   error=RuntimeError('LEAF_RENEWAL_FAILED');error.exit_code=p.returncode;error.command='python3';error.command_stdout=p.stdout;error.command_stderr=p.stderr;error.child=diagnostics.process_report(['python3'],p.returncode,p.stdout,p.stderr)
    raise error
   PROGRESS.step('ENROLLMENT_POLICY_PROOF')
   import ssl,urllib.request
@@ -221,10 +230,12 @@ def apply(stage,commit,confirm):
   with urllib.request.urlopen('https://127.0.0.1:8443/api/v1/enroll/policy',context=context,timeout=5) as response:
    policy=json.loads(response.read(65537))
   if policy.get('enrollment_ready') is not True:raise RuntimeError('ACTIVATION_POLICY_NOT_READY')
+  PROGRESS.step('RENEWAL_SERVICE_PROOF')
+  run(['systemctl','start','veliq-certificate-renewal.service'])
   PROGRESS.step('COMMIT_RELEASE')
   run(['systemctl','enable','--now','veliq-certificate-renewal.timer'])
   state['phase']='committed';save(directory/'state.json',state)
-  run(['systemctl','stop',unit+'.timer'])
+  disarm(directory,run)
   PROGRESS.modified='YES'
   print('ACTIVATION_DEPLOYMENT_COMMITTED backup='+str(directory),flush=True)
  except BaseException as failure:
@@ -242,14 +253,32 @@ def apply(stage,commit,confirm):
   print('ACTIVATION_DEPLOYMENT_FAILURE_DETAIL '+json.dumps(original),file=sys.stderr,flush=True)
   raise
 
+def final_snapshot(directory=None):
+    try:
+        base=Path(directory) if directory else Path(__file__).parent
+        engine=module('final_fresh_snapshot',base/'fresh-vps-upgrade.py')
+        audit=module('final_snapshot',base/'inspect-activation.py')
+        return audit.inspect(engine,engine.e)
+    except BaseException as exc:
+        return {'state_observed':False,'reason':'FINAL_SNAPSHOT_FAILED','diagnostics':diagnostics.failure(exc,'FINAL_SNAPSHOT')}
+
+
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('mode',choices=('apply','rollback'));p.add_argument('--stage');p.add_argument('--commit');p.add_argument('--confirm',default='');p.add_argument('--backup');p.add_argument('--automatic',action='store_true');p.add_argument('--boot',action='store_true');a=p.parse_args();os.umask(0o077);guard()
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('mode',choices=('apply','rollback'));p.add_argument('--stage');p.add_argument('--commit');p.add_argument('--confirm',default='');p.add_argument('--backup');p.add_argument('--automatic',action='store_true');p.add_argument('--boot',action='store_true');p.add_argument('--result-file');a=p.parse_args();os.umask(0o077);guard()
  if a.mode=='rollback':
   if not a.backup or not re.fullmatch(r'/var/backups/neexitlag-activation/\d{8}T\d{6}Z-[a-f0-9]{8}',a.backup):raise RuntimeError('INVALID_BACKUP_PATH')
   restore(a.backup,a.automatic,a.boot)
  else:
   if not a.stage or not re.fullmatch('[a-f0-9]{40}',a.commit or ''):raise RuntimeError('EXACT_RELEASE_COMMIT_REQUIRED')
-  apply(a.stage,a.commit,a.confirm)
+  failure=None
+  try:
+   apply(a.stage,a.commit,a.confirm)
+  except BaseException as exc:
+   failure=PROGRESS.failure(exc);raise
+  finally:
+   result={'vps_modified':PROGRESS.modified,'rollback':PROGRESS.rollback,'backup':PROGRESS.backup,'stage':PROGRESS.stage,'database_policy':'SECURITY_MONOTONIC_NO_PG_RESTORE','failure':failure,'state':final_snapshot(a.stage)}
+   print('ACTIVATION_FINAL_STATE '+json.dumps(result),flush=True)
+   if a.result_file:save(Path(a.result_file),result)
 
 if __name__=='__main__':
  try:main()

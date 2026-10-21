@@ -137,6 +137,10 @@ class Host:
                 error = UpgradeError('Required command unavailable or timed out')
                 error.command = Path(args[0]).name
                 raise error from None
+            observer=globals().get('PROCESS_OBSERVER')
+            if observer is not None:
+                errors.seek(0);captured.seek(0)
+                observer(args,result.returncode,captured.read(8192),errors.read(8192))
             if self.log:
                 self.log.write(('command=' + Path(args[0]).name + ' code=' + str(result.returncode) + '\n').encode())
                 errors.seek(0)

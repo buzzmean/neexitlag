@@ -60,3 +60,33 @@ class LeafRenewalTests(unittest.TestCase):
    self.assertEqual(calls[0][1],'upgrade-cleanup')
    self.assertIn(str(backup/'probe.id'),calls[0])
    self.assertEqual((conf/'control/server.pem').read_bytes(),b'old')
+
+ def test_old_helper_refuses_leaf_journal_before_any_mutation_with_safe_cause(self):
+  from unittest import mock
+  from types import SimpleNamespace
+  import io,contextlib
+  output=io.StringIO()
+  failure=SimpleNamespace(returncode=1,stdout=b'',stderr=b'FRESH_PC_FAILED: UPGRADE_PROBE_JOURNAL_REQUIRED\nPRIVATE_SENTINEL')
+  with mock.patch.object(leaf.diagnostics.subprocess if hasattr(leaf.diagnostics,'subprocess') else __import__('subprocess'),'run',return_value=failure),contextlib.redirect_stderr(output):
+   with self.assertRaises(RuntimeError) as raised:leaf.validate_helper('/private/veliq-fresh-helper')
+  report=leaf.diagnostics.failure(raised.exception)
+  self.assertEqual(report['exit_code'],1)
+  self.assertEqual(report['child']['stderr']['codes'],['UPGRADE_PROBE_JOURNAL_REQUIRED'])
+  self.assertNotIn('PRIVATE_SENTINEL',json.dumps(report)+output.getvalue())
+
+ def test_empty_exception_and_returncode_never_silently_accepted(self):
+  report=leaf.diagnostics.failure(RuntimeError())
+  self.assertTrue(report['code']);self.assertEqual(report['code'],'SAFE_OPERATION_FAILED')
+
+ def test_command_stdout_stderr_and_timeout_always_sanitized(self):
+  from unittest import mock
+  from types import SimpleNamespace
+  import contextlib,io,subprocess
+  stream=io.StringIO()
+  with mock.patch.object(subprocess,'run',return_value=SimpleNamespace(returncode=17,stdout=b'PRIVATE_SENTINEL',stderr=b'Permission denied PRIVATE_SENTINEL')),contextlib.redirect_stderr(stream):
+   with self.assertRaises(RuntimeError) as raised:leaf.command(['openssl','fixture'])
+  self.assertEqual(raised.exception.exit_code,17)
+  self.assertIn('PERMISSION_DENIED',stream.getvalue());self.assertNotIn('PRIVATE_SENTINEL',stream.getvalue())
+  with mock.patch.object(subprocess,'run',side_effect=subprocess.TimeoutExpired(['openssl'],1,output=b'PRIVATE_SENTINEL',stderr=b'PRIVATE_SENTINEL')),contextlib.redirect_stderr(stream):
+   with self.assertRaisesRegex(RuntimeError,'COMMAND_TIMEOUT'):leaf.command(['openssl','fixture'])
+  self.assertNotIn('PRIVATE_SENTINEL',stream.getvalue())

@@ -286,3 +286,12 @@ git pull --ff-only origin codex/work
 Эта команда не обновляет бинарники, не вызывает enroll/миграции/rollback,
 не перезапускает службы. Настоящий результат Debian/VPS требует запуска владельцем;
 локальные фикстуры не доказывают состояние production.
+
+### После LEAF_RENEWAL_FAILED на 5bbf629
+
+Сначала только read-only: `& .\tools\windows\verify-activation-vps.ps1`.
+Разбор journal mismatch, schema 2/security-monotonic rollback, сертификатов,
+повторного запуска и результатов — [ACTIVATION_DEPLOYMENT_RECOVERY.md](ACTIVATION_DEPLOYMENT_RECOVERY.md).
+Полный pg_restore/DROP не выполнять: nonce/отзывы сохраняются. Наличие старых
+бинарников со schema 2 не означает, что коды уже работают; нужен подтверждённый
+новый deployment и активный renewal timer. Агент production не меняет.

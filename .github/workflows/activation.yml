@@ -14,6 +14,7 @@ on:
       - 'tests/deployment/**'
       - 'tests/windows-tools/activation-deploy-checks.ps1'
       - 'tools/codes/**'
+      - 'tools/fresh-pc/**'
       - 'tools/windows/*activation*'
   workflow_dispatch:
 permissions:
@@ -38,7 +39,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: {go-version: '1.25.x'}
-      - run: go test -race -p 1 ./core/enrollment ./services/control-plane ./services/client-service
+      - run: go test -race -p 1 ./core/enrollment ./services/control-plane ./services/client-service ./tools/fresh-pc
       - run: go vet ./...
       - run: go build ./...
       - run: python3 -m unittest discover -s tests/deployment -v
@@ -52,6 +53,8 @@ jobs:
         with: {dotnet-version: '8.0.x'}
       - name: Native protected ACL and activation lifecycle contracts
         run: go test -p 1 ./platform/windows ./services/client-service -run Activation -count=1
+      - name: Native fresh-helper journal contracts
+        run: go test ./tools/fresh-pc -run '^TestUpgradeCapabilityAndJournalContracts$' -count=1
       - run: dotnet test tests/desktop/NeExitLag.Client.Tests.csproj --nologo
       - run: dotnet build apps/desktop/Neexitlag.Desktop.csproj --nologo
       - name: Parse production activation scripts with Windows PowerShell 5.1

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Root-only leaf renewal. Never rotate CA, publish credentials or run on import."""
 import argparse
+import contextlib
 import datetime as dt
 import fcntl
 import hashlib
@@ -20,14 +21,34 @@ import urllib.request
 FILES=('control/server.pem','control/server.key','relay/server.pem','relay/server.key')
 SERVICES=('neexitlag-control-plane','neexitlag-relay')
 BACKUPS=Path('/var/backups/neexitlag-certificates')
+import importlib.util
+try:
+    import activation_diagnostics as diagnostics
+except ModuleNotFoundError:
+    _spec=importlib.util.spec_from_file_location('activation_diagnostics',Path(__file__).with_name('activation-diagnostics.py'))
+    diagnostics=importlib.util.module_from_spec(_spec);_spec.loader.exec_module(diagnostics)
+
 
 def command(argv):
-    p=subprocess.run(argv,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=50,check=False)
-    if p.returncode:
-        error=RuntimeError('COMMAND_FAILED_'+Path(argv[0]).name)
-        error.command=Path(argv[0]).name;error.exit_code=p.returncode;error.command_stderr=p.stderr
-        raise error
-    return p.stdout.decode('utf-8')
+    return diagnostics.run_process(argv,timeout=50).stdout.decode('utf-8')
+
+def validate_helper(helper):
+    command([str(helper),'probe-journal-check','--journal','/var/backups/neexitlag-certificates/20000101T000000Z-00000000/probe.id'])
+
+
+@contextlib.contextmanager
+def transaction_lock():
+    fd=os.open('/run/veliq-cert-renewal.lock',os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW,0o600)
+    with os.fdopen(fd,'a') as file:
+        fcntl.flock(file,fcntl.LOCK_EX)
+        yield
+
+
+def disarm(directory,run=command):
+    timer='veliq-leaf-rollback-'+Path(directory).name+'.timer'
+    if run(['systemctl','show','--value','--property=LoadState',timer]).strip()!='not-found':
+        run(['systemctl','stop',timer])
+
 
 def certificate(path):
     value=ssl._ssl._test_decode_cert(str(path))
@@ -107,6 +128,7 @@ class Renewal:
         directory=Path(directory);directory.mkdir(mode=0o700)
         shutil.copytree(self.config,directory/'config')
         for p in (directory/'config').rglob('*.key'): p.chmod(0o600)
+        shutil.copy2(Path(__file__).with_name('activation-diagnostics.py'),directory/'activation-diagnostics.py')
         shutil.copy2(__file__,directory/'renew-server-cert.py');(directory/'renew-server-cert.py').chmod(0o700)
         m={'phase':'prepared','config':str(self.config),'files':{}}
         for name in FILES:
@@ -123,7 +145,7 @@ class Renewal:
         self.run(['systemctl','stop',*SERVICES])
         for name,meta in m['files'].items(): atomic(self.config/name,(directory/'config'/name).read_bytes(),meta)
         self.run(['systemctl','start',SERVICES[0]]);self.run(['systemctl','start',SERVICES[1]])
-        m['phase']='rolled-back';self.state(directory,m)
+        m['phase']='rolled-back';self.state(directory,m);disarm(directory,self.run)
     def apply(self,directory,generated,verify):
         directory=Path(directory);m=self.backup(directory)
         unit='veliq-leaf-rollback-'+directory.name;m['phase']='pending';self.state(directory,m)
@@ -133,35 +155,37 @@ class Renewal:
             for name,meta in m['files'].items(): atomic(self.config/name,(Path(generated)/Path(name).name).read_bytes(),meta)
             self.run(['systemctl','start',SERVICES[0]]);self.run(['systemctl','start',SERVICES[1]])
             verify()
-            m['phase']='committed';self.state(directory,m);self.run(['systemctl','stop',unit+'.timer'])
+            m['phase']='committed';self.state(directory,m);disarm(directory,self.run)
         except BaseException:
             self.restore(directory);raise
 
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('mode',choices=('run','rollback'));p.add_argument('--vps-ip',default='2.56.177.4');p.add_argument('--before-days',type=int,default=10);p.add_argument('--force',action='store_true');p.add_argument('--confirm',default='');p.add_argument('--backup');p.add_argument('--automatic',action='store_true');p.add_argument('--helper',default='/opt/neexitlag/maintenance/veliq-fresh-helper')
-    a=p.parse_args();os.umask(0o077)
+    a=p.parse_args();os.umask(0o077);diagnostics.step('LEAF_PREFLIGHT')
     if os.geteuid()!=0 or os.uname().nodename.split('.')[0].lower()=='veliq-swe-01': raise RuntimeError('ROOT_REQUIRED_OR_EXCLUDED_HOST')
     if a.vps_ip!='2.56.177.4': raise RuntimeError('VPS_IDENTITY_MISMATCH')
-    if 'VPS_PUBLIC_IP='+a.vps_ip not in Path('/etc/neexitlag/public/relay.env').read_text().splitlines(): raise RuntimeError('VPS_IDENTITY_MISMATCH')
+    diagnostics.require_vps_identity('/etc/neexitlag/public/relay.env',a.vps_ip)
     r=Renewal()
-    if a.mode=='rollback':
+    def rollback():
         if not a.backup or not re.fullmatch(r'/var/backups/neexitlag-certificates/\d{8}T\d{6}Z-[a-f0-9]{8}',a.backup): raise RuntimeError('INVALID_BACKUP_PATH')
-        r.restore(a.backup,a.automatic);print('SERVER_CERT_ROLLED_BACK');return
+        r.restore(a.backup,a.automatic);print('SERVER_CERT_ROLLED_BACK')
     if a.force and a.confirm!='RENEW-SERVER-2.56.177.4': raise RuntimeError('EXPLICIT_RENEWAL_CONFIRMATION_REQUIRED')
-    lock=os.open('/run/veliq-cert-renewal.lock',os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW,0o600)
-    with os.fdopen(lock,'a') as f:
-        fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)
+    with transaction_lock():
+        if a.mode=='rollback':
+            rollback();return
         r.recover_pending(BACKUPS)
         due,expiry,ca_expiry,sans=r.preflight(dt.datetime.now(dt.timezone.utc),a.vps_ip,a.before_days,a.force)
         print('SERVER_CERT_STATUS leaf_not_after='+expiry.isoformat()+' ca_not_after='+ca_expiry.isoformat())
         if not due: return
         helper=Path(a.helper);st=helper.stat()
         if helper.is_symlink() or st.st_uid!=0 or st.st_mode&0o022: raise RuntimeError('TRUSTED_LOCAL_HELPER_REQUIRED')
+        validate_helper(helper)
         for s in (*SERVICES,'neexitlag-echo'): command(['systemctl','is-active','--quiet',s])
         BACKUPS.mkdir(mode=0o700,parents=True,exist_ok=True)
         if BACKUPS.is_symlink() or BACKUPS.stat().st_mode&0o077: raise RuntimeError('UNSAFE_BACKUP_ROOT')
         directory=BACKUPS/(dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'-'+secrets.token_hex(4))
         with tempfile.TemporaryDirectory(prefix='veliq-leaf-') as stage:
+            diagnostics.step('LEAF_GENERATE')
             generated=Path(stage)/'tls';r.generate(generated,sans)
             def verify():
                 context=ssl.create_default_context(cafile='/etc/neexitlag/control/ca.pem')
@@ -179,6 +203,7 @@ def main():
                 finally:
                     if (directory/'probe.id').exists():
                         command([str(helper),'upgrade-cleanup','--vps-ip',a.vps_ip,'--journal',str(directory/'probe.id')])
+            diagnostics.step('LEAF_INSTALL_AND_PROVE')
             r.apply(directory,generated,verify)
         print('SERVER_CERT_RENEWAL_COMMITTED backup='+str(directory))
 
@@ -186,5 +211,4 @@ if __name__=='__main__':
     try: main()
     except BaseException as e:
         if isinstance(e,SystemExit): raise
-        code=str(e) if re.fullmatch(r'[A-Z0-9_]+',str(e)) else 'SAFE_OPERATION_FAILED'
-        print('SERVER_CERT_RENEWAL_FAILED code='+code,file=sys.stderr);sys.exit(1)
+        print('SERVER_CERT_RENEWAL_FAILED '+json.dumps(diagnostics.failure(e)),file=sys.stderr,flush=True);sys.exit(1)

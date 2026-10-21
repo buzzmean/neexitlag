@@ -19,7 +19,7 @@ import sys
 import tempfile
 
 STAGE='ENTRY'
-NAMES={'deploy-activation.py','fresh-vps-upgrade.py','production-engine.py','renew-server-cert.py','fresh-pc','codes','relay','control-plane','veliq-certificate-renewal.service','veliq-certificate-renewal.timer','92-veliq-activation.conf','activation-diagnostics.py'}
+NAMES={'deploy-activation.py','fresh-vps-upgrade.py','production-engine.py','renew-server-cert.py','fresh-pc','codes','relay','control-plane','veliq-certificate-renewal.service','veliq-certificate-renewal.timer','92-veliq-activation.conf','activation-diagnostics.py','inspect-activation.py'}
 def decode(item):
  raw=base64.b64decode(item['data'],validate=True)
  if len(raw)>32*1024*1024 or hashlib.sha256(raw).hexdigest()!=item['sha256']:raise RuntimeError('ARTIFACT_HASH_OR_SIZE_MISMATCH')
@@ -49,7 +49,16 @@ def main():
    for role in ('relay','control-plane'):shutil.copy2(stage/role,bundle/'bin'/role)
    shutil.copy2(stage/'production-engine.py',bundle/'deploy/vps/production-upgrade.py')
    STAGE='DEPLOYMENT_PROCESS'
-   result=subprocess.run(['/usr/bin/python3',str(stage/'deploy-activation.py'),'apply','--stage',str(stage),'--commit',p['commit'],'--confirm',p['confirm']],check=False)
+   outcome=stage/'outcome.json'
+   result=None
+   try:
+    result=diagnostics.run_process(['/usr/bin/python3',str(stage/'deploy-activation.py'),'apply','--stage',str(stage),'--commit',p['commit'],'--confirm',p['confirm'],'--result-file',str(outcome)],check=False,timeout=570)
+   finally:
+    if outcome.exists():
+     final=json.loads(outcome.read_text())
+     print('ACTIVATION_FINAL_STATE '+json.dumps(final),flush=True)
+    else:
+     print('ACTIVATION_FINAL_STATE '+json.dumps({'vps_modified':'UNVERIFIED','reason':'CHILD_DID_NOT_PRODUCE_FINAL_SNAPSHOT','child_exit_code':result.returncode if result is not None else None}),flush=True)
    if result.returncode:
     print('ACTIVATION_RELEASE_PROCESS_EXIT '+json.dumps({'stage':STAGE,'exit_code':result.returncode,'vps_modified':'SEE_SAFE_DEPLOYMENT_REPORT_ABOVE'}),file=sys.stderr,flush=True)
     raise RuntimeError('ACTIVATION_RELEASE_FAILED_SEE_SAFE_CODE')
@@ -59,4 +68,4 @@ if __name__=='__main__':
  except BaseException as exc:
   if isinstance(exc,SystemExit):raise
   code=str(exc) if str(exc) in ('ROOT_REQUIRED_OR_EXCLUDED_HOST','VPS_IDENTITY_MISMATCH','BOUNDED_REQUEST_EXCEEDED','RELEASE_MANIFEST_INVALID','EXPLICIT_DEPLOYMENT_CONFIRMATION_REQUIRED','ARTIFACT_HASH_OR_SIZE_MISMATCH','ACTIVATION_RELEASE_FAILED_SEE_SAFE_CODE') else 'SAFE_RELEASE_FAILED'
-  print('ACTIVATION_RELEASE_FAILED '+json.dumps({'code':code,'stage':STAGE,'exit_code':getattr(exc,'returncode',None),'vps_modified':'UNKNOWN' if STAGE=='DEPLOYMENT_PROCESS' else 'NO','diagnostics':diagnostics.failure(exc,STAGE)}),file=sys.stderr);sys.exit(1)
+  print('ACTIVATION_RELEASE_FAILED '+json.dumps({'code':code,'stage':STAGE,'exit_code':getattr(exc,'returncode',None),'vps_modified':'SEE_FINAL_STATE_ABOVE' if STAGE=='DEPLOYMENT_PROCESS' else 'NO','diagnostics':diagnostics.failure(exc,STAGE)}),file=sys.stderr);sys.exit(1)

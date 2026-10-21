@@ -359,6 +359,11 @@ func run() error {
 			return errors.New("ADDITIVE_MIGRATION_FAILED")
 		}
 		return nil
+	case "probe-journal-check":
+		if !validProbeJournal(*journal) {
+			return errors.New("UPGRADE_PROBE_JOURNAL_REQUIRED")
+		}
+		return nil
 	case "upgrade-local-probe":
 		if !validProbeJournal(*journal) {
 			return errors.New("UPGRADE_PROBE_JOURNAL_REQUIRED")
@@ -471,7 +476,7 @@ func localInterfaceIP(ip string) bool {
 }
 
 func validProbeJournal(path string) bool {
-	return regexp.MustCompile(`^/etc/neexitlag\.bak-\d{8}T\d{6}Z-[a-f0-9]{12}/probe\.id$`).MatchString(path)
+	return regexp.MustCompile(`^(?:/etc/neexitlag\.bak-\d{8}T\d{6}Z-[a-f0-9]{12}|/var/backups/neexitlag-certificates/\d{8}T\d{6}Z-[a-f0-9]{8})/probe\.id$`).MatchString(path)
 }
 func cleanupUpgradeProbe(ip, journal string) error {
 	if !validProbeJournal(journal) || checkHost(ip) != nil {

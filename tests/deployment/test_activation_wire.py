@@ -100,5 +100,5 @@ class ActivationWireTests(unittest.TestCase):
         self.assertIn('traceback',report['diagnostics'])
         self.assertNotIn('PRIVATE_SENTINEL',json.dumps(report))
         # Recovery is independent of /var/tmp staging lifetime, including diagnostics.
-        self.assertIn("for name in ('activation-diagnostics.py','deploy-activation.py'",(VPS/'deploy-activation.py').read_text())
+        self.assertIn("'inspect-activation.py','activation-diagnostics.py','deploy-activation.py'",(VPS/'deploy-activation.py').read_text())
         self.assertIn('activation-diagnostics.py',load('activation-release-ssh.py').NAMES)

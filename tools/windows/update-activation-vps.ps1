@@ -29,7 +29,7 @@ try{
  }
 }finally{$env:GOOS=$oldOS;$env:GOARCH=$oldArch;$env:CGO_ENABLED=$oldCGO;Pop-Location}
 $files=@{}
-foreach($name in @('activation-diagnostics.py','deploy-activation.py','fresh-vps-upgrade.py','renew-server-cert.py','veliq-certificate-renewal.service','veliq-certificate-renewal.timer','92-veliq-activation.conf','production-engine.py','fresh-pc','codes','relay','control-plane')){
+foreach($name in @('inspect-activation.py','activation-diagnostics.py','deploy-activation.py','fresh-vps-upgrade.py','renew-server-cert.py','veliq-certificate-renewal.service','veliq-certificate-renewal.timer','92-veliq-activation.conf','production-engine.py','fresh-pc','codes','relay','control-plane')){
  $path=if($name -in @('fresh-pc','codes','relay','control-plane')){Join-Path $bin $name}elseif($name -eq 'production-engine.py'){Join-Path $root 'deploy\vps\production-upgrade.py'}else{Join-Path (Join-Path $root 'deploy\vps') $name}
  $files[$name]=@{data=[Convert]::ToBase64String([IO.File]::ReadAllBytes($path));sha256=(Get-FileHash -LiteralPath $path).Hash.ToLowerInvariant()}
 }
