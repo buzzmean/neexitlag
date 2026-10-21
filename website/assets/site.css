@@ -430,3 +430,7 @@
 @media (max-width: 720px) {
   .seen__wire { flex: none; height: 56px; }
 }
+
+/* Короткие строки под шагами установки */
+.install-more { margin: var(--sp-5) 0 0; color: var(--text-muted); font-size: var(--fs-sm); max-width: 60ch; }
+.install-more + .install-more { margin-top: var(--sp-2); }
