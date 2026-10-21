@@ -29,6 +29,13 @@ def commit():
     if not re.fullmatch('[a-f0-9]{40}',value):raise RuntimeError('EXACT_FIXTURE_COMMIT_REQUIRED')
     return value
 
+def wait_fixture_health(engine):
+    require()
+    host=engine.Host()
+    host.relay_health='http://127.0.0.1:9090/healthz'
+    return host.wait_health()
+
+
 if __name__=='__main__':
     import sys
     if sys.argv[1:]==['--commit']:print(commit())

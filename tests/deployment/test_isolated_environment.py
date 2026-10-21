@@ -36,3 +36,12 @@ class IsolatedEnvironmentTests(unittest.TestCase):
   with self.assertRaisesRegex(RuntimeError,'REAL_SYSTEMD_REQUIRED'):self.check_local(pid='bash')
   with self.assertRaisesRegex(RuntimeError,'DISPOSABLE_MARKER_INVALID'):self.check_local(marker='untrusted')
   with self.assertRaisesRegex(RuntimeError,'DISPOSABLE_MARKER_INVALID'):self.check_local(mode=0o100666)
+
+ def test_fixture_health_initializes_metrics_endpoint_before_polling(self):
+  m=load();host=SimpleNamespace()
+  def wait():
+   self.assertEqual(host.relay_health,'http://127.0.0.1:9090/healthz')
+   return {'healthy':True}
+  host.wait_health=wait
+  with mock.patch.object(m,'require',return_value='disposable-docker'):
+   self.assertEqual(m.wait_fixture_health(SimpleNamespace(Host=lambda:host)),{'healthy':True})

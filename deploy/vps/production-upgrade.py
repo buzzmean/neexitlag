@@ -596,7 +596,9 @@ class Upgrade:
                 self.rollback(ident, automatic=True)
             except BaseException:
                 pass
-            raise UpgradeError('Upgrade failed; inspect permanent backup status/private log') from None
+            # Keep the original command/exit status for the sanitized outer
+            # diagnostics; replacing it here hid real systemd/OS failures.
+            raise
         finally:
             h.log.close()
             h.log = None

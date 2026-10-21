@@ -248,6 +248,20 @@ class UpgradeTests(unittest.TestCase):
         self.assertTrue(all(self.h.active.values()))
         self.assertFalse(any(e[0] == 'stop' and e[1] in m.SERVICES for e in self.h.events))
 
+    def test_apply_preserves_original_command_failure_after_rollback(self):
+        failure = m.UpgradeError('Required command failed; private transaction log retained')
+        failure.command = 'systemctl'
+        failure.exit_code = 1
+        failure.command_stderr = b'fixture private diagnostic'
+        with patch.object(self.up, 'arm', side_effect=failure):
+            with self.assertRaises(m.UpgradeError) as caught:
+                self.apply()
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(caught.exception.command, 'systemctl')
+        self.assertEqual(caught.exception.exit_code, 1)
+        self.assertEqual(caught.exception.command_stderr, b'fixture private diagnostic')
+        self.assertTrue(all(self.h.active.values()))
+
     def test_invalid_artifact_inventory_and_flow_proof_refused(self):
         for edit in [dict(validated_commit='b'*40), dict(all_config_consumers_support_1mib=False), dict(checked_at='2000-01-01T00:00:00Z')]:
             data = json.loads(self.inventory.read_text()) | edit
@@ -287,7 +301,7 @@ class UpgradeTests(unittest.TestCase):
                 raise OSError('injected storage failure')
             return sync(fd)
         with patch.object(m.os, 'fsync', side_effect=fail_at_backup):
-            with self.assertRaises(m.UpgradeError):
+            with self.assertRaises(OSError):
                 self.apply()
         self.assertTrue(fired[0])
         self.assertEqual(self.h.path(m.BIN + '/relay').read_bytes(), b'old binary relay')

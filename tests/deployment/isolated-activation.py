@@ -23,7 +23,7 @@ def load(name):
 leaf=load('renew-server-cert.py');release=load('deploy-activation.py')
 commit=isolated_environment.commit()
 # All addresses remain loopback, including the public-only relay destination.
-subprocess.run(['ip','addr','add','2.56.177.4/32','dev','lo'],check=True)
+subprocess.run(['ip','addr','replace','2.56.177.4/32','dev','lo'],check=True)
 Path('/etc/neexitlag/public/relay.env').write_text('VPS_PUBLIC_IP=2.56.177.4\n')
 cert_stage=root/'fixture-cert';r=leaf.Renewal()
 r.generate(cert_stage,tuple(sorted([('IP Address','127.0.0.1'),('IP Address','2.56.177.4')])))
@@ -31,7 +31,7 @@ for name in leaf.FILES:
     p=Path('/etc/neexitlag')/name;st=p.stat()
     leaf.atomic(p,(cert_stage/Path(name).name).read_bytes(),{'mode':st.st_mode&0o777,'uid':st.st_uid,'gid':st.st_gid})
 leaf.command(['systemctl','restart','neexitlag-control-plane','neexitlag-relay'])
-load('production-upgrade.py').Host().wait_health()
+isolated_environment.wait_fixture_health(load('production-upgrade.py'))
 # Apply from the owner's partially migrated schema 2, with all previous revoked
 # fixtures and temporary rows intact. Exercise genuine cert backup/replace/probe.
 stage=root/'activation';stage.mkdir()

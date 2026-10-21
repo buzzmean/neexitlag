@@ -1584,3 +1584,12 @@ CA/systemd исправление неизменно; оба actual isolated sys
   LoadCredential до изменения READABLE=False, после make-rshared /run внутри
   контейнера READABLE=True. В image добавлены D-Bus и entrypoint с shared
   container /run; host /run не монтируется. CA ACL/product не ослаблялись.
+
+- Base isolated-upgrade уже прошёл на real systemd257/PG17: 5000 revocations,
+  /3 TCP+UDP/два renewal, restore dump в отдельную БД, wrong-binary rollback.
+  В activation fixture исправлена инициализация relay_health перед wait_health;
+  ip addr replace допускает диагностический повтор в том же private namespace.
+  Engine apply после rollback теперь сохраняет исходную ошибку/command/exit code,
+  вместо маскирующего UpgradeError. Python deployment: 88 PASS. Чистый полный
+  повтор после этих исправлений ещё выполняется; exploratory apply PASS не
+  выдаётся за CI/production proof.
