@@ -17,12 +17,16 @@ public sealed class ActivationView {
  public string CaNotAfter {get;set;}="";public string ServerNotAfter {get;set;}="";
  public string Message=>Error switch {
   "ACTIVATION_INVALID"=>"Неверный код активации. Проверьте код и попробуйте ещё раз.",
-  "ACTIVATION_REVOKED" or "ACTIVATION_EXPIRED"=>"Код больше не действует. Обратитесь к администратору или получите новый код.",
-  "ACTIVATION_LIMIT"=>"Достигнут лимит компьютеров для этого кода.",
+  "ACTIVATION_REVOKED"=>"Код отозван администратором. Запросите новый код.",
+  "ACTIVATION_EXPIRED"=>"Срок действия кода истёк. Запросите новый код.",
+  "DEVICE_REVOKED"=>"Доступ этого компьютера отозван. Обратитесь к администратору.",
+  "ACTIVATION_LIMIT"=>"Достигнут лимит компьютеров для этого кода. Администратор может освободить место или выдать другой код.",
   "MACHINE_DISABLED"=>"Этот компьютер отключён. Обратитесь к администратору.",
   "ACTIVATION_RATE_LIMIT"=>"Слишком много попыток. Подождите немного и повторите.",
   "ACTIVATION_TRUST_NOT_CONFIGURED"=>"Установка не готова к активации. Обновите VELIQ.",
-  "HARDWARE_ID_UNAVAILABLE"=>"HARDWARE_ID_UNAVAILABLE: "+Hardware.Failure+". Сеть и код активации могут быть исправны.",
+  "HARDWARE_ID_UNAVAILABLE"=>"Не удалось определить компьютер: "+Hardware.Failure+". Сеть и код активации могут быть исправны.",
+  "ACTIVATION_STORAGE_FAILED"=>"Не удалось сохранить активацию. Обратитесь к администратору компьютера.",
+  "ACTIVATION_IDENTITY_CONFLICT"=>"Данные установки изменились. Администратор должен проверить регистрацию компьютера.",
   ""=>State=="ACTIVATED"?"Код активации: активирован":State=="ACTIVATING"?"Активируем VELIQ…":"Введите код активации",
   _=>"Нет связи с VELIQ. Проверьте подключение и повторите."
  };
@@ -33,7 +37,7 @@ public sealed class ActivationModel(IServiceClient client){
  public ActivationView Status {get;private set;}=new();
  public async Task RefreshAsync(CancellationToken ct=default){try{Status=await client.Call<ActivationView>("activation.status",cancellationToken:ct);}catch(Exception)when(!ct.IsCancellationRequested){Status=new(){State="UNAVAILABLE",Error="ACTIVATION_UNAVAILABLE"};}}
  public async Task ActivateAsync(string code,CancellationToken ct=default){try{Status=await client.Call<ActivationView>("activation.set",new{code},ct);}catch(Exception e)when(!ct.IsCancellationRequested){Status=new(){State="ACTIVATION_ERROR",Error=KnownError(e.Message)};}}
- static string KnownError(string s){string[] codes=["ACTIVATION_INVALID","ACTIVATION_REVOKED","ACTIVATION_EXPIRED","ACTIVATION_LIMIT","MACHINE_DISABLED","ACTIVATION_RATE_LIMIT","ACTIVATION_TRUST_NOT_CONFIGURED","HARDWARE_ID_UNAVAILABLE"];return codes.FirstOrDefault(c=>s==c||s.EndsWith(": "+c,StringComparison.Ordinal))??"ACTIVATION_UNAVAILABLE";}
+ static string KnownError(string s){string[] codes=["DEVICE_REVOKED","ACTIVATION_STORAGE_FAILED","ACTIVATION_IDENTITY_CONFLICT","ACTIVATION_INVALID","ACTIVATION_REVOKED","ACTIVATION_EXPIRED","ACTIVATION_LIMIT","MACHINE_DISABLED","ACTIVATION_RATE_LIMIT","ACTIVATION_TRUST_NOT_CONFIGURED","HARDWARE_ID_UNAVAILABLE"];return codes.FirstOrDefault(c=>s==c||s.EndsWith(": "+c,StringComparison.Ordinal))??"ACTIVATION_UNAVAILABLE";}
 }
 public sealed partial class DesktopViewModel {
  public ActivationModel? Activation {get;private set;}

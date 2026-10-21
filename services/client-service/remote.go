@@ -190,8 +190,18 @@ func (s *remoteState) apply(ctx context.Context, cfg security.Config) error {
 		if id == s.cp.DeviceID {
 			c.activation.mu.Lock()
 			c.activation.revoked = true
+			c.activation.networkBlocked.Store(true)
+			c.activation.status.State = "ACTIVATION_ERROR"
+			c.activation.status.Error = "DEVICE_REVOKED"
 			c.activation.mu.Unlock()
 			cleanupErr := c.CleanupOwnedBrowserPolicies()
+			c.activation.stopAutomatic.Store(true)
+			c.mu.Lock()
+			c.enabled = false
+			c.mu.Unlock()
+			if c.Backend != nil {
+				_ = c.Backend.Stop()
+			}
 			s.close() // Revocation must still close sessions if registry access failed.
 			if cleanupErr != nil {
 				return fmt.Errorf("DEVICE_REVOKED_POLICY_CLEANUP: %w", cleanupErr)

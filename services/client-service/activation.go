@@ -65,7 +65,7 @@ func (c *Controller) activationStatus() ActivationStatus {
 	out.CapturePermitted = c.activationNetworkAllowed()
 	if c.activation.revoked {
 		out.State = "ACTIVATION_ERROR"
-		out.Error = "ACTIVATION_REVOKED"
+		out.Error = "DEVICE_REVOKED"
 	}
 	m := c.activation.manifest
 	caFile := m.ControlPlaneCAFile

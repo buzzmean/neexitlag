@@ -89,7 +89,7 @@ func TestActivationPendingChangePreservesWorkingCodeAndRevocationStatus(t *testi
 	}
 	c.activation.status.State = "ACTIVATED"
 	c.activation.revoked = true
-	if status := c.activationStatus(); status.State != "ACTIVATION_ERROR" || status.Error != "ACTIVATION_REVOKED" {
+	if status := c.activationStatus(); status.State != "ACTIVATION_ERROR" || status.Error != "DEVICE_REVOKED" {
 		t.Fatal("revoked device displayed as activated", status)
 	}
 }

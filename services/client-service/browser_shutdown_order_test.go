@@ -36,6 +36,10 @@ func TestActivationRevocationRemovesPACBeforeRelayClose(t *testing.T) {
 	if err := s.apply(context.Background(), security.Config{RevokedDevices: []string{"revoked"}}); err == nil {
 		t.Fatal("revocation accepted")
 	}
+	c.RetrySilentBrowserPolicies()
+	if c.activationNetworkAllowed() {
+		t.Fatal("revoked device capture still permitted")
+	}
 	if *value != "" {
 		t.Fatal("revoked identity retained PAC")
 	}
