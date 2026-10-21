@@ -129,6 +129,8 @@ type Snapshot struct {
 	Records            []Record          `json:"records"`
 }
 type Config struct {
+	TransportCheck func() (target, token string)
+
 	// Production enables this: TLS early/application data must never be replayed.
 	RequireClientHelloReplay bool
 	MetadataToken            string
@@ -387,6 +389,9 @@ func (s *Server) handle(c net.Conn, acceptedAt time.Time) {
 	}
 	local, e := netip.ParseAddrPort(c.LocalAddr().String())
 	if e != nil {
+		return
+	}
+	if s.transportCheck(c, request, target) {
 		return
 	}
 	if !secure && host == "neexitlag-recovery-status.invalid" && request.Method == "GET" && request.URL.Path == "/status" {

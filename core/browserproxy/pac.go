@@ -96,3 +96,23 @@ FindProxyForURL=(function(primary){return function(url,host){host=host.toLowerCa
 	args[1] = prefix + base64.StdEncoding.EncodeToString(script)
 	return args, nil
 }
+
+// Owner-authorized availability mode. This is explicitly different from the
+// legacy fail-closed PAC contract: if the proxy infrastructure is unreachable,
+// every host may fall back DIRECT. HTTP CONNECT rejections are not retried here.
+func AvailabilityPAC(pac string) (string, error) {
+	const prefix = "data:application/x-ns-proxy-autoconfig;base64,"
+	if !strings.HasPrefix(pac, prefix) {
+		return "", fmt.Errorf("inline PAC required")
+	}
+	script, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(pac, prefix))
+	if err != nil || len(script) > 256*1024 {
+		return "", fmt.Errorf("bounded PAC required")
+	}
+	if !strings.Contains(string(script), "VELIQ_AVAILABILITY_V1") {
+		script = append(script, []byte(`
+// VELIQ_AVAILABILITY_V1
+FindProxyForURL=(function(route){return function(url,host){var p=route(url,host);return /(^|;\s*)DIRECT\s*$/.test(p)?p:p+'; DIRECT';};})(FindProxyForURL);`)...)
+	}
+	return prefix + base64.StdEncoding.EncodeToString(script), nil
+}

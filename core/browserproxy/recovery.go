@@ -24,6 +24,9 @@ import (
 // failed local connect BEFORE any application data permits ordinary DIRECT.
 // Any primary HTTP rejection is final; established bytes are never replayed.
 type RecoverySettings struct {
+	CheckTarget string `json:"check_target,omitempty"`
+	CheckToken  string `json:"check_token,omitempty"`
+
 	GuardFile  string   `json:"guard_file"`
 	Primary    string   `json:"primary"`
 	Executable string   `json:"executable"`
@@ -49,7 +52,14 @@ func ListenRecovery(ctx context.Context, address string, authorize func(context.
 		return nil, err
 	}
 	r := &Recovery{direct: direct, token: hex.EncodeToString(nonce)}
-	s, err := Listen(ctx, Config{Address: address, MetadataToken: r.token, AuthorizeMetadata: func(ctx context.Context, source, local netip.AddrPort) error {
+	s, err := Listen(ctx, Config{Address: address, TransportCheck: func() (string, string) {
+		r.mu.RLock()
+		defer r.mu.RUnlock()
+		if r.settings == nil {
+			return "", ""
+		}
+		return r.settings.CheckTarget, r.settings.CheckToken
+	}, MetadataToken: r.token, AuthorizeMetadata: func(ctx context.Context, source, local netip.AddrPort) error {
 		r.mu.RLock()
 		auth := r.metadataOwner
 		r.mu.RUnlock()
