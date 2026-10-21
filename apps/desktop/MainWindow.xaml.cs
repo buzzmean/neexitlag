@@ -21,6 +21,10 @@ public partial class MainWindow : Window
         InitializeGuiFailureLog();
  LocalPorts.Text="443";LocalSplitPosition.Text="1";
         DataContext = model;
+        model.PropertyChanged += (_, args) => {
+            if (args.PropertyName == nameof(DesktopViewModel.Optimizing) && !model.Optimizing)
+                BrowserNativePolicy.RequestRefresh(); // owner-user GP, also when SCM/IPC disappears
+        };
         Launch.IsChecked = LocalPreferences.AutoStart;
         StartMinimized.IsChecked = preferences.StartMinimized;
         MinimizeToTray.IsChecked = preferences.MinimizeToTray;

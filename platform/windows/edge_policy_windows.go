@@ -23,6 +23,9 @@ func ChromeProxyPolicyWrite(sid string, owned []string, next string) error {
 	return browserProxyPolicyWrite(sid, owned, next, `Software\Policies\Google\Chrome`)
 }
 func browserProxyPolicyWrite(sid string, owned []string, next, policyPath string) error {
+	return browserProxyPolicyWriteNotify(sid, owned, next, policyPath, requestBrowserPolicyRefresh)
+}
+func browserProxyPolicyWriteNotify(sid string, owned []string, next, policyPath string, notify func(string)) error {
 	if _, err := windows.StringToSid(sid); err != nil {
 		return err
 	}
@@ -63,7 +66,14 @@ func browserProxyPolicyWrite(sid string, owned []string, next, policyPath string
 			return errors.New("Edge proxy policy is managed by another owner; no settings changed")
 		}
 	}
-	return key.SetStringValue("ProxySettings", next)
+	if current == next {
+		return nil
+	}
+	if err = key.SetStringValue("ProxySettings", next); err != nil {
+		return err
+	}
+	notify(sid)
+	return nil
 }
 func edgeMachinePolicyAbsent() error { return browserMachinePolicyAbsent(edgePolicyPath) }
 func browserMachinePolicyAbsent(policyPath string) error {
@@ -122,6 +132,9 @@ func EdgeProxyPolicyRemove(sid string, owned []string) error {
 	return browserProxyPolicyRemove(sid, owned, edgePolicyPath)
 }
 func browserProxyPolicyRemove(sid string, owned []string, policyPath string) error {
+	return browserProxyPolicyRemoveNotify(sid, owned, policyPath, requestBrowserPolicyRefresh)
+}
+func browserProxyPolicyRemoveNotify(sid string, owned []string, policyPath string, notify func(string)) error {
 	if _, err := windows.StringToSid(sid); err != nil {
 		return errors.New("BROWSER_POLICY_OWNER_INVALID")
 	}
@@ -151,5 +164,6 @@ func browserProxyPolicyRemove(sid string, owned []string, policyPath string) err
 	if err = key.DeleteValue("ProxySettings"); err != nil && !errors.Is(err, registry.ErrNotExist) {
 		return errors.New("BROWSER_POLICY_REMOVE_FAILED")
 	}
+	notify(sid)
 	return nil
 }

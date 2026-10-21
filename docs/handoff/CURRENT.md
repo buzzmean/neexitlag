@@ -1964,3 +1964,7 @@ wall-clock overrun не установлена, результат не скры
 ### Регрессия выключения — A
 
 Исправлен реальный путь: native PAC делегировался в уже остановленный WinDivert; off теперь owner-validated OS DIRECT без Engine/relay/learning и без protected rule при явном выключении. Recovery получает только service-owned disabled grant с SID/path проверками; active protection/deny остаются. Убран mass CloseConnections при Optimize/Automatic switch, established TCP pinned. Idle listener уходит через3мин без сокетов, rebind проверен. Core/service race PASS, targeted real TCP echo/auth/idle PASS, Windows service cross-build PASS. Реальный Windows/Chrome пока не выполнялся; остановка secondary recovery — пункт C.
+
+### Регрессия выключения — B
+
+Удаляется только ProxySettings, не registry key. Подтверждён RegisterGPNotification в Chromium loader; после реальной мутации теперь async bounded RefreshPolicyEx(USER,RP_FORCE) под verified owner token (SYSTEM WTS impersonation, dedicated thread); GUI сообщает user refresh при Optimizing=false. Неуспешный API не выдаётся за live uptake: policy_refresh.state/at/requests/live_uptake. Coalescing не теряет последнюю мутацию; native registry fixture проверяет key/foreign/no-op. Go race queue/service PASS, Windows native fixture compile PASS, WPF0 errors/4 прежних warnings. Реальное удаление из chrome://policy ещё не проверено, A остаётся обязательной защитой.

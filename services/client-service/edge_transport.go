@@ -331,7 +331,7 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (result any,
 		if c.browser.readiness.enforced.Load() {
 			snapshot.PolicyReady = snapshot.PolicyReady && c.browser.readiness.laneReady(1) && c.browserPolicyBaseReason() == ""
 		}
-		view := browserStatusView{Snapshot: snapshot, DirectTimeouts: c.browser.directTimeouts.Stats(), RelayUsage: c.relayUsageLocked()}
+		view := browserStatusView{PolicyRefresh: wp.BrowserPolicyRefreshStatus(), Snapshot: snapshot, DirectTimeouts: c.browser.directTimeouts.Stats(), RelayUsage: c.relayUsageLocked()}
 		view.SilentActivation = c.silentViewLocked(true, snapshot)
 		view.bound()
 		state := "NOT_PREPARED"

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	wp "github.com/buzzmean/neexitlag/platform/windows"
 	"net"
 	"net/netip"
 	"time"
@@ -15,6 +16,7 @@ import (
 // browserStatusView is browser.status plus the DIRECT-timeout cache counters, so the
 // load this cache puts on the relay is visible in diagnostics.
 type browserStatusView struct {
+	PolicyRefresh wp.BrowserPolicyRefreshView `json:"policy_refresh"`
 	browserproxy.Snapshot
 	SilentActivation browserSilentView             `json:"silent_activation"`
 	LastError        string                        `json:"last_error"`

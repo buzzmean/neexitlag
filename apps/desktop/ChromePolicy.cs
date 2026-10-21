@@ -24,7 +24,7 @@ internal static class ChromePolicy {
   // policy to overwrite: foreign settings are always refused, never copied.
   Directory.CreateDirectory(Path.GetDirectoryName(State)!);
   var pending=State+".tmp";File.WriteAllText(pending,JsonSerializer.Serialize(value));File.Move(pending,State,true);
-  try{current.SetValue("ProxySettings",json,RegistryValueKind.String);}
+  try{current.SetValue("ProxySettings",json,RegistryValueKind.String);BrowserNativePolicy.RequestRefresh();}
   catch{if(oldState is null)File.Delete(State);else File.WriteAllText(State,oldState);throw;}
  }
  internal static void Check(){
@@ -96,7 +96,7 @@ internal static class ChromePolicy {
   var owned=JsonSerializer.Deserialize<Owned>(File.ReadAllText(State))?.Value;
   using var current=Registry.CurrentUser.OpenSubKey(Key,true);
   if(current?.GetValue("ProxySettings") is object actual&&(!Equals(actual,owned)))throw new InvalidOperationException(Text.Get("ChromeProxyManaged"));
-  current?.DeleteValue("ProxySettings",false);File.Delete(State);
+  current?.DeleteValue("ProxySettings",false);BrowserNativePolicy.RequestRefresh();File.Delete(State);
  }
  sealed class Owned {public string Value{get;set;}="";public string? PreviousValue{get;set;}public string? OnlineValue{get;set;}public string? RecoveryValue{get;set;}public bool Temporary{get;set;}public bool WasOptimizing{get;set;}}
 }

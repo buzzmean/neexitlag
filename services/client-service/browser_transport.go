@@ -553,11 +553,11 @@ func (c *Controller) handleBrowser(method string, raw json.RawMessage) (result a
 	}()
 	if method == "browser.status" {
 		if c.browser.server == nil {
-			view := browserStatusView{Snapshot: browserproxy.Snapshot{ReadyProfiles: []string{}, Failures: map[string]uint64{}, Records: []browserproxy.Record{}}, DirectTimeouts: c.browser.directTimeouts.Stats(), RelayUsage: c.relayUsageLocked(), LastError: c.browser.lastError, ReadinessState: "NOT_PREPARED"}
+			view := browserStatusView{PolicyRefresh: wp.BrowserPolicyRefreshStatus(), Snapshot: browserproxy.Snapshot{ReadyProfiles: []string{}, Failures: map[string]uint64{}, Records: []browserproxy.Record{}}, DirectTimeouts: c.browser.directTimeouts.Stats(), RelayUsage: c.relayUsageLocked(), LastError: c.browser.lastError, ReadinessState: "NOT_PREPARED"}
 			view.bound()
 			return view, nil
 		}
-		view := browserStatusView{Snapshot: c.browser.server.Snapshot(), DirectTimeouts: c.browser.directTimeouts.Stats(), RelayUsage: c.relayUsageLocked()}
+		view := browserStatusView{PolicyRefresh: wp.BrowserPolicyRefreshStatus(), Snapshot: c.browser.server.Snapshot(), DirectTimeouts: c.browser.directTimeouts.Stats(), RelayUsage: c.relayUsageLocked()}
 		view.LastError = c.browser.lastError
 		view.ReadinessState = "PREPARED"
 		view.RecoveryAddress = c.browser.recoveryAddress
