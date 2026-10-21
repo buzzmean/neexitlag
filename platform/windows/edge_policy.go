@@ -43,3 +43,15 @@ func sameOwnedProxyValue(a, b string) bool {
 	_ = json.Unmarshal([]byte(b), &y)
 	return x.URL == y.URL
 }
+
+func recognizedOwnedProxyValue(current string, owned []string) bool {
+	if len(owned) > 8 {
+		return false
+	}
+	for _, v := range owned {
+		if sameOwnedProxyValue(current, v) {
+			return true
+		}
+	}
+	return false
+}

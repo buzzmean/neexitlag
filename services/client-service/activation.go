@@ -15,15 +15,19 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 type ActivationStatus struct {
-	State          string `json:"state"`
-	Error          string `json:"error"`
-	HasIdentity    bool   `json:"has_identity"`
-	CANotAfter     string `json:"ca_not_after"`
-	ServerNotAfter string `json:"server_not_after"`
+	Hardware         enrollment.HardwareDiagnostics `json:"hardware"`
+	PolicyCleanup    string                         `json:"policy_cleanup"`
+	CapturePermitted bool                           `json:"capture_permitted"`
+	State            string                         `json:"state"`
+	Error            string                         `json:"error"`
+	HasIdentity      bool                           `json:"has_identity"`
+	CANotAfter       string                         `json:"ca_not_after"`
+	ServerNotAfter   string                         `json:"server_not_after"`
 }
 type activationRecord struct {
 	Code           string `json:"code"`
@@ -35,22 +39,29 @@ type activationRecord struct {
 	ServerNotAfter string `json:"server_not_after,omitempty"`
 }
 type activationRuntime struct {
-	hardware   func(context.Context) (enrollment.Hardware, error)
-	mu         sync.Mutex
-	manifest   Manifest
-	status     ActivationStatus
-	wake       chan struct{}
-	revision   uint64
-	configured bool
-	revoked    bool
-	paused     bool
-	done       chan struct{}
+	networkBlocked       atomic.Bool
+	preactivationCleanup bool
+	policyCleanup        string
+	diagnostics          enrollment.HardwareDiagnostics
+	hardware             func(context.Context) (enrollment.Hardware, error)
+	mu                   sync.Mutex
+	manifest             Manifest
+	status               ActivationStatus
+	wake                 chan struct{}
+	revision             uint64
+	configured           bool
+	revoked              bool
+	paused               bool
+	done                 chan struct{}
 }
 
 func (c *Controller) activationStatus() ActivationStatus {
 	c.activation.mu.Lock()
 	defer c.activation.mu.Unlock()
 	out := c.activation.status
+	out.Hardware = c.activation.diagnostics
+	out.PolicyCleanup = c.activation.policyCleanup
+	out.CapturePermitted = c.activationNetworkAllowed()
 	if c.activation.revoked {
 		out.State = "ACTIVATION_ERROR"
 		out.Error = "ACTIVATION_REVOKED"
@@ -176,6 +187,7 @@ func (c *Controller) ConfigureActivation(m Manifest) bool {
 	defer c.activation.mu.Unlock()
 	if m.ControlPlaneURL == "" || m.DeviceIdentityFile == "" || m.DeviceCertificate == "" {
 		c.activation.status.State = "UNAVAILABLE"
+		c.activation.networkBlocked.Store(true)
 		return false
 	}
 	if m.ProbeTokenFile == "" {
@@ -193,6 +205,8 @@ func (c *Controller) ConfigureActivation(m Manifest) bool {
 	_, identityErr := os.Stat(m.DeviceIdentityFile)
 	_, certErr := os.Stat(m.DeviceCertificate)
 	managed := recordError == nil || identityErr != nil || certErr != nil
+	c.activation.preactivationCleanup = os.IsNotExist(identityErr) && os.IsNotExist(certErr)
+	c.activation.networkBlocked.Store(managed)
 	if recordError == nil {
 		c.activation.status.State = "ACTIVATING"
 	}
@@ -276,15 +290,7 @@ func (c *Controller) activationAttempt(ctx context.Context, m Manifest, r activa
 	if e != nil || len(salt) != 32 {
 		return r, policy, errors.New("ACTIVATION_INVALID_RESPONSE")
 	}
-	hardware := c.activation.hardware
-	if hardware == nil {
-		hardware = wp.EnrollmentHardware
-	}
-	hw, e := hardware(ctx)
-	if e != nil {
-		return r, policy, errors.New("HARDWARE_ID_UNAVAILABLE")
-	}
-	machine, e := enrollment.HardwareHash(hw, salt)
+	machine, e := c.activationHardware(ctx, salt)
 	if e != nil {
 		return r, policy, e
 	}
@@ -380,21 +386,16 @@ func (c *Controller) activationLoop(managed bool) {
 			if r.Pending && !connected && validActivationIdentity(m) {
 				if previous, err := readActivationRecord(activationFile(m)); err == nil && previous.Salt != "" {
 					checkCtx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
-					hardware := c.activation.hardware
-					if hardware == nil {
-						hardware = wp.EnrollmentHardware
-					}
-					hw, he := hardware(checkCtx)
-					cancel()
 					salt, se := hex.DecodeString(previous.Salt)
-					if he == nil && se == nil {
-						hash, he := enrollment.HardwareHash(hw, salt)
+					if se == nil {
+						hash, he := c.activationHardware(checkCtx, salt)
 						if he == nil && hash == previous.Machine {
 							connectCtx, cancel := context.WithTimeout(c.ctx, 8*time.Second)
 							connected = c.activationConnect(connectCtx, m)
 							cancel()
 						}
 					}
+					cancel()
 				}
 			}
 
@@ -404,17 +405,12 @@ func (c *Controller) activationLoop(managed bool) {
 			bound := valid && !r.Pending && connected
 			if valid && !r.Pending && !bound && r.Salt != "" {
 				ctx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
-				hardware := c.activation.hardware
-				if hardware == nil {
-					hardware = wp.EnrollmentHardware
-				}
-				hw, he := hardware(ctx)
-				cancel()
 				salt, se := hex.DecodeString(r.Salt)
-				if he == nil && se == nil {
-					hash, he := enrollment.HardwareHash(hw, salt)
+				if se == nil {
+					hash, he := c.activationHardware(ctx, salt)
 					bound = he == nil && hash == r.Machine
 				}
+				cancel()
 			}
 			for _, path := range []string{m.TrustFile, m.ProbeTokenFile} {
 				if _, err := os.Stat(path); err != nil {
@@ -456,6 +452,11 @@ func (c *Controller) activationLoop(managed bool) {
 				if !connected {
 					e = errors.New("ACTIVATION_UNAVAILABLE")
 				}
+			}
+			// Also cover an authenticated previous identity while replacing a code.
+			// Do not re-enable after an unsuccessful enrollment or connectivity check.
+			if connected && e == nil && c.activation.networkBlocked.Swap(false) {
+				_ = c.RestoreBrowserTransport()
 				c.mu.Lock()
 				automatic := c.settings.Automatic
 				c.mu.Unlock()

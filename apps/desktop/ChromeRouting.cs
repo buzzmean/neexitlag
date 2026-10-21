@@ -64,6 +64,7 @@ public partial class MainWindow {
   }finally{chromeActivating=false;}
  }
  async Task MonitorChromeTransportAsync(bool wasOptimizing){
+ if(!model.Available || model.Activation?.Status.CapturePermitted==false)return;
   await MonitorEdgeTransportAsync();
   if(model.Applications.Any(a=>IsChrome(a.Profile)&&DesktopViewModel.NativeBrowser(a.Profile)))return;
   if(chromeActivating||chromeMonitoring)return;

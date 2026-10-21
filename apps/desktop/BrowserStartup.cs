@@ -8,7 +8,7 @@ public partial class MainWindow
     BrowserStartupReport? savedBrowserStartup;
     async Task RegisterStartupBrowsersAsync()
     {
-        if (!model.Available || model.Busy || DateTimeOffset.UtcNow < nextBrowserStartup) return;
+        if (model.Activation?.Status.CapturePermitted==false || !model.Available || model.Busy || DateTimeOffset.UtcNow < nextBrowserStartup) return;
         nextBrowserStartup = DateTimeOffset.UtcNow.AddSeconds(10);
         await model.EnsureStartupBrowserProfilesAsync(BrowserCatalog.Discover(File.Exists, Environment.GetEnvironmentVariable), lifetime.Token);
         if(model.Optimizing)await EnsureSilentBrowserLanesAsync();

@@ -71,7 +71,7 @@
 | Ранний отказ CI и локальная воспроизводимая systemd/leaf проверка | `.github/workflows/{activation,production-upgrade}.yml`, `tests/deployment/*`, deployment fixes по найденным регрессиям, docs | Codex | `codex/work` | ГОТОВО 21.10.2026; область освобождена; fresh + legacy offline systemd/PG PASS на 5adc8e5, 90 Python/Go race/build/vet/C# PASS; native Windows недоступен локально; GitHub billing gate, не объявлены PASS; VPS не выполнять |
 | NuGet clean-PC preflight тестового runner + Windows PASS владельца | `tools/windows/{test-activation-local,activation-nuget}.ps1`, `tests/windows-tools/activation-nuget-checks.ps1`, docs/CI_LOCAL_ACCEPTANCE.md, CURRENT.md | Codex | `codex/work` | ГОТОВО 21.10.2026; область освобождена; NuGet helper/real SDK config regression PASS на PS7/Linux; native Windows результат нового helper ещё не проверен; VPS вне области |
 | Сценарий владельца: выпуск кодов / ActivationOnly / freeze / слоты | `docs/ACTIVATION_OWNER_RUNBOOK.md`, `docs/ENROLLMENT_CODES.md`, CURRENT.md (runtime только если найдена необходимость) | Codex | `codex/work` | ГОТОВО 21.10.2026; область освобождена; только docs, targeted race/PG17/SQL/PS parsing PASS, production не выполнялся |
-| ActivationOnly: hardware fallback/diagnostics и нулевой capture до активации | `core/enrollment/{code,hardware}*.go`, `platform/windows/enrollment*.go`, `services/client-service/{activation*,controller.go,ipc_handlers.go,browser_native.go,browser_silent.go,browser_transport.go}`, `services/client-service/cmd/service/{main,startup}*.go`, `apps/desktop-core/Activation.cs`, `apps/desktop/{BrowserStartup,ChromeRouting,EdgeRouting}.cs`, `platform/windows/*policy*`, `services/client-service/browser_policy_cleanup*.go`, `tools/windows/uninstall.ps1`, desktop/activation tests, docs/ACTIVATION_OWNER_RUNBOOK.md, CURRENT.md | Codex | `codex/work` | В РАБОТЕ 21.10.2026; user-authorized fix, только isolated tests; VPS/ПК владельца не выполнять |
+| ActivationOnly: hardware fallback/diagnostics и нулевой capture до активации | `core/enrollment/{code,hardware}*.go`, `platform/windows/enrollment*.go`, `services/client-service/{activation*,controller.go,ipc_handlers.go,browser_native.go,browser_silent.go,browser_transport.go}`, `services/client-service/cmd/service/{main,startup}*.go`, `apps/desktop-core/Activation.cs`, `apps/desktop/{BrowserStartup,ChromeRouting,EdgeRouting}.cs`, `platform/windows/*policy*`, `services/client-service/browser_policy_cleanup*.go`, `tools/windows/uninstall.ps1`, desktop/activation tests, docs/ACTIVATION_OWNER_RUNBOOK.md, CURRENT.md | Codex | `codex/work` | ГОТОВО 21.10.2026: hardware fallback UUID+MAC, capture/PAC activation gate, owned cleanup при штатном stop/uninstall; isolated Go race с PostgreSQL PASS, C# 147 PASS, WPF 0 errors/4 CS8604. Windows cross-build PASS, native runtime/ПК ретест не выполнен; область освобождена |
 | Discord медленно, DIRECT+ для YouTube | не определены | никто | — | свободно для Codex после диагностики; Go-файлы застоя (выше) не трогать |
 | PR #8, `codex/direct-plus-flowseal` | — | не трогать | — | только владелец |
 
@@ -1670,3 +1670,20 @@ CA/systemd исправление неизменно; оба actual isolated sys
   Actual production code activation/freeze/browser acceptance ещё не доказаны.
 
 - Уточнение владельца: после Stop-Service Chrome ERR_PROXY_CONNECTION_FAILED. Область расширена на owned policy cleanup при штатном stop/uninstall и GUI mutation gates до активации; чужие policy сохраняются, crash guard отдельно от intentional stop.
+
+## (ap) ActivationOnly: hardware и сеть до активации
+
+21.10.2026: причины — обязательный board serial и unconditional Automatic/GUI
+browser policy до enroll. Исправлены independent CIM queries/physical adapter
+selection, v3 fallback без manufacturer placeholders, safe hardware IPC/GUI.
+До активации WinDivert и browser mutations запрещены. Штатный stop/uninstall
+удаляет только exact journal-owned ProxySettings; crash сохраняет guard. Уже
+активированная установка при ожидании CP также сохраняет guard. CA/ACL/identity,
+игры и маршрутизация не изменены. Локально race (5 пакетов, реальный отдельный
+PostgreSQL), vet, Windows cross-build; C# 147/147, WPF 0 ошибок/4 прежних CS8604.
+Windows runtime и failure/recovery на ПК ещё не подтверждены. Обновление без
+переустановки — docs/ACTIVATION_OWNER_RUNBOOK.md, последний раздел.
+VPS/ПК владельца не запускались, PR #8 не тронут.
+
+Решение 21.10.2026: штатная остановка означает намеренный выход из routing и
+очищает owned PAC; crash/init failure не разрешают снимать fail-closed guard.

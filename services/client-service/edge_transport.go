@@ -39,6 +39,7 @@ type edgeRuntime struct {
 	server                   *browserproxy.Server
 	// Test embedders may provide an isolated policy store. Production uses HKU.
 	write  func(string, []string, string) error
+	remove func(string, []string) error
 	active func(string, string) bool
 }
 

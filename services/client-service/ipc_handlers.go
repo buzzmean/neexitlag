@@ -317,6 +317,9 @@ func (c *Controller) handleOptimize(ctx context.Context, raw json.RawMessage) (a
 	if e := security.Parse(raw, &v); e != nil {
 		return nil, e
 	}
+	if v.Enabled && !c.activationNetworkAllowed() {
+		return nil, errors.New("ACTIVATION_REQUIRED")
+	}
 	c.mu.Lock()
 	automatic := c.settings.Automatic
 	c.mu.Unlock()

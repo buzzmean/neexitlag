@@ -50,6 +50,7 @@ func TestHardwareV2StableSaltedAndNoMachineGuid(t *testing.T) {
 		t.Fatal("salt ignored")
 	}
 	h.UUID = strings.Repeat("0", 32)
+	h.BoardSerial = "Default string"
 	if _, e = HardwareHash(h, salt); e == nil {
 		t.Fatal("empty hardware accepted")
 	}

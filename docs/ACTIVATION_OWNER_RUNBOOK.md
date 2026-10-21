@@ -295,3 +295,108 @@ rollback. HardwareHash stability test — PASS. Обе SQL SELECT выполне
 параметры install.ps1 сверены с реальным ParamBlock; install НЕ запускался.
 Собственный PG container остановлен/удалён. Clean-PC GUI/code activation и freeze
 на production ещё не проверены владельцем; runtime не менялся.
+
+## Исправление ActivationOnly: плата без серийного номера и оставшийся PAC
+
+`HARDWARE_ID_UNAVAILABLE` не означает недоступный control-plane. Прежний код
+требовал одновременно UUID, надёжный board serial и MAC. `Default string` не
+содержит уникальности. Теперь допустимы UUID+MAC или board serial+MAC; один MAC
+недостаточен. При наличии всех надёжных компонентов прежний v2 hash сохранён;
+для неполного набора применяется v3. При выборе физического адаптера сохраняется
+прежний доступный physical default route; VPN-only default route больше не
+скрывает включённый Ethernet. Отключённый Wi-Fi не участвует. Смена реальной
+сетевой карты/UUID может потребовать освобождения слота, неизменность при любом
+изменении оборудования не обещается. UUID/MAC не являются криптографическим
+доказательством владения ПК; авторизация по коду и mTLS остаётся обязательной.
+
+`activation.status.hardware` сообщает только ACCEPTED/PLACEHOLDER/MISSING/INVALID,
+схему и имя недоступного компонента, без UUID, MAC, board serial и machine hash.
+GUI показывает HARDWARE_ID_UNAVAILABLE с пояснением, а не «нет соединения».
+
+До успешного enroll и authenticated connect запрещены Backend.Start/WinDivert,
+Optimize, восстановление listener/PAC и browser mutation IPC. В `status` появились
+`capture_active`, `capture_permitted`, `capture_blocked_reason`. Сам конструктор
+backend драйвер не открывает. Режим ActivationOnly не меняет сеть.
+
+`install.ps1 -ActivationOnly` и `install-desktop.ps1` сами proxy не записывают.
+В прежней версии Automatic стартовал capture до активации, затем GUI вызывал
+browser IPC. Служба писала **ProxySettings** (JSON PAC) в
+`HKU\<OwnerSID>\Software\Policies\Google\Chrome` и
+`HKU\<OwnerSID>\Software\Policies\Microsoft\Edge`. Поэтому пустые ProxyMode/
+ProxyPacUrl и WinINET ProxyEnable=0 не доказывали отсутствие PAC.
+
+Обновлённая credential-less служба чистит только свой оставшийся ProxySettings
+по защищённому journal `browser-transport.json`/`edge-transport.json`. При штатном
+Stop-Service/shutdown и uninstall такой owned PAC удаляется; при crash/kill
+остаётся fail-closed guard. На уже активированном boot ожидание CP guard не
+снимает. Чужой PAC, HKLM policy, split-ключи, WinINET/WinHTTP и настройки Happ
+не удаляются. Недоступный owner hive/повреждённый journal даёт ошибку очистки,
+а не разрешение удалять чужие настройки. Uninstall проверяет SCM path и вызывает
+установленный `-cleanup-browser-policy` до удаления службы; ошибку не игнорирует.
+
+### Обновить существующую установку без enroll/переустановки
+
+Только ПК владельца, корень существующего клона. В трее закрыть **только GUI
+VELIQ**, Chrome/Edge не закрывать. Сначала обычный PowerShell владельца (при UAC
+off — текущий full-admin с тем же SID):
+
+```powershell
+git pull --ff-only origin codex/work
+```
+```powershell
+& .\tools\windows\build-e2e.ps1
+```
+```powershell
+& .\tools\windows\build-desktop.ps1
+```
+
+Затем PowerShell **администратор под тем же SID** (UAC-off: то же окно):
+
+```powershell
+& .\tools\windows\update-service.ps1
+```
+
+Этот путь сохраняет service.json, owner SID, trust, identity, код, ACL и профили;
+не добавлять -NativeTcpFirewall. Проверка реально установленного файла:
+
+```powershell
+Get-FileHash .\bin\windows-e2e\neexitlag-service.exe,"$env:ProgramData\neexitlag\neexitlag-service.exe" -Algorithm SHA256
+```
+
+Оба SHA256 должны совпасть; служба должна быть Running. Обычный owner PowerShell
+(при UAC-off то же окно):
+
+```powershell
+& .\tools\windows\install-desktop.ps1
+```
+```powershell
+Start-Process .\bin\release\VELIQ.exe
+```
+
+Ввести **тот же** клубный код, если сохранённый pending code не активируется
+автоматически. Не создавать новый код, не переустанавливать CA/сертификаты.
+Read-only проверки из корня клона:
+
+```powershell
+. .\tools\windows\common.ps1
+```
+```powershell
+Invoke-ServiceIPC 'activation.status' | ConvertTo-Json -Depth 5
+```
+```powershell
+Invoke-ServiceIPC 'status' | Select-Object connected,optimizing,capture_active,capture_permitted,capture_blocked_reason
+```
+
+До активации ожидаются capture_active=False, capture_permitted=False,
+ACTIVATION_REQUIRED; после успешной активации capture разрешён, а наличие
+реального capture зависит от Optimize. activation.status.policy_cleanup отражает
+результат owned cleanup. Для проверки наличия политики без вывода PAC/токенов:
+
+```powershell
+'Google\Chrome','Microsoft\Edge' | ForEach-Object { [pscustomobject]@{Browser=$_;ProxySettingsPresent=($null -ne [Microsoft.Win32.Registry]::GetValue("HKEY_CURRENT_USER\Software\Policies\$_",'ProxySettings',$null))} }
+```
+
+После штатного Stop-Service own policy отсутствует; чужая остаётся. После Start
+активированная установка вправе снова применить owned guard. Новые соединения
+работающего браузера перечитывают policy по его механизму, существующие TCP
+остаются pinned. Реальное время подхвата этого исправления на ПК ещё не измерено.

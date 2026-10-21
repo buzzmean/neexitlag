@@ -112,3 +112,44 @@ func EdgeProxyPolicyActive(sid, expected string) bool {
 	_ = json.Unmarshal([]byte(raw), &p)
 	return p.URL == expected
 }
+
+// Delete only this product's exact ProxySettings value. Never delete a key,
+// split proxy policies, HKLM, WinINET/WinHTTP settings or another owner's value.
+func ChromeProxyPolicyRemove(sid string, owned []string) error {
+	return browserProxyPolicyRemove(sid, owned, `Software\Policies\Google\Chrome`)
+}
+func EdgeProxyPolicyRemove(sid string, owned []string) error {
+	return browserProxyPolicyRemove(sid, owned, edgePolicyPath)
+}
+func browserProxyPolicyRemove(sid string, owned []string, policyPath string) error {
+	if _, err := windows.StringToSid(sid); err != nil {
+		return errors.New("BROWSER_POLICY_OWNER_INVALID")
+	}
+	owner, err := registry.OpenKey(registry.USERS, sid, registry.QUERY_VALUE)
+	if err != nil {
+		return errors.New("BROWSER_POLICY_OWNER_HIVE_UNAVAILABLE")
+	}
+	owner.Close()
+	key, err := registry.OpenKey(registry.USERS, sid+`\`+policyPath, registry.QUERY_VALUE|registry.SET_VALUE)
+	if errors.Is(err, registry.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return errors.New("BROWSER_POLICY_OWNER_HIVE_UNAVAILABLE")
+	}
+	defer key.Close()
+	value, _, err := key.GetStringValue("ProxySettings")
+	if errors.Is(err, registry.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return errors.New("BROWSER_POLICY_VALUE_UNREADABLE")
+	}
+	if !recognizedOwnedProxyValue(value, owned) {
+		return errors.New("BROWSER_FOREIGN_POLICY_PRESERVED")
+	}
+	if err = key.DeleteValue("ProxySettings"); err != nil && !errors.Is(err, registry.ErrNotExist) {
+		return errors.New("BROWSER_POLICY_REMOVE_FAILED")
+	}
+	return nil
+}

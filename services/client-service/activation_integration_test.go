@@ -105,7 +105,7 @@ func TestActivationHTTPSCSRPrivateKeyFreezeAndLostResponse(t *testing.T) {
 	c := New(ctx)
 	defer c.Close()
 	c.activation.hardware = func(context.Context) (enrollment.Hardware, error) {
-		return enrollment.Hardware{UUID: "00112233-4455-6677-8899-aabbccddeeff", BoardSerial: "BOARD123", MAC: "02:11:22:33:44:55"}, nil
+		return enrollment.Hardware{UUID: "00112233-4455-6677-8899-aabbccddeeff", BoardSerial: "Default string", MAC: "02:11:22:33:44:55"}, nil
 	}
 	var previousID string
 	var lastManifest Manifest

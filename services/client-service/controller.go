@@ -54,9 +54,12 @@ type Settings struct {
 	YouTubeViaRelay bool `json:"youtube_via_relay,omitempty"`
 }
 type Snapshot struct {
-	HotAttach      *windowsplatform.HotAttachStatus `json:"hot_attach,omitempty"`
-	RelayTransport *RelayTransportReadiness         `json:"relay_transport,omitempty"`
-	Version        string                           `json:"version"`
+	CaptureActive        bool                             `json:"capture_active"`
+	CapturePermitted     bool                             `json:"capture_permitted"`
+	CaptureBlockedReason string                           `json:"capture_blocked_reason,omitempty"`
+	HotAttach            *windowsplatform.HotAttachStatus `json:"hot_attach,omitempty"`
+	RelayTransport       *RelayTransportReadiness         `json:"relay_transport,omitempty"`
+	Version              string                           `json:"version"`
 	// Build is the git commit this binary was built from (plus "+modified" for a dirty tree),
 	// so a stale service or checkout is visible instead of guessed.
 	Build        string                        `json:"build,omitempty"`
@@ -487,7 +490,7 @@ func (c *Controller) Snapshot() Snapshot {
 		rx += brx
 		tx += btx
 	}
-	snapshot := Snapshot{HotAttach: c.hotAttachStatus(), Version: "0.3.0-dev", Build: buildStamp(), Connected: c.Demo || backend.Ready, Optimizing: enabled && (c.Demo || backend.Ready), Demo: c.Demo, Backend: backend, Primary: selection.Primary, Secondary: selection.Secondary, Tertiary: selection.Tertiary, Routes: views, Profiles: c.Profiles.List(), RXBytes: rx, TXBytes: tx, History: history, Flows: flows, Settings: settings, ControlPlane: controlPlaneURL, ActiveApps: apps}
+	snapshot := Snapshot{CaptureActive: backend.Ready, CapturePermitted: c.activationNetworkAllowed(), HotAttach: c.hotAttachStatus(), Version: "0.3.0-dev", Build: buildStamp(), Connected: c.Demo || backend.Ready, Optimizing: enabled && (c.Demo || backend.Ready), Demo: c.Demo, Backend: backend, Primary: selection.Primary, Secondary: selection.Secondary, Tertiary: selection.Tertiary, Routes: views, Profiles: c.Profiles.List(), RXBytes: rx, TXBytes: tx, History: history, Flows: flows, Settings: settings, ControlPlane: controlPlaneURL, ActiveApps: apps}
 	// Keep mandatory profile/quality fields; shorten display history to the IPC frame.
 	for {
 		raw, _ := json.Marshal(snapshot)
@@ -508,9 +511,30 @@ func (c *Controller) Snapshot() Snapshot {
 		}
 		break
 	}
+	if !snapshot.CapturePermitted {
+		snapshot.CaptureBlockedReason = "ACTIVATION_REQUIRED"
+	}
 	return snapshot
 }
 func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMessage) (result any, err error) {
+	if !c.activationNetworkAllowed() {
+		if activationNetworkMutation(method) {
+			return nil, errors.New("ACTIVATION_REQUIRED")
+		}
+		if method == "optimize" {
+			var v struct {
+				Enabled bool `json:"enabled"`
+			}
+			if e := security.Parse(raw, &v); e != nil {
+				return nil, e
+			}
+			if v.Enabled {
+				return nil, errors.New("ACTIVATION_REQUIRED")
+			}
+			return c.handleOptimize(ctx, raw)
+		}
+	}
+
 	if isEdgeMutation(method) {
 		c.activationMu.Lock()
 		defer c.activationMu.Unlock()

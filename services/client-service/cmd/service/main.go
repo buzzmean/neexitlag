@@ -24,13 +24,23 @@ func runReady(ctx context.Context, path string, ready func()) error {
 		return e
 	}
 	controller := clientservice.New(ctx)
-	defer controller.Close()
+	defer func() {
+		if err := controller.CloseForHost(ctx); err != nil {
+			slog.Warn("owned browser policy cleanup incomplete", "class", "BROWSER_POLICY_CLEANUP_FAILED")
+		}
+	}()
+
 	controller.BrowserOwnerSID = manifest.OwnerSID
 	controller.Backend = windowsplatform.NewWinDivert(manifest.Driver, controller.Engine)
 	if e = controller.SetCustomPath(manifest.StateDirectory + string(os.PathSeparator) + "profiles.json"); e != nil {
 		return e
 	}
 	managedActivation := controller.ConfigureActivation(manifest)
+	if managedActivation {
+		if err := controller.CleanupPreactivationBrowserPolicies(); err != nil {
+			slog.Warn("preactivation owned browser policy cleanup incomplete", "class", "BROWSER_POLICY_CLEANUP_FAILED")
+		}
+	}
 	// The pipe opens before the slow stages so SCM does not wait on the network and
 	// the GUI can tell "starting" from "not installed". Methods are rejected until
 	// initialization finishes (see startupGate).
@@ -48,8 +58,12 @@ func runReady(ctx context.Context, path string, ready func()) error {
 	go func() {
 		defer close(initDone)
 		// Restore listener and owned PAC before remote CP/network initialization.
-		if e := controller.RestoreBrowserTransport(); e != nil {
-			slog.Warn("Chrome transport not restored; proxy remains fail-closed", "error", e)
+		// A code-managed boot restores policy only after binding/authentication;
+		// its activation worker owns that transition, never this parallel stage.
+		if !managedActivation {
+			if e := controller.RestoreBrowserTransport(); e != nil {
+				slog.Warn("Chrome transport not restored; proxy remains fail-closed", "error", e)
+			}
 		}
 		if manifest.ControlPlaneURL != "" && !managedActivation {
 			if e := controller.ConnectRemote(ctx, manifest); e != nil {
@@ -57,7 +71,7 @@ func runReady(ctx context.Context, path string, ready func()) error {
 			}
 		}
 		controller.Start()
-		if controller.Snapshot().Settings.Automatic {
+		if !managedActivation && controller.Snapshot().Settings.Automatic {
 			if _, e := controller.Handle(ctx, "optimize", []byte(`{"enabled":true}`)); e != nil {
 				slog.Warn("automatic capture unavailable; networking remains DIRECT", "error", e)
 			}
@@ -75,6 +89,7 @@ func main() {
 	recovery := flag.Bool("chrome-recovery", false, "owner-scoped Chrome recovery transport; no service privileges or credentials")
 	recoveryPort := flag.Uint("recovery-port", 0, "persisted IPv4 loopback recovery port")
 	path := flag.String("config", "", "absolute service manifest path")
+	cleanup := flag.Bool("cleanup-browser-policy", false, "remove only journal-owned browser policies; no capture/enrollment/network")
 	console := flag.Bool("console", false, "run as an interactive service host for diagnostics")
 	flag.Parse()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -88,6 +103,24 @@ func main() {
 		case <-ctx.Done():
 		}
 	}()
+	if *cleanup {
+		manifest, err := clientservice.LoadManifest(*path)
+		if err == nil {
+			c := clientservice.New(ctx)
+			c.BrowserOwnerSID = manifest.OwnerSID
+			err = c.SetCustomPath(manifest.StateDirectory + string(os.PathSeparator) + "profiles.json")
+			if err == nil {
+				err = c.CleanupOwnedBrowserPolicies()
+			}
+			c.Close()
+		}
+		if err != nil {
+			slog.Error("browser policy cleanup failed", "class", "BROWSER_POLICY_CLEANUP_FAILED")
+			os.Exit(1)
+		}
+		slog.Info("owned browser policies removed or absent; foreign settings preserved")
+		return
+	}
 	if *recovery {
 		if *recoveryPort > 65535 {
 			os.Exit(1)

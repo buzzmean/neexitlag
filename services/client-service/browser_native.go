@@ -225,6 +225,9 @@ func (c *Controller) handleNativeBrowser(ctx context.Context, method string, raw
 			}
 		}
 	}()
+	if !c.activationNetworkAllowed() {
+		return nil, errors.New("ACTIVATION_REQUIRED")
+	}
 	if err := c.nativeGuardReady(p); err != nil {
 		return nil, err
 	}

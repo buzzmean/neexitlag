@@ -1,5 +1,18 @@
 namespace Neexitlag.Desktop;
+public sealed class ActivationHardwareView {
+ public string Uuid {get;set;}=""; public string BoardSerial {get;set;}=""; public string Mac {get;set;}="";
+ public string Scheme {get;set;}=""; public string Reason {get;set;}="";
+ public string Failure=>Reason switch {
+  "HARDWARE_MAC_UNAVAILABLE"=>"недоступен MAC физического адаптера",
+  "HARDWARE_UUID_AND_BOARD_UNAVAILABLE"=>"недоступны надёжные UUID и серийный номер платы",
+  "HARDWARE_METADATA_QUERY_FAILED"=>"не удалось получить аппаратные сведения Windows",
+  "HARDWARE_SALT_INVALID"=>"неверные параметры идентификации сервера",
+  _=>"недостаточно надёжных аппаратных компонентов"
+ };
+}
 public sealed class ActivationView {
+ public ActivationHardwareView Hardware {get;set;}=new(); public bool CapturePermitted {get;set;}=true;
+
  public string State {get;set;}="";public string Error {get;set;}="";public bool HasIdentity {get;set;}
  public string CaNotAfter {get;set;}="";public string ServerNotAfter {get;set;}="";
  public string Message=>Error switch {
@@ -9,7 +22,7 @@ public sealed class ActivationView {
   "MACHINE_DISABLED"=>"Этот компьютер отключён. Обратитесь к администратору.",
   "ACTIVATION_RATE_LIMIT"=>"Слишком много попыток. Подождите немного и повторите.",
   "ACTIVATION_TRUST_NOT_CONFIGURED"=>"Установка не готова к активации. Обновите VELIQ.",
-  "HARDWARE_ID_UNAVAILABLE"=>"Не удалось определить компьютер. Проверьте сетевое подключение и повторите.",
+  "HARDWARE_ID_UNAVAILABLE"=>"HARDWARE_ID_UNAVAILABLE: "+Hardware.Failure+". Сеть и код активации могут быть исправны.",
   ""=>State=="ACTIVATED"?"Код активации: активирован":State=="ACTIVATING"?"Активируем VELIQ…":"Введите код активации",
   _=>"Нет связи с VELIQ. Проверьте подключение и повторите."
  };

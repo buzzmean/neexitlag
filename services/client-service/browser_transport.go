@@ -27,6 +27,7 @@ import (
 type browserRuntime struct {
 	silent          browserSilentState
 	chromeWrite     func(string, []string, string) error
+	chromeRemove    func(string, []string) error
 	chromeActive    func(string, string) bool
 	origins         *browserproxy.OriginHealth
 	native          nativeBrowserRuntime
@@ -718,6 +719,9 @@ func (c *Controller) saveBrowserAddress() error {
 // Restore the existing non-secret local port before normal service startup
 // starts capture. A service restart must not require changing Chrome's PAC.
 func (c *Controller) RestoreBrowserTransport() error {
+	if !c.activationNetworkAllowed() {
+		return nil
+	}
 	c.restoreEdgeTransport() // Edge failure is diagnosed separately; never prevents Chrome restore.
 	if err := c.publishBrowserGuard(false); err != nil {
 		return err
