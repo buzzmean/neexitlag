@@ -3,8 +3,9 @@
 VELIQ is the user-facing product name. Desktop title, tray, messages, notifications,
 WPF dialogs, Windows service display name, published GUI and artifact labels use
 VELIQ. The theme uses black, white and neutral greys, including keyboard focus and
-disabled controls. No new logo was invented; the existing embedded icon resource
-is retained pending an approved logo.
+disabled controls. Approved source SVG assets from 2dfdb48 are imported; the WPF header uses the
+approved symbol. The existing ICO resource remains until a validated Windows
+export. Inventory and exact scope: BRAND_INVENTORY.md.
 
 ## Compatibility contract
 
@@ -30,8 +31,8 @@ The updater therefore needs no server or credential migration.
 
 ## Windows update
 
-Exit the old GUI through its tray **Exit** item and close Chrome gracefully before
-replacing the service/helper image. In elevated PowerShell, pull the expected
+Exit only the VELIQ GUI through its tray **Exit** item before replacing the
+service/helper image. Keep Chrome and Edge open; never close/restart them for branding. In elevated PowerShell, pull the expected
 reviewed commit, run `build-e2e.ps1`, `build-desktop.ps1`, then `update-service.ps1`.
 The updater retains persistent binary/ACL backups and changes only the SCM display
 name to `VELIQ Routing Service`; its SCM name, path, identity and state are kept.

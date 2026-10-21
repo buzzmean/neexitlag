@@ -1879,3 +1879,7 @@ relay, transport/security не изменены слияниями. Другие
 ### D2
 
 Только ZAPRET_OPTION_DESIGN.md: опора на закреплённый локальный upstream audit от14.10, экономия relay как гипотеза; один capture-owner, bounded adapter/state, критерии TLS/HTTP/ISP, conflicts/лицензии. Новых рабочих стратегий по памяти нет, external binary/dependencies не добавлялись; runtime/VPS/драйвер не менялись.
+
+### E1
+
+Импортированы четыре утверждённых SVG из 2dfdb48 байт-в-байт, source SHA manifest и WPF drawing без новой зависимости; header VELIQ. До импорта составлен BRAND_INVENTORY.md, внутренние SCM/IPC/пути/identity не меняются. Python 3/3, C#165/165, WPF0 errors/4 прежних CS8604 PASS; native визуальная/upgrade проверка недоступна. Старый ICO оставлен до отдельной проверенной упаковки, это не полная миграция Windows shell icons.
