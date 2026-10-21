@@ -101,13 +101,17 @@ internal static class Program
             w.TrayIcon.ContextMenuStrip!.Items[0].PerformClick(); Pump(); Require(w.IsVisible && w.WindowState == WindowState.Normal, "Tray Open restore failed");
             w.WindowState = WindowState.Minimized; Pump();
             Require(w.IsVisible == !tray, "Minimize visibility does not match tray setting");
-            w.ShowFromTray(); w.Close(); Pump();
+            w.ShowFromTray(); w.Close();
+            Require(!closed, "Synchronous cleanup must not re-enter WPF Closing; defer final Close to dispatcher");
+            Pump();
             Require(closed == !tray, "X must close when OFF, hide when ON even with service absent");
             if (tray)
             {
                 Require(!w.IsVisible && w.TrayVisible, "X tray state");
                 w.ShowFromTray(); Pump(); Require(w.IsVisible, "Open after X");
-                w.TrayIcon.ContextMenuStrip!.Items[^1].PerformClick(); Pump(); Require(closed && !w.TrayVisible, "Tray Exit must really close and remove icon");
+                w.TrayIcon.ContextMenuStrip!.Items[^1].PerformClick();
+                Require(!closed, "Synchronous tray cleanup must defer final Close to dispatcher");
+                Pump(); Require(closed && !w.TrayVisible, "Tray Exit must really close and remove icon");
             }
             Pass($"StartMinimized={start} / MinimizeToTray={tray}: startup, minimize, X, Open, Exit, restart");
         }

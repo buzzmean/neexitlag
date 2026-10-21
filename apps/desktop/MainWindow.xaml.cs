@@ -101,7 +101,12 @@ public partial class MainWindow : Window
             using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(8));
             await GuiRoutingLifetime.StopAsync(model.Available, () => model.OptimizeAsync(false, deadline.Token));
             if (!exiting && preferences.MinimizeToTray) Hide();
-            else { closingReady = true; Close(); }
+            else {
+                // StopAsync may complete synchronously (e.g. no service). Never
+                // re-enter Window.Close while WPF is raising Closing.
+                closingReady = true;
+                _ = Dispatcher.BeginInvoke(new Action(Close));
+            }
         } catch (Exception error) { model.ReportActionFailure(error); }
         finally { closingPending = false; if (!closingReady) timer.Start(); }
     }

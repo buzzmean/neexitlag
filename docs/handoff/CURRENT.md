@@ -1883,3 +1883,7 @@ relay, transport/security не изменены слияниями. Другие
 ### E1
 
 Импортированы четыре утверждённых SVG из 2dfdb48 байт-в-байт, source SHA manifest и WPF drawing без новой зависимости; header VELIQ. До импорта составлен BRAND_INVENTORY.md, внутренние SCM/IPC/пути/identity не меняются. Python 3/3, C#165/165, WPF0 errors/4 прежних CS8604 PASS; native визуальная/upgrade проверка недоступна. Старый ICO оставлен до отдельной проверенной упаковки, это не полная миграция Windows shell icons.
+
+### A1 — дополнительная проверка завершения GUI
+
+Найден синхронный путь StopAsync при недоступной службе: Close внутри Closing WPF мог быть отклонён. Финальный Close теперь ставится в Dispatcher после завершения cleanup, native lifecycle fixture проверяет X/tray и отсутствие синхронного reentry. WPF и native fixture cross-build PASS (0 errors,4 прежних CS8604); реальный Windows runtime не выполнялся. Браузеры и маршруты не менялись.
