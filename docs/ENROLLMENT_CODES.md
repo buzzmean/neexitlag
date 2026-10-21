@@ -17,6 +17,8 @@ root-SSH fresh_machine_slots остаются совместимыми. Новы
 админом возвращает ID/метаданные, никогда исходный код/hash. Инвентарь — страницы до 128 строк с next_cursor; tools/codes принимает --after. Создание возвращает
 код один раз; tools/codes не пишет его в файл/лог, только явно в терминал владельца.
 
+Пошаговые команды владельцу после успешного deployment: [ACTIVATION_OWNER_RUNBOOK.md](ACTIVATION_OWNER_RUNBOOK.md). Там отдельно clean-PC ActivationOnly, public CA/CP CA, GUI, freeze и безопасное освобождение места (disable не нужен для обычной переустановки).
+
 ## API
 
 * POST /api/v1/enroll: code + существующий CSR request (device_id, machine_hash,

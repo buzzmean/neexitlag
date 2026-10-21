@@ -1,6 +1,6 @@
 # CURRENT — состояние проекта (обновляется в конце каждой сессии)
 
-Последняя передача Codex 20.10.2026: коды активации/CSR после freeze и leaf timer реализованы, область освобождена; результаты и команда — (af). Production не обновлён: SSH из среды недоступен, реальные коды не созданы.
+Последняя сверка Codex 21.10.2026: владелец подтвердил production deployment ecd310a, COMPATIBLE_ADDITIVE_SCHEMA2_SECURITY_STATE_PRESERVED, renewal SCHEDULED, leaf до 20.11.2026, activation_codes=0. Агент VPS не запускал. Сценарий выпуска кодов/чистой установки/freeze готов: docs/ACTIVATION_OWNER_RUNBOOK.md, раздел (ao). Реальная активация кодом ещё не подтверждена.
 
 Обновлено: 20.10.2026, Codex; `codex/work`, база 6d91aea (fast-forward сайта Claude сохранён; browser работа от 0d20db1). Владелец подтвердил TLS/HTTP отказ исходного Telegram IP с VPS и успех независимого кандидата с тем же SNI. Реализован bounded per-IP first-flight recovery для relay-first, negative TTL и диагностика .2; детали — (ab), docs/TELEGRAM_TLS_DIAGNOSTICS.md. На production VPS ничего не выполнялось; Владелец подтвердил per-IP recovery на ПК. Этап (в): вариант A, тихий owned PAC без browser restart, реализация и ограничения — (ac); PR #8 не тронут.
 
@@ -70,7 +70,7 @@
 | Leaf renewal после activation deploy, повтор schema 2 и safe rollback | `tools/fresh-pc/{main.go,upgrade_test.go}`, `deploy/vps/{renew-server-cert,deploy-activation,activation-release-ssh,activation-diagnostics,inspect-activation}.py`, deployment/PS tests, workflows, docs | Codex | `codex/work` | РЕАЛИЗОВАНО 21.10.2026; область освобождена; CI после push; VPS не выполнять; security-monotonic rollback, схема 2 сохраняется явно; полный DB restore не реализован (см. (al)) |
 | Ранний отказ CI и локальная воспроизводимая systemd/leaf проверка | `.github/workflows/{activation,production-upgrade}.yml`, `tests/deployment/*`, deployment fixes по найденным регрессиям, docs | Codex | `codex/work` | ГОТОВО 21.10.2026; область освобождена; fresh + legacy offline systemd/PG PASS на 5adc8e5, 90 Python/Go race/build/vet/C# PASS; native Windows недоступен локально; GitHub billing gate, не объявлены PASS; VPS не выполнять |
 | NuGet clean-PC preflight тестового runner + Windows PASS владельца | `tools/windows/{test-activation-local,activation-nuget}.ps1`, `tests/windows-tools/activation-nuget-checks.ps1`, docs/CI_LOCAL_ACCEPTANCE.md, CURRENT.md | Codex | `codex/work` | ГОТОВО 21.10.2026; область освобождена; NuGet helper/real SDK config regression PASS на PS7/Linux; native Windows результат нового helper ещё не проверен; VPS вне области |
-| Сценарий владельца: выпуск кодов / ActivationOnly / freeze / слоты | `docs/ACTIVATION_OWNER_RUNBOOK.md`, `docs/ENROLLMENT_CODES.md`, CURRENT.md (runtime только если найдена необходимость) | Codex | `codex/work` | В РАБОТЕ 21.10.2026; команды владельцу, production не выполнять |
+| Сценарий владельца: выпуск кодов / ActivationOnly / freeze / слоты | `docs/ACTIVATION_OWNER_RUNBOOK.md`, `docs/ENROLLMENT_CODES.md`, CURRENT.md (runtime только если найдена необходимость) | Codex | `codex/work` | ГОТОВО 21.10.2026; область освобождена; только docs, targeted race/PG17/SQL/PS parsing PASS, production не выполнялся |
 | Discord медленно, DIRECT+ для YouTube | не определены | никто | — | свободно для Codex после диагностики; Go-файлы застоя (выше) не трогать |
 | PR #8, `codex/direct-plus-flowseal` | — | не трогать | — | только владелец |
 
@@ -1642,3 +1642,28 @@ CA/systemd исправление неизменно; оба actual isolated sys
   менялись; нужен установленный .NET SDK8, runtime-only по-прежнему недостаточен.
 - Команда с ПК: git pull --ff-only origin codex/work; затем
   & .\tools\windows\test-activation-local.ps1. Это тесты/build, не deployment.
+
+
+## (ao) 21.10.2026 — сценарий владельца после deployment кодов
+- По сообщению владельца ecd310a успешно развёрнут: compatible schema2/security
+  preserved, renewal SCHEDULED, leaf20.11, activation_codes=0. Это owner evidence,
+  не SSH-проверка агента. Следующий шаг — создание/активация тестовых кодов.
+- Добавлен docs/ACTIVATION_OWNER_RUNBOOK.md: owner SSH/veliq-codes club40 и personal2,
+  one-time code output/менеджер паролей вне freeze, CA fingerprint, clean-PC
+  ActivationOnly install (ca.pem + cp-ca.pem), GUI activation, safe IPC status,
+  freeze и stage-for-boot image, read-only inventory/SQL, disable/revoke.
+- Runtime изменений не потребовалось. При обычной переустановке НЕ disable:
+  прежний hardware/code slot переиспользуется, old device revoked. Disable
+  освобождает место для другого hardware и оставляет MACHINE_DISABLED старому;
+  enable/reset в CLI нет. Не делать DELETE/UPDATE security records вручную.
+- Уточнено ограничение expires_at/--days: запрещает новые enroll, но не является
+  автоматическим отзывом существующих devices/tickets; для окончания теста revoke.
+  Пустой freeze baseline сам VELIQ не восстановит: повторный install+тот же code;
+  unattended boot требует ActivationOnly+CODE_STAGED без device private key в image.
+- Targeted go test -race (PG17) core/enrollment/control-plane/client-service PASS;
+  tools/codes compile, hardware stable hash PASS. Обе runbook SELECT проверены на
+  temporary fixture tables PG17, 23 PS blocks parsed, install params сверены.
+  Собственный PG container удалён. На ПК/VPS install/enroll/codes не выполнялись.
+- Owner команды по одной: docs/ACTIVATION_OWNER_RUNBOOK.md. Не запускать старый
+  bootstrap-fresh-pc для проверки code enrollment: это SSH admin enrollment.
+  Actual production code activation/freeze/browser acceptance ещё не доказаны.
