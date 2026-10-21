@@ -113,6 +113,44 @@ func (a *API) codes(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	// TEMPORARY OWNER TEST ONLY: both operations require the admin check above.
+	if len(parts) == 1 && parts[0] == "test" && r.Method == "POST" {
+		var q struct {
+			Value string `json:"value"`
+			Name  string `json:"name"`
+		}
+		if body(r, &q) != nil {
+			a.fail(w, 400, "ACTIVATION_CONFIGURATION_INVALID")
+			return
+		}
+		c, err := a.Store.CreateTestCode(r.Context(), q.Value, q.Name)
+		if err != nil {
+			code := "ACTIVATION_CONFIGURATION_INVALID"
+			status := 400
+			if err.Error() == "TEST_CODE_ALREADY_EXISTS" {
+				code = "TEST_CODE_ALREADY_EXISTS"
+				status = 409
+			}
+			if err.Error() == "ACTIVATION_UNAVAILABLE" {
+				code = "ACTIVATION_UNAVAILABLE"
+				status = 503
+			}
+			a.fail(w, status, code)
+			return
+		}
+		respond(w, 201, c)
+		return
+	}
+	if len(parts) == 1 && parts[0] == "revoke-tests" && r.Method == "POST" {
+		pub := a.Settings.SigningKey.Public().(ed25519.PublicKey)
+		n, err := a.Store.RevokeTestCodes(r.Context(), a.Settings.KeyID, a.Settings.SigningKey, map[string]string{a.Settings.KeyID: base64.RawURLEncoding.EncodeToString(pub)})
+		if err != nil {
+			a.fail(w, 503, "ACTIVATION_UNAVAILABLE")
+			return
+		}
+		respond(w, 200, map[string]any{"status": "revoked", "test_codes_revoked": n})
+		return
+	}
 	if len(parts) == 2 && parts[1] == "machines" && r.Method == "GET" {
 		out, next, e := a.Store.MachinesPage(r.Context(), parts[0], r.URL.Query().Get("after"))
 		if e != nil {

@@ -158,6 +158,15 @@ func TestSchema2RemainsCompatibleWithBaselineMigrationPostgres(t *testing.T) {
 	if _, e = db.Exec(ctx, string(legacy)); e != nil {
 		t.Fatal(e)
 	}
+	// The deployed activation release also replays migration 002 on startup.
+	// It must leave schema3 test metadata, slots, salt and revocations intact.
+	activationLegacy, e := os.ReadFile("../../services/control-plane/migrations/002_activation_codes.sql")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = db.Exec(ctx, string(activationLegacy)); e != nil {
+		t.Fatal(e)
+	}
 	if e = store.Migrate(ctx); e != nil {
 		t.Fatal(e)
 	}
@@ -176,7 +185,7 @@ func TestSchema2RemainsCompatibleWithBaselineMigrationPostgres(t *testing.T) {
 	if e = db.QueryRow(ctx, "SELECT hardware_salt FROM activation_policy").Scan(&after); e != nil {
 		t.Fatal(e)
 	}
-	if version != 2 || count != 3 || !revoked || string(salt) != string(after) {
-		t.Fatal("schema2 downgrade/retry lost security state")
+	if version != 3 || count != 3 || !revoked || string(salt) != string(after) {
+		t.Fatal("schema3 additive downgrade/retry lost security state")
 	}
 }

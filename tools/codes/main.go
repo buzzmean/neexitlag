@@ -21,6 +21,7 @@ func run() error {
 	endpoint := f.String("url", "https://127.0.0.1:8443", "control-plane HTTPS")
 	ca := f.String("ca", "", "public CA file")
 	token := f.String("admin-token-file", "", "root-only admin token file")
+	value := f.String("value", "", "temporary test value (only test is allowed)")
 	kind := f.String("kind", "personal", "club/personal")
 	limit := f.Int("limit", 2, "seat limit")
 	name := f.String("name", "VELIQ", "administrative label")
@@ -29,7 +30,7 @@ func run() error {
 	id := f.String("id", "", "public code ID")
 	machine := f.String("machine", "", "hardware hash for disable")
 	if len(os.Args) < 2 {
-		return fmt.Errorf("command required: create/list/machines/revoke/disable")
+		return fmt.Errorf("command required: create/list/machines/revoke/disable/create-test/revoke-tests")
 	}
 	command := os.Args[1]
 	if e := f.Parse(os.Args[2:]); e != nil {
@@ -51,6 +52,11 @@ func run() error {
 	path := "/api/v1/codes"
 	var payload []byte
 	switch command {
+	case "create-test", "revoke-tests":
+		method, path, payload, e = temporaryTestOperation(command, *value, *name)
+		if e != nil {
+			return e
+		}
 	case "create":
 		method = http.MethodPost
 		payload, _ = json.Marshal(map[string]any{"kind": *kind, "limit": *limit, "name": *name, "expires_at": time.Now().UTC().Add(time.Duration(*days) * 24 * time.Hour)})

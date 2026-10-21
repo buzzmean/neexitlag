@@ -37,8 +37,8 @@ def state_verdict(binary,database,backups,baseline):
     pending=any(x['phase'] in ('pending','pending-verification','maintenance-compatibility','quiescing','migrating','installing-relay','installing-control-plane') for x in backups)
     if pending:return 'PENDING_RECOVERY_REQUIRES_REVIEW'
     if baseline:return 'BASELINE_WITH_DEPLOYMENT_ARTIFACTS' if backups else 'BASELINE_CURRENT_STATE_ONLY'
-    if database['schema_version']==2 and database['activation_tables']==3:
-        return 'COMPATIBLE_ADDITIVE_SCHEMA2_SECURITY_STATE_PRESERVED'
+    if database['schema_version'] in (2,3) and database['activation_tables']==3:
+        return 'COMPATIBLE_ADDITIVE_SCHEMA%d_SECURITY_STATE_PRESERVED'%database['schema_version']
     return 'BASELINE_DIFFERENT_REQUIRES_REVIEW'
 
 
@@ -86,7 +86,7 @@ def inspect(fresh,engine,expected=BASELINE,root=Path('/'),host=None):
     if not isinstance(probe_rows,list) or len(probe_rows)>1000:raise RuntimeError('READ_ONLY_PROBE_REPORT_TOO_LARGE')
     database['temporary_probes']=probe_rows
     database['recent_config_publications']=json.loads(h.sql("SELECT coalesce(json_agg(t),'[]'::json) FROM (SELECT version,generated_at,expires_at FROM config_versions ORDER BY version DESC LIMIT 25) t",h.database))
-    if report['applied_schema_version']==2 and tables==3:
+    if report['applied_schema_version'] in (2,3) and tables==3:
         database['activation_row_counts']={table:int(h.sql('SELECT count(*) FROM '+table,h.database)) for table in ('activation_codes','activation_slots','activation_policy')}
     database['rollback_policy']='SECURITY_MONOTONIC_NO_PG_RESTORE'
     diagnostics.step('READ_ONLY_BACKUPS')

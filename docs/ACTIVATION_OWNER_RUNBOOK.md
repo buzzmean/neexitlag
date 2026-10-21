@@ -400,3 +400,124 @@ ACTIVATION_REQUIRED; после успешной активации capture ра
 активированная установка вправе снова применить owned guard. Новые соединения
 работающего браузера перечитывают policy по его механизму, существующие TCP
 остаются pinned. Реальное время подхвата этого исправления на ПК ещё не измерено.
+
+## Временный тестовый код `test` (удалить поддержку до публичного релиза)
+
+**Не обычный клубный код.** Это заведомо известное слово, а не секрет. Любой,
+знающий адрес сервера и это слово, может попытаться занять два места. Ограничения
+по IP/хешу кода, CSR и mTLS сохранены, но они не предотвращают использование
+известного кода посторонним. Создавать только на время контролируемого теста,
+не распространять и отозвать сразу после него. При удалении тестового feature
+не удалять security/revocation историю.
+
+Команды ниже выполняет только владелец. Агент на production ничего не выполнял.
+**Текущие старые бинарники не понимают `test`.** Нужны новые control-plane,
+`veliq-codes` и клиент этой ветки. Обновление сервера — отдельное действие
+владельца; выполнение create-test само сервер не обновляет.
+
+Сначала read-only из корня чистого клона на доверенном ПК:
+
+```powershell
+& .\tools\windows\verify-activation-vps.ps1
+```
+
+После проверки отчёта владелец при необходимости выполняет существующий
+безопасный deployment (запись на VPS, отдельное явное подтверждение; CA не
+ротируется, identities/security records сохраняются):
+
+```powershell
+& .\tools\windows\update-activation-vps.ps1 -ExpectedCommit ((git rev-parse HEAD).Trim()) -ConfirmDeployment ACTIVATE-CODES-2.56.177.4
+```
+
+Требуется чистый checkout точного проверенного коммита codex/work, а не другая
+локальная сборка. Добавочная миграция **schema 2→3** расширяет kind, добавляет
+ограничение test=2 места и срок не более 14 суток. Club/personal, слоты, salt,
+nonce/revocations не изменяются. Схема 3 остаётся совместимой с чтением и обычными
+операциями прежних бинарников; короткий code прежние бинарники отвергают.
+Новый verify принимает schema 2 и 3 отдельными явными verdict, не выдаёт их за
+чистый schema1 baseline. Откат сохраняет добавочные таблицы и security history.
+
+Далее обычный PowerShell владельца (любой каталог):
+
+```powershell
+ssh root@2.56.177.4
+```
+
+В shell VPS root — **создание**, запись в БД. Ровно два места и 14 суток
+задаёт сервер, переопределить их флагами нельзя. Только точное значение `test`
+разрешено этой временной командой, произвольных коротких кодов нет:
+
+```bash
+/opt/neexitlag/maintenance/veliq-codes create-test --value test --name Owner-PC-test --ca /etc/neexitlag/control/ca.pem --admin-token-file /etc/neexitlag/control/admin.token
+```
+
+JSON результата содержит id, kind=test, limit=2, name с префиксом [TEST], expires_at.
+Секрет admin token не передаётся в argv и остаётся на VPS. Сохраняется только
+SHA256(`test`), plaintext столбца нет. Обычные create по-прежнему случайные VQ-коды.
+В стандартном list видна отметка test/[TEST]:
+
+```bash
+/opt/neexitlag/maintenance/veliq-codes list --ca /etc/neexitlag/control/ca.pem --admin-token-file /etc/neexitlag/control/admin.token
+```
+
+На чистом ПК пройти **раздел 2 этого документа**, уже с обновлённой сборкой:
+build-e2e → build-desktop → закреплённый WinDivert → проверенные public CA →
+install -ActivationOnly → install-desktop. Ни старые device keys, ни SSH/admin
+token на клиент не нужны. Запустить GUI:
+
+```powershell
+Start-Process .\bin\release\VELIQ.exe
+```
+
+При уже установленной ActivationOnly службе вместо ввода в GUI допустим тот же
+owner IPC (обычный PowerShell в корне клона; UAC-off — то же owner full-admin):
+
+```powershell
+. .\tools\windows\common.ps1
+```
+```powershell
+Invoke-ServiceIPC 'activation.set' @{code='test'} | Select-Object state,error,has_identity
+```
+
+Это запускает асинхронный enroll, ответ ACTIVATING ещё не PASS; затем проверить
+activation.status командой из предыдущего раздела. Для обычного пользователя
+использовать GUI.
+
+В поле активации ввести `test` и нажать «Активировать». Ожидается ACTIVATED,
+HasIdentity=True, connected=True. При HARDWARE_ID_UNAVAILABLE смотреть безопасные
+component states, как в предыдущем разделе. До этого capture/PAC запрещены.
+Срок 14 суток означает срок **нового enroll**, как у обычных кодов; это не
+автоматический kill уже выданных сессий. Для завершения теста обязателен отзыв.
+Freeze-переустановка на том же неизменном hardware занимает тот же слот и отзывает
+прежнюю identity; второй ПК может занять второе место, третий получает LIMIT.
+
+Одна команда **отзыва всех тестовых кодов и связанных устройств**, VPS root:
+
+```bash
+/opt/neexitlag/maintenance/veliq-codes revoke-tests --ca /etc/neexitlag/control/ca.pem --admin-token-file /etc/neexitlag/control/admin.token
+```
+
+Транзакция отзывает только kind=test, публикует полный подписанный revoke config;
+club/personal остаются рабочими. Повторный запуск безопасен. Строки и слоты не
+удаляются: list покажет revoked=true. Повторное создание того же значения после
+отзыва/истечения **отвергается TEST_CODE_ALREADY_EXISTS**: известный старый код
+никогда не оживляется. Не обходить это удалением строк из БД. Уже открытые relay
+сессии завершаются по действующей политике применения отзыва; мгновенный обрыв
+всех существующих потоков эта команда не обещает.
+
+### Что убрать перед релизом
+
+1. Сначала выполнить revoke-tests, read-only проверить revoked test codes/devices
+   и доставку signed revocations; не удалять devices/nonces/slots для «очистки».
+2. Удалить `core/enrollment/test_code.go` и ветку вызова из CodeHash, а также
+   тесты временного исключения; обычные VQ-коды оставить.
+3. Удалить административные `/codes/test`, `/codes/revoke-tests` handlers,
+   `codes_temporary*.go`, CLI create-test/revoke-tests и test_operation*.go,
+   когда отзыв всех тестовых кодов подтверждён. Удалить эти инструкции из release.
+4. **Сохранить миграцию 003 и schema3 compatibility/history** для обновления уже
+   установленной БД. Не делать destructive downgrade и не восстанавливать pg_dump
+   поверх новых revocation/nonces. Удаление поддержки test не требует удаления
+   таблиц и не отзывает обычные коды.
+
+Локальные тесты не подтверждают активацию на production/реальном Windows. Этот
+сценарий до выполнения владельцем остаётся непроверенным на его ПК/VPS.

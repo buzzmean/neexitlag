@@ -39,7 +39,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: {go-version: '1.25.x'}
-      - run: go test -race -p 1 ./core/enrollment ./services/control-plane ./services/client-service ./tools/fresh-pc
+      - run: go test -race -p 1 ./core/enrollment ./services/control-plane ./services/client-service ./tools/fresh-pc ./tools/codes
       - run: go vet ./...
       - run: go build ./...
       - run: python3 -m unittest discover -s tests/deployment -v

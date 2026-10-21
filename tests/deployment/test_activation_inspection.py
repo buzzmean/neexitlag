@@ -55,7 +55,8 @@ class ReadOnlyInspectionTests(unittest.TestCase):
   db={'schema_version':2,'activation_tables':3}
   self.assertEqual(m.state_verdict([],db,[],False),'COMPATIBLE_ADDITIVE_SCHEMA2_SECURITY_STATE_PRESERVED')
   self.assertEqual(m.state_verdict([],db,[{'phase':'pending'}],False),'PENDING_RECOVERY_REQUIRES_REVIEW')
-  self.assertEqual(m.state_verdict([],{'schema_version':3,'activation_tables':3},[],False),'BASELINE_DIFFERENT_REQUIRES_REVIEW')
+  self.assertEqual(m.state_verdict([],{'schema_version':3,'activation_tables':3},[],False),'COMPATIBLE_ADDITIVE_SCHEMA3_SECURITY_STATE_PRESERVED')
+  self.assertEqual(m.state_verdict([],{'schema_version':4,'activation_tables':3},[],False),'BASELINE_DIFFERENT_REQUIRES_REVIEW')
  def test_expiry_report_uses_real_current_time_and_renewal_window(self):
   import datetime as dt
   m=load('inspect-activation.py')

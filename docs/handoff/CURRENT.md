@@ -36,7 +36,7 @@
 ## (e) Кто чем владеет
 | Область | Файлы | Агент | Ветка | Статус |
 |---|---|---|---|---|
-| Временный код test: hash-only, 2 места/14 суток, bulk revoke | `core/enrollment/{code,test_code}*.go`, `services/control-plane/{codes*,store.go,migrations/003*}`, `tools/codes/*`, `tools/fresh-pc/upgrade_test.go` (schema3 expectation), `.github/workflows/activation.yml` (CLI tests), `deploy/vps/{deploy-activation,inspect-activation}.py` (schema3 compatibility), `tests/deployment/*activation*`, docs/ACTIVATION_OWNER_RUNBOOK.md, docs/handoff/CURRENT.md | Codex | `codex/work` | В РАБОТЕ 21.10.2026, owner-authorized; удалить runtime test feature до релиза, только isolated tests |
+| Временный код test: hash-only, 2 места/14 суток, bulk revoke | `core/enrollment/{code,test_code}*.go`, `services/control-plane/{codes*,store.go,migrations/003*}`, `tools/codes/*`, `tools/fresh-pc/upgrade_test.go` (schema3 expectation), `.github/workflows/activation.yml` (CLI tests), `deploy/vps/{deploy-activation,inspect-activation}.py` (schema3 compatibility), `tests/deployment/*activation*`, docs/ACTIVATION_OWNER_RUNBOOK.md, docs/handoff/CURRENT.md | Codex | `codex/work` | ГОТОВО 21.10.2026: create-test --value test, 2 места/14 суток, hash-only, IP/code limits, atomic revoke-tests, additive schema3; тесты PostgreSQL/race, Python 90 PASS; область освобождена, до релиза удалить runtime feature, VPS/Windows runtime не проверены |
 | B3 Chrome: каталог браузеров, автосоздание профиля DIRECT | `apps/desktop-core/BrowserCatalog.cs`, `DesktopViewModel.cs`, `Resources/Strings.resx`, `apps/desktop/ChromeRouting.cs`, `tests/desktop/BrowserCoverageTests.cs` | Claude Code | `claude/serene-cori-msra1u` | передано Codex. ГОТОВО (`9473d72`); C#/WPF-слой не компилировался, проверен только тестами core-логики; на ПК не проверен |
 | Edge-полоса (история) | `apps/desktop/EdgeRouting*.cs`, `services/client-service/edge_*.go` | Claude Code | `claude/serene-cori-msra1u` | передано Codex; реализовано в `1ceaf07`, состояние и ограничения см. (j) |
 | Застой YouTube (ноль байт после ClientHello): stallConn, кэш, повтор через релей, счётчики | `core/browserproxy/{proxy,stall}.go`, `core/flowpolicy/direct_timeout.go`, `services/client-service/{browser_direct_timeout,browser_transport,controller}.go` и тесты | Claude Code | `claude/serene-cori-msra1u` | передано Codex. ГОТОВО (`91c9016`, `28841f2`); только тесты, на ПК не проверено |
@@ -1688,3 +1688,35 @@ VPS/ПК владельца не запускались, PR #8 не тронут
 
 Решение 21.10.2026: штатная остановка означает намеренный выход из routing и
 очищает owned PAC; crash/init failure не разрешают снимать fail-closed guard.
+
+## (aq) Временный короткий test code и безопасное завершение теста
+
+21.10.2026: owner разрешил известное слово test только для controlled testing.
+914fb35 — отдельный завершённый hardware/capture/PAC fix. Новая команда
+veliq-codes create-test --value test требует admin token на VPS; нет default
+credential, только явная admin операция создаёт строку kind=test, [TEST],
+2 seats/14 суток. SHA256 only, прежние IP/code hash buckets/CSR/mTLS сохранены.
+revoke-tests атомарно отзывает все test codes + связанные devices + signed config,
+не удаляет историю и не затрагивает club/personal. Повтор безопасен; известный
+отозванный/expired literal никогда не оживляется повторным create-test.
+
+Добавочная migration003 schema2→3 меняет только constraint/версию, не теряет
+данные/salt/revocations. Safe deployment/verify признают schema3 отдельным
+compatible verdict. В тестах сохранены downgrade/retry старых001/002. До
+релиза сначала revoke-tests и проверка доставки revocations, затем удаление
+runtime CodeHash exception/API/CLI/test feature. Миграцию/schema compatibility
+оставить для истории установок; destructive downgrade/pg_restore не делать.
+
+Проверки: Go race core/enrollment, platform/windows, client-service/cmd,
+control-plane и tools/codes/fresh-pc с отдельным PostgreSQL17 PASS;
+Linux + Windows build ./... PASS; vet ./... PASS; Python deployment90 PASS;
+C#147 PASS, WPF0 errors/4 старых CS8604. Первый одновременный запуск двух
+CP suites превысил deadlines существующих50-freeze/5000-revocation fixtures;
+последовательный полный повтор CP PASS (45с), бюджеты/проверки не ослаблялись.
+Нативный Windows и полный systemd VM сценарий schema3 не запускались, GitHub CI
+для последнего коммита ещё не подтверждён. Ничего не выполнялось на production
+VPS/ПК владельца, PR#8 не тронут. Команды обновления, создания test, GUI/IPC
+активации и массового отзыва — docs/ACTIVATION_OWNER_RUNBOOK.md, последний раздел.
+14 суток — срок новых enroll; для прекращения теста нужен явный revoke-tests.
+Известное слово не секрет: rate-limit не предотвращает захват двух мест тем,
+кто его знает. Новые server/CLI/client бинарники обязательны; старые test отвергают.
