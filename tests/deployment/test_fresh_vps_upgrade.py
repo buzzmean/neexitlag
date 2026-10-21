@@ -45,6 +45,24 @@ class FreshVpsTests(unittest.TestCase):
    return self.native_sql(query,database)
   self.h.sql=sql
 
+ def test_recovery_lock_is_nonblocking_while_installer_owns_it(self):
+  native_open=u.os.open
+  with tempfile.TemporaryDirectory() as directory:
+   def local_open(path,flags,mode):
+    return native_open(str(Path(directory)/Path(path).name),flags,mode)
+   with patch.object(u.os,'open',side_effect=local_open):
+    with u.transaction_lock():
+     with self.assertRaises(BlockingIOError):
+      with u.transaction_lock(nonblocking=True): pass
+    # The failed contender released all acquired descriptors/locks.
+    with u.transaction_lock(nonblocking=True): pass
+
+ def test_recovery_cli_accepts_live_installer_without_running_rollback(self):
+  with patch.object(u.os,'geteuid',return_value=0),patch.object(u.e,'env_value',return_value='2.56.177.4'),patch.object(u.e,'Host',return_value=self.h),patch.object(u,'transaction_lock',side_effect=BlockingIOError),patch.object(u,'recover') as recovery,patch('sys.argv',['fresh-vps-upgrade.py','recover']),contextlib.redirect_stdout(io.StringIO()) as output:
+   u.main()
+  self.assertEqual(json.loads(output.getvalue()),{'phase':'live-transaction-owner'})
+  recovery.assert_not_called()
+
  def test_canonical_capability_field_not_obsolete_alias(self):
   cap=original.capability('relay')
   self.assertTrue(u.compatible(cap,'relay'))

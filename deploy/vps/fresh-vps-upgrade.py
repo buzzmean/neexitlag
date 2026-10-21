@@ -215,13 +215,13 @@ def prepare(bundle, helper, commit, confirm, preflight_only=False, force_update=
 
 
 @contextlib.contextmanager
-def transaction_lock():
+def transaction_lock(nonblocking=False):
     descriptors=[]
     try:
         # Serialize with the existing production updater as well as this path.
         for path in ('/run/neexitlag-production-upgrade.lock','/run/neexitlag-fresh-upgrade.lock'):
             fd=os.open(path,os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW,0o600);descriptors.append(fd)
-            os.fchmod(fd,0o600);fcntl.flock(fd,fcntl.LOCK_EX)
+            os.fchmod(fd,0o600);fcntl.flock(fd,fcntl.LOCK_EX | (fcntl.LOCK_NB if nonblocking else 0))
         yield
     finally:
         for fd in reversed(descriptors): os.close(fd)
@@ -239,8 +239,15 @@ def main():
     if e.env_value('/etc/neexitlag/public/relay.env','VPS_PUBLIC_IP')!='2.56.177.4':
         raise e.UpgradeError('VPS_IDENTITY_MISMATCH')
     h=e.Host();up=LocalUpgrade(h)
-    with transaction_lock():
-        result=recover(up,h,a)
+    try:
+        # arm() starts this oneshot while the installer owns both locks. Boot
+        # recovery must not wait for its parent installer (which is waiting for
+        # systemctl enable --now). The watchdog rollback still waits normally.
+        with transaction_lock(nonblocking=a.action=='recover'):
+            result=recover(up,h,a)
+    except BlockingIOError:
+        if a.action!='recover': raise
+        result={'phase':'live-transaction-owner'}
     print(json.dumps(result))
 
 

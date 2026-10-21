@@ -1593,3 +1593,9 @@ CA/systemd исправление неизменно; оба actual isolated sys
   вместо маскирующего UpgradeError. Python deployment: 88 PASS. Чистый полный
   повтор после этих исправлений ещё выполняется; exploratory apply PASS не
   выдаётся за CI/production proof.
+
+- Найдена настоящая взаимная блокировка первого fresh recovery: installer держит
+  transaction_lock, arm ждёт systemctl enable --now recovery, recovery блокируется
+  на тех же locks. Recover теперь nonblocking как основной production updater:
+  live-transaction-owner не запускает rollback; automatic rollback по-прежнему
+  ждёт lock. Добавлены реальные flock и CLI regression; Python: 90 PASS.
