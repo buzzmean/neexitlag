@@ -48,10 +48,10 @@ python -m http.server 8080
 
 | Ошибка | Адрес |
 |---|---|
-| Служба VELIQ не запущена | `support.html#err-service` |
+| VELIQ не может запуститься | `support.html#err-service` |
 | Нет связи с сервером | `support.html#err-relay` |
 | Часть сайтов не открывается | `support.html#err-browser` |
-| Ключ устройства недействителен | `support.html#err-identity` |
+| Код активации не принят | `support.html#err-identity` |
 | Не хватает прав | `support.html#err-rights` |
 
 Ключи совпадают с кодами ошибок в `app-ui/app.js`. Новую ошибку добавлять в `ERRORS` и `ERR_IDS` в `design/tools/build-site.py`.
