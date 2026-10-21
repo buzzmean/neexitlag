@@ -24,7 +24,11 @@ cleanup(){
   if [[ ! -s $report ]]; then
    python3 -c 'import json,sys;print(json.dumps({"pass":False,"stage":"CONTAINER_BOOTSTRAP_OR_SOURCE_COPY","exit_code":int(sys.argv[1]),"commit":sys.argv[2]}))' "$code" "$commit" >"$report"
   fi
-  docker_local rm -f "$container" >/dev/null
+  if [[ $code != 0 && ${VELIQ_LOCAL_KEEP_FAILED:-0} == 1 ]]; then
+   echo "DEBUG_FAILED_CONTAINER=$container (test PKI only; remove explicitly after diagnosis)"
+  else
+   docker_local rm -f "$container" >/dev/null
+  fi
  fi
  rm -rf -- "$work" "$fixture"
  echo "LOCAL_ACCEPTANCE exit=$code layout=$layout commit=$commit report=$report"

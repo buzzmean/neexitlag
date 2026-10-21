@@ -36,4 +36,11 @@ for file in ('/var/tmp/veliq-local-run.log','/var/tmp/neexitlag-upgrade-private/
         for name in ('RuntimeError','UpgradeError','AssertionError','PermissionError','FileNotFoundError','ImportError'):
             if line.startswith(name+':') or line==name:traces.append({'exception':name})
 result['traces']=traces[-20:]
+# Log messages stay private. Only reviewed error categories leave the container.
+import importlib.util
+spec=importlib.util.spec_from_file_location('safe_diagnostics',Path('/src/deploy/vps/activation-diagnostics.py'))
+diag=importlib.util.module_from_spec(spec);spec.loader.exec_module(diag)
+_,journal=query(['journalctl','-u','neexitlag-control-plane','-n','10','--no-pager','-o','cat'])
+result['control_plane_log_summary']=diag.safe_stream(journal)
+
 print(json.dumps(result,sort_keys=True,indent=2))
