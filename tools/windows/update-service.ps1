@@ -6,6 +6,7 @@ param(
 )
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
+. (Join-Path $PSScriptRoot 'service-startup.ps1')
 Assert-Administrator
 . (Join-Path $PSScriptRoot 'native-tcp-firewall.ps1')
 function Assert-ServiceUpdateScmTarget([string]$CommandLine,[string]$ExpectedPath){
@@ -25,6 +26,7 @@ $service=Get-Service -Name neexitlag -ErrorAction Stop
 $scm=Get-CimInstance -ClassName Win32_Service -Filter "Name='neexitlag'" -OperationTimeoutSec 5
 if($null -eq $scm){throw 'Installed SCM service not found'}
 Assert-ServiceUpdateScmTarget ([string]$scm.PathName) $target
+$oldStartMode=[string]$scm.StartMode
 . (Join-Path $PSScriptRoot 'browser-policy-watchdog.ps1')
 $ownedWatchdog=Get-VeliqPolicyWatchdog $InstallDirectory
 $watchdogWasRunning=$null -ne $ownedWatchdog -and [string]$ownedWatchdog.State -eq 'Running'
@@ -79,6 +81,7 @@ try{
   if(!$ready -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 300}
  }while(!$ready -and [DateTime]::UtcNow -lt $deadline)
  if(!$ready){throw 'Updated service IPC readiness failed'}
+ Set-VeliqServiceAutomatic
  Set-Service -Name neexitlag -DisplayName 'VELIQ Routing Service'
  if($NativeTcpFirewall){Write-Host 'Native TCP firewall admission verified: this service executable only; no global firewall or VPS changes.'}
  foreach($lane in @('browser','edge')){try{$view=Invoke-ServiceIPC ($lane+'.status') $null (Join-Path $root 'ipc.token');$silent=$view.PSObject.Properties['silent_activation'];if($null -ne $silent){$state=[string]$silent.Value.state;if($state -notin @('NOT_CONFIGURED','POLICY_PENDING_BROWSER_REFRESH','PAC_REQUEST_OBSERVED','POLICY_OR_LISTENER_UNAVAILABLE','POLICY_SUSPENDED')){$state='UNKNOWN'};Write-Host ($lane+' silent PAC: '+$state+'; browser processes untouched; effective uptake separate from update success')}}catch{Write-Host ($lane+' silent PAC: STATUS_UNAVAILABLE; no website PASS claimed')}}
@@ -101,6 +104,7 @@ try{
   if($null -ne $failedService -and $failedService.ProcessId -gt 0){try{$failedProcess=[Diagnostics.Process]::GetProcessById([int]$failedService.ProcessId);if(!$failedProcess.WaitForExit(30000)){throw 'Failed service image still running; backup retained'}}catch [ArgumentException]{} }
   Copy-Item -LiteralPath (Join-Path $backup 'neexitlag-service.exe') -Destination $target -Force
   Set-Acl -LiteralPath $target -AclObject $oldAcl
+  Restore-VeliqServiceStartup $oldStartMode
   Set-Service -Name neexitlag -DisplayName $oldDisplayName
   Start-Service neexitlag
   $service.WaitForStatus('Running',[TimeSpan]::FromSeconds(30))

@@ -73,3 +73,5 @@ public class ActivationSSHFixture {
 }finally{$env:PATH=$oldPath;Remove-Item -LiteralPath $fixture -Recurse -Force}
 
 & (Join-Path $PSScriptRoot 'browser-policy-watchdog-checks.ps1')
+
+& (Join-Path $PSScriptRoot "service-startup-checks.ps1")

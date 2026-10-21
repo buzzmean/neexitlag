@@ -18,6 +18,7 @@ param(
 )
 $ErrorActionPreference="Stop"
 . (Join-Path $PSScriptRoot "common.ps1")
+. (Join-Path $PSScriptRoot "service-startup.ps1")
 . (Join-Path $PSScriptRoot "reinstall-state.ps1")
 $current=[Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if(!$current.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw "Administrator access is required to install the service."}
@@ -71,6 +72,7 @@ $manifestPath=Join-Path $InstallDirectory "service.json"
 Protect-ServiceDirectory $InstallDirectory $OwnerSid
 $binary='"'+(Join-Path $InstallDirectory "neexitlag-service.exe")+'" -config "'+$manifestPath+'"'
 New-Service -Name neexitlag -BinaryPathName $binary -DisplayName "VELIQ Routing Service" -StartupType Automatic | Out-Null
+Set-VeliqServiceAutomatic
 & sc.exe failure neexitlag reset= 86400 actions= restart/5000/restart/5000/restart/5000 | Out-Null
 if($LASTEXITCODE){throw "Failed to configure service recovery"}
 Start-Service neexitlag

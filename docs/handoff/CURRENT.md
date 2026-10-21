@@ -1813,3 +1813,7 @@ PS mock contracts, CI filters и owner runbook. Сервера 771c303 это н
 ### A3
 
 Найден невосстанавливаемый путь: bind listener при Restore выполнялся однократно; таймер только проверял отсутствие. Добавлен повтор bind каждого подготовленного endpoint раз в tick без замены живых соединений, sanitized bind reason, listener_attempts и first-ready timestamps. GUI повторяет подготовку pending lane через 2с и показывает «Подготавливаем браузер…», пока relay готов, но браузер нет. Точная причина всех 3 минут на ПК без лога не доказана; реальное время Windows не измерено.
+
+### A4
+
+install уже создавал Automatic; update сохранял выставленный владельцем Manual. После успешного обновления теперь явно Automatic и readback SCM StartMode=Auto; при rollback возвращается прежний режим. Pure PS mocks PASS, реальный SCM/boot не выполнялся.
