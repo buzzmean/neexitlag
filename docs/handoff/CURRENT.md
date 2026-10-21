@@ -36,6 +36,7 @@
 ## (e) Кто чем владеет
 | Область | Файлы | Агент | Ветка | Статус |
 |---|---|---|---|---|
+| Временный код test: hash-only, 2 места/14 суток, bulk revoke | `core/enrollment/{code,test_code}*.go`, `services/control-plane/{codes*,store.go,migrations/003*}`, `tools/codes/*`, `deploy/vps/{deploy-activation,inspect-activation}.py` (schema3 compatibility), `tests/deployment/*activation*`, docs/ACTIVATION_OWNER_RUNBOOK.md, docs/handoff/CURRENT.md | Codex | `codex/work` | В РАБОТЕ 21.10.2026, owner-authorized; удалить runtime test feature до релиза, только isolated tests |
 | B3 Chrome: каталог браузеров, автосоздание профиля DIRECT | `apps/desktop-core/BrowserCatalog.cs`, `DesktopViewModel.cs`, `Resources/Strings.resx`, `apps/desktop/ChromeRouting.cs`, `tests/desktop/BrowserCoverageTests.cs` | Claude Code | `claude/serene-cori-msra1u` | передано Codex. ГОТОВО (`9473d72`); C#/WPF-слой не компилировался, проверен только тестами core-логики; на ПК не проверен |
 | Edge-полоса (история) | `apps/desktop/EdgeRouting*.cs`, `services/client-service/edge_*.go` | Claude Code | `claude/serene-cori-msra1u` | передано Codex; реализовано в `1ceaf07`, состояние и ограничения см. (j) |
 | Застой YouTube (ноль байт после ClientHello): stallConn, кэш, повтор через релей, счётчики | `core/browserproxy/{proxy,stall}.go`, `core/flowpolicy/direct_timeout.go`, `services/client-service/{browser_direct_timeout,browser_transport,controller}.go` и тесты | Claude Code | `claude/serene-cori-msra1u` | передано Codex. ГОТОВО (`91c9016`, `28841f2`); только тесты, на ПК не проверено |
