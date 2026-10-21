@@ -12,6 +12,7 @@ on:
       - 'tests/desktop/ActivationTests.cs'
       - 'deploy/vps/**'
       - 'tests/deployment/**'
+      - 'tests/windows-tools/activation-deploy-checks.ps1'
       - 'tools/codes/**'
       - 'tools/windows/*activation*'
   workflow_dispatch:

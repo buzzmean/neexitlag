@@ -1496,3 +1496,8 @@ CA/systemd исправление неизменно; оба actual isolated sys
   job ошибочно failed из-за ожидаемого Python exit=1, оставшегося в LASTEXITCODE.
   Отдельный маленький follow-up очищает его только после всех assertions;
   неожиданный exit по-прежнему приводит к Check/throw. История не переписывается.
+
+- Follow-up 9489f5e: сброс только ожидаемого LASTEXITCODE после проверок фикстуры.
+  Workflow dispatch через доступный GitHub CLI отклонён HTTP 403; добавлен
+  отсутствовавший path-trigger на саму Windows activation-фикстуру, чтобы её
+  изменения всегда проверялись CI автоматически, без ручного dispatch.
