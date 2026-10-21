@@ -45,8 +45,10 @@ public partial class App : System.Windows.Application
                 var signal = new byte[1];
                 using var readDeadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 readDeadline.CancelAfter(TimeSpan.FromSeconds(2));
-                if (await pipe.ReadAsync(signal, readDeadline.Token) == 1 && signal[0] == 1)
-                    await Dispatcher.InvokeAsync(() => ((MainWindow)MainWindow).ShowFromTray());
+                if (await pipe.ReadAsync(signal, readDeadline.Token) == 1) {
+                    if(signal[0]==1) await Dispatcher.InvokeAsync(() => ((MainWindow)MainWindow).ShowFromTray());
+                    else if(signal[0]==2) await Dispatcher.InvokeAsync(() => ((MainWindow)MainWindow).Exit());
+                }
             }
             catch (OperationCanceledException) { }
             catch (IOException) { await Task.Delay(200, ct).ConfigureAwait(false); }

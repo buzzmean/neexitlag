@@ -1825,3 +1825,7 @@ GUI различает отзыв кода, отзыв конкретного к
 ### A6
 
 Добавлен TEST_CODE_RETIREMENT.md: точные runtime/API/CLI пути, негативные тесты после удаления, сохранение 003 и security history; предупреждение в runbook, что массовый отзыв отключает привязанные ПК. Только docs; никакого production revoke. Блок A завершён в коде; реальная Windows/freeze/SCM проверка остаётся владельцу.
+
+### B1
+
+Добавлен offline Inno Setup 6.4.3 payload/compiler workflow, SHA256 и public CA pin, install/update/uninstall без browser control, same-SID owner, экран активации существующего GUI; тихий club staging из ACL-protected файла через stage_for_boot. Код не в EXE/args/logs. Unsigned/signing оставлен решением владельца. Python 4 контрактных теста и PS7 functional integrity fixture/parse PASS (driver hashes mocked), WPF cross-build; настоящий ISCC/Setup/Windows UAC/freeze не проверен. Production trust/подпись/Release не публиковались; при отсутствии public vars CI только non-distributable fixture. Детали INSTALLER_BUILD.md.
