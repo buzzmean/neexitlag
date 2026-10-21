@@ -91,7 +91,6 @@ func (c *Controller) cleanupOwnedBrowserPoliciesLocked(only *bool) error {
 func (c *Controller) CloseForHost(parent context.Context) error {
 	var cleanup error
 	if parent.Err() != nil {
-		c.cancel()
 		cleanup = c.CleanupOwnedBrowserPolicies()
 	}
 	c.Close()

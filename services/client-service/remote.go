@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"github.com/buzzmean/neexitlag/core/controlclient"
 	"github.com/buzzmean/neexitlag/core/measurement"
 	"github.com/buzzmean/neexitlag/core/optimizer"
@@ -190,7 +191,11 @@ func (s *remoteState) apply(ctx context.Context, cfg security.Config) error {
 			c.activation.mu.Lock()
 			c.activation.revoked = true
 			c.activation.mu.Unlock()
-			s.close()
+			cleanupErr := c.CleanupOwnedBrowserPolicies()
+			s.close() // Revocation must still close sessions if registry access failed.
+			if cleanupErr != nil {
+				return fmt.Errorf("DEVICE_REVOKED_POLICY_CLEANUP: %w", cleanupErr)
+			}
 			return errors.New("device revoked")
 		}
 	}

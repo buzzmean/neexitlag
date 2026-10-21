@@ -89,13 +89,21 @@ public partial class MainWindow : Window
         exiting = true;
         Close();
     }
-    void OnClosing(object? sender, CancelEventArgs e)
+    bool closingReady, closingPending;
+    async void OnClosing(object? sender, CancelEventArgs e)
     {
-        if (!exiting && preferences.MinimizeToTray)
-        {
-            e.Cancel = true;
-            Hide();
-        }
+        if (closingReady) return;
+        e.Cancel = true;
+        if (closingPending) return;
+        closingPending = true;
+        timer.Stop(); // Do not let polling re-prepare a lane during shutdown.
+        try {
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+            await GuiRoutingLifetime.StopAsync(model.Available, () => model.OptimizeAsync(false, deadline.Token));
+            if (!exiting && preferences.MinimizeToTray) Hide();
+            else { closingReady = true; Close(); }
+        } catch (Exception error) { model.ReportActionFailure(error); }
+        finally { closingPending = false; if (!closingReady) timer.Start(); }
     }
     async Task Execute(Func<Task> action)
     {

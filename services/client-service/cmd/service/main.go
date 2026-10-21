@@ -23,7 +23,8 @@ func runReady(ctx context.Context, path string, ready func()) error {
 	if e != nil {
 		return e
 	}
-	controller := clientservice.New(ctx)
+	// Host cancellation reaches CloseForHost first: remove PAC before cancelling listeners.
+	controller := clientservice.New(context.WithoutCancel(ctx))
 	defer func() {
 		if err := controller.CloseForHost(ctx); err != nil {
 			slog.Warn("owned browser policy cleanup incomplete", "class", "BROWSER_POLICY_CLEANUP_FAILED")

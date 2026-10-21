@@ -1801,3 +1801,7 @@ Windows fixture явно включает Automatic, чтобы проверка
 lost-response activation integration PASS (2.243с); контейнер удалён после теста.
 Завершающий commit содержит SYSTEM task integration/install/update/uninstall,
 PS mock contracts, CI filters и owner runbook. Сервера 771c303 это не касается.
+
+## Очередь 21.10 — A1
+
+Закрытие GUI (крестик, включая сворачивание в трей, и Выход) сначала отправляет optimize=false; при ошибке окно не считается закрытым. Production Close и signed device revocation снимают owned PAC до слушателей/relay/backend. SYSTEM watchdog сохранён; nil status/crash, зависание, freeze и штатный stop покрыты моделями. Реальный kill процесса/SCM и питание на Windows не проверены.

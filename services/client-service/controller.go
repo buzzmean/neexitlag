@@ -225,6 +225,9 @@ func (c *Controller) Start() {
 	go func() { defer c.wg.Done(); c.Measurements.Run(c.ctx, c.Selector.Observe) }()
 }
 func (c *Controller) Close() {
+	if c.browser.readiness.enforced.Load() {
+		_ = c.CleanupOwnedBrowserPolicies() // Before listeners, relay workers or capture stop.
+	}
 	c.cancel()
 	c.activation.mu.Lock()
 	activationDone := c.activation.done
