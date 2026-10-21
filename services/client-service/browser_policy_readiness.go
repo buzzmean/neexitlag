@@ -22,25 +22,29 @@ import (
 )
 
 type browserPolicyReadiness struct {
-	enforced      atomic.Bool
-	ready         [2]atomic.Bool
-	liveUntil     [2]atomic.Int64
-	lastOK        [2]time.Time
-	reasons       [2]string
-	lastEndpoints [2]string
-	mu            sync.Mutex
-	target, token string
-	tls           *tls.Config
-	checked       time.Time
-	result        string
-	check         func(context.Context, string, string, string, *tls.Config) error
-	relay         func() bool // isolated test seam, never exported via IPC
+	started          time.Time
+	firstReady       [2]time.Time
+	listenerAttempts [2]uint64
+	enforced         atomic.Bool
+	ready            [2]atomic.Bool
+	liveUntil        [2]atomic.Int64
+	lastOK           [2]time.Time
+	reasons          [2]string
+	lastEndpoints    [2]string
+	mu               sync.Mutex
+	target, token    string
+	tls              *tls.Config
+	checked          time.Time
+	result           string
+	check            func(context.Context, string, string, string, *tls.Config) error
+	relay            func() bool // isolated test seam, never exported via IPC
 }
 
 func (c *Controller) configureBrowserTransportCheck(m Manifest) {
 	p := &c.browser.readiness
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.started = time.Now()
 	u, err := url.Parse(m.ControlPlaneURL)
 	if err != nil || u.Scheme != "https" || u.Hostname() == "" {
 		return
@@ -178,6 +182,9 @@ func (c *Controller) browserPolicyReadyLocked(edge bool) error {
 		primary = e.saved.Address
 		recovery = e.saved.Recovery
 	}
+	if err := c.ensureBrowserListenerLocked(edge); err != nil {
+		return err
+	}
 	listener := c.browser.server
 	if edge {
 		listener = c.edgeLocked().server
@@ -256,6 +263,9 @@ func (c *Controller) browserPolicyMarkReady(edge bool) {
 	}
 	p := &c.browser.readiness
 	p.mu.Lock()
+	if p.firstReady[i].IsZero() {
+		p.firstReady[i] = time.Now()
+	}
 	deadline := p.lastOK[i].Add(15 * time.Second).UnixNano()
 	p.mu.Unlock()
 	p.liveUntil[i].Store(deadline)
@@ -276,22 +286,34 @@ func (c *Controller) browserPolicyInvalidateLocked(edge *bool) {
 }
 
 type BrowserPolicyHealth struct {
-	ChromeCheckedAt time.Time `json:"chrome_checked_at"`
-	EdgeCheckedAt   time.Time `json:"edge_checked_at"`
-	ChromeReason    string    `json:"chrome_reason"`
-	EdgeReason      string    `json:"edge_reason"`
-	ChromeReady     bool      `json:"chrome_ready"`
-	EdgeReady       bool      `json:"edge_ready"`
-	Reason          string    `json:"reason"`
-	LastCheck       time.Time `json:"last_check"`
-	FailOpen        bool      `json:"direct_fallback"`
+	StartedAt          time.Time `json:"started_at"`
+	ChromeFirstReadyAt time.Time `json:"chrome_first_ready_at"`
+	EdgeFirstReadyAt   time.Time `json:"edge_first_ready_at"`
+	ListenerAttempts   [2]uint64 `json:"listener_attempts"`
+	ChromeConfigured   bool      `json:"chrome_configured"`
+	EdgeConfigured     bool      `json:"edge_configured"`
+	ChromeCheckedAt    time.Time `json:"chrome_checked_at"`
+	EdgeCheckedAt      time.Time `json:"edge_checked_at"`
+	ChromeReason       string    `json:"chrome_reason"`
+	EdgeReason         string    `json:"edge_reason"`
+	ChromeReady        bool      `json:"chrome_ready"`
+	EdgeReady          bool      `json:"edge_ready"`
+	Reason             string    `json:"reason"`
+	LastCheck          time.Time `json:"last_check"`
+	FailOpen           bool      `json:"direct_fallback"`
 }
 
 func (c *Controller) browserPolicyHealth() BrowserPolicyHealth {
 	p := &c.browser.readiness
 	p.mu.Lock()
-	v := BrowserPolicyHealth{ChromeCheckedAt: p.lastOK[0], EdgeCheckedAt: p.lastOK[1], ChromeReason: p.reasons[0], EdgeReason: p.reasons[1], ChromeReady: p.laneReady(0), EdgeReady: p.laneReady(1), Reason: p.result, LastCheck: p.checked, FailOpen: true}
+	v := BrowserPolicyHealth{StartedAt: p.started, ChromeFirstReadyAt: p.firstReady[0], EdgeFirstReadyAt: p.firstReady[1], ListenerAttempts: p.listenerAttempts, ChromeCheckedAt: p.lastOK[0], EdgeCheckedAt: p.lastOK[1], ChromeReason: p.reasons[0], EdgeReason: p.reasons[1], ChromeReady: p.laneReady(0), EdgeReady: p.laneReady(1), Reason: p.result, LastCheck: p.checked, FailOpen: true}
 	p.mu.Unlock()
+	for _, profile := range c.Profiles.List() {
+		if profile.Mode == profiles.Auto {
+			v.ChromeConfigured = v.ChromeConfigured || chromeProfile(profile)
+			v.EdgeConfigured = v.EdgeConfigured || edgeProfile(profile)
+		}
+	}
 	if reason := c.browserPolicyBaseReason(); reason != "" {
 		v.Reason = reason
 		v.ChromeReady = false

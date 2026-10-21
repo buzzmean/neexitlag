@@ -9,7 +9,7 @@ public partial class MainWindow
     async Task RegisterStartupBrowsersAsync()
     {
         if (model.Activation?.Status.CapturePermitted==false || !model.Available || model.Busy || DateTimeOffset.UtcNow < nextBrowserStartup) return;
-        nextBrowserStartup = DateTimeOffset.UtcNow.AddSeconds(10);
+        nextBrowserStartup = DateTimeOffset.UtcNow.AddSeconds(model.Snapshot?.BrowserPolicy is {ChromeReady:true,EdgeReady:true}?10:2);
         await model.EnsureStartupBrowserProfilesAsync(BrowserCatalog.Discover(File.Exists, Environment.GetEnvironmentVariable), lifetime.Token);
         if(model.Optimizing && model.Snapshot?.Settings.Automatic==true)await EnsureSilentBrowserLanesAsync();
         if(model.Optimizing && model.Snapshot?.Settings.Automatic==true && model.Snapshot?.Connected==true)await PrepareNativeBrowsersAsync();
