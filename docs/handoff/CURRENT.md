@@ -10,7 +10,7 @@
 
 | Работа | Файлы | Агент | Ветка | Статус |
 |---|---|---|---|---|
-| A1–A6, B1, C1–C2, D1–D2, E1–E2 | browser lifecycle/remote/activation/controller и тесты; desktop/core модели/UI/активация и тесты; tools/windows install/update/diagnostics; новый installer/ и workflow; browser DNS и тесты; новый пассивный observer; docs/; brand/assets только после инвентаризации | Codex | codex/work | ПАУЗА после merge-проверки: A1–A6 опубликованы, B1 и merge локальны; race integration revocation FAIL. C1–E2 не начаты, их область свободна до возобновления; production не выполнять |
+| A1–A6, B1, C1–C2, D1–D2, E1–E2 | browser lifecycle/remote/activation/controller и тесты; desktop/core модели/UI/активация и тесты; tools/windows install/update/diagnostics; новый installer/ и workflow; browser DNS и тесты; новый пассивный observer; docs/; brand/assets только после инвентаризации | Codex | codex/work | В РАБОТЕ: владелец разрешил tests/integration/lease_test.go отдельным коммитом; 50x до/после и полный gate; затем публикация B1/merge и C1–E2. Production не выполнять |
 
 ## (a) Цель
 Чистый Windows 10/11: установил, нажал «Оптимизировать» — заблокированные в РФ сервисы работают без VPN: ChatGPT, Claude, YouTube, Discord, Telegram, браузеры Chrome и Edge. Первый заказчик — клуб на 36 ПК с откатом при перезагрузке.
@@ -1859,3 +1859,7 @@ relay, transport/security не изменены слияниями. Другие
 решение по failed gate, затем повтор проверки и обычный push сохранённых коммитов.
 На VPS и ПК ничего не выполнялось. Команды обновления ПК пока не выдаются:
 опубликованный клиент остаётся A1–A6, installer/source merge ещё локальны.
+
+### Разрешённое исправление теста отзыва (21.10)
+
+До изменений: bdbd452 — 14/50 device_revoked и 1/50 fixture Dial deadline; 83c0c63 — 21/50 device_revoked. После: 50/50 PASS, точный remote RevokedCode, no-renewal и production Client reason проверены. Только tests/integration/lease_test.go и docs; production поведение/таймауты не изменены. Повторный полный go test -race -p 1 -count=1 ./... без параллельных сборок PASS; vet PASS; C#165/165; WPF0 errors/4 прежних CS8604. Первый общий run получил отдельный midstream 60ms flake; отдельно20/20 PASS, код/таймаут не менялся. Подробности docs/testing/LEASE_REVOCATION_RACE.md. Публикуются сохранённые B1/merge, далее C1–E2.

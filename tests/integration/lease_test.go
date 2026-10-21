@@ -318,24 +318,31 @@ func TestLeaseRenewalReplayAndDeviceBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw, _ := x.ticket(ctx)
-	request := func(seq uint64, raw []byte) protocol.LeaseAck {
+	requestResult := func(seq uint64, raw []byte) (protocol.LeaseAck, error) {
 		t.Helper()
 		frames, err := protocol.LeaseRequests(seq, raw)
 		if err != nil {
-			t.Fatal(err)
+			return protocol.LeaseAck{}, err
 		}
 		for _, frame := range frames {
 			if err = conn.SendDatagram(frame); err != nil {
-				t.Fatal(err)
+				return protocol.LeaseAck{}, err
 			}
 		}
 		b, err := conn.ReceiveDatagram(ctx)
 		if err != nil {
-			t.Fatal(err)
+			return protocol.LeaseAck{}, err
 		}
-		ack, err := protocol.ParseLeaseAckFrame(b)
+		return protocol.ParseLeaseAckFrame(b)
+	}
+	request := func(seq uint64, raw []byte) protocol.LeaseAck {
+		t.Helper()
+		ack, err := requestResult(seq, raw)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if ack.Sequence != seq {
+			t.Fatalf("wrong ACK sequence: got %d want %d", ack.Sequence, seq)
 		}
 		return ack
 	}
@@ -367,19 +374,45 @@ func TestLeaseRenewalReplayAndDeviceBinding(t *testing.T) {
 		t.Fatal("cross-session replay accepted")
 	}
 	fresh, _ := x.ticket(ctx)
-	if ack := request(2, fresh); ack.Status != 0 {
+	approved := request(2, fresh)
+	if approved.Status != 0 {
 		t.Fatal("fresh ticket rejected")
 	}
+	renewals := x.server.Metrics.Renewals.Load()
+	clientDeadline := x.client.Lease().Deadline
 	x.verifier.Update(map[string]ed25519.PublicKey{"issuer": x.key.Public().(ed25519.PublicKey)}, []string{"machine"})
 	fresh, _ = x.ticket(ctx)
-	if ack := request(3, fresh); ack.Status == 0 {
-		t.Fatal("revoked renewal accepted")
+	// Revocation guard and renewal control run independently. QUIC DATAGRAM
+	// enqueue does not guarantee an ACK will arrive before CONNECTION_CLOSE.
+	ack, revokeErr := requestResult(3, fresh)
+	if !validRevocationOutcome(ack, revokeErr, 3, approved.Deadline) {
+		t.Fatalf("revocation outcome invalid: status=%d sequence=%d err=%v", ack.Status, ack.Sequence, revokeErr)
 	}
 	select {
 	case <-conn.Context().Done():
 	case <-ctx.Done():
 		t.Fatal("revoked live session survived")
 	}
+	if !exactRemoteRevocation(context.Cause(conn.Context())) {
+		t.Fatalf("session closed without exact remote revoke: %v", context.Cause(conn.Context()))
+	}
+	if got := x.server.Metrics.Renewals.Load(); got != renewals {
+		t.Fatalf("revocation extended authorization: renewals %d -> %d", renewals, got)
+	}
+	// Exercise the production client's error classifier on the other live
+	// session, not only the raw QUIC test peer. No application reconnect.
+	select {
+	case <-x.client.Done():
+	case <-ctx.Done():
+		t.Fatal("production client missed revocation")
+	}
+	if x.client.SessionEndReason() != "device_revoked" || x.client.Lease().State != "device_revoked" {
+		t.Fatal("production client lost revoke reason", x.client.SessionEndReason(), x.client.Lease())
+	}
+	if !x.client.Lease().Deadline.Equal(clientDeadline) {
+		t.Fatal("revoked production client extended lease")
+	}
+
 }
 func TestLeaseMultipleSessionsRenewIndependently(t *testing.T) {
 	a := newLeaseFixture(t, 3*time.Second, 0)
@@ -532,5 +565,49 @@ func TestLeaseServerExpiresUncooperativeClient(t *testing.T) {
 		case <-tick.C:
 			_ = d.Send([]byte("active but not renewed"))
 		}
+	}
+}
+
+// Test-only predicate: no generic close/timeout/EOF counts as revocation proof.
+func exactRemoteRevocation(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var app *quic.ApplicationError
+	return errors.As(err, &app) && app.Remote && app.ErrorCode == protocol.RevokedCode
+}
+func validRevocationOutcome(ack protocol.LeaseAck, err error, seq uint64, previous time.Time) bool {
+	if err != nil {
+		return exactRemoteRevocation(err)
+	}
+	return ack.Status != 0 && ack.Sequence == seq && !ack.Deadline.After(previous)
+}
+func TestLeaseRevocationOutcomeRejectsUnrelatedFailures(t *testing.T) {
+	now := time.Now()
+	revoke := &quic.ApplicationError{Remote: true, ErrorCode: protocol.RevokedCode, ErrorMessage: "device_revoked"}
+	cases := []struct {
+		name string
+		ack  protocol.LeaseAck
+		err  error
+		want bool
+	}{
+		{name: "negative-ack", ack: protocol.LeaseAck{Status: 1, Sequence: 3}, want: true},
+		{name: "exact-remote-revoke", err: fmt.Errorf("wrapped: %w", revoke), want: true},
+		{name: "success-ack", ack: protocol.LeaseAck{Status: 0, Sequence: 3}},
+		{name: "wrong-sequence", ack: protocol.LeaseAck{Status: 1, Sequence: 2}},
+		{name: "lease-extension", ack: protocol.LeaseAck{Status: 1, Sequence: 3, Deadline: now.Add(time.Minute)}},
+		{name: "timeout", err: context.DeadlineExceeded},
+		{name: "cancel", err: context.Canceled},
+		{name: "eof", err: io.EOF},
+		{name: "other-code", err: &quic.ApplicationError{Remote: true, ErrorCode: protocol.LeaseExpiredCode}},
+		{name: "local-revoke", err: &quic.ApplicationError{ErrorCode: protocol.RevokedCode}},
+		{name: "timeout-with-revoke", err: errors.Join(context.DeadlineExceeded, revoke)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := validRevocationOutcome(tc.ack, tc.err, 3, now); got != tc.want {
+				t.Fatalf("accepted=%v want=%v", got, tc.want)
+			}
+		})
 	}
 }
