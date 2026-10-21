@@ -16,6 +16,8 @@ def require():
     if not Path('/.dockerenv').exists() or not marker.is_file() or marker.is_symlink():raise RuntimeError('DISPOSABLE_CONTAINER_REQUIRED')
     if marker.stat().st_uid!=0 or marker.stat().st_mode&0o777!=0o600 or marker.read_text().strip()!='disposable-docker/v1':raise RuntimeError('DISPOSABLE_MARKER_INVALID')
     if Path('/proc/1/comm').read_text().strip()!='systemd':raise RuntimeError('REAL_SYSTEMD_REQUIRED')
+    mounts=Path('/proc/self/mountinfo').read_text().splitlines()
+    if not any(line.split()[4]=='/run' and any(field.startswith('shared:') for field in line.split()[6:line.split().index('-')]) for line in mounts):raise RuntimeError('RUN_MOUNT_PROPAGATION_REQUIRED')
     links=json.loads(subprocess.check_output(['ip','-j','link','show']))
     if any(link['ifname']!='lo' for link in links):raise RuntimeError('OFFLINE_LOOPBACK_ONLY_REQUIRED')
     if json.loads(subprocess.check_output(['ip','-j','route','show','default'])):raise RuntimeError('DEFAULT_ROUTE_FORBIDDEN')

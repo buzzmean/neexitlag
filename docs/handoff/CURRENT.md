@@ -1577,3 +1577,10 @@ CA/systemd исправление неизменно; оба actual isolated sys
   исчез при boot/mount/tmpfiles systemd. Staging перенесён в /var/tmp, добавлено
   ожидание systemd running/degraded и непустой failure JSON даже до source copy.
   Docker/PKI cleanup выполнен; ни VPS, ни host /etc не менялись.
+
+- Local Debian13 выявил две ошибки тестового образа: не был установлен D-Bus
+  (systemd-run не видел system bus), /run Docker tmpfs был private, поэтому
+  credential mount из дочернего namespace не попадал к PID1. Проверка dummy
+  LoadCredential до изменения READABLE=False, после make-rshared /run внутри
+  контейнера READABLE=True. В image добавлены D-Bus и entrypoint с shared
+  container /run; host /run не монтируется. CA ACL/product не ослаблялись.

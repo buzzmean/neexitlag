@@ -32,6 +32,9 @@ release binaries из чистого checkout. Это тестовые инст�
 runtime полностью offline (`--network none`), только loopback. Нет host network,
 host cgroup bind, bind mounts репозитория/секретов/Docker socket/host /etc.
 Root mutations выполняются исключительно внутри disposable filesystem.
+Внутренний tmpfs `/run` получает shared propagation для systemd LoadCredential;
+это не host /run и не host mount propagation. D-Bus установлен для systemd-run.
+Права CA root:600 сохраняются; отсутствие этих механизмов даёт ранний отказ.
 Production IP назначается только lo внутри нового namespace; реальных обращений
 к VPS нет. Guard требует systemd PID1, root-owned marker, отсутствие других
 интерфейсов и default route. GitHub flags не подделываются.
