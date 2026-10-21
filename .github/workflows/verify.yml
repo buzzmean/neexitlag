@@ -60,6 +60,10 @@ jobs:
         shell: pwsh
       - run: ./tests/windows-tools/profile-routing-checks.ps1
         shell: powershell
+      - run: '& ./tests/windows-tools/browser-disable-checks.ps1'
+        shell: powershell
+      - run: '& ./tests/windows-tools/browser-disable-checks.ps1'
+        shell: pwsh
       - run: ./tests/windows-tools/browser-path-checks.ps1
         shell: powershell
       - run: ./tests/windows-tools/native-firewall-checks.ps1

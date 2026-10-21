@@ -39,4 +39,26 @@ public sealed class BrowserDisableRaceTests {
   var s=new DelayedService();s.State.Optimizing=false;var vm=new DesktopViewModel(s);vm.Apply(s.State);
   await Assert.ThrowsAsync<BrowserPreparationDeferredException>(()=>vm.ApplySilentBrowserAsync(s.State.Profiles[0],false));Assert.Empty(s.Calls);
  }
+
+ sealed class ActivatedService:IServiceClient {
+  readonly FakeService core=new();
+  public Task<T> Call<T>(string method,object? payload=null,CancellationToken cancellationToken=default)=>method=="activation.status"?Task.FromResult((T)(object)new ActivationView{State="ACTIVATED",HasIdentity=true}):core.Call<T>(method,payload,cancellationToken);
+ }
+ [Fact]public async Task BrowserFailureCannotInvalidateSuccessfulDeviceActivation(){
+  var vm=new DesktopViewModel(new ActivatedService());await vm.RefreshAsync();var activation=vm.ActivationClient();await activation.RefreshAsync();var confirmed=activation.Status;
+  vm.ReportActionFailure(EdgeErrors.Wrap("edge.silent.apply",new ServiceException(ServiceFailure.Rejected)));
+  Assert.Same(confirmed,activation.Status);Assert.Equal("ACTIVATED",activation.Status.State);Assert.True(activation.Status.HasIdentity);
+  Assert.Empty(vm.Error);Assert.DoesNotContain("Активация",vm.Notice);Assert.Equal("EDGE_OPERATION_FAILED",vm.LastGuiFailure!.Code);
+ }
+
+ [Fact]public void BrowserLabelsImmediatelyReflectDisabledStatusWithoutPollingFlap(){
+  Profile[] profiles=[new(){Id="chrome",Executables=["chrome.exe"],Mode="AUTO"},new(){Id="edge",Executables=["msedge.exe"],Mode="AUTO"}];
+  var vm=new DesktopViewModel(new FakeService());vm.Apply(new(){Optimizing=true,Connected=true,Profiles=profiles});
+  vm.ApplyEdgePolicyState(new(){TransportMode="NATIVE_ARMED_PAC_GUARD",ReadinessState="NATIVE_TUNNEL_OBSERVED",Listening=true});
+  vm.ApplyBrowser(new(){Listening=true,PolicyReady=true,SilentActivation=new(){State="PAC_REQUEST_OBSERVED"}});
+  var changes=new List<string?>();vm.PropertyChanged+=(_,e)=>changes.Add(e.PropertyName);
+  vm.Apply(new(){Optimizing=false,Profiles=profiles});Assert.Contains("прямая сеть",vm.EdgeState);Assert.Contains("прямая сеть",vm.ChromePolicyState);
+  Assert.Contains(nameof(vm.EdgeState),changes);Assert.Contains(nameof(vm.ChromePolicyState),changes);
+  changes.Clear();vm.Apply(new(){Optimizing=false,Profiles=profiles});Assert.DoesNotContain(nameof(vm.EdgeState),changes);Assert.DoesNotContain(nameof(vm.ChromePolicyState),changes);
+ }
 }

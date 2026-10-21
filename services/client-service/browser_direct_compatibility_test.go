@@ -2,6 +2,7 @@ package clientservice
 
 import (
 	"context"
+	"errors"
 	"github.com/buzzmean/neexitlag/core/browserproxy"
 	"github.com/buzzmean/neexitlag/core/flowpolicy"
 	"io"
@@ -31,7 +32,7 @@ func TestDisabledBrowserAdmissionUsesDirectSocketWithoutNativeOrRelay(t *testing
 	for _, host := range []string{"vk.ru", "chatgpt.com", "www.youtube.com"} {
 		plan := browserproxy.Plan{Enabled: true, Destination: dest, Policy: flowpolicy.Result{Action: flowpolicy.RelayRequired, RelayID: "VPS-01", Fallback: flowpolicy.Required}}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		conn, actual, e := c.openBrowserPlan(ctx, profilesResult{}, browserproxy.Request{Host: host, Port: dest.Port()}, plan, func(ctx context.Context, _ browserproxy.Request, p browserproxy.Plan) (net.Conn, error) {
+		conn, actual, e := c.openBrowserPlan(ctx, profilesResult{routingDisabled: true}, browserproxy.Request{Host: host, Port: dest.Port()}, plan, func(ctx context.Context, _ browserproxy.Request, p browserproxy.Plan) (net.Conn, error) {
 			return openBrowserDirectCompatibility(ctx, p)
 		})
 		if e != nil {
@@ -71,5 +72,20 @@ func TestDisabledListenerRetiresOnlyAfterIdleAndRebindsOnEnable(t *testing.T) {
 	}
 	if c.browser.server == nil || !c.browser.server.Snapshot().Listening {
 		t.Fatal("cannot rebind after idle")
+	}
+}
+
+func TestPendingDirectProfileCannotBorrowGlobalDisabledAuthorization(t *testing.T) {
+	c := New(context.Background())
+	defer c.Close()
+	p := browserproxy.Plan{Policy: flowpolicy.Result{Action: flowpolicy.Block, Fallback: flowpolicy.Required, Source: "browser_recovery_guard"}}
+	_, actual, _ := c.openBrowserPlan(context.Background(), profilesResult{enabled: false, routingDisabled: false}, browserproxy.Request{Host: "chatgpt.com", Port: 443, Secure: true}, p, func(_ context.Context, _ browserproxy.Request, p browserproxy.Plan) (net.Conn, error) {
+		if p.Policy.Action == flowpolicy.Direct {
+			t.Fatal("profile pending became global disabled DIRECT")
+		}
+		return nil, errors.New("blocked")
+	})
+	if actual.Policy.Action != flowpolicy.Block {
+		t.Fatal(actual)
 	}
 }

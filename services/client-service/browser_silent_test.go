@@ -20,6 +20,17 @@ func silentFixture(t *testing.T, edge bool) (*Controller, profiles.Profile, *str
 	c := New(context.Background())
 	t.Cleanup(c.Close)
 	c.BrowserOwnerSID = "S-1-test"
+	if runtime.GOOS == "windows" {
+		self, e := wp.NewDiscovery().Lookup(uint32(os.Getpid()))
+		if e != nil {
+			t.Fatal(e)
+		}
+		sid, e := wp.ProcessUserSID(self)
+		if e != nil {
+			t.Fatal(e)
+		}
+		c.BrowserOwnerSID = sid
+	}
 	c.settings.Automatic = true
 	exe := `C:\Apps\chrome.exe`
 	method := "browser.prepare"

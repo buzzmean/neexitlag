@@ -106,7 +106,7 @@ func (c *Controller) edgeOwnerProfile(owner browserproxy.Owner) (profilesResult,
 		return profilesResult{}, errors.New("Edge owner exited/reused")
 	}
 	p, ok := c.matchApplication(id)
-	if !ok || !edgeProfile(p) || p.Trial != nil || p.ID != owner.Profile || (p.Mode != profiles.Auto && p.Mode != profiles.Direct) {
+	if !ok || !edgeProfile(p) || p.Trial != nil || p.ID != owner.Profile {
 		return profilesResult{}, errors.New("Edge AUTO profile changed")
 	}
 	network := ""
@@ -114,9 +114,13 @@ func (c *Controller) edgeOwnerProfile(owner browserproxy.Owner) (profilesResult,
 		network = n.Fingerprint
 	}
 	c.mu.Lock()
-	enabled := c.enabled && c.settings.Automatic && p.Mode == profiles.Auto && (edgeSitesProfile(p) || nativeBrowserProfile(p))
+	routingEnabled := c.enabled && c.settings.Automatic
+	enabled := routingEnabled && p.Mode == profiles.Auto && (edgeSitesProfile(p) || nativeBrowserProfile(p))
 	c.mu.Unlock()
-	return profilesResult{profile: p, id: id, network: network, enabled: enabled}, nil
+	if routingEnabled && p.Mode != profiles.Auto && p.Mode != profiles.Direct {
+		return profilesResult{}, errors.New("Edge AUTO profile changed")
+	}
+	return profilesResult{profile: p, id: id, network: network, enabled: enabled, routingDisabled: !routingEnabled}, nil
 }
 func (c *Controller) edgeRecoveryOwner(ctx context.Context, source, local, original, listener netip.AddrPort) (browserproxy.Owner, error) {
 	helper, err := wp.LookupTCPPeer(source, local)

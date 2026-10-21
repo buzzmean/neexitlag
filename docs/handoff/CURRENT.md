@@ -1,6 +1,8 @@
 # CURRENT — состояние проекта (обновляется в конце каждой сессии)
 
-Последний итог Codex 21.10.2026: очередь A1–E2 опубликована в codex/work (реализация/документы, не Internet/Windows PASS). Дальнейших пунктов очереди нет; необходимы native приёмка, проверка Setup и решения по подписи/будущему WFP. Область освобождена; см. заключительную сводку и команды ниже. На VPS/ПК агент ничего не выполнял.
+Последний итог Codex: регрессия выключения браузеров A–E исправлена и проверена доступными локальными тестами. A `6b3e9d4`, B `c5450a6`, C `387e642`, D `b69eb8a`, E — этот commit. Область освобождена. Go race/vet/Linux/Windows build PASS, C#180/180, WPF/native fixture compile0 errors/4 прежних CS8604. Реальные Windows/SCM/GP uptake/ISP ещё не проверены; ни VPS, ни ПК владельца агент не запускал. Команды — docs/BROWSER_DISABLE_RECOVERY.md.
+
+Предыдущий итог Codex 21.10.2026: очередь A1–E2 опубликована в codex/work (реализация/документы, не Internet/Windows PASS). Дальнейших пунктов очереди нет; необходимы native приёмка, проверка Setup и решения по подписи/будущему WFP. Область освобождена; см. заключительную сводку и команды ниже. На VPS/ПК агент ничего не выполнял.
 
 Последняя сверка Codex 21.10.2026: владелец подтвердил production 771c303/schema3 и создание test; на чистом ПК activation=ACTIVATED/has_identity=True. Выявлен browser PAC при connected/optimizing/backend=False; штатная Stop-Service очистка работает. Текущее исправление lifecycle/GUI/watchdog только в codex/work, реальный Windows/freeze/SCM ретест ещё нужен. Агент production/ПК не запускал; сервер обновлять не требуется. Подробности — (ar), docs/ACTIVATION_OWNER_RUNBOOK.md (последний раздел).
 
@@ -12,7 +14,7 @@
 
 | Работа | Файлы | Агент | Ветка | Статус |
 |---|---|---|---|---|
-| Регрессия выключения A–E (6adefe5) | services/client-service/browser*, edge*, cmd/service/*, controller lifecycle; core/browserproxy/*; platform/windows/*policy*; desktop recovery/status/startup и тесты; tools/windows watchdog/acceptance; docs/ | Codex | codex/work | В РАБОТЕ 21.10.2026: DIRECT compatibility для cached PAC, policy notification, SCM/recovery role, честный GUI; отдельные коммиты A–E; production не выполнять |
+| Регрессия выключения A–E (6adefe5) | services/client-service/browser*, edge*, cmd/service/*, controller lifecycle; core/browserproxy/*; platform/windows/*policy*; desktop recovery/status/startup и тесты; tools/windows watchdog/acceptance; docs/ | Codex | codex/work | ЗАВЕРШЕНО В КОДЕ A–E; область освобождена: DIRECT compatibility, GP notification, SCM/recovery role, честный GUI, Windows acceptance fixture и owner helper; реальный Windows/ISP ретест нужен; production не выполнялся |
 | A1–A6, B1, C1–C2, D1–D2, E1–E2 | browser lifecycle/remote/activation/controller и тесты; desktop/core модели/UI/активация и тесты; tools/windows install/update/diagnostics; новый installer/ и workflow; browser DNS и тесты; новый пассивный observer; docs/; brand/assets только после инвентаризации | Codex | codex/work | ЗАВЕРШЕНО В КОДЕ/ДОКУМЕНТАХ 21.10.2026; область освобождена. Native Windows/SCM/freeze/Setup/ISP gates остаются непроверенными; WFP только проект. Production не выполнять |
 
 ## (a) Цель
@@ -1976,3 +1978,15 @@ wall-clock overrun не установлена, результат не скры
 ### Регрессия выключения — D
 
 Поздняя browser подготовка теперь проверяет generation перед следующим IPC: disable/exit/state change отменяет старый ticket, запрещены late silent.apply и rollback поверх новой команды. Background не начинает lane при выключенном/неподключённом режиме. Edge/Chrome phase/code остаются в GUI журнале; UI — нейтральный статус, без ложной активации/Exception type; transient Notice сбрасывается на успехе, historical diagnostic сохраняется. UI-контракты обновлены по новому требованию, packet/security checks не ослаблены. C#178/178 PASS, WPF/native fixture compile0 errors/4 прежних CS8604. Реальный GUI на Windows не запускался.
+
+### Регрессия выключения — E и окончательные проверки
+
+Global Optimize/Automatic off явно отделён от profile DIRECT/pending: compatibility grant только для глобального OFF; active protected pending не заимствует DIRECT. Регрессия проверяет отзыв disabled grant до Backend.Start. Windows freeze/guard fixture использует настоящий SID текущего Windows test owner. Новая изолированная Chrome/Edge acceptance с настоящими registry PAC, owner/PID/birth и HTTP body проверяет active → disable → host close без browser restart/manual policy reload; backend seam не выдаётся за WinDivert/SCM proof. Фикстура скомпилирована, runtime Windows здесь не выполнялся. Workflow подключён.
+
+Добавлены read-only `check-browser-disable.ps1` и fixture для ролей/пустого списка/секретного command line/парсинга; helper проверяет метаданные и явно НЕ выдаёт STRUCTURE_PASS за Internet PASS. GUI сохраняет ACTIVATED/identity при browser error и сразу показывает прямую сеть после OFF, одинаковый следующий status не мерцает.
+
+Финальный последовательный `go test -race -p 1 -count=1 ./...` PASS, `go vet ./...`, Linux build и Windows amd64 cross-build PASS; Windows service native test binary compile PASS. C#180/180 PASS; WPF/native fixture cross-build0 errors/4 прежних CS8604. PS7 mock/parse PASS; Windows PS5.1 и реальный Chromium fixture здесь не запускались. DB-dependent skips не считаются новым PostgreSQL proof; CP/relay/БД production не менялись. Исторический GitHub billing block не исправляется кодом; новый CI outcome проверяется отдельно после push.
+
+Решение A–E: удаление policy не равно live uptake. После реального изменения посылается штатный user GP refresh, его результат диагностируется отдельно от наблюдения Chromium. Пока cached PAC приходит в живой listener, owner-validated OFF запрос идёт OS DIRECT; затем idle listener закрывается через3мин без новых запросов/активных соединений. При SCM stop owner recovery завершает listener по read-only SCM state; современный availability PAC имеет явный DIRECT. Для старого/чужого cached PAC без DIRECT гарантировать одновременно отсутствие всех listener и сеть при отсутствии policy uptake нельзя; ограничение явно описано, не скрыто. Роль старого PID20012 без owner process snapshot не доказана.
+
+Владельцу: администратор под прежним SID, корень репозитория; закрыть только VELIQ перед обновлением, Chrome/Edge оставить. По одной команде: `git pull --ff-only origin codex/work`, `& .\tools\windows\build-e2e.ps1`, `& .\tools\windows\build-desktop.ps1`, `& .\tools\windows\update-service.ps1`, `& .\tools\windows\install-desktop.ps1`; проверить SHA256. Затем `check-browser-disable.ps1 -Stage baseline`, GUI OFF → новая vk.ru вкладка → Stage disabled; ON → tray Exit → новая vk.ru → Stage exit; снова GUI ON, read-only diagnose-browser-processes, Stop-Service → Stage stopped и новая vk.ru. Полная последовательность команд — docs/BROWSER_DISABLE_RECOVERY.md. Без manual Reload policies, без browser restart. На VPS/ПК агент ничего не выполнял; PR#8 не изменялся.

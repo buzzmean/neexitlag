@@ -212,6 +212,7 @@ public sealed partial class DesktopViewModel : Observable
             Replace(Relays, availableRelays);
         RenderHistory(status.History);
         ClearBrowserPreparationIssue();
+        ApplyDisabledBrowserDisplay();
         NotifyHomeChanges(previous);
     }
     void RenderHistory(JsonElement history)

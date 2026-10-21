@@ -79,7 +79,7 @@ func (c *Controller) browserProfile(owner browserproxy.Owner) (profilesResult, e
 		return profilesResult{}, errors.New("Chrome owner exited/reused")
 	}
 	p, ok := c.matchApplication(id)
-	if !ok || p.ID != owner.Profile || !chromeProfile(p) || p.Mode != profiles.Auto && p.Mode != profiles.Direct {
+	if !ok || p.ID != owner.Profile || !chromeProfile(p) {
 		return profilesResult{}, errors.New("Chrome AUTO profile changed")
 	}
 	network := ""
@@ -87,17 +87,22 @@ func (c *Controller) browserProfile(owner browserproxy.Owner) (profilesResult, e
 		network = n.Fingerprint
 	}
 	c.mu.Lock()
-	enabled := c.enabled && c.settings.Automatic && p.Mode == profiles.Auto
+	routingEnabled := c.enabled && c.settings.Automatic
+	enabled := routingEnabled && p.Mode == profiles.Auto
 	c.mu.Unlock()
-	return profilesResult{profile: p, id: id, network: network, enabled: enabled}, nil
+	if routingEnabled && p.Mode != profiles.Auto && p.Mode != profiles.Direct {
+		return profilesResult{}, errors.New("Chrome AUTO profile changed")
+	}
+	return profilesResult{profile: p, id: id, network: network, enabled: enabled, routingDisabled: !routingEnabled}, nil
 }
 
 // Keep mutable ownership resolution separate from immutable request plans.
 type profilesResult struct {
-	profile profiles.Profile
-	id      wp.ProcessIdentity
-	network string
-	enabled bool
+	profile         profiles.Profile
+	id              wp.ProcessIdentity
+	network         string
+	enabled         bool
+	routingDisabled bool
 }
 
 func (c *Controller) browserLocalAllowed(network string) bool {
@@ -176,7 +181,7 @@ func (c *Controller) openBrowser(ctx context.Context, q browserproxy.Request, pl
 	}
 	// Cached PAC can still reach this listener after policy removal. Authenticated
 	// browser ownership was checked above; bypass the stopped engine/WinDivert.
-	if !current.enabled {
+	if current.routingDisabled {
 		return openBrowserDirectCompatibility(ctx, disabledBrowserPlan(plan))
 	}
 	if current.network != plan.Network || current.enabled != plan.Enabled {
@@ -194,7 +199,7 @@ func (c *Controller) openBrowser(ctx context.Context, q browserproxy.Request, pl
 	if d.Block {
 		return nil, errors.New("browser route blocked")
 	}
-	if observe && nativeBrowserProfile(current.profile) && (q.Ingress == "PAC_CONNECT" || q.Ingress == "PAC_RECOVERY") && plan.Destination.Addr().Is4() && (c.BrowserResolver != nil || !directOnlyFlow(wp.Tuple{Protocol: "tcp", Destination: plan.Destination})) {
+	if observe && current.enabled && nativeBrowserProfile(current.profile) && (q.Ingress == "PAC_CONNECT" || q.Ingress == "PAC_RECOVERY") && plan.Destination.Addr().Is4() && (c.BrowserResolver != nil || !directOnlyFlow(wp.Tuple{Protocol: "tcp", Destination: plan.Destination})) {
 		return c.openNativePAC(ctx, q, plan, d)
 	}
 	if d.Route.Local() {
@@ -309,8 +314,12 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 	dest := candidates[0]
 	tuple := wp.Tuple{Protocol: "tcp", Source: q.Source, Destination: dest}
 	result := c.browserFlow(current.profile, current.id, tuple, q.Host, current.network)
-	if !current.enabled {
+	if current.routingDisabled {
 		result = flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailOpen, Source: "optimization_disabled", Reason: "cached PAC: optimization disabled, ordinary OS DIRECT"}
+	} else if !current.enabled && browserGuardedRule(current.profile, q.Host) {
+		result = flowpolicy.Result{Action: flowpolicy.Block, Fallback: flowpolicy.Required, Source: "browser_recovery_guard", Reason: "protected origin while profile is not enabled"}
+	} else if !current.enabled && !protectedBrowserDomain(q.Host) {
+		result = flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailOpen, Source: "profile_direct", Reason: "ordinary origin in DIRECT profile"}
 	}
 	plan := browserproxy.Plan{RelayCandidates: relayCandidates, Network: current.network, Enabled: current.enabled, Policy: result, Destination: dest, Probe: "NOT_PROBED"}
 	if !current.enabled || protectedBrowserDomain(q.Host) || result.Source == "rule" {
