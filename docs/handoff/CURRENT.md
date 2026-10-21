@@ -1875,3 +1875,7 @@ relay, transport/security не изменены слияниями. Другие
 ### D1
 
 Только GAME_ROUTER_DESIGN.md: РФ ingress/common egress, authenticated multipath UDP/dedup, pinned TCP/NAT, hysteresis, bounded resources, WFP и матрица EAC/BattlEye/VAC/FACEIT, P0–P2/измеримые критерии. Текущие игры DIRECT и production не менялись; никакие latency/anti-cheat claims не подтверждены.
+
+### D2
+
+Только ZAPRET_OPTION_DESIGN.md: опора на закреплённый локальный upstream audit от14.10, экономия relay как гипотеза; один capture-owner, bounded adapter/state, критерии TLS/HTTP/ISP, conflicts/лицензии. Новых рабочих стратегий по памяти нет, external binary/dependencies не добавлялись; runtime/VPS/драйвер не менялись.
