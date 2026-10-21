@@ -5,12 +5,12 @@ import (
 	"context"
 	"crypto/subtle"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -95,7 +95,10 @@ func ProbeConnect(ctx context.Context, proxy, target, token string, tlsConfig *t
 	}
 	defer res.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(res.Body, 4097))
-	if err != nil || len(raw) > 4096 || res.StatusCode != 200 || !strings.Contains(string(raw), "ok") {
+	var health struct {
+		Status string `json:"status"`
+	}
+	if err != nil || len(raw) > 4096 || res.StatusCode != 200 || json.Unmarshal(raw, &health) != nil || health.Status != "ok" {
 		return errors.New("CONNECT_CHECK_HEALTH_FAILED")
 	}
 	return nil

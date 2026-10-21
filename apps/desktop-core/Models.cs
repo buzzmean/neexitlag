@@ -115,6 +115,7 @@ public sealed class HotAttachStatus
 }
 public sealed class Snapshot
 {
+ public string ConnectionReason {get;set;}=""; public bool RelayConnected {get;set;}
  public HotAttachStatus? HotAttach {get;set;}
     public string Version { get; set; } = ""; public bool Connected
     {

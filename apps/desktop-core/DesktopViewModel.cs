@@ -181,7 +181,7 @@ public sealed partial class DesktopViewModel : Observable
     {
         Snapshot = status;
         Available = true;
-        Connection = Text.Get("Connected");
+        Connection = ServiceConnectionText.Describe(status);
         if (status.Backend.Capabilities.Tcp && !Modes.Any(m => m.Value == "BLOCK"))
             Modes.Add(new("BLOCK", Text.Mode("BLOCK")));
         if (!status.Backend.Capabilities.Tcp)
@@ -355,6 +355,11 @@ public sealed partial class DesktopViewModel : Observable
         }
         var copy = original.Copy();
         copy.Mode = mode;
+        if(mode!="AUTO" && (BrowserCatalog.IsChrome(copy)||BrowserCatalog.IsEdge(copy))){
+            copy.PolicyData??=new();copy.PolicyData["browser_transport"]=System.Text.Json.JsonSerializer.SerializeToElement("");
+            if(BrowserCatalog.IsEdge(copy))copy.PolicyData["app_preset"]=System.Text.Json.JsonSerializer.SerializeToElement("edge-sites");
+            startupChromeProfiles.Remove(copy.Id);
+        }
         copy.RelayId = mode == "MANUAL" ? relay : null;
         bool ok = await Act(async () => { await client.Call<Profile[]>("profile.set", copy, ct); }, ct);
         if (ok)

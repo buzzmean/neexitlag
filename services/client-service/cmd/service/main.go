@@ -35,12 +35,12 @@ func runReady(ctx context.Context, path string, ready func()) error {
 	if e = controller.SetCustomPath(manifest.StateDirectory + string(os.PathSeparator) + "profiles.json"); e != nil {
 		return e
 	}
-	managedActivation := controller.ConfigureActivation(manifest)
-	if managedActivation {
-		if err := controller.CleanupPreactivationBrowserPolicies(); err != nil {
+	{ // Every boot, including freeze: remove only journal-owned stale policy before initialization.
+		if err := controller.CleanupOwnedBrowserPolicies(); err != nil {
 			slog.Warn("preactivation owned browser policy cleanup incomplete", "class", "BROWSER_POLICY_CLEANUP_FAILED")
 		}
 	}
+	managedActivation := controller.ConfigureActivation(manifest)
 	// The pipe opens before the slow stages so SCM does not wait on the network and
 	// the GUI can tell "starting" from "not installed". Methods are rejected until
 	// initialization finishes (see startupGate).
@@ -89,6 +89,7 @@ func main() {
 	recovery := flag.Bool("chrome-recovery", false, "owner-scoped Chrome recovery transport; no service privileges or credentials")
 	recoveryPort := flag.Uint("recovery-port", 0, "persisted IPv4 loopback recovery port")
 	path := flag.String("config", "", "absolute service manifest path")
+	watchdog := flag.Bool("browser-policy-watchdog", false, "independent owned policy cleanup; no capture/enroll/Internet")
 	cleanup := flag.Bool("cleanup-browser-policy", false, "remove only journal-owned browser policies; no capture/enrollment/network")
 	console := flag.Bool("console", false, "run as an interactive service host for diagnostics")
 	flag.Parse()
@@ -103,6 +104,13 @@ func main() {
 		case <-ctx.Done():
 		}
 	}()
+	if *watchdog {
+		if err := clientservice.RunBrowserPolicyWatchdog(ctx, *path); err != nil {
+			slog.Error("policy watchdog unavailable", "class", "WATCHDOG_FAILED")
+			os.Exit(1)
+		}
+		return
+	}
 	if *cleanup {
 		manifest, err := clientservice.LoadManifest(*path)
 		if err == nil {

@@ -25,6 +25,8 @@ import (
 )
 
 type browserRuntime struct {
+	readiness browserPolicyReadiness
+
 	silent          browserSilentState
 	chromeWrite     func(string, []string, string) error
 	chromeRemove    func(string, []string) error
@@ -557,6 +559,9 @@ func (c *Controller) handleBrowser(method string, raw json.RawMessage) (result a
 		view.ReadinessState = "PREPARED"
 		view.RecoveryAddress = c.browser.recoveryAddress
 		view.PolicyReady = c.chromePolicyActive()
+		if c.browser.readiness.enforced.Load() {
+			view.PolicyReady = view.PolicyReady && c.browser.readiness.laneReady(0) && c.browserPolicyBaseReason() == ""
+		}
 		if view.PolicyReady && len(view.ReadyProfiles) > 0 {
 			view.ReadinessState = "PAC_READY"
 		}
@@ -635,7 +640,7 @@ func (c *Controller) handleBrowser(method string, raw json.RawMessage) (result a
 		return nil, errors.New("selected Chrome AUTO profile and persistent user directory required")
 	}
 	if c.browser.server == nil {
-		server, err := browserproxy.Listen(c.ctx, browserproxy.Config{RequireClientHelloReplay: true, Address: c.browser.address, Authorize: c.browserOwner, AuthorizeForwarded: c.browserRecoveryOwner, Plan: c.browserPlan, Open: c.browserOpen, OpenPlan: c.browserOpenPlan, TransformApplied: c.browserTransform, OnStall: c.browserStall, OnDirectAnswered: c.browserDirectAnswered})
+		server, err := browserproxy.Listen(c.ctx, browserproxy.Config{TransportCheck: c.transportCheckSettings, RequireClientHelloReplay: true, Address: c.browser.address, Authorize: c.browserOwner, AuthorizeForwarded: c.browserRecoveryOwner, Plan: c.browserPlan, Open: c.browserOpen, OpenPlan: c.browserOpenPlan, TransformApplied: c.browserTransform, OnStall: c.browserStall, OnDirectAnswered: c.browserDirectAnswered})
 		if err != nil {
 			return nil, errors.New("CHROME_LISTENER_BIND_FAILED")
 		}
@@ -679,6 +684,13 @@ func (c *Controller) handleBrowser(method string, raw json.RawMessage) (result a
 	if len(c.browser.silent.Owned) == 0 && c.chromePolicyActive() {
 		c.browser.silent.Owned = []string{edgePolicyValue(c.browser.expectedPAC)}
 	}
+	if c.browser.readiness.enforced.Load() {
+		available, err := browserproxy.AvailabilityPAC(strings.TrimPrefix(args[1], "--proxy-pac-url="))
+		if err != nil {
+			return nil, err
+		}
+		args[1] = "--proxy-pac-url=" + available
+	}
 	c.browser.expectedPAC = strings.TrimPrefix(args[1], "--proxy-pac-url=")
 	if c.customPath != "" {
 		if err := c.saveBrowserAddress(); err != nil {
@@ -686,7 +698,7 @@ func (c *Controller) handleBrowser(method string, raw json.RawMessage) (result a
 		}
 	}
 	program, _ := os.Executable()
-	return map[string]any{"recovery_program": program, "recovery_settings": browserproxy.RecoverySettings{GuardFile: c.browserGuardFile(), Primary: c.browser.server.Address(), Domains: extra, Strict: strict, Profile: q.Profile}, "health_url": healthURL, "arguments": args, "recovery_arguments": recovery, "address": c.browser.server.Address(), "scope": "Chrome launch only; system proxy unchanged", "http3": "HTTP CONNECT uses TCP; QUIC relay transport unchanged", "verification": "origin probe only; authenticated browser page result is not observed"}, nil
+	return map[string]any{"recovery_program": program, "recovery_settings": browserproxy.RecoverySettings{CheckTarget: c.browser.readiness.target, CheckToken: c.browser.readiness.token, GuardFile: c.browserGuardFile(), Primary: c.browser.server.Address(), Domains: extra, Strict: strict, Profile: q.Profile}, "health_url": healthURL, "arguments": args, "recovery_arguments": recovery, "address": c.browser.server.Address(), "scope": "Chrome launch only; system proxy unchanged", "http3": "HTTP CONNECT uses TCP; QUIC relay transport unchanged", "verification": "origin probe only; authenticated browser page result is not observed"}, nil
 }
 
 func (c *Controller) saveBrowserAddress() error {
@@ -757,7 +769,7 @@ func (c *Controller) RestoreBrowserTransport() error {
 	c.browser.address = saved.Address
 	c.browser.expectedPAC = saved.ExpectedPAC
 	c.browser.recoveryAddress = saved.RecoveryAddress
-	server, err := browserproxy.Listen(c.ctx, browserproxy.Config{RequireClientHelloReplay: true, Address: saved.Address, Authorize: c.browserOwner, AuthorizeForwarded: c.browserRecoveryOwner, Plan: c.browserPlan, Open: c.browserOpen, OpenPlan: c.browserOpenPlan, TransformApplied: c.browserTransform, OnStall: c.browserStall, OnDirectAnswered: c.browserDirectAnswered})
+	server, err := browserproxy.Listen(c.ctx, browserproxy.Config{TransportCheck: c.transportCheckSettings, RequireClientHelloReplay: true, Address: saved.Address, Authorize: c.browserOwner, AuthorizeForwarded: c.browserRecoveryOwner, Plan: c.browserPlan, Open: c.browserOpen, OpenPlan: c.browserOpenPlan, TransformApplied: c.browserTransform, OnStall: c.browserStall, OnDirectAnswered: c.browserDirectAnswered})
 	if err != nil {
 		return err
 	}

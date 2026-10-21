@@ -40,6 +40,7 @@ type activationRecord struct {
 }
 type activationRuntime struct {
 	networkBlocked       atomic.Bool
+	stopAutomatic        atomic.Bool
 	preactivationCleanup bool
 	policyCleanup        string
 	diagnostics          enrollment.HardwareDiagnostics
@@ -183,6 +184,11 @@ func validActivationIdentity(m Manifest) bool {
 // Called before IPC startup. Only installations with a stored code/missing
 // identity use this background manager; existing valid legacy installs do not.
 func (c *Controller) ConfigureActivation(m Manifest) bool {
+	c.browser.readiness.enforced.Store(true)
+	c.configureBrowserTransportCheck(m)
+	c.mu.Lock()
+	c.ControlPlaneURL = m.ControlPlaneURL
+	c.mu.Unlock()
 	c.activation.mu.Lock()
 	defer c.activation.mu.Unlock()
 	if m.ControlPlaneURL == "" || m.DeviceIdentityFile == "" || m.DeviceCertificate == "" {
@@ -364,6 +370,8 @@ func (c *Controller) activationLoop(managed bool) {
 	backoff := time.Second
 	var nextMetadata time.Time
 	var connected bool
+	var automaticStarted bool
+	captureBackoff := 2 * time.Second
 	for {
 		if c.ctx.Err() != nil {
 			return
@@ -381,6 +389,7 @@ func (c *Controller) activationLoop(managed bool) {
 				continue
 			}
 		}
+		captureRetry := false
 		r, e := readActivation(m)
 		if e == nil && (managed || r.Pending) {
 			if r.Pending && !connected && validActivationIdentity(m) {
@@ -457,12 +466,6 @@ func (c *Controller) activationLoop(managed bool) {
 			// Do not re-enable after an unsuccessful enrollment or connectivity check.
 			if connected && e == nil && c.activation.networkBlocked.Swap(false) {
 				_ = c.RestoreBrowserTransport()
-				c.mu.Lock()
-				automatic := c.settings.Automatic
-				c.mu.Unlock()
-				if automatic && c.ctx.Err() == nil {
-					_, _ = c.Handle(c.ctx, "optimize", []byte(`{"enabled":true}`))
-				}
 			}
 			c.activation.mu.Lock()
 			if rev == c.activation.revision {
@@ -473,6 +476,9 @@ func (c *Controller) activationLoop(managed bool) {
 				}
 			}
 			c.activation.mu.Unlock()
+			if e == nil {
+				captureRetry = c.startActivatedCapture(connected, &automaticStarted) != nil
+			}
 		} else if os.IsNotExist(e) {
 			c.activation.mu.Lock()
 			c.activation.status.HasIdentity = validActivationIdentity(m)
@@ -502,6 +508,15 @@ func (c *Controller) activationLoop(managed bool) {
 			backoff *= 2
 			if backoff > time.Minute {
 				backoff = time.Minute
+			}
+		}
+		if captureRetry {
+			backoff = captureBackoff
+			if captureBackoff < 30*time.Second {
+				captureBackoff *= 2
+				if captureBackoff > 30*time.Second {
+					captureBackoff = 30 * time.Second
+				}
 			}
 		}
 		timer := time.NewTimer(backoff)

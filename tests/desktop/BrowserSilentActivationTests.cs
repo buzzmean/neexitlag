@@ -25,14 +25,15 @@ public sealed class BrowserSilentActivationTests {
   await vm.ApplySilentBrowserAsync(p,edge);await vm.VerifyFreshBrowserAsync(p.Id,edge);
   Assert.Equal("AUTO",Assert.Single(s.Inner.State.Profiles).Mode);
   Assert.DoesNotContain(s.Inner.Calls,c=>c.Method is "browser.confirm" or "edge.confirm" or "optimize");
-  Assert.Equal(edge?"edge.silent.apply":"browser.silent.apply",s.Inner.Calls[0].Method);
+  Assert.Equal("profile.set",s.Inner.Calls[0].Method);
+  Assert.Equal(edge?"edge.silent.apply":"browser.silent.apply",s.Inner.Calls[1].Method);
   Assert.Equal("DIRECT",p.Mode);
  }
  [Fact]public async Task FailedPolicyApplyPreservesModeAndApplications(){
   var s=new Service{Reject=true};var p=new Profile{Id="browser",Mode="DIRECT",Executables=["chrome.exe"]};s.Inner.State.Profiles=[p];var vm=new DesktopViewModel(s);await vm.RefreshAsync();
   await Assert.ThrowsAsync<ServiceException>(()=>vm.ApplySilentBrowserAsync(p,false));
   Assert.Equal("DIRECT",Assert.Single(s.Inner.State.Profiles).Mode);Assert.Single(vm.Applications);
-  Assert.DoesNotContain(s.Inner.Calls,c=>c.Method=="profile.set");
+  var changes=s.Inner.Calls.Where(c=>c.Method=="profile.set").ToArray();Assert.Equal(2,changes.Length);Assert.Equal("AUTO",((Profile)changes[0].Payload!).Mode);Assert.Equal("DIRECT",((Profile)changes[1].Payload!).Mode);
  }
  [Fact]public void PendingIsNotUptakeOrPagePass(){
   var p=new BrowserSilentActivation{State="POLICY_PENDING_BROWSER_REFRESH"};Assert.Contains("следующем запуске",p.Notice);

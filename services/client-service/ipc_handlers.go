@@ -317,15 +317,18 @@ func (c *Controller) handleOptimize(ctx context.Context, raw json.RawMessage) (a
 	if e := security.Parse(raw, &v); e != nil {
 		return nil, e
 	}
+	c.activation.stopAutomatic.Store(!v.Enabled)
 	if v.Enabled && !c.activationNetworkAllowed() {
 		return nil, errors.New("ACTIVATION_REQUIRED")
 	}
-	c.mu.Lock()
-	automatic := c.settings.Automatic
-	c.mu.Unlock()
-	if v.Enabled && automatic {
-		if err := c.requireChromeActivation(); err != nil {
-			return nil, err
+	if !c.browser.readiness.enforced.Load() && v.Enabled {
+		c.mu.Lock()
+		automatic := c.settings.Automatic
+		c.mu.Unlock()
+		if automatic {
+			if err := c.requireChromeActivation(); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if !c.Demo && c.Backend == nil {
@@ -333,10 +336,11 @@ func (c *Controller) handleOptimize(ctx context.Context, raw json.RawMessage) (a
 	}
 	c.mu.Lock()
 	wasEnabled := c.enabled
-	if v.Enabled {
-		c.enabled = true
-	}
+	c.enabled = v.Enabled
 	c.mu.Unlock()
+	if !v.Enabled {
+		_ = c.cleanupBrowserPoliciesForMutation()
+	}
 	c.nativeBrowserActivation(v.Enabled, wasEnabled, activationStarted)
 	if c.Backend != nil {
 		if v.Enabled {
@@ -344,6 +348,7 @@ func (c *Controller) handleOptimize(ctx context.Context, raw json.RawMessage) (a
 				if e := c.Backend.Start(c.ctx, c.Classify); e != nil {
 					c.mu.Lock()
 					c.enabled = wasEnabled
+					c.captureStartError = "CAPTURE_START_FAILED"
 					c.mu.Unlock()
 					return nil, e
 				}
@@ -356,6 +361,7 @@ func (c *Controller) handleOptimize(ctx context.Context, raw json.RawMessage) (a
 	}
 	c.mu.Lock()
 	c.enabled = v.Enabled
+	c.captureStartError = ""
 	c.mu.Unlock()
 	if v.Enabled != wasEnabled {
 		c.closeEdgeConnections()
@@ -386,12 +392,14 @@ func (c *Controller) handleSettingsSet(ctx context.Context, raw json.RawMessage)
 	c.mu.Lock()
 	oldSettings := c.settings
 	c.mu.Unlock()
-	c.mu.Lock()
-	enabled := c.enabled
-	c.mu.Unlock()
-	if s.Automatic && enabled {
-		if err := c.requireChromeActivation(); err != nil {
-			return nil, err
+	if !c.browser.readiness.enforced.Load() && s.Automatic {
+		c.mu.Lock()
+		enabled := c.enabled
+		c.mu.Unlock()
+		if enabled {
+			if err := c.requireChromeActivation(); err != nil {
+				return nil, err
+			}
 		}
 	}
 	apply := func() error {
@@ -421,6 +429,9 @@ func (c *Controller) handleSettingsSet(ctx context.Context, raw json.RawMessage)
 	}
 	if err := c.saveSettings(); err != nil {
 		return nil, err
+	}
+	if !s.Automatic {
+		_ = c.cleanupBrowserPoliciesForMutation()
 	}
 	return s, nil
 }

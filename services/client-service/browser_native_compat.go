@@ -60,7 +60,7 @@ func (c *Controller) nativeBrowserCompatibility(p profiles.Profile, requested bo
 		return nil, errors.New("NATIVE_OWNED_PAC_GUARD_REQUIRED")
 	}
 	if c.browser.server == nil {
-		server, err := browserproxy.Listen(c.ctx, browserproxy.Config{RequireClientHelloReplay: true, Address: c.browser.address, Authorize: c.browserOwner, AuthorizeForwarded: c.browserRecoveryOwner, Plan: c.browserPlan, Open: c.browserOpen, OpenPlan: c.browserOpenPlan, TransformApplied: c.browserTransform, OnStall: c.browserStall, OnDirectAnswered: c.browserDirectAnswered})
+		server, err := browserproxy.Listen(c.ctx, browserproxy.Config{TransportCheck: c.transportCheckSettings, RequireClientHelloReplay: true, Address: c.browser.address, Authorize: c.browserOwner, AuthorizeForwarded: c.browserRecoveryOwner, Plan: c.browserPlan, Open: c.browserOpen, OpenPlan: c.browserOpenPlan, TransformApplied: c.browserTransform, OnStall: c.browserStall, OnDirectAnswered: c.browserDirectAnswered})
 		if err != nil {
 			return nil, errors.New("CHROME_LISTENER_BIND_FAILED")
 		}

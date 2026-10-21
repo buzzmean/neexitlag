@@ -45,11 +45,9 @@ public partial class MainWindow {
   await model.OptimizeAsync(true,lifetime.Token);
  }
  async Task EnableOptimizationCoreAsync(){
-  var status=await model.ChromeStatusAsync(lifetime.Token);
-  foreach(var row in model.Applications.Where(r=>r.Profile.Mode=="AUTO"&&IsChrome(r.Profile)).ToArray()){
-   if(status.RecoveryAddress==""||!status.ReadyProfiles.Contains(row.Profile.Id)){await ActivateChromeSites(row);if(!model.Optimizing)return;}
-  }
   await model.OptimizeAsync(true,lifetime.Token);
+  await EnsureSilentBrowserLanesAsync();
+  await PrepareNativeBrowsersAsync();
  }
  async Task<bool> ActivateChromeSites(ApplicationRow row){
   if(chromeActivating)throw new ChromeActivationException("Chrome activation already running", "chrome.activation", "CHROME_ACTIVATION_BUSY");chromeActivating=true;chromeActivationPhase="chrome.activation";
@@ -64,7 +62,7 @@ public partial class MainWindow {
   }finally{chromeActivating=false;}
  }
  async Task MonitorChromeTransportAsync(bool wasOptimizing){
- if(!model.Available || model.Activation?.Status.CapturePermitted==false)return;
+ if(!model.Available || model.Activation?.Status.CapturePermitted==false || !model.Optimizing || model.Snapshot?.Connected!=true)return;
   await MonitorEdgeTransportAsync();
   if(model.Applications.Any(a=>IsChrome(a.Profile)&&DesktopViewModel.NativeBrowser(a.Profile)))return;
   if(chromeActivating||chromeMonitoring)return;

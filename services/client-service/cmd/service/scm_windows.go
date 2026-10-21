@@ -34,14 +34,14 @@ func (h handler) Execute(args []string, requests <-chan svc.ChangeRequest, statu
 			switch r.Cmd {
 			case svc.Interrogate:
 				status <- r.CurrentStatus
-			case svc.Stop, svc.Shutdown:
+			case svc.Stop, svc.Shutdown, svc.Cmd(128):
 				status <- svc.Status{State: svc.StopPending}
 				cancel()
 				select {
 				case <-done:
 				case <-time.After(10 * time.Second):
 				}
-				return false, 0
+				return false, policyStopExitCode(r.Cmd)
 			}
 		}
 	}
@@ -58,4 +58,11 @@ func platformRun(ctx context.Context, path string, console bool) error {
 		return run(ctx, path)
 	}
 	return svc.Run("neexitlag", handler{path, ctx})
+}
+
+func policyStopExitCode(cmd svc.Cmd) uint32 {
+	if cmd == svc.Cmd(128) {
+		return 1
+	}
+	return 0
 }

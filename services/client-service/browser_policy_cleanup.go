@@ -19,8 +19,17 @@ func (c *Controller) CleanupOwnedBrowserPolicies() error {
 	defer c.activationMu.Unlock()
 	c.browser.mu.Lock()
 	defer c.browser.mu.Unlock()
+	return c.cleanupOwnedBrowserPoliciesLocked(nil)
+}
+
+// Caller serializes policy mutations with browser.mu.
+func (c *Controller) cleanupOwnedBrowserPoliciesLocked(only *bool) error {
+	c.browserPolicyInvalidateLocked(only)
 	var failures []error
 	for _, edge := range []bool{false, true} {
+		if only != nil && edge != *only {
+			continue
+		}
 		name := "browser-transport.json"
 		owned := append([]string{}, c.browser.silent.Owned...)
 		remove := c.browser.chromeRemove
@@ -80,11 +89,13 @@ func (c *Controller) CleanupOwnedBrowserPolicies() error {
 // Host cancellation represents an intentional stop/shutdown. Initialization
 // errors and process crashes do not authorize removal of the fail-closed guard.
 func (c *Controller) CloseForHost(parent context.Context) error {
-	c.Close()
+	var cleanup error
 	if parent.Err() != nil {
-		return c.CleanupOwnedBrowserPolicies()
+		c.cancel()
+		cleanup = c.CleanupOwnedBrowserPolicies()
 	}
-	return nil
+	c.Close()
+	return cleanup
 }
 
 // Only a credential-less ActivationOnly installation may discard stale policy
@@ -97,4 +108,11 @@ func (c *Controller) CleanupPreactivationBrowserPolicies() error {
 		return nil
 	}
 	return c.CleanupOwnedBrowserPolicies()
+}
+
+// Mutation IPC already holds activationMu; never recursively take it.
+func (c *Controller) cleanupBrowserPoliciesForMutation() error {
+	c.browser.mu.Lock()
+	defer c.browser.mu.Unlock()
+	return c.cleanupOwnedBrowserPoliciesLocked(nil)
 }

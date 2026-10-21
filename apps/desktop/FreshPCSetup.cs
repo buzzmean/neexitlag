@@ -39,6 +39,8 @@ public partial class MainWindow
             // Edge commits its PAC without enabling Optimize. Chrome's legacy
             // commit enables Optimize, so prepare Edge first to avoid racing an
             // unprepared installed Edge lane during that transaction.
+            phase = "optimize";
+            await model.OptimizeAsync(true,lifetime.Token);
             phase = "edge_pac"; browser = "edge";
             foreach (var profile in profiles.Where(BrowserCatalog.IsEdge))
                 if (!await ActivateEdgeSites(profile)) throw new ChromeActivationException("Активация Edge отменена", "edge_pac", "BROWSER_ACTIVATION_CANCELLED");

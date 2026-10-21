@@ -140,7 +140,7 @@ func (c *Controller) listenEdge(e *edgeRuntime) error {
 	if e.server != nil {
 		return nil
 	}
-	server, err := browserproxy.Listen(c.ctx, browserproxy.Config{RequireClientHelloReplay: true, Address: e.saved.Address, Authorize: c.edgeOwner, AuthorizeForwarded: c.edgeRecoveryOwner, Plan: c.browserPlan, Open: c.browserOpen, OpenPlan: c.browserOpenPlan, TransformApplied: c.browserTransform, OnStall: c.browserStall, OnDirectAnswered: c.browserDirectAnswered})
+	server, err := browserproxy.Listen(c.ctx, browserproxy.Config{TransportCheck: c.transportCheckSettings, RequireClientHelloReplay: true, Address: e.saved.Address, Authorize: c.edgeOwner, AuthorizeForwarded: c.edgeRecoveryOwner, Plan: c.browserPlan, Open: c.browserOpen, OpenPlan: c.browserOpenPlan, TransformApplied: c.browserTransform, OnStall: c.browserStall, OnDirectAnswered: c.browserDirectAnswered})
 	if err != nil {
 		return err
 	}
@@ -272,6 +272,21 @@ func (c *Controller) saveEdge(e *edgeRuntime) error {
 	return os.Rename(name, filepath.Join(dir, "edge-transport.json"))
 }
 func (c *Controller) writeEdgePolicy(e *edgeRuntime, pac string) error {
+	if err := c.browserPolicyPublishReadyLocked(true); err != nil {
+		return err
+	}
+	if c.browser.readiness.enforced.Load() {
+		if pac != e.saved.ExpectedPAC {
+			_ = c.cleanupOwnedBrowserPoliciesLocked(func() *bool { v := true; return &v }())
+			return nil
+		}
+		var err error
+		pac, err = browserproxy.AvailabilityPAC(pac)
+		if err != nil {
+			return err
+		}
+		e.saved.ExpectedPAC = pac
+	}
 	next := edgePolicyValue(pac)
 	// Journal both authorized values before touching HKU: crash between the two
 	// writes can safely resume, but a foreign value is never overwritten.
@@ -313,6 +328,9 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (result any,
 		}
 		snapshot.RecoveryAddress = e.saved.Recovery
 		snapshot.PolicyReady = e.policyActive(c.BrowserOwnerSID)
+		if c.browser.readiness.enforced.Load() {
+			snapshot.PolicyReady = snapshot.PolicyReady && c.browser.readiness.laneReady(1) && c.browserPolicyBaseReason() == ""
+		}
 		view := browserStatusView{Snapshot: snapshot, DirectTimeouts: c.browser.directTimeouts.Stats(), RelayUsage: c.relayUsageLocked()}
 		view.SilentActivation = c.silentViewLocked(true, snapshot)
 		view.bound()
@@ -438,6 +456,13 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (result any,
 		}
 		e.healthProfile, e.healthURL = p.ID, health
 		e.readinessFailure = ""
+		if c.browser.readiness.enforced.Load() {
+			available, err := browserproxy.AvailabilityPAC(strings.TrimPrefix(args[1], "--proxy-pac-url="))
+			if err != nil {
+				return nil, err
+			}
+			args[1] = "--proxy-pac-url=" + available
+		}
 		e.saved.ExpectedPAC = strings.TrimPrefix(args[1], "--proxy-pac-url=")
 		e.saved.GuardPAC = edgeClosedPAC(p)
 		e.saved.Recovery = q.Recovery
@@ -445,7 +470,7 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (result any,
 			return nil, err
 		}
 		program, _ := os.Executable()
-		return map[string]any{"arguments": args, "recovery_arguments": args, "address": e.server.Address(), "health_url": health, "recovery_program": program, "recovery_settings": browserproxy.RecoverySettings{GuardFile: c.browserGuardFile(), Primary: e.server.Address(), Profile: p.ID, Domains: domains, Strict: strict}, "scope": "Edge only; Chrome and Windows proxy unchanged"}, nil
+		return map[string]any{"arguments": args, "recovery_arguments": args, "address": e.server.Address(), "health_url": health, "recovery_program": program, "recovery_settings": browserproxy.RecoverySettings{CheckTarget: c.browser.readiness.target, CheckToken: c.browser.readiness.token, GuardFile: c.browserGuardFile(), Primary: e.server.Address(), Profile: p.ID, Domains: domains, Strict: strict}, "scope": "Edge only; Chrome and Windows proxy unchanged"}, nil
 	case "edge.policy":
 		pac := e.saved.ExpectedPAC
 		switch q.Operation {

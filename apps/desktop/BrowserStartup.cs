@@ -12,7 +12,7 @@ public partial class MainWindow
         nextBrowserStartup = DateTimeOffset.UtcNow.AddSeconds(10);
         await model.EnsureStartupBrowserProfilesAsync(BrowserCatalog.Discover(File.Exists, Environment.GetEnvironmentVariable), lifetime.Token);
         if(model.Optimizing)await EnsureSilentBrowserLanesAsync();
-        await PrepareNativeBrowsersAsync();
+        if(model.Optimizing && model.Snapshot?.Connected==true)await PrepareNativeBrowsersAsync();
         if (ReferenceEquals(savedBrowserStartup, model.BrowserStartup) || model.BrowserStartup is null) return;
         // Bounded, owner-user report; no policy, tokens, certificates or payloads.
         var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NeExitLag");

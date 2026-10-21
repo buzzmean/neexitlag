@@ -37,3 +37,19 @@ func activationNetworkMutation(method string) bool {
 	}
 	return false
 }
+
+// Starting workers is not readiness. A transient capture failure must remain
+// pending, with a bounded retry, without asking the user to reactivate/restart.
+func (c *Controller) startActivatedCapture(connected bool, started *bool) error {
+	c.mu.Lock()
+	automatic := c.settings.Automatic
+	c.mu.Unlock()
+	if *started || !automatic || !connected || c.activation.stopAutomatic.Load() || c.ctx.Err() != nil {
+		return nil
+	}
+	_, err := c.Handle(c.ctx, "optimize", []byte(`{"enabled":true}`))
+	if err == nil {
+		*started = true
+	}
+	return err
+}

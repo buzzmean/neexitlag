@@ -62,23 +62,27 @@ type Snapshot struct {
 	Version              string                           `json:"version"`
 	// Build is the git commit this binary was built from (plus "+modified" for a dirty tree),
 	// so a stale service or checkout is visible instead of guessed.
-	Build        string                        `json:"build,omitempty"`
-	Connected    bool                          `json:"connected"`
-	Optimizing   bool                          `json:"optimizing"`
-	Demo         bool                          `json:"demo"`
-	Backend      windowsplatform.CaptureStatus `json:"backend"`
-	Primary      string                        `json:"primary"`
-	Secondary    string                        `json:"secondary"`
-	Tertiary     string                        `json:"tertiary"`
-	Routes       []RouteView                   `json:"routes"`
-	Profiles     []profiles.Profile            `json:"profiles"`
-	RXBytes      uint64                        `json:"rx_bytes"`
-	TXBytes      uint64                        `json:"tx_bytes"`
-	History      optimizer.RouteHistory        `json:"history"`
-	Flows        []routing.Flow                `json:"flows"`
-	Settings     Settings                      `json:"settings"`
-	ControlPlane string                        `json:"control_plane"`
-	ActiveApps   []string                      `json:"active_apps"`
+	Build            string                        `json:"build,omitempty"`
+	ServicePID       uint32                        `json:"service_pid"`
+	ConnectionReason string                        `json:"connection_reason"`
+	RelayConnected   bool                          `json:"relay_connected"`
+	BrowserPolicy    BrowserPolicyHealth           `json:"browser_policy"`
+	Connected        bool                          `json:"connected"`
+	Optimizing       bool                          `json:"optimizing"`
+	Demo             bool                          `json:"demo"`
+	Backend          windowsplatform.CaptureStatus `json:"backend"`
+	Primary          string                        `json:"primary"`
+	Secondary        string                        `json:"secondary"`
+	Tertiary         string                        `json:"tertiary"`
+	Routes           []RouteView                   `json:"routes"`
+	Profiles         []profiles.Profile            `json:"profiles"`
+	RXBytes          uint64                        `json:"rx_bytes"`
+	TXBytes          uint64                        `json:"tx_bytes"`
+	History          optimizer.RouteHistory        `json:"history"`
+	Flows            []routing.Flow                `json:"flows"`
+	Settings         Settings                      `json:"settings"`
+	ControlPlane     string                        `json:"control_plane"`
+	ActiveApps       []string                      `json:"active_apps"`
 }
 type Controller struct {
 	activation      activationRuntime
@@ -121,6 +125,7 @@ type Controller struct {
 	TCPDiagnosticTarget         string
 	RX, TX                      atomic.Uint64
 	mu                          sync.Mutex
+	captureStartError           string
 	enabled                     bool
 	settings                    Settings
 	customPath                  string
@@ -332,6 +337,23 @@ func (c *Controller) Classify(identity windowsplatform.ProcessIdentity, t window
 	if !ok {
 		return decision
 	}
+	// Owner-authorized availability contract: no opaque native browser capture
+	// while its PAC lane is suspended. Desktop apps and games retain their policy.
+	if c.browser.readiness.enforced.Load() && profile.Mode == profiles.Auto && (chromeProfile(profile) || edgeProfile(profile)) {
+		lane := 0
+		if edgeProfile(profile) {
+			lane = 1
+		}
+		c.mu.Lock()
+		automatic := c.settings.Automatic
+		c.mu.Unlock()
+		if !c.browser.readiness.laneReady(lane) || !automatic {
+			decision.Flow = routing.Flow{Protocol: t.Protocol, Source: t.Source, Destination: t.Destination, PID: identity.PID, ProcessPath: identity.Path, ApplicationID: profile.ID, PinnedPolicy: &routing.Policy{}}
+			decision.Revision = c.policyRevision(profile)
+			decision.Policy = flowpolicy.Result{Action: flowpolicy.Direct, Source: "browser_policy_suspended", Reason: "owner-authorized DIRECT while browser infrastructure is not ready"}
+			return decision
+		}
+	}
 	f := routing.Flow{Protocol: t.Protocol, Source: t.Source, Destination: t.Destination, PID: identity.PID, ProcessPath: identity.Path, ApplicationID: profile.ID}
 	decision.Flow = f
 	decision.Revision = c.policyRevision(profile)
@@ -490,7 +512,11 @@ func (c *Controller) Snapshot() Snapshot {
 		rx += brx
 		tx += btx
 	}
-	snapshot := Snapshot{CaptureActive: backend.Ready, CapturePermitted: c.activationNetworkAllowed(), HotAttach: c.hotAttachStatus(), Version: "0.3.0-dev", Build: buildStamp(), Connected: c.Demo || backend.Ready, Optimizing: enabled && (c.Demo || backend.Ready), Demo: c.Demo, Backend: backend, Primary: selection.Primary, Secondary: selection.Secondary, Tertiary: selection.Tertiary, Routes: views, Profiles: c.Profiles.List(), RXBytes: rx, TXBytes: tx, History: history, Flows: flows, Settings: settings, ControlPlane: controlPlaneURL, ActiveApps: apps}
+	snapshot := Snapshot{CaptureActive: backend.Ready, CapturePermitted: c.activationNetworkAllowed(), HotAttach: c.hotAttachStatus(), Version: "0.3.0-dev", Build: buildStamp(), Connected: (c.Demo || backend.Ready) && (controlPlaneURL == "" || c.relayConnected()), Optimizing: enabled && (c.Demo || backend.Ready), Demo: c.Demo, Backend: backend, Primary: selection.Primary, Secondary: selection.Secondary, Tertiary: selection.Tertiary, Routes: views, Profiles: c.Profiles.List(), RXBytes: rx, TXBytes: tx, History: history, Flows: flows, Settings: settings, ControlPlane: controlPlaneURL, ActiveApps: apps}
+	snapshot.ServicePID = uint32(os.Getpid())
+	snapshot.RelayConnected = c.relayConnected()
+	snapshot.ConnectionReason = c.connectionReason(snapshot)
+	snapshot.BrowserPolicy = c.browserPolicyHealth()
 	// Keep mandatory profile/quality fields; shorten display history to the IPC frame.
 	for {
 		raw, _ := json.Marshal(snapshot)
@@ -517,6 +543,10 @@ func (c *Controller) Snapshot() Snapshot {
 	return snapshot
 }
 func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMessage) (result any, err error) {
+	if (method == "profile.set" || method == "profile.delete" || method == "auto.commit") && c.browserProfileMutation(raw) {
+		defer func() { _ = c.CleanupOwnedBrowserPolicies() }()
+	}
+
 	if !c.activationNetworkAllowed() {
 		if activationNetworkMutation(method) {
 			return nil, errors.New("ACTIVATION_REQUIRED")
