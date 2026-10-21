@@ -1,5 +1,9 @@
 namespace Neexitlag.Desktop;
 public static class GuiRoutingLifetime {
- // No browser/process control. A failed IPC leaves the GUI open with its error.
- public static Task StopAsync(bool serviceAvailable, Func<Task> disable) => serviceAvailable ? disable() : Task.CompletedTask;
+ // Always try: a stale GUI Available=false does not prove service absence.
+ // No browser/process control. Other IPC failures must keep the GUI open.
+ public static async Task StopAsync(Func<Task> disable) {
+  try { await disable(); }
+  catch (ServiceException e) when (e.Failure is ServiceFailure.NotInstalled or ServiceFailure.Stopped) { }
+ }
 }

@@ -1887,3 +1887,7 @@ relay, transport/security не изменены слияниями. Другие
 ### A1 — дополнительная проверка завершения GUI
 
 Найден синхронный путь StopAsync при недоступной службе: Close внутри Closing WPF мог быть отклонён. Финальный Close теперь ставится в Dispatcher после завершения cleanup, native lifecycle fixture проверяет X/tray и отсутствие синхронного reentry. WPF и native fixture cross-build PASS (0 errors,4 прежних CS8604); реальный Windows runtime не выполнялся. Браузеры и маршруты не менялись.
+
+### A1 — подтверждённое отключение при выходе
+
+Общий OptimizeAsync проглатывал IPC failure через Act, а Available=false не доказывает отсутствия службы. Выход теперь всегда пытается отключить routing отдельным методом, который требует успешный ответ optimizing=false и не проглатывает rejection/cancellation/unavailable. Только подтверждённые SCM NotInstalled/Stopped позволяют выход без ACK. Native fixture получает явную тестовую отсутствующую службу, без реального IPC; добавлены настоящие WPF failure-path assertions. C#174/174 PASS; WPF/native fixture cross-build0 errors/4 прежних CS8604; реальный Windows runtime не выполнен.

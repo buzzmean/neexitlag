@@ -6,13 +6,14 @@ using Microsoft.Win32;
 namespace Neexitlag.Desktop;
 public partial class MainWindow : Window
 {
-    readonly DesktopViewModel model = new(new WindowsServiceClient()); readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromSeconds(2) }; readonly CancellationTokenSource lifetime = new();
+    readonly DesktopViewModel model; readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromSeconds(2) }; readonly CancellationTokenSource lifetime = new();
     readonly LocalPreferences preferences; readonly bool shutdownOnClose; readonly string? preferencesPath; readonly System.Windows.Forms.NotifyIcon tray; readonly System.Drawing.Icon trayImage; bool exiting, settingsLoaded, startupApplied;
     public MainWindow() : this(LocalPreferences.Load(), true, true) { }
     // The native test host uses the same BAML, event handlers and NotifyIcon,
     // without starting IPC timers or shutting down the host Application.
-    internal MainWindow(LocalPreferences preferences, bool background, bool shutdownOnClose, string? preferencesPath = null)
+    internal MainWindow(LocalPreferences preferences, bool background, bool shutdownOnClose, string? preferencesPath = null, IServiceClient? serviceClient = null)
     {
+        model = new(serviceClient ?? new WindowsServiceClient());
         this.preferences = preferences;
         this.shutdownOnClose = shutdownOnClose;
         this.preferencesPath = preferencesPath;
@@ -99,7 +100,7 @@ public partial class MainWindow : Window
         timer.Stop(); // Do not let polling re-prepare a lane during shutdown.
         try {
             using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(8));
-            await GuiRoutingLifetime.StopAsync(model.Available, () => model.OptimizeAsync(false, deadline.Token));
+            await GuiRoutingLifetime.StopAsync(() => model.DisableRoutingForExitAsync(deadline.Token));
             if (!exiting && preferences.MinimizeToTray) Hide();
             else {
                 // StopAsync may complete synchronously (e.g. no service). Never

@@ -31,7 +31,18 @@ internal static class Program
         }
     }
     static void Pass(string label) => Console.WriteLine("PASS " + label);
-    static MainWindow Window(LocalPreferences p) => new(p, false, false, settings);
+    sealed class AbsentService : IServiceClient
+    {
+        public Task<T> Call<T>(string method, object? payload = null, CancellationToken cancellationToken = default)
+            => throw new ServiceException(ServiceFailure.NotInstalled);
+    }
+    sealed class ExitService : IServiceClient
+    {
+        public bool Reject = true;
+        public Task<T> Call<T>(string method, object? payload = null, CancellationToken cancellationToken = default)
+            => throw new ServiceException(Reject ? ServiceFailure.Rejected : ServiceFailure.NotInstalled);
+    }
+    static MainWindow Window(LocalPreferences p) => new(p, false, false, settings, new AbsentService());
     static void Key(ComboBox box, System.Windows.Input.Key key)
     {
         box.RaiseEvent(new System.Windows.Input.KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(box)!, 0, key) { RoutedEvent = Keyboard.KeyDownEvent });
@@ -115,6 +126,14 @@ internal static class Program
             }
             Pass($"StartMinimized={start} / MinimizeToTray={tray}: startup, minimize, X, Open, Exit, restart");
         }
+        var failingService = new ExitService();
+        var failed = new MainWindow(new() { MinimizeToTray = false }, false, false, settings, failingService);
+        bool failedClosed = false; failed.Closed += (_, _) => failedClosed = true;
+        failed.Show(); Pump(); failed.Close(); Pump();
+        Require(!failedClosed && failed.IsVisible, "Rejected routing shutdown must leave real GUI open");
+        Require(!string.IsNullOrWhiteSpace(((DesktopViewModel)failed.DataContext).Error), "Rejected shutdown must show its error");
+        failingService.Reject = false; failed.Exit(); Pump(); Require(failedClosed, "Known removed service must allow GUI exit");
+        Pass("IPC rejection keeps GUI open; explicit absence allows exit");
         var live = Window(new() { MinimizeToTray = true }); live.Show(); Pump();
         live.WindowState = WindowState.Minimized; Pump(); Require(!live.IsVisible, "Initial tray minimize");
         live.SaveLocalPreferences(true, false); Pump();
