@@ -111,6 +111,8 @@ type Record struct {
 	StallRetried bool `json:"stall_retried_via_relay,omitempty"`
 }
 type Snapshot struct {
+	ProcessRole        string            `json:"process_role"`
+	ProcessID          int               `json:"process_id"`
 	LastActivity       time.Time         `json:"last_activity"`
 	ActiveConnections  int               `json:"active_connections"`
 	FirstByteMetrics   []FirstByteMetric `json:"first_byte_metrics,omitempty"`
@@ -235,7 +237,7 @@ func (s *Server) Snapshot() Snapshot {
 	for profile := range s.confirmed {
 		ready = append(ready, profile)
 	}
-	out := Snapshot{LastActivity: s.lastActivity, ActiveConnections: len(s.conns), Path: "PAC_CONNECT", PathMetrics: []PathMetrics{}, FailureDetails: []FailureSummary{}, MetricsLost: s.metricsLost, FailureDetailsLost: s.failureDetailsLost, ReadyProfiles: ready, Failures: failures, Listening: !s.closed && s.ctx.Err() == nil, Address: s.Address(), Lost: s.lost, Records: make([]Record, 0, len(s.records))}
+	out := Snapshot{ProcessRole: "LOCAL_BROWSER_PROXY", ProcessID: os.Getpid(), LastActivity: s.lastActivity, ActiveConnections: len(s.conns), Path: "PAC_CONNECT", PathMetrics: []PathMetrics{}, FailureDetails: []FailureSummary{}, MetricsLost: s.metricsLost, FailureDetailsLost: s.failureDetailsLost, ReadyProfiles: ready, Failures: failures, Listening: !s.closed && s.ctx.Err() == nil, Address: s.Address(), Lost: s.lost, Records: make([]Record, 0, len(s.records))}
 	out.FirstByteMetrics, out.FirstByteLost = s.firstBytes.snapshot()
 	for _, p := range s.paths {
 		out.PathMetrics = append(out.PathMetrics, p)

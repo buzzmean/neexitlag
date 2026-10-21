@@ -105,6 +105,20 @@ func main() {
 		case <-ctx.Done():
 		}
 	}()
+	role := "SERVICE_HOST"
+	if *console {
+		role = "CONSOLE_HOST"
+	}
+	if *watchdog {
+		role = "POLICY_WATCHDOG"
+	}
+	if *cleanup {
+		role = "POLICY_CLEANUP"
+	}
+	if *recovery {
+		role = "OWNER_RECOVERY"
+	}
+	slog.Info("VELIQ process role", "role", role, "pid", os.Getpid(), "parent_pid", os.Getppid())
 	if *watchdog {
 		if err := clientservice.RunBrowserPolicyWatchdog(ctx, *path); err != nil {
 			slog.Error("policy watchdog unavailable", "class", "WATCHDOG_FAILED")

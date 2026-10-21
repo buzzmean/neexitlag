@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // This owner-user child has no manifest, token, device key, driver or admin RPC.
@@ -20,11 +21,17 @@ import (
 // EOF closes the listener. It cannot serve other users/processes or guarded
 // domains, even when configured maliciously by its own unprivileged owner.
 func runBrowserRecovery(parent context.Context, port uint16) error {
-	return runBrowserRecoveryWithDial(parent, port, nil)
+	return runBrowserRecoveryWithHost(parent, port, nil, wp.BrowserRecoveryServiceState)
 }
 func runBrowserRecoveryWithDial(parent context.Context, port uint16, direct func(context.Context, browserproxy.Request) (net.Conn, error)) error {
+	return runBrowserRecoveryWithHost(parent, port, direct, nil)
+}
+func runBrowserRecoveryWithHost(parent context.Context, port uint16, direct func(context.Context, browserproxy.Request) (net.Conn, error), hostState func() string) error {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
+	if hostState != nil {
+		go watchRecoveryHost(ctx, cancel, hostState, 250*time.Millisecond)
+	}
 	self, err := wp.NewDiscovery().Lookup(uint32(os.Getpid()))
 	if err != nil {
 		return err

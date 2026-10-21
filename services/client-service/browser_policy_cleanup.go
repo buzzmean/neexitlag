@@ -91,7 +91,17 @@ func (c *Controller) cleanupOwnedBrowserPoliciesLocked(only *bool) error {
 func (c *Controller) CloseForHost(parent context.Context) error {
 	var cleanup error
 	if parent.Err() != nil {
-		cleanup = c.CleanupOwnedBrowserPolicies()
+		c.activationMu.Lock()
+		c.activation.stopAutomatic.Store(true)
+		c.mu.Lock()
+		c.enabled = false
+		c.mu.Unlock()
+		// Cached PAC gets DIRECT at the deliberate stop boundary, before removal.
+		guardErr := c.publishBrowserGuard(false)
+		c.browser.mu.Lock()
+		cleanup = errors.Join(guardErr, c.cleanupOwnedBrowserPoliciesLocked(nil))
+		c.browser.mu.Unlock()
+		c.activationMu.Unlock()
 	}
 	c.Close()
 	return cleanup

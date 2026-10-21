@@ -1968,3 +1968,7 @@ wall-clock overrun не установлена, результат не скры
 ### Регрессия выключения — B
 
 Удаляется только ProxySettings, не registry key. Подтверждён RegisterGPNotification в Chromium loader; после реальной мутации теперь async bounded RefreshPolicyEx(USER,RP_FORCE) под verified owner token (SYSTEM WTS impersonation, dedicated thread); GUI сообщает user refresh при Optimizing=false. Неуспешный API не выдаётся за live uptake: policy_refresh.state/at/requests/live_uptake. Coalescing не теряет последнюю мутацию; native registry fixture проверяет key/foreign/no-op. Go race queue/service PASS, Windows native fixture compile PASS, WPF0 errors/4 прежних warnings. Реальное удаление из chrome://policy ещё не проверено, A остаётся обязательной защитой.
+
+### Регрессия выключения — C
+
+По коду обнаружен отдельный --chrome-recovery owner child того же EXE, прежде живший до GUI stdin EOF; watchdog CONNECT не слушает и Stopped SCM не перезапускает. Реальная роль PID20012 без owner read-only вывода не установлена. Новый child проверяет read-only SCM и завершает listener при STOP_PENDING/STOPPED (250мс), deliberate host stop публикует DIRECT до удаления policy и Close. Добавлены process_role/process_id и diagnose-browser-processes.ps1 без вывода command line; watchdog допустимо остаётся без TCP. Race stop/guard/watchdog PASS, PS parse PASS, Windows host/native test compile PASS. Настоящий SCM/браузер после Stop-Service ещё не выполнялся.

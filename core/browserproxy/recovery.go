@@ -212,6 +212,7 @@ func (r *Recovery) AuthorizeMetadata(auth func(context.Context, netip.AddrPort, 
 }
 func (r *Recovery) DirectSnapshot() Snapshot {
 	snapshot := r.server.Snapshot()
+	snapshot.ProcessRole = "OWNER_RECOVERY"
 	records := []Record{}
 	for _, record := range snapshot.Records {
 		if record.Plan.Probe == "RECOVERY_DIRECT_SOCKET" || record.Plan.Probe == "BROWSER_DISABLED_DIRECT" {

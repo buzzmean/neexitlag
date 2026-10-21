@@ -55,3 +55,27 @@ API, live_uptake=NOT_OBSERVED. Отказ/недоступный owner session �
 Старый сторонний/legacy PAC без DIRECT не позволяет одновременно гарантировать
 нулевые listeners и работу браузера, который совсем не перечитывает policy;
 такое состояние нужно явно выявлять, а не выдавать за PASS.
+
+## C: SCM host, watchdog и recovery имеют одно имя файла
+
+`neexitlag-service.exe --chrome-recovery` — отдельный owner-GUI child, а не второй
+SCM host. Его старый lifecycle завершался только по stdin EOF/GUI Dispose; поэтому
+он мог пережить Stop-Service. `-browser-policy-watchdog` — ещё один отдельный
+SYSTEM процесс, но он не открывает CONNECT ports. По одному имени EXE и порту
+нельзя установить роль PID 20012: нужна проверка SCM ProcessId/flags/parent.
+
+Новый recovery CLI read-only проверяет SCM раз в250мс и сам завершает свой
+listener/process при STOP_PENDING/STOPPED/NOT_INSTALLED. UNKNOWN или старт не
+считаются остановкой. GUI не перезапускает helper при выключенной оптимизации;
+полный SCM stop остаётся штатным exit0. Watchdog не запускает Stopped service:
+recovery применяется только к действительно Running/hung host; crash перезапускает
+существующая SCM recovery policy. Штатный останов не подменяется control128.
+
+`diagnose-browser-processes.ps1` ничего не меняет: SCM state/PID, ограниченные
+process roles/parent/birth/path и loopback ports. CommandLine только разбирается
+внутри, никогда не печатается. Start/restart/credentials не вызываются. Новый
+status proxy показывает process_role/process_id. Watchdog может оставаться как
+процесс без слушателей — это ожидаемо; сам SCM host и его recovery listeners
+после штатного stop оставаться не должны. Реальный Stop-Service/SCM на ПК ещё
+не проверен. После закрытия всех endpoints cached current PAC использует свой
+явный DIRECT fallback; legacy PAC без DIRECT — ограничение из B.

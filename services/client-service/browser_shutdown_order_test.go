@@ -2,8 +2,10 @@ package clientservice
 
 import (
 	"context"
+	"encoding/json"
 	"github.com/buzzmean/neexitlag/core/controlclient"
 	"github.com/buzzmean/neexitlag/core/security"
+	"os"
 	"testing"
 )
 
@@ -42,5 +44,39 @@ func TestActivationRevocationRemovesPACBeforeRelayClose(t *testing.T) {
 	}
 	if *value != "" {
 		t.Fatal("revoked identity retained PAC")
+	}
+}
+
+func TestHostStopPublishesDirectCompatibilityBeforeRemovingPolicy(t *testing.T) {
+	c, value, _, _ := policyReadyFixture(t, false)
+	*value = "owned"
+	c.browser.silent.Owned = []string{"owned"}
+	c.browser.chromeRemove = func(_ string, _ []string) error {
+		if *value == "" {
+			return nil
+		}
+		raw, e := os.ReadFile(c.browserGuardFile())
+		if e != nil {
+			t.Fatal(e)
+		}
+		var g struct {
+			Direct bool `json:"direct_compatibility"`
+		}
+		if json.Unmarshal(raw, &g) != nil || !g.Direct {
+			t.Fatal("SCM stop retained active guard")
+		}
+		if c.browser.server == nil || !c.browser.server.Snapshot().Listening {
+			t.Fatal("listener closed before compatibility")
+		}
+		*value = ""
+		return nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if e := c.CloseForHost(ctx); e != nil {
+		t.Fatal(e)
+	}
+	if c.browser.server.Snapshot().Listening {
+		t.Fatal("SCM stop retained primary")
 	}
 }
