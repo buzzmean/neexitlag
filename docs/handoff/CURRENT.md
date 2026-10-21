@@ -1960,3 +1960,7 @@ TestDirectOpenSharesBudgetRatherThanMultiplyingTimeoutByAddresses, 1.18с при
 повтор PASS. Это не доказанный runtime regression; точная причина одиночного
 wall-clock overrun не установлена, результат не скрыт. Подробное прежнее
 доказательство lease test50x до/после — testing/LEASE_REVOCATION_RACE.md.
+
+### Регрессия выключения — A
+
+Исправлен реальный путь: native PAC делегировался в уже остановленный WinDivert; off теперь owner-validated OS DIRECT без Engine/relay/learning и без protected rule при явном выключении. Recovery получает только service-owned disabled grant с SID/path проверками; active protection/deny остаются. Убран mass CloseConnections при Optimize/Automatic switch, established TCP pinned. Idle listener уходит через3мин без сокетов, rebind проверен. Core/service race PASS, targeted real TCP echo/auth/idle PASS, Windows service cross-build PASS. Реальный Windows/Chrome пока не выполнялся; остановка secondary recovery — пункт C.

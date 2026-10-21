@@ -22,7 +22,10 @@ func (c *Controller) publishBrowserGuard(deny bool) error {
 	if path == "" {
 		return nil
 	}
-	guard := browserproxy.RecoveryGuard{Version: 1, Deny: deny, Profiles: map[string]browserproxy.RecoveryGuardProfile{}}
+	c.mu.Lock()
+	compatibility := !c.enabled || !c.settings.Automatic
+	c.mu.Unlock()
+	guard := browserproxy.RecoveryGuard{DirectCompatibility: compatibility && !deny, Version: 1, Deny: deny, Profiles: map[string]browserproxy.RecoveryGuardProfile{}}
 	if !deny {
 		for _, p := range c.Profiles.List() {
 			if (!chromeProfile(p) && !edgeProfile(p)) || p.Trial != nil {

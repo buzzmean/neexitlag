@@ -79,7 +79,7 @@ func ListenRecovery(ctx context.Context, address string, authorize func(context.
 		r.mu.RLock()
 		current := r.settings
 		r.mu.RUnlock()
-		if current == nil || guardedRecoveryDomain(q.Host, *current) {
+		if current == nil || (!recoveryCompatibilityAuthorized(*current) && guardedRecoveryDomain(q.Host, *current)) {
 			return Plan{}, errors.New("RECOVERY_PROTECTED_ORIGIN_REJECTED")
 		}
 		return Plan{Policy: flowpolicy.Result{Action: flowpolicy.Direct, Reason: "recovery forwarding; primary route recorded by service"}, Probe: "PRIMARY_FORWARD_OR_ORDINARY_DIRECT"}, nil
@@ -126,8 +126,11 @@ func (r *Recovery) open(ctx context.Context, q Request, p Plan) (net.Conn, Plan,
 	r.mu.RLock()
 	current := r.settings
 	r.mu.RUnlock()
-	if current == nil || guardedRecoveryDomain(q.Host, *current) {
+	if current == nil || (!recoveryCompatibilityAuthorized(*current) && guardedRecoveryDomain(q.Host, *current)) {
 		return nil, p, errors.New("RECOVERY_PROTECTED_ORIGIN_REJECTED")
+	}
+	if recoveryCompatibilityAuthorized(*current) {
+		return r.openDirect(ctx, q, p, "BROWSER_DISABLED_DIRECT")
 	}
 	// Only a loopback connect is attempted before considering ordinary DIRECT.
 	up, err := (&net.Dialer{}).DialContext(ctx, "tcp4", current.Primary)
@@ -163,6 +166,10 @@ func (r *Recovery) open(ctx context.Context, q Request, p Plan) (net.Conn, Plan,
 	if !recoveryDirectAuthorized(*current, q.Host) {
 		return nil, p, errors.New("RECOVERY_DIRECT_NOT_AUTHORIZED")
 	}
+	return r.openDirect(ctx, q, p, "RECOVERY_DIRECT_SOCKET")
+}
+func (r *Recovery) openDirect(ctx context.Context, q Request, p Plan, probe string) (net.Conn, Plan, error) {
+	var err error
 	var direct net.Conn
 	if r.direct != nil {
 		direct, err = r.direct(ctx, q)
@@ -172,7 +179,7 @@ func (r *Recovery) open(ctx context.Context, q Request, p Plan) (net.Conn, Plan,
 	if err != nil {
 		return nil, p, err
 	}
-	p.Probe = "RECOVERY_DIRECT_SOCKET"
+	p.Probe = probe
 	p.Policy = flowpolicy.Result{Action: flowpolicy.Direct, Source: "browser_recovery_direct", Reason: "primary service unavailable; ordinary DIRECT socket established"}
 	p.Destination, _ = netip.ParseAddrPort(direct.RemoteAddr().String())
 	return direct, p, nil
@@ -207,7 +214,7 @@ func (r *Recovery) DirectSnapshot() Snapshot {
 	snapshot := r.server.Snapshot()
 	records := []Record{}
 	for _, record := range snapshot.Records {
-		if record.Plan.Probe == "RECOVERY_DIRECT_SOCKET" {
+		if record.Plan.Probe == "RECOVERY_DIRECT_SOCKET" || record.Plan.Probe == "BROWSER_DISABLED_DIRECT" {
 			record.EvidenceSource = "RECOVERY_DIRECT"
 			records = append(records, record)
 		}

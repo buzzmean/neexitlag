@@ -52,6 +52,11 @@ func (c *Controller) browserOpenPlan(ctx context.Context, q browserproxy.Request
 	return c.openBrowserPlan(ctx, cur, q, p, c.browserOpen)
 }
 func (c *Controller) openBrowserPlan(ctx context.Context, current profilesResult, q browserproxy.Request, p browserproxy.Plan, open func(context.Context, browserproxy.Request, browserproxy.Plan) (net.Conn, error)) (net.Conn, browserproxy.Plan, error) {
+	if !current.enabled {
+		p = disabledBrowserPlan(p)
+		conn, err := open(ctx, q, p)
+		return conn, p, err
+	}
 	if p.Enabled && current.enabled && q.Port != 53 && flowpolicy.KnownBrowserRelayGroup(q.Host) != "" {
 		currentPolicy := c.browserFlow(current.profile, current.id, wp.Tuple{Protocol: "tcp", Destination: p.Destination}, q.Host, current.network)
 		if currentPolicy.Action == flowpolicy.Block || p.Policy.Action != flowpolicy.RelayRequired || p.Policy.Fallback != flowpolicy.Required {

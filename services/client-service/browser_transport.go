@@ -174,6 +174,11 @@ func (c *Controller) openBrowser(ctx context.Context, q browserproxy.Request, pl
 	if err != nil {
 		return nil, err
 	}
+	// Cached PAC can still reach this listener after policy removal. Authenticated
+	// browser ownership was checked above; bypass the stopped engine/WinDivert.
+	if !current.enabled {
+		return openBrowserDirectCompatibility(ctx, disabledBrowserPlan(plan))
+	}
 	if current.network != plan.Network || current.enabled != plan.Enabled {
 		return nil, errors.New("browser policy changed before upstream open")
 	}
@@ -304,10 +309,8 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 	dest := candidates[0]
 	tuple := wp.Tuple{Protocol: "tcp", Source: q.Source, Destination: dest}
 	result := c.browserFlow(current.profile, current.id, tuple, q.Host, current.network)
-	if !current.enabled && browserGuardedRule(current.profile, q.Host) {
-		result = flowpolicy.Result{Action: flowpolicy.Block, Fallback: flowpolicy.Required, Source: "browser_recovery_guard", Reason: "protected domain guard while Chrome AUTO is disabled"}
-	} else if !current.enabled && !protectedBrowserDomain(q.Host) {
-		result = flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailOpen, Source: "optimization_disabled", Reason: "user disabled optimization"}
+	if !current.enabled {
+		result = flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailOpen, Source: "optimization_disabled", Reason: "cached PAC: optimization disabled, ordinary OS DIRECT"}
 	}
 	plan := browserproxy.Plan{RelayCandidates: relayCandidates, Network: current.network, Enabled: current.enabled, Policy: result, Destination: dest, Probe: "NOT_PROBED"}
 	if !current.enabled || protectedBrowserDomain(q.Host) || result.Source == "rule" {

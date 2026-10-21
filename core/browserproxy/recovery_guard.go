@@ -10,9 +10,10 @@ import (
 // service before/after policy transactions. It never contains device material.
 // A missing, changing, oversized or invalid file denies emergency DIRECT.
 type RecoveryGuard struct {
-	Version  int                             `json:"version"`
-	Deny     bool                            `json:"deny"`
-	Profiles map[string]RecoveryGuardProfile `json:"profiles"`
+	DirectCompatibility bool                            `json:"direct_compatibility,omitempty"`
+	Version             int                             `json:"version"`
+	Deny                bool                            `json:"deny"`
+	Profiles            map[string]RecoveryGuardProfile `json:"profiles"`
 }
 type RecoveryGuardProfile struct {
 	Executables []string `json:"executables"`
@@ -21,25 +22,33 @@ type RecoveryGuardProfile struct {
 }
 
 func recoveryDirectAuthorized(cfg RecoverySettings, host string) bool {
+	allow, _ := recoveryDirectPolicy(cfg, host)
+	return allow
+}
+func recoveryCompatibilityAuthorized(cfg RecoverySettings) bool {
+	_, compatibility := recoveryDirectPolicy(cfg, "")
+	return compatibility
+}
+func recoveryDirectPolicy(cfg RecoverySettings, host string) (bool, bool) {
 	if cfg.GuardFile == "" {
-		return true
+		return true, false
 	} // unit embedders; production CLI requires it.
 	file, err := openRecoveryGuard(cfg.GuardFile)
 	if err != nil {
-		return false
+		return false, false
 	}
 	defer file.Close()
 	raw, err := io.ReadAll(io.LimitReader(file, (1<<20)+1))
 	if err != nil || len(raw) > 1<<20 {
-		return false
+		return false, false
 	}
 	var guard RecoveryGuard
 	if json.Unmarshal(raw, &guard) != nil || guard.Version != 1 || guard.Deny || len(guard.Profiles) > 128 {
-		return false
+		return false, false
 	}
 	profile, ok := guard.Profiles[cfg.Profile]
-	if !ok || profile.Strict || len(profile.Executables) > 16 || len(profile.Domains) > 512 {
-		return false
+	if !ok || len(profile.Executables) > 16 || len(profile.Domains) > 512 {
+		return false, false
 	}
 	matches := false
 	for _, exe := range profile.Executables {
@@ -48,13 +57,19 @@ func recoveryDirectAuthorized(cfg RecoverySettings, host string) bool {
 		}
 	}
 	if !matches {
-		return false
+		return false, false
+	}
+	if guard.DirectCompatibility {
+		return true, true
+	}
+	if profile.Strict {
+		return false, false
 	}
 	for _, domain := range profile.Domains {
 		canonical, err := CanonicalHost(domain)
 		if err != nil || host == canonical || strings.HasSuffix(host, "."+canonical) {
-			return false
+			return false, false
 		}
 	}
-	return true
+	return true, false
 }

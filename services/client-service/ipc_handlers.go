@@ -339,6 +339,9 @@ func (c *Controller) handleOptimize(ctx context.Context, raw json.RawMessage) (a
 	c.enabled = v.Enabled
 	c.mu.Unlock()
 	if !v.Enabled {
+		if err := c.publishBrowserGuard(false); err != nil {
+			return nil, err
+		}
 		_ = c.cleanupBrowserPoliciesForMutation()
 	}
 	c.nativeBrowserActivation(v.Enabled, wasEnabled, activationStarted)
@@ -363,15 +366,9 @@ func (c *Controller) handleOptimize(ctx context.Context, raw json.RawMessage) (a
 	c.enabled = v.Enabled
 	c.captureStartError = ""
 	c.mu.Unlock()
-	if v.Enabled != wasEnabled {
-		c.closeEdgeConnections()
-		c.browser.mu.Lock()
-		bs := c.browser.server
-		c.browser.mu.Unlock()
-		if bs != nil {
-			bs.CloseConnections()
-		}
-	}
+	// Existing proxy TCP stays pinned; stopping capture must not close a newly
+	// admitted DIRECT compatibility socket or replay its application bytes.
+
 	if v.Enabled && !wasEnabled {
 		if b, ok := c.Backend.(interface{ RequestHotAttach(string) }); ok {
 			b.RequestHotAttach("optimize_enabled")
@@ -418,15 +415,7 @@ func (c *Controller) handleSettingsSet(ctx context.Context, raw json.RawMessage)
 	if updateErr != nil {
 		return nil, updateErr
 	}
-	if oldSettings.Automatic != s.Automatic {
-		c.closeEdgeConnections()
-		c.browser.mu.Lock()
-		bs := c.browser.server
-		c.browser.mu.Unlock()
-		if bs != nil {
-			bs.CloseConnections()
-		}
-	}
+
 	if err := c.saveSettings(); err != nil {
 		return nil, err
 	}

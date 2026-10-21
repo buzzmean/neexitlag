@@ -111,6 +111,8 @@ type Record struct {
 	StallRetried bool `json:"stall_retried_via_relay,omitempty"`
 }
 type Snapshot struct {
+	LastActivity       time.Time         `json:"last_activity"`
+	ActiveConnections  int               `json:"active_connections"`
 	FirstByteMetrics   []FirstByteMetric `json:"first_byte_metrics,omitempty"`
 	FirstByteLost      uint64            `json:"first_byte_metrics_lost,omitempty"`
 	Path               string            `json:"path"`
@@ -157,6 +159,7 @@ type Config struct {
 type Server struct {
 	firstBytes         firstByteLedger
 	started            time.Time
+	lastActivity       time.Time
 	paths              map[string]PathMetrics
 	metricsLost        uint64
 	failureDetails     map[string]FailureSummary
@@ -195,7 +198,7 @@ func Listen(parent context.Context, cfg Config) (*Server, error) {
 		return nil, e
 	}
 	ctx, cancel := context.WithCancel(parent)
-	s := &Server{started: time.Now(), cfg: cfg, l: l, ctx: ctx, cancel: cancel, slots: make(chan struct{}, 256), challenges: map[string]healthChallenge{}, confirmed: map[string]bool{}, verified: map[string]string{}, failures: map[string]uint64{}, records: map[uint64]Record{}, conns: map[net.Conn]bool{}}
+	s := &Server{started: time.Now(), lastActivity: time.Now(), cfg: cfg, l: l, ctx: ctx, cancel: cancel, slots: make(chan struct{}, 256), challenges: map[string]healthChallenge{}, confirmed: map[string]bool{}, verified: map[string]string{}, failures: map[string]uint64{}, records: map[uint64]Record{}, conns: map[net.Conn]bool{}}
 	s.wg.Add(1)
 	go s.serve()
 	return s, nil
@@ -232,7 +235,7 @@ func (s *Server) Snapshot() Snapshot {
 	for profile := range s.confirmed {
 		ready = append(ready, profile)
 	}
-	out := Snapshot{Path: "PAC_CONNECT", PathMetrics: []PathMetrics{}, FailureDetails: []FailureSummary{}, MetricsLost: s.metricsLost, FailureDetailsLost: s.failureDetailsLost, ReadyProfiles: ready, Failures: failures, Listening: !s.closed && s.ctx.Err() == nil, Address: s.Address(), Lost: s.lost, Records: make([]Record, 0, len(s.records))}
+	out := Snapshot{LastActivity: s.lastActivity, ActiveConnections: len(s.conns), Path: "PAC_CONNECT", PathMetrics: []PathMetrics{}, FailureDetails: []FailureSummary{}, MetricsLost: s.metricsLost, FailureDetailsLost: s.failureDetailsLost, ReadyProfiles: ready, Failures: failures, Listening: !s.closed && s.ctx.Err() == nil, Address: s.Address(), Lost: s.lost, Records: make([]Record, 0, len(s.records))}
 	out.FirstByteMetrics, out.FirstByteLost = s.firstBytes.snapshot()
 	for _, p := range s.paths {
 		out.PathMetrics = append(out.PathMetrics, p)
@@ -279,12 +282,26 @@ func (s *Server) serve() {
 		select {
 		case s.slots <- struct{}{}:
 			s.mu.Lock()
+			if s.closed {
+				s.mu.Unlock()
+				<-s.slots
+				c.Close()
+				return
+			}
+			s.lastActivity = acceptedAt
 			s.conns[c] = true
 			s.mu.Unlock()
 			s.wg.Add(1)
 			go func() {
 				defer s.wg.Done()
-				defer func() { <-s.slots; s.mu.Lock(); delete(s.conns, c); s.mu.Unlock(); c.Close() }()
+				defer func() {
+					<-s.slots
+					s.mu.Lock()
+					delete(s.conns, c)
+					s.lastActivity = time.Now()
+					s.mu.Unlock()
+					c.Close()
+				}()
 				s.handle(c, acceptedAt)
 			}()
 		default:
