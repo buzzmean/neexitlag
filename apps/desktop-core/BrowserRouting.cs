@@ -20,7 +20,7 @@ public sealed partial class DesktopViewModel {
  public ObservableCollection<BrowserConnection> BrowserDomains {get;}=[];
  BrowserTransportSnapshot primaryBrowser=new();
  public string ChromePolicyState {get;private set;}="Chrome: policy ещё не настроена";
- public void ApplyBrowser(BrowserTransportSnapshot status){primaryBrowser=status;ApplyBrowserRecords(status);ChromePolicyState="Chrome: "+status.SilentActivation.Notice;Changed(nameof(ChromePolicyState));}
+ public void ApplyBrowser(BrowserTransportSnapshot status){primaryBrowser=status;ApplyBrowserRecords(status);var next="Chrome: "+status.SilentActivation.Notice;if(ChromePolicyState!=next){ChromePolicyState=next;Changed(nameof(ChromePolicyState));}}
  void ApplyBrowserRecords(BrowserTransportSnapshot status){
   // Only actual transport records are shown; no assumed success from TCP ACKs.
   Replace(BrowserDomains,status.Records.OrderByDescending(r=>r.Started).ThenByDescending(r=>r.Id).Take(32));
@@ -83,9 +83,10 @@ public sealed partial class ApplicationRow {
  internal void ApplyBrowserRecords(BrowserTransportSnapshot status){
   if(!status.Listening||Profile.Mode!="AUTO"||!Profile.Executables.Any(p=>p.Replace('\\','/').Split('/').Last().Equals("chrome.exe",StringComparison.OrdinalIgnoreCase)))return;
   var live=status.Records.Where(r=>r.Owner.ProfileId==Profile.Id&&r.Active&&(r.SentBytes>0||r.ReceivedBytes>0)).ToArray();
+  var previous=DisplayValues();
   route=live.Length==0?Text.Get("NoData"):string.Join(", ",live.Select(r=>r.Route).Distinct());
   UserStatus=Text.Get("ChromeRoutesByDomain")+" · "+route;
   if(status.Truncated||status.Lost>0)UserStatus=Text.Get("PartialRouteEvidence")+" "+UserStatus;
-  Tcp=route;Changed("");
+  Tcp=route;NotifyDisplayChanges(previous);
  }
 }

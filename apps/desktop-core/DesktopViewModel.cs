@@ -39,6 +39,7 @@ public sealed partial class ApplicationRow : Observable
  public string Ipv6 { get; private set; } = Text.Get("IPv6Unsupported");
  public void Update(Profile profile, ProcessIdentity[]? processes, CaptureEvidence? capture)
     {
+        var previous = DisplayValues();
         Profile = profile;
         var matched = processes?.Where(p => profile.Executables.Any(exe => Matches(exe, p.Path))).ToArray();
         executablePath = string.Join(", ", profile.Executables.Select(exe => exe.Contains('\\') || exe.Contains('/') ? exe : matched?.FirstOrDefault(p => Matches(exe, p.Path))?.Path ?? $"{exe} ({Text.Get("NoData")})"));
@@ -58,7 +59,7 @@ public sealed partial class ApplicationRow : Observable
         LocalDetails=active is null?Text.Get("NoData"):string.Join("; ",active.Select(f=>$"{f.Protocol} · {f.Source} → {f.Destination} · upstream={f.UpstreamSource} · flow={f.FlowId} · {f.ProcessGroup} · {f.Exe} · PID={f.Pid}/{f.CreationTime} · {f.Policy?.Action} · {f.Policy?.Reason} · {f.Policy?.Source} · {f.FallbackReason} · {f.NetworkFingerprint} · blocked={f.RelayRequiredBlocked} · captured={f.Counters.CapturedPackets}/{f.Counters.CapturedBytes} · direct={f.Counters.DirectPackets}/{f.Counters.DirectBytes} · replies={f.Counters.DirectReplyPackets} · udp-health={f.UdpHealth?.State}/{f.UdpHealth?.Reason} · probation={f.UdpHealth?.ProbationReplies}/{f.UdpHealth?.ProbationReplyBytes}/{f.UdpHealth?.ProbationDurationMs}ms · cadence={f.UdpHealth?.ReplyBins}/{f.UdpHealth?.OutboundBins} · degraded={f.UdpHealth?.DegradedDurationMs}ms · direct+={f.Counters.DirectPlusBytes} · {f.Strategy}: {f.Domain} {f.Destination} {Text.Route(f.SelectedRoute=="RELAY"?f.RelayId:f.SelectedRoute)} · {f.Preset} {f.Chain} · {(f.FakeTtl>0?$"TTL={f.FakeTtl}":"")} · {Text.Get("LocalModified")}: {f.Counters.DirectPlusPackets} · {Text.Get("RelayTraffic")}: {Text.Bytes(f.Counters.RelayedBytes)} · QUIC→TCP={f.Counters.QuicFallbackPackets}").Distinct());
         Udp=Summary(f=>f.Protocol=="udp");Tcp=Summary(f=>f.Protocol=="tcp");Ipv4=Summary(f=>f.IpVersion=="IPv4");
         Ipv6=active?.Any(f=>f.IpVersion=="IPv6")==true?Summary(f=>f.IpVersion=="IPv6"):Text.Get("IPv6Unsupported");
-        Changed("");
+        NotifyDisplayChanges(previous);
     }
     public static bool Matches(string executable, string path)
     {
@@ -127,7 +128,7 @@ public sealed partial class DesktopViewModel : Observable
     static void Replace<T>(ObservableCollection<T> target, IEnumerable<T> source)
     {
         var next = source.ToArray();
-        if (target.SequenceEqual(next))
+        if (target.SequenceEqual(next) || JsonSerializer.Serialize(target) == JsonSerializer.Serialize(next))
             return;
         target.Clear();
         foreach (var item in next)
@@ -137,7 +138,6 @@ public sealed partial class DesktopViewModel : Observable
     {
         if (!await gate.WaitAsync(0, ct))
             return;
-        Busy = true;
         var phase="ipc.status";
         try
         {
@@ -175,10 +175,11 @@ public sealed partial class DesktopViewModel : Observable
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
         catch (Exception e) { RecordGuiFailure(e,phase); SetUnavailable(e); }
-        finally { Busy = false; gate.Release(); }
+        finally { gate.Release(); }
     }
     public void Apply(Snapshot status, ProcessIdentity[]? processes = null, CaptureEvidence? capture = null)
     {
+        var previous = HomeValues();
         Snapshot = status;
         Available = true;
         Connection = ServiceConnectionText.Describe(status);
@@ -209,7 +210,7 @@ public sealed partial class DesktopViewModel : Observable
         if (!Relays.SequenceEqual(availableRelays))
             Replace(Relays, availableRelays);
         RenderHistory(status.History);
-        Changed("");
+        NotifyHomeChanges(previous);
     }
     void RenderHistory(JsonElement history)
     {
