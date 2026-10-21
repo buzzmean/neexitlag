@@ -521,3 +521,192 @@ club/personal остаются рабочими. Повторный запуск
 
 Локальные тесты не подтверждают активацию на production/реальном Windows. Этот
 сценарий до выполнения владельцем остаётся непроверенным на его ПК/VPS.
+
+## Исправление PAC lifecycle после успешной активации (21.10.2026)
+
+Активация и готовность сети — разные состояния. `ACTIVATED/has_identity=True`
+означают выданную identity, а не работающий WinDivert или маршрут браузера.
+`ActivationOnly` — способ установки без прежних credentials; после активации
+захват должен запускаться обычным Optimize/Automatic, постоянного запрета драйвера
+в этом режиме нет. install.ps1 копирует и проверяет WinDivert и при ActivationOnly.
+
+Найдены три дефекта кода:
+
+- Snapshot.connected раньше означал только Backend.Ready; GUI при успешном IPC
+  безусловно писал «Подключено». Теперь connected требует capture и живую
+  authenticated relay session; `relay_connected` отдельно показывает транспорт.
+  Quality warming_up не заменяет transport readiness и не запрещает MANUAL.
+- Optimize требовал PAC до запуска capture. При этом PAC можно было записать
+  по одному listening=True, не проверяя backend/relay. Startup-зависимость
+  разорвана: сначала backend, затем проверка готовности и только затем owned PAC.
+  Ошибка первого автоматического запуска раньше игнорировалась без повторов;
+  теперь startup повторяет попытку, а явное Optimize off отменяет pending retry.
+- Silent timer восстанавливал policy при Automatic off/потере готовности.
+  Теперь disable/mode change/потеря готовности снимают только owned policy,
+  сохраняя нужный профиль для автоматического восстановления.
+
+Если новый WinDivert всё ещё не стартует, точный Windows-отказ до проверки на ПК
+неизвестен: смотреть backend.error и connection_reason=CAPTURE_START_FAILED.
+Нельзя считать, что исправление startup само доказало отсутствие driver/pin/ACL
+проблем именно на ПК владельца.
+
+### Новый явно разрешённый владельцем контракт доступности
+
+По требованию владельца **каждый результат рабочего PAC оканчивается DIRECT**.
+Для защищённого хоста: primary; DIRECT. Для обычного: primary; recovery; DIRECT.
+Это разрешает прямой выход ранее защищённых сайтов при отказе proxy infrastructure
+или снятии policy. Прежнюю гарантию «никогда DIRECT даже при crash» больше
+заявлять нельзя. Пока рабочий proxy обрабатывает запрос, правила RELAY_REQUIRED
+и отсутствие DIRECT retry после его upstream-отказа остаются прежними.
+PAC fallback браузера действует при отказе соединения с прокси; ответ CONNECT
+502/403 сам по себе не гарантирует переключение Chrome на следующий proxy.
+Поэтому DIRECT в PAC дополняет readiness/cleanup, а не заменяет их.
+
+ProxyPacMandatory=true оставлен: он требует корректного выполнения inline PAC,
+но не запрещает DIRECT, который этот PAC явно возвращает. Это проверяется
+исполнением PAC в Node и native registry contract. TLS/mTLS/signature verification
+и настройки Windows/других приложений не ослаблялись.
+
+Перед записью policy одновременно нужны: activation ready, Optimize+Automatic,
+Backend.Ready, authenticated relay session и успешные CONNECT+TLS+HTTP проверки
+обоих loopback proxy. Проверяется /healthz CP с полной проверкой сертификата и
+HTTP 200/status=ok. Одного listen/TCP ACK/CONNECT 200 недостаточно. Служебная
+случайная capability допускает только фиксированный CP health target, не
+произвольный proxy target и не browser owner bypass. Capability не попадает в
+status/логи и не является device/admin credential. Самопроверка не записывается
+как реальный запрос браузера и не доказывает загрузку Internet-сайта.
+
+Проверка живого relay не ждёт quality.health=healthy. Самопроверки endpoints
+ограничены общим бюджетом 4 с на lane, успешный результат кэшируется на 10 с
+для ограничения TLS/CPU нагрузки. Состояние capture/relay/enabled проверяется
+при каждой записи и каждом тике. В packet path нет HTTP/реестра/Backend.Status:
+только atomics и срок допуска 15 с. При зависшем checker этот допуск истекает,
+новые browser flows получают owner-authorized DIRECT. Games и desktop profiles
+не входят в эту ветку. Уже установленные TCP не мигрируют на новый egress.
+
+### Независимый сторож и freeze
+
+Установка/update регистрируют задачу **VELIQ-BrowserPolicyWatchdog** от SYSTEM,
+с triggers AtStartup и AtLogOn. Это отдельный процесс установленного service EXE
+с -browser-policy-watchdog, без backend, enroll, SSH или Internet запросов.
+Он читает только локальный authenticated IPC и journal-owned registry values.
+Missing IPC, not ready, stale probe timestamps: удалить только соответствующий
+owned PAC. Чужие policy/task сохраняются. Штатный Stop/shutdown/uninstall очищают
+policy синхронно; Automatic off/Optimize off — в соответствующем IPC transaction.
+Таймер службы и независимый процесс проверяют состояние каждую секунду.
+
+Если IPC трижды подряд недоступен у уже наблюдавшейся службы, watchdog проверяет
+SCM binary/config path и запрашивает custom control 128. Только этот control
+заканчивается failure exit, который включает существующие SCM recovery actions;
+обычный Stop/Shutdown возвращает success и не запрашивает restart. Это позволяет
+освободить зависшие WinDivert handles, а не только удалить PAC. Для ещё ни разу
+не ответившего нового PID предусмотрена startup grace 30 с; повторные запросы
+recovery ограничены минутой. Браузеры не завершаются и не перезапускаются.
+При update останавливается только owned SYSTEM watchdog, не Chrome/Edge;
+после замены бинарника задача восстанавливается. При uninstall она удаляется.
+
+**Нулевая задержка при полном зависании службы не доказана и не гарантируется.**
+Очистка по polling имеет задержку до следующего тика/тайм-аута IPC; принудительный
+SCM recovery включает до 10 с остановки и существующую 5-секундную задержку restart.
+Самопроверка зависшего proxy также имеет bounded timeout. Новый PAC имеет DIRECT
+fallback, но старый freeze-образ может восстановить старый PAC без него ещё до
+запуска любого VELIQ-кода. Для клуба нужно один раз обновить базовый образ вместе
+со службой и scheduled task. Обещать отсутствие даже секунды отказа до запуска
+SCM/task на старом образе технически неверно; отдельный kernel guard остаётся
+будущей архитектурой. Ежедневных действий конечного пользователя не требуется.
+
+### Команды обновления и read-only проверок на тестовом ПК
+
+Корень существующего клона, PowerShell **администратор под тем же SID владельца**.
+В известном UAC-off режиме это текущее окно. Закрыть через трей только старый
+GUI VELIQ, чтобы заменить его файлы/recovery helper; Chrome и Edge не закрывать.
+Это операция владельца обновления, не ежедневный пользовательский сценарий.
+
+```powershell
+git pull --ff-only origin codex/work
+```
+```powershell
+& .\tools\windows\build-e2e.ps1
+```
+```powershell
+& .\tools\windows\build-desktop.ps1
+```
+```powershell
+& .\tools\windows\update-service.ps1
+```
+```powershell
+& .\tools\windows\install-desktop.ps1
+```
+```powershell
+Get-FileHash .\bin\windows-e2e\neexitlag-service.exe,"$env:ProgramData\neexitlag\neexitlag-service.exe" -Algorithm SHA256
+```
+
+Оба SHA256 должны совпасть. Далее read-only:
+
+```powershell
+Get-Service neexitlag
+```
+```powershell
+Get-ScheduledTask -TaskName VELIQ-BrowserPolicyWatchdog | Select-Object TaskName,State
+```
+```powershell
+Get-ScheduledTaskInfo -TaskName VELIQ-BrowserPolicyWatchdog | Select-Object LastRunTime,LastTaskResult
+```
+
+Для непрерывно работающей задачи LastTaskResult может быть 267009 (0x41301,
+currently running), это не код отказа. Проверить recovery configuration:
+
+```powershell
+sc.exe qfailureflag neexitlag
+```
+```powershell
+sc.exe qfailure neexitlag
+```
+```powershell
+. .\tools\windows\common.ps1
+```
+```powershell
+Invoke-ServiceIPC 'activation.status' | Select-Object state,error,has_identity,capture_permitted
+```
+```powershell
+Invoke-ServiceIPC 'status' | Select-Object service_pid,connected,relay_connected,optimizing,capture_active,capture_permitted,connection_reason
+```
+```powershell
+(Invoke-ServiceIPC 'status').backend | ConvertTo-Json -Depth 4
+```
+```powershell
+(Invoke-ServiceIPC 'status').browser_policy | ConvertTo-Json -Depth 4
+```
+```powershell
+Invoke-ServiceIPC 'browser.status' | Select-Object listening,policy_ready,last_error,silent_activation
+```
+```powershell
+Invoke-ServiceIPC 'edge.status' | Select-Object listening,policy_ready,last_error,silent_activation
+```
+
+Проверить только наличие ProxySettings, не выводя PAC/внутренние capabilities:
+
+```powershell
+'Google\Chrome','Microsoft\Edge' | ForEach-Object { [pscustomobject]@{Browser=$_;ProxySettingsPresent=($null -ne [Microsoft.Win32.Registry]::GetValue("HKEY_CURRENT_USER\Software\Policies\$_",'ProxySettings',$null))} }
+```
+
+Запустить новый GUI из установленного ярлыка (на UAC-on обычным пользователем;
+на UAC-off владелец остаётся full-admin). Без browser restart/диалогов.
+В тестовом текущем UAC-off окне допустимо:
+
+```powershell
+Start-Process "$env:LOCALAPPDATA\Programs\VELIQ\VELIQ.exe"
+```
+
+При готовности: connected/optimizing/backend.ready=True; после настройки обоих
+recovery helpers browser_policy.{chrome,edge}_ready=True, свежие checked_at и
+policy_ready=True. При not ready: policy_ready=False, owned ProxySettings отсутствует,
+GUI не пишет «Подключено» при connected=False. Desktop relay и игровые DIRECT
+проверять отдельно. Для контрольного выключения оптимизации через owner GUI
+достаточно одной кнопки; policy снимается, список приложений сохраняется.
+Ни перевыпуск identity/CA, ни новый код test, ни VPS deployment не нужны.
+
+Пока не подтверждено на реальном Windows: фактическая registration/recovery SCM
+под Langame, подхват обновлённого PAC открытыми Chrome/Edge, Internet страницы,
+полный freeze boot и время восстановления при suspend/kill. Локальные тесты не
+являются этими доказательствами. Не вводить активационный код заново без причины.

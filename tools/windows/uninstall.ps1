@@ -2,12 +2,15 @@
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 Assert-Administrator
+. (Join-Path $PSScriptRoot 'browser-policy-watchdog.ps1')
 $service=Get-Service neexitlag -ErrorAction SilentlyContinue
 if($service){
  $scm=Get-CimInstance Win32_Service -Filter "Name='neexitlag'" -OperationTimeoutSec 5
  $expected=[IO.Path]::GetFullPath((Join-Path $InstallDirectory 'neexitlag-service.exe'))
  $match=[regex]::Match([string]$scm.PathName,'^\s*"([^"]+)"(?:\s|$)')
  if(!$match.Success -or [IO.Path]::GetFullPath($match.Groups[1].Value) -ine $expected){throw 'SCM installation path mismatch; no stop/delete/policy changes performed'}
+
+ Remove-VeliqPolicyWatchdog $InstallDirectory
 
  try {
   if($service.Status -ne 'Stopped'){Stop-Service neexitlag;$service.WaitForStatus('Stopped',[TimeSpan]::FromSeconds(20))}
@@ -25,6 +28,7 @@ if($service){
   Start-Sleep -Milliseconds 250
  }while($true)
 }
+if(!$service){Remove-VeliqPolicyWatchdog $InstallDirectory}
 if(!$service -and (Test-Path -LiteralPath (Join-Path $InstallDirectory 'service.json'))){
  & (Join-Path $InstallDirectory 'neexitlag-service.exe') -cleanup-browser-policy -config (Join-Path $InstallDirectory 'service.json')
  if($LASTEXITCODE){throw 'OWNED_BROWSER_POLICY_CLEANUP_FAILED; foreign policy and credentials preserved'}

@@ -25,10 +25,21 @@ $service=Get-Service -Name neexitlag -ErrorAction Stop
 $scm=Get-CimInstance -ClassName Win32_Service -Filter "Name='neexitlag'" -OperationTimeoutSec 5
 if($null -eq $scm){throw 'Installed SCM service not found'}
 Assert-ServiceUpdateScmTarget ([string]$scm.PathName) $target
+. (Join-Path $PSScriptRoot 'browser-policy-watchdog.ps1')
+$ownedWatchdog=Get-VeliqPolicyWatchdog $InstallDirectory
+$watchdogWasRunning=$null -ne $ownedWatchdog -and [string]$ownedWatchdog.State -eq 'Running'
 $oldDisplayName=[string]$scm.DisplayName
 $serviceProcess=[int]$scm.ProcessId
 foreach($process in @(Get-Process -Name neexitlag-service -ErrorAction SilentlyContinue)){
- if($process.Path -ieq $target -and $process.Id -ne $serviceProcess){throw 'Close VELIQ (or legacy NeExitLag) GUI first: its owner-scoped recovery process still uses the installed binary'}
+ if($process.Path -ieq $target -and $process.Id -ne $serviceProcess){
+  $watchdogProcess=Get-CimInstance Win32_Process -Filter ('ProcessId='+$process.Id) -OperationTimeoutSec 5
+  $isOwnedWatchdog=$false
+  if($watchdogWasRunning -and $null -ne $watchdogProcess -and [string]$watchdogProcess.CommandLine -like '* -browser-policy-watchdog -config *'){
+   $principal=Invoke-CimMethod -InputObject $watchdogProcess -MethodName GetOwnerSid
+   $isOwnedWatchdog=$principal.ReturnValue -eq 0 -and $principal.Sid -eq 'S-1-5-18'
+  }
+  if(!$isOwnedWatchdog){throw 'Close VELIQ (or legacy NeExitLag) GUI first: its owner-scoped recovery process still uses the installed binary'}
+ }
 }
 $backupRoot=Join-Path $root 'backups'
 if(Test-Path -LiteralPath $backupRoot){if((Get-Item -LiteralPath $backupRoot -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Backup directory is a reparse point'}}else{New-Item -ItemType Directory -Path $backupRoot|Out-Null}
@@ -48,6 +59,7 @@ function Set-BinaryOwnerReadExecute([string]$Path,[string]$OwnerSid){
 $pending=Join-Path $root ('.service-update-'+[Guid]::NewGuid().ToString('N')+'.exe')
 $stopped=$false;$replaced=$false;$nativeFirewallCreated=$false
 try{
+ if($watchdogWasRunning){Stop-ScheduledTask -TaskName 'VELIQ-BrowserPolicyWatchdog';Start-Sleep -Milliseconds 500}
  Copy-Item -LiteralPath $source -Destination $pending
  Set-BinaryOwnerReadExecute $pending $owner.Value
  Stop-Service neexitlag
@@ -69,11 +81,13 @@ try{
  if(!$ready){throw 'Updated service IPC readiness failed'}
  Set-Service -Name neexitlag -DisplayName 'VELIQ Routing Service'
  if($NativeTcpFirewall){Write-Host 'Native TCP firewall admission verified: this service executable only; no global firewall or VPS changes.'}
- Write-Host "VELIQ Windows service updated. Backup: $backup"
- foreach($lane in @('browser','edge')){try{$view=Invoke-ServiceIPC ($lane+'.status') $null (Join-Path $root 'ipc.token');$silent=$view.PSObject.Properties['silent_activation'];if($null -ne $silent){$state=[string]$silent.Value.state;if($state -notin @('NOT_CONFIGURED','POLICY_PENDING_BROWSER_REFRESH','PAC_REQUEST_OBSERVED','POLICY_OR_LISTENER_UNAVAILABLE')){$state='UNKNOWN'};Write-Host ($lane+' silent PAC: '+$state+'; browser processes untouched; effective uptake separate from update success')}}catch{Write-Host ($lane+' silent PAC: STATUS_UNAVAILABLE; no website PASS claimed')}}
+ foreach($lane in @('browser','edge')){try{$view=Invoke-ServiceIPC ($lane+'.status') $null (Join-Path $root 'ipc.token');$silent=$view.PSObject.Properties['silent_activation'];if($null -ne $silent){$state=[string]$silent.Value.state;if($state -notin @('NOT_CONFIGURED','POLICY_PENDING_BROWSER_REFRESH','PAC_REQUEST_OBSERVED','POLICY_OR_LISTENER_UNAVAILABLE','POLICY_SUSPENDED')){$state='UNKNOWN'};Write-Host ($lane+' silent PAC: '+$state+'; browser processes untouched; effective uptake separate from update success')}}catch{Write-Host ($lane+' silent PAC: STATUS_UNAVAILABLE; no website PASS claimed')}}
+ Install-VeliqPolicyWatchdog $InstallDirectory
+ Write-Host "VELIQ Windows service and independent policy watchdog updated. Backup: $backup"
  Write-Host 'Only service executable ACL changed: owner RX, SYSTEM/admins F. Identity, credentials, driver and state ACLs preserved.'
 }catch{
  $failure=$_.Exception.Message
+ try{if($null -eq $ownedWatchdog){Remove-VeliqPolicyWatchdog $InstallDirectory}else{Stop-ScheduledTask -TaskName 'VELIQ-BrowserPolicyWatchdog' -ErrorAction SilentlyContinue}}catch{Write-Host 'WATCHDOG_ROLLBACK_CLEANUP_FAILED; task/backup preserved for review'}
  $firewallRollbackError=$false
  if($nativeFirewallCreated){try{Remove-NativeTcpFirewallAdmission $target}catch{$firewallRollbackError=$true}}
  if(!$replaced){
@@ -93,4 +107,4 @@ try{
  }catch{throw "Windows update failed ($failure); automatic binary rollback failed. Backup retained: $backup"}
  if($firewallRollbackError){throw "Windows update failed; previous binary/ACL restored, but owned native firewall rule cleanup failed. Backup: $backup"}
  throw "Windows update failed; previous binary/ACL restored: $failure. Backup: $backup"
-}finally{if(Test-Path -LiteralPath $pending){Remove-Item -LiteralPath $pending -Force}}
+}finally{if(Test-Path -LiteralPath $pending){Remove-Item -LiteralPath $pending -Force};if($watchdogWasRunning){Start-ScheduledTask -TaskName 'VELIQ-BrowserPolicyWatchdog'}}

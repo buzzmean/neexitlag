@@ -1,6 +1,6 @@
 # CURRENT — состояние проекта (обновляется в конце каждой сессии)
 
-Последняя сверка Codex 21.10.2026: владелец подтвердил production deployment ecd310a, COMPATIBLE_ADDITIVE_SCHEMA2_SECURITY_STATE_PRESERVED, renewal SCHEDULED, leaf до 20.11.2026, activation_codes=0. Агент VPS не запускал. Сценарий выпуска кодов/чистой установки/freeze готов: docs/ACTIVATION_OWNER_RUNBOOK.md, раздел (ao). Реальная активация кодом ещё не подтверждена.
+Последняя сверка Codex 21.10.2026: владелец подтвердил production 771c303/schema3 и создание test; на чистом ПК activation=ACTIVATED/has_identity=True. Выявлен browser PAC при connected/optimizing/backend=False; штатная Stop-Service очистка работает. Текущее исправление lifecycle/GUI/watchdog только в codex/work, реальный Windows/freeze/SCM ретест ещё нужен. Агент production/ПК не запускал; сервер обновлять не требуется. Подробности — (ar), docs/ACTIVATION_OWNER_RUNBOOK.md (последний раздел).
 
 Обновлено: 20.10.2026, Codex; `codex/work`, база 6d91aea (fast-forward сайта Claude сохранён; browser работа от 0d20db1). Владелец подтвердил TLS/HTTP отказ исходного Telegram IP с VPS и успех независимого кандидата с тем же SNI. Реализован bounded per-IP first-flight recovery для relay-first, negative TTL и диагностика .2; детали — (ab), docs/TELEGRAM_TLS_DIAGNOSTICS.md. На production VPS ничего не выполнялось; Владелец подтвердил per-IP recovery на ПК. Этап (в): вариант A, тихий owned PAC без browser restart, реализация и ограничения — (ac); PR #8 не тронут.
 
@@ -36,7 +36,7 @@
 ## (e) Кто чем владеет
 | Область | Файлы | Агент | Ветка | Статус |
 |---|---|---|---|---|
-| PAC readiness/lifecycle после активации, owner fail-open fallback | `services/client-service/{activation*,browser_*,edge_*,controller.go,ipc_handlers.go,remote.go}`, `services/client-service/cmd/service/*`, `core/browserproxy/{pac*,proxy*,recovery*}`, `platform/windows/*policy*`, `apps/desktop-core/{Models,DesktopViewModel,Browser*}.cs`, `apps/desktop/{Browser*,Chrome*,Edge*,FreshPCSetup}.cs`, `tools/windows/{install,update-service,uninstall}*.ps1`, новые watchdog файлы/тесты, `.github/workflows/activation.yml`, `tools/windows/test-activation-local.ps1`, desktop/Windows/Go tests, docs/ACTIVATION_OWNER_RUNBOOK.md, CURRENT.md | Codex | `codex/work` | В РАБОТЕ 21.10.2026: owner явно требует DIRECT fallback при отказе PAC/снятие при неготовности; прежний PAC fail-closed контракт заменяется только для отказа инфраструктуры, upstream RELAY_REQUIRED без DIRECT retry сохранён; VPS не выполнять |
+| PAC readiness/lifecycle после активации, owner fail-open fallback | `services/client-service/{activation*,browser_*,edge_*,controller.go,ipc_handlers.go,remote.go}`, `services/client-service/cmd/service/*`, `core/browserproxy/{pac*,proxy*,recovery*}`, `platform/windows/*policy*`, `apps/desktop-core/{Models,DesktopViewModel,Browser*}.cs`, `apps/desktop/{Browser*,Chrome*,Edge*,FreshPCSetup}.cs`, `tools/windows/{install,update-service,uninstall}*.ps1`, новые watchdog файлы/тесты, `.github/workflows/activation.yml`, `tools/windows/test-activation-local.ps1`, desktop/Windows/Go tests, docs/ACTIVATION_OWNER_RUNBOOK.md, CURRENT.md | Codex | `codex/work` | ГОТОВО 21.10.2026: core3675533 и runtime2f33228, регистрация независимого watchdog/CI/инструкции в завершающем коммите. Go race/vet/Linux+Windows build PASS; C#153, WPF0 errors/4 прежних CS8604, pure PS fixtures PASS. Native Windows/SCM/freeze/Internet не проверены; область освобождена; DIRECT при отказе инфраструктуры явно разрешён владельцем, VPS не выполнять |
 | Временный код test: hash-only, 2 места/14 суток, bulk revoke | `core/enrollment/{code,test_code}*.go`, `services/control-plane/{codes*,store.go,migrations/003*}`, `tools/codes/*`, `tools/fresh-pc/upgrade_test.go` (schema3 expectation), `.github/workflows/activation.yml` (CLI tests), `deploy/vps/{deploy-activation,inspect-activation}.py` (schema3 compatibility), `tests/deployment/*activation*`, docs/ACTIVATION_OWNER_RUNBOOK.md, docs/handoff/CURRENT.md | Codex | `codex/work` | ГОТОВО 21.10.2026: create-test --value test, 2 места/14 суток, hash-only, IP/code limits, atomic revoke-tests, additive schema3; тесты PostgreSQL/race, Python 90 PASS; область освобождена, до релиза удалить runtime feature, VPS/Windows runtime не проверены |
 | B3 Chrome: каталог браузеров, автосоздание профиля DIRECT | `apps/desktop-core/BrowserCatalog.cs`, `DesktopViewModel.cs`, `Resources/Strings.resx`, `apps/desktop/ChromeRouting.cs`, `tests/desktop/BrowserCoverageTests.cs` | Claude Code | `claude/serene-cori-msra1u` | передано Codex. ГОТОВО (`9473d72`); C#/WPF-слой не компилировался, проверен только тестами core-логики; на ПК не проверен |
 | Edge-полоса (история) | `apps/desktop/EdgeRouting*.cs`, `services/client-service/edge_*.go` | Claude Code | `claude/serene-cori-msra1u` | передано Codex; реализовано в `1ceaf07`, состояние и ограничения см. (j) |
@@ -1721,3 +1721,75 @@ VPS/ПК владельца, PR#8 не тронут. Команды обновл
 14 суток — срок новых enroll; для прекращения теста нужен явный revoke-tests.
 Известное слово не секрет: rate-limit не предотвращает захват двух мест тем,
 кто его знает. Новые server/CLI/client бинарники обязательны; старые test отвергают.
+
+## (ar) PAC после activation: startup, достоверный статус и независимый watchdog
+
+21.10.2026: owner подтвердил server/client771c303, schema3/test и ACTIVATED.
+Не готов browser lane: connected=false/optimizing=false/backend.ready=false,
+но mandatory PAC был записан; Stop-Service удаляет его правильно. Исправления:
+
+- 3675533: реальный bounded CONNECT+TLS+HTTP healthcheck; отдельная AvailabilityPAC
+  обёртка с DIRECT для каждого хоста. Legacy pure PAC API остаётся для совместимости,
+  production ConfigureActivation включает owner-authorized availability contract.
+- 2f33228: backend стартует без круговой PAC предпосылки, первый неудачный startup
+  не теряется (capture retry2..30с), явное off отменяет pending retry. DriverError
+  сохраняется в backend.error, connection_reason показывает CAPTURE_START_FAILED.
+  Snapshot.connected больше не подменяет transport readiness одним Backend.Ready;
+  GUI не подменяет его фактом успешного IPC. RelayAuthenticated/Backend/Optimizing
+  отдельно, warming_up quality не proxy для transport readiness.
+- Перед PAC: ACT state, enabled+Automatic, Backend.Ready, authenticated pool,
+  два настоящих CONNECT и certificate-verified CP healthz status=ok. Fixed-target
+  local capability не позволяет произвольный proxy/owner bypass, не выходит в
+  status/logs, не считается browser ingress/page PASS. Контроль10с кэш/15с lease.
+- Снятие owned policy при off/потере readiness/смене browser mode и каждом boot.
+  В packet path только atomics/срок допуска: при stale health новые AUTO browser
+  flows DIRECT, desktop MANUAL и игровой AUTO->DIRECT сохраняют старые правила.
+  GUI DIRECT очищает native auto-флаг, чтобы таймер не переактивировал браузер.
+- Отдельный SYSTEM process -browser-policy-watchdog: bounded local IPC/journal
+  cleanup. Три IPC failures у известной живой службы -> проверка SCM path/PID и
+  custom128 recovery; обычный Stop/Shutdown exit0, без autorestart. Неизвестный
+  PID имеет startup grace30с, запросы ограничены минутой. WinDivert handles
+  освобождает SCM recovery, браузеры не завершаются. Никаких WFP/driver изменений.
+- Завершающий коммит регистрирует task VELIQ-BrowserPolicyWatchdog при install/update
+  (AtStartup+AtLogOn, SYSTEM); update останавливает только эту owned task, откат
+  сохраняет прежний EXE/ACL/credentials. Uninstall убирает только owned task/PAC.
+  Windows CI и test-activation-local включают cmd/service custom-control тесты;
+  PS task fixture полностью подменяет cmdlets/sc.exe, не выполняет установку.
+
+Проверки: Go race core/browserproxy/client-service/cmd/platform PASS; ветка игр
+проверена существующими unit regressions. vet ./..., Linux build ./..., Windows
+cross-build ./... и compile native Windows test EXE PASS. C#153/153, WPF0 ошибок,
+4 прежних CS8604. Node реально исполняет PAC, HTTPS fixture проверяет CONNECT и
+сертификаты; native registry/custom128 tests добавлены, локально не исполнялись.
+Первый параллельный race core/proxy дал timeout в existing RecoveryTransport
+fixture во время сборок; отдельный и завершающий последовательные прогоны PASS,
+проверки/тайм-ауты не ослаблены. CI для конечного HEAD ещё не подтверждён.
+
+Решение владельца (последний запрос, п.B/C): доступность при отказе proxy важнее
+прежнего обязательного fail-closed PAC. Поэтому infrastructure failure может
+отправить ранее protected browser domain DIRECT; никогда не заявлять прежнюю
+гарантию при crash. Рабочий RELAY_REQUIRED tunnel не получает upstream DIRECT
+retry, TLS/mTLS/replay/lease30мин, VPS/credentials/certificates не менялись.
+
+Ограничения: нулевой сетевой перерыв при полном suspend/hang службы не гарантируется.
+Polling/IPC timeout, до10с SCM stop и5с restart delay имеют ненулевую задержку.
+Старый freeze image может восстановить старый PAC ещё до запуска SCM/task — нужно
+однократно обновить образ, а не обещать исправление кодом до его запуска.
+Реальный Win32 driver failure на ПК неизвестен без backend.error; устранён
+воспроизводимый startup cycle, driver/pins/AV на ПК ещё не доказаны. ScheduledTasks
+под Langame, SCM fault injection, Chrome/Edge Internet и freeze boot требуют
+нативной проверки. End-user dialogs/browser kill/restart не добавлялись.
+Owner update: обычные build-e2e/build-desktop, update-service/install-desktop
+под тем же SID, проверка SHA и task/status. Подробные команды по одной — последний
+раздел docs/ACTIVATION_OWNER_RUNBOOK.md. VPS/PR#8 не запускались/не менялись.
+
+Дополнение (ar), 21.10.2026: ac3a698 исправляет именно реальный обработчик
+EnableOptimizationAsync (кнопка/трей), не только legacy helper: backend-first
+BrowserOptimizationSequence, при Automatic off PAC не подготавливается; native
+подготовка ждёт PolicyReady без red-error повторов. 153 C# теста PASS, WPF build
+0 errors/4 прежних warnings, desktop-native fixture cross-build0 errors/0 warnings.
+Windows fixture явно включает Automatic, чтобы проверка exclusivity не стала
+пустой после нового UI guard. Реальный isolated PostgreSQL17 + TLS CSR/freeze/
+lost-response activation integration PASS (2.243с); контейнер удалён после теста.
+Завершающий commit содержит SYSTEM task integration/install/update/uninstall,
+PS mock contracts, CI filters и owner runbook. Сервера 771c303 это не касается.

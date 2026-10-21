@@ -71,3 +71,5 @@ public class ActivationSSHFixture {
  Check $failed 'Nonzero redirected SSH exit was accepted'
  Write-Host 'PASS native redirected ssh.exe success/failure, wait/exit validation and no false VPS-unchanged claim'
 }finally{$env:PATH=$oldPath;Remove-Item -LiteralPath $fixture -Recurse -Force}
+
+& (Join-Path $PSScriptRoot 'browser-policy-watchdog-checks.ps1')

@@ -76,3 +76,6 @@ if($LASTEXITCODE){throw "Failed to configure service recovery"}
 Start-Service neexitlag
 (Get-Service neexitlag).WaitForStatus('Running',[TimeSpan]::FromSeconds(30))
 Write-Host "VELIQ service installed. Run the desktop GUI without elevation."
+
+. (Join-Path $PSScriptRoot 'browser-policy-watchdog.ps1')
+Install-VeliqPolicyWatchdog $InstallDirectory

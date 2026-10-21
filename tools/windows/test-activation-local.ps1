@@ -11,7 +11,7 @@ try{
  . (Join-Path $PSScriptRoot 'activation-nuget.ps1')
  Initialize-ActivationNuGetSource
  & (Join-Path $root 'tests/windows-tools/activation-nuget-checks.ps1')
- & go test -p 1 ./platform/windows ./services/client-service -run Activation -count=1
+ & go test -p 1 ./platform/windows ./services/client-service ./services/client-service/cmd/service -run Activation -count=1
  if($LASTEXITCODE){throw 'NATIVE_ACTIVATION_TESTS_FAILED'}
  & go test ./tools/fresh-pc -run '^TestUpgradeCapabilityAndJournalContracts$' -count=1
  if($LASTEXITCODE){throw 'HELPER_JOURNAL_TESTS_FAILED'}
