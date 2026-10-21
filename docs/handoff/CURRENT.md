@@ -1537,3 +1537,15 @@ CA/systemd исправление неизменно; оба actual isolated sys
   затем `& .\tools\windows\verify-activation-vps.ps1`. Никаких mutating VPS
   команд агент не выполнял. Deployment и установка renewal до 19.11.2026
   16:05:54 МСК остаются за владельцем после отдельного разрешения.
+
+- Post-push f01012f: локально поднят отдельный PostgreSQL 17 container, выполнены
+  `go test -race -p 1 ./tools/fresh-pc ./services/control-plane` с настоящей БД —
+  PASS, включая schema2/001/retry и revoke publication. Собственный container
+  остановлен; production не затронут.
+- GitHub CI f01012f не начал тестовые шаги: activation Linux/Windows и isolated
+  legacy/fresh jobs завершились за ~2 с, steps=[], job logs отсутствуют (404).
+  Причина раннего отказа инфраструктуры не установлена; нельзя объявлять CI PASS.
+  [Activation](https://github.com/buzzmean/neexitlag/actions/runs/39568106123),
+  [systemd](https://github.com/buzzmean/neexitlag/actions/runs/39568106065).
+  Полный новый systemd/leaf сценарий и Windows на этом изменении НЕ выполнены;
+  перед любым mutating deployment требуется успешный повтор этих jobs.

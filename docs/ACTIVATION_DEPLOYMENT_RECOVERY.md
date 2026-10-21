@@ -130,7 +130,7 @@ renewal должен быть реально установлен владель
 ## Проверки и ограничения
 
 Python unit-тесты, Go race/native Windows helper contracts, Windows PS5.1
-transport fixture, PostgreSQL compatibility test. На disposable systemd VM с
+transport fixture, PostgreSQL compatibility test. Подготовлен сценарий для disposable systemd VM с
 root-only CA: реальный leaf replace → failed proof → rollback, затем полный
 activation apply с новой leaf-пробой, проверка /3 TCP/UDP и отзыва временных
 identity, реальный renewal.service в sandbox, отсутствие активных rollback timers.
@@ -141,3 +141,13 @@ IP в этом тесте назначается исключительно loop
 Полное восстановление БД/новый security epoch, гарантии при зависании kernel/
 systemd/БД, точная историческая атрибуция +19 и реальный production deployment
 не подтверждены этим изменением.
+
+
+Результаты этого изменения: локально 81 Python-тест PASS, Go race/vet и Windows
+cross-build helper PASS; PostgreSQL 17 с реальной БД — `tools/fresh-pc` и
+`services/control-plane` race PASS, включая baseline/schema2/retry. Новый GitHub
+CI f01012f завершился до любых тестовых шагов (steps=[], логи 404); причину
+инфраструктуры не удалось получить. Поэтому новый systemd/Windows acceptance
+**не подтверждён**, а повтор mutating deployment до успешного CI не рекомендуется.
+Это отдельный ранний отказ, не доказанный artifact quota. Никаких команд на
+production VPS агент не выполнял.
