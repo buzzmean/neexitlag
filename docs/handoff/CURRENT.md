@@ -1867,3 +1867,7 @@ relay, transport/security не изменены слияниями. Другие
 ### C1
 
 Воспроизведён отказ DNS recovery при проверенном TLS и HTTP403/404 на корне googlevideo. Введено address_verified отдельно от успешного HTTP verified; узкая CDN область, relay-only cached plan и TTL сохранены, не page PASS. DNS/scoping/CA/DIRECT+ regressions; diag 2026-10-21.1. Точная причина старых owner ORIGIN_DNS_FAILED не доказана без ответа; Windows/ISP не выполнялись. См. GOOGLEVIDEO_DNS_RECOVERY.md.
+
+### C2
+
+Добавлен пассивный OS endpoint observer ExitLag: exact PID/name, creation time, bounded snapshots/CSV/время, TCP remote и только UDP local, без памяти/injection/сетевых probes. RTT честно NOT_MEASURED, смена endpoint не доказательство маршрута. Pure PS fixtures/parse PASS, Windows CI fixture добавлен в Verify. Реальный ExitLag/Windows не запускался; смотрите EXITLAG_OBSERVATION.md.

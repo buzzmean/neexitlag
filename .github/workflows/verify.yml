@@ -151,6 +151,9 @@ jobs:
         shell: pwsh
       - run: ./tests/windows-tools/tcp-web-checks.ps1
         shell: powershell
+      - name: Passive observer metadata fixtures (no observation)
+        shell: powershell
+        run: ./tests/windows-tools/exitlag-observation-checks.ps1
       - run: ./tools/windows/fetch-windivert.ps1
         shell: pwsh
       - name: Read-only initialization of Windows network providers
