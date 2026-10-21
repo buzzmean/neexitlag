@@ -1,5 +1,7 @@
 # CURRENT — состояние проекта (обновляется в конце каждой сессии)
 
+Последний итог Codex 21.10.2026: очередь A1–E2 опубликована в codex/work (реализация/документы, не Internet/Windows PASS). Дальнейших пунктов очереди нет; необходимы native приёмка, проверка Setup и решения по подписи/будущему WFP. Область освобождена; см. заключительную сводку и команды ниже. На VPS/ПК агент ничего не выполнял.
+
 Последняя сверка Codex 21.10.2026: владелец подтвердил production 771c303/schema3 и создание test; на чистом ПК activation=ACTIVATED/has_identity=True. Выявлен browser PAC при connected/optimizing/backend=False; штатная Stop-Service очистка работает. Текущее исправление lifecycle/GUI/watchdog только в codex/work, реальный Windows/freeze/SCM ретест ещё нужен. Агент production/ПК не запускал; сервер обновлять не требуется. Подробности — (ar), docs/ACTIVATION_OWNER_RUNBOOK.md (последний раздел).
 
 Обновлено: 20.10.2026, Codex; `codex/work`, база 6d91aea (fast-forward сайта Claude сохранён; browser работа от 0d20db1). Владелец подтвердил TLS/HTTP отказ исходного Telegram IP с VPS и успех независимого кандидата с тем же SNI. Реализован bounded per-IP first-flight recovery для relay-first, negative TTL и диагностика .2; детали — (ab), docs/TELEGRAM_TLS_DIAGNOSTICS.md. На production VPS ничего не выполнялось; Владелец подтвердил per-IP recovery на ПК. Этап (в): вариант A, тихий owned PAC без browser restart, реализация и ограничения — (ac); PR #8 не тронут.
@@ -10,7 +12,7 @@
 
 | Работа | Файлы | Агент | Ветка | Статус |
 |---|---|---|---|---|
-| A1–A6, B1, C1–C2, D1–D2, E1–E2 | browser lifecycle/remote/activation/controller и тесты; desktop/core модели/UI/активация и тесты; tools/windows install/update/diagnostics; новый installer/ и workflow; browser DNS и тесты; новый пассивный observer; docs/; brand/assets только после инвентаризации | Codex | codex/work | В РАБОТЕ: владелец разрешил tests/integration/lease_test.go отдельным коммитом; 50x до/после и полный gate; затем публикация B1/merge и C1–E2. Production не выполнять |
+| A1–A6, B1, C1–C2, D1–D2, E1–E2 | browser lifecycle/remote/activation/controller и тесты; desktop/core модели/UI/активация и тесты; tools/windows install/update/diagnostics; новый installer/ и workflow; browser DNS и тесты; новый пассивный observer; docs/; brand/assets только после инвентаризации | Codex | codex/work | ЗАВЕРШЕНО В КОДЕ/ДОКУМЕНТАХ 21.10.2026; область освобождена. Native Windows/SCM/freeze/Setup/ISP gates остаются непроверенными; WFP только проект. Production не выполнять |
 
 ## (a) Цель
 Чистый Windows 10/11: установил, нажал «Оптимизировать» — заблокированные в РФ сервисы работают без VPN: ChatGPT, Claude, YouTube, Discord, Telegram, браузеры Chrome и Edge. Первый заказчик — клуб на 36 ПК с откатом при перезагрузке.
@@ -107,6 +109,8 @@
 Управление флагом YouTube: `settings.set` с полным объектом Settings и `"youtube_via_relay": true` означает relay-first сразу для ordinary YouTube. По умолчанию выключен; аварийный fallback от него не зависит. Configured DIRECT+ и protected rules не заменяются.
 
 ## (h) Журнал решений
+
+- 21.10.2026, очередь A1–E2: по разрешению владельца каждый пункт опубликован отдельно; merge сайта не меняет runtime. Отдельно разрешённый lease test принимает только точный device_revoked, без ослабления ACK/security checks. E1 импортирует утверждённые SVG без миграции внутренних имён. E2 — только проект; независимый WFP driver/signing требует нового решения, текущий PAC/watchdog не выдаётся за kernel guard. Нативные ограничения и gate failures сохраняются в итоговой записи ниже.
 
 - 20.10.2026: владелец разрешил дополнительный test/docs commit после 5d47ff0. Windows freeze-фикстура получает SID фактического процесса через существующий discovery/token API, а не синтетический S-1-test; CI ошибки/неподтверждённый live uptake записаны без ложного PASS. Force-push/rewrite не используются.
 
@@ -1891,3 +1895,67 @@ relay, transport/security не изменены слияниями. Другие
 ### A1 — подтверждённое отключение при выходе
 
 Общий OptimizeAsync проглатывал IPC failure через Act, а Available=false не доказывает отсутствия службы. Выход теперь всегда пытается отключить routing отдельным методом, который требует успешный ответ optimizing=false и не проглатывает rejection/cancellation/unavailable. Только подтверждённые SCM NotInstalled/Stopped позволяют выход без ACK. Native fixture получает явную тестовую отсутствующую службу, без реального IPC; добавлены настоящие WPF failure-path assertions. C#174/174 PASS; WPF/native fixture cross-build0 errors/4 прежних CS8604; реальный Windows runtime не выполнен.
+
+### E2 — оценка независимого guard
+
+WFP_GUARD_DESIGN.md: только архитектура, подпись/стоимость/этапы и ворота
+failure injection; новый driver/WDK/dependencies не реализованы. Текущий A имеет
+owner-authorized DIRECT при отказе инфраструктуры; watchdog не называется
+kernel fail-closed guard. Для варианта B требуется отдельное решение владельца.
+Ссылки проверены, runtime/VPS не менялись.
+
+### Итог очереди A1–E2, 21.10.2026
+
+Опубликованы A1 `3e3efa8`, A2 `6e6d02b`, A3 `8b66e20`, A4 `a694689`,
+A5 `7a7be82`, A6 `83c0c63`, B1 `5cb7f89`; разрешённые merge `cee7d64` и
+`9dca1e6` не затрагивают runtime. Исправление точного revocation test `a5cfba4`;
+C1 `15e91d7`, C2 `a7ce326`, D1 `46c5ceb`, D2 `26306aa`, E1 `bd5de8c`;
+дополнительные WPF Closing/confirmed shutdown fixes `8659b8b` и `ac73e62`. E2 — завершающий документ этого commit.
+
+Не подтверждены на реальном Windows: SCM crash/hang/watchdog/freeze boot,
+визуальное отсутствие мерцания/новый header, фактическое время startup listener,
+новый googlevideo recovery на провайдере, Setup ISCC/install/upgrade/uninstall.
+Точная причина всех старых трёх минут listener и всех ORIGIN_DNS_FAILED без
+исходных ответов не доказана; устранены конкретные воспроизводимые пути.
+ExitLag observer не измеряет RTT (пассивный OS API его не отдаёт), UDP remote/path
+не обещаются. Старый Windows/tray ICO пока не заменён утверждённым SVG export.
+
+Решения владельца перед выпуском: production signing/public trust для Setup,
+native Windows acceptance на одноразовой VM/ПК и проверка нового ICO при упаковке;
+отдельное разрешение/бюджет на WFP вариант B. Setup пока не готов к массовой
+раздаче; подпись, artifact/Release не публиковались. Игра AUTO остаётся DIRECT.
+На production VPS/ПК не выполнялось ничего, PR#8/credentials не менялись.
+
+CI последнего runtime `8659b8b`: Verify 39668762315 (core/windows), Relay release
+39668762336 — failure, все jobs steps=[]; E1 Edge 39668181579 также steps=[].
+Это не провал выполненных тестов и не CI PASS. Ранее владельцем подтверждена
+account billing block; новые jobs не дошли ни до тестов, ни до artifact upload.
+Ссылки: https://github.com/buzzmean/neexitlag/actions/runs/39668762315 ,
+https://github.com/buzzmean/neexitlag/actions/runs/39668762336 .
+
+Владельцу: PowerShell администратора под прежним SID, корень репозитория.
+Выйти только из VELIQ GUI; Chrome/Edge не закрывать. По одной команде:
+`git pull --ff-only origin codex/work`, `& .\tools\windows\build-e2e.ps1`,
+`& .\tools\windows\build-desktop.ps1`, `& .\tools\windows\update-service.ps1`,
+`& .\tools\windows\install-desktop.ps1`; затем сравнить SHA256 service binary,
+проверить SCM Auto/Running и IPC status, открыть VELIQ, проверить обычную и
+защищённую вкладку, `& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube`.
+Не выполнять revoke-tests для проверки текущего активированного тестовым кодом ПК.
+
+### Заключительные проверки
+
+`go test -race -p 1 -count=1 ./...` PASS при повторном последовательном прогоне;
+`go vet ./...`, Linux `go build ./...` и Windows amd64 cross-build PASS.
+C#174/174 PASS; WPF/native fixture cross-build0 errors/4 прежних CS8604.
+Python installer4/4 и branding3/3 PASS; doc links/diff check PASS. Нативный
+Windows host и отдельный PostgreSQL здесь не запускались; DB-dependent cases
+не выдаются за свежую PostgreSQL acceptance. Ранее проведённые проверки отмечены
+отдельно в истории; новый runtime outcome на ISP владельца не заявляется.
+
+Первый заключительный Go race получил один timing failure:
+TestDirectOpenSharesBudgetRatherThanMultiplyingTimeoutByAddresses, 1.18с при
+пороге0.5с, direct=1/relay=1. Тест/пороги/production код не менялись. После
+завершения параллельных сборок — отдельный race20/20 PASS (3.573с), затем полный
+повтор PASS. Это не доказанный runtime regression; точная причина одиночного
+wall-clock overrun не установлена, результат не скрыт. Подробное прежнее
+доказательство lease test50x до/после — testing/LEASE_REVOCATION_RACE.md.

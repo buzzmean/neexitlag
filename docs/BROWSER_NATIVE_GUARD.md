@@ -2,6 +2,10 @@
 
 > Актуальное решение владельца 20.10.2026: выбран вариант A — тихий owned PAC без browser restart; см. [BROWSER_SILENT_POLICY.md](BROWSER_SILENT_POLICY.md). Независимый WFP/driver guard ниже — будущий вариант B. Исторические restart-инструкции не относятся к текущему UX.
 
+> Оценка E2 от 21.10.2026: [WFP_GUARD_DESIGN.md](WFP_GUARD_DESIGN.md).
+> Текущий вариант A позднее получил owner-authorized DIRECT при отказе инфраструктуры;
+> приведённый ниже строгий барьер остаётся будущим вариантом B, не свойством A.
+
 Дата: 20.10.2026. Аудит базы `2c4f75f`, ветка `codex/work`.
 **Статус: BLOCKED_CURRENT_BACKEND. Это архитектура, не реализованный guard.**
 
