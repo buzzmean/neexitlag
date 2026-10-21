@@ -39,16 +39,9 @@ public partial class MainWindow {
  }
  async Task EnableOptimizationAsync(){
   await model.EnsureStartupBrowserProfilesAsync(BrowserCatalog.Discover(File.Exists,Environment.GetEnvironmentVariable),lifetime.Token);
-  await EnsureSilentBrowserLanesAsync();
-  await PrepareNativeBrowsersAsync(forOptimize:true);
-  // Quiet owned PAC is the crash guard; no browser process control.
-  await model.OptimizeAsync(true,lifetime.Token);
+  await BrowserOptimizationSequence.RunAsync(()=>model.OptimizeAsync(true,lifetime.Token),()=>model.Optimizing,()=>model.Snapshot?.Settings.Automatic==true,EnsureSilentBrowserLanesAsync,()=>PrepareNativeBrowsersAsync());
  }
- async Task EnableOptimizationCoreAsync(){
-  await model.OptimizeAsync(true,lifetime.Token);
-  await EnsureSilentBrowserLanesAsync();
-  await PrepareNativeBrowsersAsync();
- }
+ async Task EnableOptimizationCoreAsync()=>await EnableOptimizationAsync();
  async Task<bool> ActivateChromeSites(ApplicationRow row){
   if(chromeActivating)throw new ChromeActivationException("Chrome activation already running", "chrome.activation", "CHROME_ACTIVATION_BUSY");chromeActivating=true;chromeActivationPhase="chrome.activation";
   try{return await ActivateChromeSitesCore(row);}

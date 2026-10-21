@@ -36,7 +36,7 @@ internal static class FreshPCSetupChecks
         var window=new MainWindow(new LocalPreferences(),false,false);
         try {
             var service=new UnexpectedService();var vm=new DesktopViewModel(service);
-            vm.Apply(new Snapshot { Optimizing=true, Profiles=[new Profile { Id="chrome",Mode="AUTO",Executables=[@"C:\Apps\chrome.exe"] }] });
+            vm.Apply(new Snapshot { Optimizing=true, Settings=new(){Automatic=true}, Profiles=[new Profile { Id="chrome",Mode="AUTO",Executables=[@"C:\Apps\chrome.exe"] }] });
             typeof(MainWindow).GetField("model",flags)!.SetValue(window,vm);
             var prepare=typeof(MainWindow).GetMethod("PrepareNativeBrowsersAsync",flags)!;
             foreach(var name in new[]{"chromeActivating","edgeActivating"}) {

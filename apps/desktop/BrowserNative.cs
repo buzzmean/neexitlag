@@ -7,7 +7,7 @@ public partial class MainWindow
     readonly HashSet<string> nativeBrowserPolicyRefreshed = [];
     async Task PrepareNativeBrowsersAsync(bool forOptimize = false)
     {
-        if (chromeActivating || edgeActivating || nativeBrowsersActivating || !model.Available || model.Busy || (!forOptimize && !model.Optimizing)) return;
+        if (chromeActivating || edgeActivating || nativeBrowsersActivating || !model.Available || model.Busy || model.Snapshot?.Settings.Automatic!=true || (!forOptimize && !model.Optimizing)) return;
         nativeBrowsersActivating = true;
         try
         {
@@ -15,6 +15,10 @@ public partial class MainWindow
             {
                 // Idempotent enable repairs an owned Edge guard/listener after service restart.
                 if (!forOptimize && nativeBrowserRetry.TryGetValue(p.Id, out var at) && at > DateTimeOffset.UtcNow) continue;
+                // Pending CONNECT self-checks are an honest readiness state, not
+                // an error to show repeatedly or a reason to arm native early.
+                bool policyReady=BrowserCatalog.IsEdge(p)?(await model.EdgeStatusAsync(lifetime.Token)).PolicyReady:(await model.ChromeStatusAsync(lifetime.Token)).PolicyReady;
+                if(!policyReady)continue;
                 nativeBrowserRetry[p.Id] = DateTimeOffset.UtcNow.AddSeconds(30);
                 var phase="browser.native.enable";
                 try {
