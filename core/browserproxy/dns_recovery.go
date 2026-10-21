@@ -12,13 +12,14 @@ import (
 )
 
 type DNSRecoveryResult struct {
-	Destination netip.AddrPort `json:"destination"`
-	Source      string         `json:"source"`
-	Expires     time.Time      `json:"expires"`
-	Verified    bool           `json:"verified"`
-	Failure     string         `json:"failure,omitempty"`
-	Probe       ProbeResult    `json:"origin"`
-	Trials      []Trial        `json:"trials"`
+	Destination     netip.AddrPort `json:"destination"`
+	Source          string         `json:"source"`
+	Expires         time.Time      `json:"expires"`
+	Verified        bool           `json:"verified"`
+	AddressVerified bool           `json:"address_verified,omitempty"`
+	Failure         string         `json:"failure,omitempty"`
+	Probe           ProbeResult    `json:"origin"`
+	Trials          []Trial        `json:"trials"`
 }
 type dnsRecoveryEntry struct {
 	result DNSRecoveryResult
@@ -26,7 +27,8 @@ type dnsRecoveryEntry struct {
 	done   chan struct{}
 }
 
-// DNSRecovery caches ONLY verified relay origin results until DNS TTL (max 5min).
+// DNSRecovery caches authenticated origin address evidence until DNS TTL (max 5min).
+// CDN root rejection is address evidence only, never a successful page probe.
 // Negative cooldown, singleflight, entry/admission limits bound failure load.
 type DNSRecovery struct {
 	mu      sync.Mutex
@@ -84,7 +86,7 @@ func (r *DNSRecovery) Recover(ctx context.Context, key, host string, port uint16
 		defer r.mu.Unlock()
 		entry.result = result
 		entry.until = time.Now().Add(30 * time.Second)
-		if result.Verified {
+		if result.Usable() {
 			entry.until = result.Expires
 		}
 		close(entry.done)
@@ -151,8 +153,14 @@ func (r *DNSRecovery) Recover(ctx context.Context, key, host string, port uint16
 			outcome = "ORIGIN_RESPONSE"
 		}
 		result.Trials = append(result.Trials, Trial{Route: "RELAY_REQUIRED", Destination: destination.String(), Phase: checked.Phase, Detail: checked.Detail, Outcome: outcome, HTTPStatus: checked.Status, ALPN: checked.ALPN, TLSVersion: checked.TLSVersion, DurationMS: time.Since(started).Milliseconds()})
-		if checked.Failure == "" && checked.Status >= 200 && checked.Status < 400 && checked.Bytes > 0 {
-			result.Verified = true
+		complete := checked.Failure == "" && checked.Phase == "ORIGIN_RESPONSE" && checked.TLSVersion != 0 && checked.Bytes > 0
+		httpOK := complete && checked.Status >= 200 && checked.Status < 400
+		// googlevideo's / is not a signed media request. An authenticated
+		// 403/404 proves the DNS address, not playback or full-site success.
+		cdnRoot := complete && flowpolicy.DomainMatches(host, "googlevideo.com") && (checked.Status == 403 || checked.Status == 404)
+		if httpOK || cdnRoot {
+			result.Verified = httpOK
+			result.AddressVerified = true
 			result.Failure = ""
 			result.Destination = destination
 			result.Expires = answer.ObtainedAt.Add(answer.TTL)
@@ -164,4 +172,16 @@ func (r *DNSRecovery) Recover(ctx context.Context, key, host string, port uint16
 	}
 	result.Failure = "DNS_ALTERNATIVE_ORIGIN_UNVERIFIED"
 	return result
+}
+
+// Usable is deliberately separate from Verified (successful HTTP origin probe).
+func (r DNSRecoveryResult) Usable() bool { return r.Verified || r.AddressVerified }
+func (r DNSRecoveryResult) ProbeName() string {
+	if r.Verified {
+		return "DNS_RELAY_HTTP_VERIFIED"
+	}
+	if r.AddressVerified {
+		return "DNS_RELAY_ADDRESS_VERIFIED"
+	}
+	return "DNS_RECOVERY_FAILED"
 }

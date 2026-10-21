@@ -60,7 +60,7 @@ func (c *Controller) openBrowserPlan(ctx context.Context, current profilesResult
 		p.DirectAttempts, p.DirectIndex, p.DirectCandidates = 0, 0, nil
 		// A queued request may already hold the verified DNS pin. Keep its
 		// origin verification evidence rather than relabeling it as unprobed.
-		if p.DNSRecovery == nil || !p.DNSRecovery.Verified || p.Probe != "DNS_RELAY_HTTP_VERIFIED" {
+		if p.DNSRecovery == nil || !p.DNSRecovery.Usable() || p.Probe != p.DNSRecovery.ProbeName() {
 			p.Probe = "KNOWN_RELAY_FIRST"
 		}
 		return c.openKnownBrowserGroup(ctx, current, q, p, open)

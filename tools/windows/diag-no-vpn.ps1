@@ -287,7 +287,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-20.4 (activation and certificate deadlines)'
+$ScriptVersion='2026-10-21.1 (DNS address evidence distinct from HTTP success)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -511,6 +511,8 @@ function Write-TlsWireEvidence($snapshot,[string]$lane) {
    $summary=@($tried|ForEach-Object{([string](Prop $_ 'destination'))+':'+(Prop $_ 'reason')}) -join ','
    Say ($lane+' origin IP recovery: domain='+(Prop $r 'domain')+' addresses_tried='+(Prop $attempts 'addresses_tried' 0)+' selected='+(Prop $attempts 'selected')+' negative_skips='+(Prop $attempts 'negative_cache_skips' 0)+' dns='+(Prop $attempts 'dns')+' replayed_client_hello_bytes='+(Prop $attempts 'client_hello_replayed_bytes' 0)+' state='+(Prop $attempts 'state')+' attempts='+$summary+' (transport evidence, not TLS/HTTP PASS)')
   }
+  $dns=Prop (Prop $r 'plan') 'dns_recovery'
+  if($null -ne $dns){$origin=Prop $dns 'origin';Say ($lane+' DNS recovery: domain='+(Prop $r 'domain')+' destination='+(Prop $dns 'destination')+' address_verified='+(Prop $dns 'address_verified' (Prop $dns 'verified' $false))+' http_probe_success='+(Prop $dns 'verified' $false)+' http_status='+(Prop $origin 'http_status' 0)+' phase='+(Prop $origin 'phase')+' failure='+(Prop $dns 'failure')+' expires='+(Prop $dns 'expires')+' (address proof != page/video PASS)')}
   $wire=Prop $r 'tls_wire'
   if($null -eq $wire){continue}
   $instrumented=$true

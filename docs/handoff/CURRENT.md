@@ -1863,3 +1863,7 @@ relay, transport/security не изменены слияниями. Другие
 ### Разрешённое исправление теста отзыва (21.10)
 
 До изменений: bdbd452 — 14/50 device_revoked и 1/50 fixture Dial deadline; 83c0c63 — 21/50 device_revoked. После: 50/50 PASS, точный remote RevokedCode, no-renewal и production Client reason проверены. Только tests/integration/lease_test.go и docs; production поведение/таймауты не изменены. Повторный полный go test -race -p 1 -count=1 ./... без параллельных сборок PASS; vet PASS; C#165/165; WPF0 errors/4 прежних CS8604. Первый общий run получил отдельный midstream 60ms flake; отдельно20/20 PASS, код/таймаут не менялся. Подробности docs/testing/LEASE_REVOCATION_RACE.md. Публикуются сохранённые B1/merge, далее C1–E2.
+
+### C1
+
+Воспроизведён отказ DNS recovery при проверенном TLS и HTTP403/404 на корне googlevideo. Введено address_verified отдельно от успешного HTTP verified; узкая CDN область, relay-only cached plan и TTL сохранены, не page PASS. DNS/scoping/CA/DIRECT+ regressions; diag 2026-10-21.1. Точная причина старых owner ORIGIN_DNS_FAILED не доказана без ответа; Windows/ISP не выполнялись. См. GOOGLEVIDEO_DNS_RECOVERY.md.

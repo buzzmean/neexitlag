@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/buzzmean/neexitlag/core/browserproxy"
 	"github.com/buzzmean/neexitlag/core/flowpolicy"
 	"github.com/buzzmean/neexitlag/core/profiles"
@@ -131,6 +132,11 @@ func TestGooglevideoDNSRecoveryIsAttemptedAndExplicitDirectPlusIsPreserved(t *te
 	}
 }
 func TestGooglevideoRecoveredDNSPinRequiresOriginalSNICertificateAndHTTP(t *testing.T) {
+	for _, status := range []int{200, 403, 404} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) { checkGooglevideoDNSOrigin(t, status) })
+	}
+}
+func checkGooglevideoDNSOrigin(t *testing.T, status int) {
 	c := New(context.Background())
 	defer c.Close()
 	host := "rr1---sn-q4fl6ns6.googlevideo.com"
@@ -147,6 +153,7 @@ func TestGooglevideoRecoveredDNSPinRequiresOriginalSNICertificateAndHTTP(t *test
 		if r.TLS.ServerName != host || r.Method != "GET" {
 			t.Error("origin identity/probe mismatch")
 		}
+		w.WriteHeader(status)
 		w.Write([]byte("controlled CDN origin"))
 	}))
 	target.TLS = &tls.Config{Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}}}
@@ -166,7 +173,7 @@ func TestGooglevideoRecoveredDNSPinRequiresOriginalSNICertificateAndHTTP(t *test
 		t.Fatal("untrusted certificate accepted")
 	}
 	result := c.browser.dns.Recover(context.Background(), c.browserDNSKey(q, cur), host, dst.Port(), roots, lookup, open)
-	if !result.Verified {
+	if !result.Usable() || result.Verified != (status == 200) {
 		t.Fatal(result)
 	}
 	plan, ok := c.browserDNSCachedPlan(q, cur)
