@@ -25,6 +25,8 @@ import (
 )
 
 type Manifest struct {
+	ClubImage               bool                        `json:"club_image,omitempty"`
+	ClubBrowserPaths        []string                    `json:"club_browser_paths,omitempty"`
 	ActivationCodeFile      string                      `json:"activation_code_file,omitempty"`
 	ActivationCAFingerprint string                      `json:"activation_ca_sha256,omitempty"`
 	ProbeTokenFile          string                      `json:"probe_token_file,omitempty"`

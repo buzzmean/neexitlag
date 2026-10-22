@@ -2209,3 +2209,22 @@ Authenticode publisher/version, public CA constraints/validity; сборка в�
 Python installer 4/4 и PS7 public-CA/parser/package-tamper fixtures PASS.
 Реальная Inno компиляция/установка Windows не выполнялась; нужен ПК владельца.
 На VPS ничего не выполнялось. Дальше image/boot B и club/status C–F.
+
+## 22.10.2026 — клубный пилот B: чистый общий образ
+
+Setup /CLUBIMAGE=1 /CLUBCODEFILE=<private file> запечатывает ActivationOnly:
+без identity/device key/probe token, SYSTEM boot task разрешает enrollment лишь
+после следующей загрузки. Служба Automatic, на этапе запечатывания остановлена.
+Foreign task и существующая identity не удаляются/не перезаписываются. Код только
+в защищённом staged-файле образа, публичный Setup его не содержит.
+Одинаковый SID не используется в machine hash; local named pipe rejects remote.
+Уникальные hardware UUID/MAC + свежий ключ каждого ПК, повторные freeze boot
+заменяют ключ/отзывают старый, повторно используют slot. PostgreSQL disposable:
+3 машины × 3 загрузки => 3 seats, 3 live/6 revoked; existing 50 replacement и
+HTTPS activation integration race PASS. PS7 image/foreign task gates PASS.
+Частный iSCSI TCP/3260 явно исключён из native network filter и policy; собственный
+storage-профиль не затягивает boot SAN в relay. Windows platform tests cross-compile
+PASS; actual official WinDivertHelperEvalFilter проверяется командой build-setup
+на Windows перед упаковкой. Здесь DLL evaluator/SCM/Inno/freeze не исполнялись.
+Критично: каждому ПК нужен изолированный writable overlay, не общий live state.
+Полный admin guest не может быть ограничен приложением; нужен стандартный гость.

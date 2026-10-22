@@ -216,6 +216,13 @@ func (c *Controller) ConfigureActivation(m Manifest) bool {
 	if recordError == nil {
 		c.activation.status.State = "ACTIVATING"
 	}
+	if m.ClubImage && !clubBootReady(m) {
+		c.activation.paused = true
+		c.activation.status.State = "CLUB_IMAGE_STAGED"
+		c.activation.networkBlocked.Store(true)
+		c.wg.Add(1)
+		go func() { defer c.wg.Done(); c.waitClubBoot(m) }()
+	}
 	// Even a legacy install needs the idle worker for GUI's explicit Change action.
 	c.activation.done = make(chan struct{})
 	c.wg.Add(1)

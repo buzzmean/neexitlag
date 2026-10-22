@@ -342,6 +342,9 @@ func (c *Controller) Classify(identity windowsplatform.ProcessIdentity, t window
 	enabled := c.enabled
 	c.mu.Unlock()
 	decision := windowsplatform.Decision{Route: routing.Route{}}
+	if windowsplatform.IsPrivateISCSI(t) {
+		return decision
+	}
 	if !enabled || c.selfExecutable != "" && strings.EqualFold(identity.Path, c.selfExecutable) {
 		return decision
 	}

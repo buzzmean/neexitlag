@@ -31,13 +31,22 @@ Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 [Files]
 Source: "{#StageRoot}\payload\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 [Run]
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ""& '{app}\installer\install-package.ps1' -ClubCodeFile '{code:ClubCodeFile}'"""; Flags: runhidden waituntilterminated; StatusMsg: "Устанавливаем VELIQ…"; BeforeInstall: ClearInstallMarker; AfterInstall: CheckInstall
-Filename: "{localappdata}\Programs\VELIQ\VELIQ.exe"; Description: "Открыть VELIQ и ввести код активации"; Flags: runasoriginaluser nowait skipifsilent
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ""& '{app}\installer\install-package.ps1' -ClubCodeFile '{code:ClubCodeFile}' {code:ClubImageArgument}"""; Flags: runhidden waituntilterminated; StatusMsg: "Устанавливаем VELIQ…"; BeforeInstall: ClearInstallMarker; AfterInstall: CheckInstall
+Filename: "{localappdata}\Programs\VELIQ\VELIQ.exe"; Description: "Открыть VELIQ и ввести код активации"; Flags: runasoriginaluser nowait skipifsilent; Check: NotClubImage
 [Code]
 function ClubCodeFile(Param: String): String;
 begin
  Result := ExpandConstant('{param:CLUBCODEFILE|}');
  if (Pos('''',Result)>0) or (Pos('"',Result)>0) or (Pos(#13,Result)>0) or (Pos(#10,Result)>0) then RaiseException('Недопустимый путь файла активации');
+end;
+function ClubImageArgument(Param: String): String;
+begin
+ Result := '';
+ if ExpandConstant('{param:CLUBIMAGE|0}')='1' then Result := '-ClubImage';
+end;
+function NotClubImage(): Boolean;
+begin
+ Result := ExpandConstant('{param:CLUBIMAGE|0}')<>'1';
 end;
 procedure ClearInstallMarker;
 begin

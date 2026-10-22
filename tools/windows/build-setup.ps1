@@ -34,6 +34,13 @@ Initialize-ActivationNuGetSource
 & (Join-Path $PSScriptRoot 'build-desktop.ps1')
 $driver=Join-Path $repo '.e2e\windivert'
 if(!(Test-Path -LiteralPath $driver)){& (Join-Path $PSScriptRoot 'fetch-windivert.ps1')}
+$previousDriverFixture=$env:NEEXITLAG_TEST_DRIVER_DIR
+try{
+ $env:NEEXITLAG_TEST_DRIVER_DIR=$driver
+ & (Join-Path $repo 'bin\windows-e2e\capture-acceptance.exe') -test.run '^TestPrivateISCSIExcludedByActualWinDivertFilterEvaluator$' -test.v
+ if($LASTEXITCODE){throw 'BUILD_STORAGE_FILTER_EVALUATOR_FAILED'}
+}finally{$env:NEEXITLAG_TEST_DRIVER_DIR=$previousDriverFixture}
+
 $stage=Join-Path $repo ('bin\installer-staging\'+$head.Substring(0,12)+'-'+[Guid]::NewGuid().ToString('N'))
 # Copy only the already validated PUBLIC CA. Input folder may contain owner-only
 # working files, none of which is included in the release payload.

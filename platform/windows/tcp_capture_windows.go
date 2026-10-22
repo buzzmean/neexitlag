@@ -47,10 +47,7 @@ func (b *WinDivertBackend) startTCP(d *divertDLL) (*tcpRedirect, error) {
 	port := uint16(l.Addr().(*net.TCPAddr).Port)
 	// Inbound physical connections to the internal listener are dropped. Reflected
 	// packets injected below this handle are the only admitted listener traffic.
-	filter := fmt.Sprintf("ip and tcp and !impostor and ((outbound and !loopback) or (inbound and (!loopback or tcp.DstPort == %d)))", port)
-	if b.testBrowserLoopback {
-		filter = "ip and tcp and !impostor"
-	}
+	filter := nativeTCPNetworkFilter(port, b.testBrowserLoopback)
 	b.ingress.mu.Lock()
 	b.ingress.tcpFilter = filter
 	b.ingress.mu.Unlock()
