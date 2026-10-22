@@ -217,9 +217,10 @@ func (c *Controller) openBrowser(ctx context.Context, q browserproxy.Request, pl
 		return backend.OpenBrowserLocalTCP(ctx, browserIdentity(q), q.Source, plan.Destination, d)
 	}
 	release := func() {}
-	if observe && d.Route.RelayID != "" && isVideo(q) {
+	opaqueGoogle := !isVideo(q) && (q.Host == "" && browserGoogleDestination(plan.Destination) || plan.Policy.Source == "browser_opaque_google_failure_cache")
+	if observe && d.Route.RelayID != "" && (isVideo(q) || opaqueGoogle) {
 		var ok bool
-		release, ok = c.relayUsage().acquireVideoContext(ctx)
+		release, ok = c.relayUsage().acquireVideoContext(ctx, opaqueGoogle)
 		if !ok {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()

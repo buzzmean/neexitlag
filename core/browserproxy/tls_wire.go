@@ -133,7 +133,9 @@ func (d *tlsWireDirection) snapshot() TLSWireSide {
 	s := TLSWireSide{Bytes: d.bytes, Records: append([]TLSWireRecord{}, d.records[:d.count]...), ClientHelloBytes: d.hello, Bounded: d.bounded, State: "NOT_OBSERVED"}
 	if d.metaN == 4 && d.meta[0] == 2 {
 		expected := 4 + (uint32(d.meta[1]) << 16) + (uint32(d.meta[2]) << 8) + uint32(d.meta[3])
-		s.ServerHelloComplete = d.handshakeSeen >= expected
+		// ServerHello has at least version(2), random(32), session-id length(1),
+		// cipher suite(2), compression(1). A zero/tiny handshake is not progress.
+		s.ServerHelloComplete = expected >= 42 && d.handshakeSeen >= expected
 	}
 	if d.bytes == 0 {
 		return s

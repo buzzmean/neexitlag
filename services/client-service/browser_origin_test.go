@@ -27,6 +27,7 @@ func TestKnownRelayOriginRecoveryUsesIndependentDNSAndWarmNegativeCache(t *testi
 		lookups.Add(1)
 		return browserproxy.DNSAnswer{Addresses: []netip.Addr{one.Addr(), two.Addr()}, TTL: time.Minute, ObtainedAt: time.Now()}, nil
 	}
+	serverHello := append([]byte{22, 3, 3, 0, 42, 2, 0, 0, 38}, make([]byte, 38)...)
 	hello := []byte{22, 3, 1, 0, 7, 1, 0, 0, 3, 1, 2, 3}
 	open := func(_ context.Context, _ browserproxy.Request, p browserproxy.Plan) (net.Conn, error) {
 		if p.Policy.Action != flowpolicy.RelayRequired || p.Policy.Fallback != flowpolicy.Required || p.Policy.RelayID != "VPS-01" {
@@ -40,7 +41,7 @@ func TestKnownRelayOriginRecoveryUsesIndependentDNSAndWarmNegativeCache(t *testi
 				return
 			}
 			if p.Destination == two {
-				b.Write([]byte{22, 3, 3, 0, 4, 2, 0, 0, 0})
+				b.Write(serverHello)
 			}
 		}()
 		if p.Destination == one {
@@ -65,7 +66,7 @@ func TestKnownRelayOriginRecoveryUsesIndependentDNSAndWarmNegativeCache(t *testi
 		conn.Write(hello)
 		body, err := io.ReadAll(conn)
 		conn.Close()
-		if err != nil || len(body) != 9 {
+		if err != nil || len(body) != len(serverHello) {
 			t.Fatal(err, len(body))
 		}
 		report := conn.(browserproxy.OriginReporter).OriginAttempts()

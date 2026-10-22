@@ -32,6 +32,9 @@ type browserDNSKey struct {
 	address          netip.Addr
 }
 type browserDomainIndex struct {
+	google     map[browserGoogleKey]browserGoogleFailure
+	googleHits uint64
+
 	owned map[browserDNSKey][]browserDNSObservation
 
 	mu        sync.Mutex
@@ -157,7 +160,7 @@ func (x *browserDomainIndex) failedDirect(network, profile string, dst netip.Add
 			delete(x.failed, key)
 		}
 	}
-	if len(x.failed) >= 256 {
+	if len(x.failed) >= 256 && x.failed[opaqueFailureKey(network, profile, dst)].IsZero() {
 		return
 	}
 	x.failed[opaqueFailureKey(network, profile, dst)] = now.Add(2 * time.Minute)
@@ -171,7 +174,31 @@ func (x *browserDomainIndex) directFailed(network, profile string, dst netip.Add
 func (x *browserDomainIndex) snapshot() map[string]any {
 	x.mu.Lock()
 	defer x.mu.Unlock()
-	return map[string]any{"source": "WINDOWS_SYSTEM_DNS_CACHE; not browser-private DoH", "checked_at": x.checked, "last_error": x.errorCode, "browser_scoped_addresses": len(x.owned), "addresses": len(x.entries), "maximum_rows": 256, "maximum_ttl_seconds": 300, "refresh_seconds": 10, "unknown_policy": "DIRECT_DEFAULT; hidden protected domain cannot be guaranteed"}
+	now := time.Now()
+	groups := []map[string]any{}
+	activeFailures := 0
+	for _, until := range x.failed {
+		if now.Before(until) {
+			activeFailures++
+		}
+	}
+	for key, v := range x.google {
+		if v.until.IsZero() && now.Sub(v.at) > 10*time.Second {
+			continue
+		}
+		if len(groups) >= 16 {
+			break
+		}
+		state := "PROBATION"
+		if !v.until.IsZero() {
+			if !now.Before(v.until) {
+				continue
+			}
+			state = "RELAY_FIRST"
+		}
+		groups = append(groups, map[string]any{"network": key.network, "profile_id": key.profile, "family": "GOOGLE_SERVICE_NETWORKS_NOT_DOMAIN_IDENTITY", "state": state, "distinct_failed_addresses": v.distinct, "first_address": v.first.String(), "until": v.until, "last_failure": v.reason})
+	}
+	return map[string]any{"source": "BROWSER_DNS_RESPONSE_PROFILE_TTL + WINDOWS_SYSTEM_DNS_CACHE; transit DoH encrypted", "opaque_direct_failed_endpoints": activeFailures, "google_failure_groups": groups, "google_failure_group_hits": x.googleHits, "google_group_maximum": 64, "google_group_ttl_seconds": 120, "native_first_tls_reply_budget_ms": 1200, "checked_at": x.checked, "last_error": x.errorCode, "browser_scoped_addresses": len(x.owned), "addresses": len(x.entries), "maximum_rows": 256, "maximum_ttl_seconds": 300, "refresh_seconds": 10, "unknown_policy": "DIRECT_DEFAULT; hidden protected domain cannot be guaranteed"}
 }
 func (c *Controller) watchBrowserDomainCache() {
 	for {
@@ -205,7 +232,8 @@ func (c *Controller) nativeOpaquePlan(p profiles.Profile, t wp.Tuple, network st
 			policy = r
 		}
 	}
-	if policy.Action != flowpolicy.Block && (e.Restricted || policy.Source != "rule" && c.browser.domains.directFailed(network, p.ID, t.Destination, time.Now())) {
+	googleFailed := policy.Source != "rule" && c.browser.domains.googleRelay(network, p.ID, t.Destination, time.Now())
+	if policy.Action != flowpolicy.Block && (e.Restricted || googleFailed || policy.Source != "rule" && c.browser.domains.directFailed(network, p.ID, t.Destination, time.Now())) {
 		relay := p.RelayID
 		if relay == "" {
 			relay = "VPS-01"
@@ -214,6 +242,10 @@ func (c *Controller) nativeOpaquePlan(p profiles.Profile, t wp.Tuple, network st
 			relay = policy.RelayID
 		}
 		policy = flowpolicy.Result{Action: flowpolicy.RelayRequired, RelayID: relay, Fallback: flowpolicy.Required, Source: "browser_opaque_evidence", Reason: "protected DNS/outer association or observed DIRECT failure; authenticated relay only"}
+	}
+	if googleFailed && policy.Action == flowpolicy.RelayRequired {
+		policy.Source = "browser_opaque_google_failure_cache"
+		policy.Reason = "two distinct Google TCP443 DIRECT failures on this network/profile; bounded relay-first, domain not inferred"
 	}
 	if secureDNS && policy.Action != flowpolicy.Block {
 		policy.Source = "browser_secure_dns_relay"

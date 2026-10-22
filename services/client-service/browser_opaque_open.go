@@ -22,6 +22,7 @@ func (c *Controller) openOpaqueBrowserPlan(ctx context.Context, cur profilesResu
 		return conn, p, err
 	}
 	c.browser.domains.failedDirect(cur.network, cur.profile.ID, p.Destination, time.Now())
+	c.browser.domains.googleFailed(cur.network, cur.profile.ID, p.Destination, "DIRECT_TCP_OPEN_FAILED", time.Now())
 	// No application bytes have left yet. A successful TCP stream is never moved.
 	p = stallRetryPlan(cur, p)
 	p.Policy.Source = "opaque_direct_open_retry"

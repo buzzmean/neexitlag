@@ -67,3 +67,33 @@ IPv6 relay support не заявляется. Чужие приложения и
 Custom DoH на неизвестном shared IP с ECH нельзя надёжно узнать без расшифровки
 или настройки браузера. Ответы транзитного DoH не читаются, их TTL/имена не
 выдумываются. Это ограничение явно остаётся; C наблюдает реальные DIRECT failures.
+
+## C. Реальный отказ непрозрачного DIRECT
+
+Старый кэш запоминал только точный (сеть, профиль, IP:порт), поэтому очередной
+адрес Google обходил прошлый отказ. Первый TLS alert/даже заголовок в 5 байт
+останавливал наблюдение как «ответ». Ошибка первого Write с n=0 не записывала
+отказ. Callback публиковался после закрытия, что позволяло reconnect обогнать его.
+
+Теперь TLS-flow ждёт пассивно наблюдаемый полный ServerHello (не TCP ACK).
+Silent/incomplete handshake: бюджет 1200мс после успешной записи; ранний
+EOF/RST/alert/неверный TLS или Write failure — точный failure_reason. Кэш
+публикуется до нашего закрытия. Preconnect без данных, явное закрытие владельцем,
+здоровый ServerHello и короткий polling timeout не дают ложного failure.
+Запись/ответ не меняются и не воспроизводятся на другом egress.
+
+Для ограниченного каталога Google IPv4 service ranges два разных DIRECT
+TCP443 отказа за 10с включают relay-first на 2мин только для той же пары
+(network, browser profile). TLS failures и реальные TCP-open failures учитываются;
+один IP, UDP/53/5228, DNS/owner errors — не доказательство блокировки всей группы.
+Каталог сам по себе не выбирает relay и не доказывает домен. Никакого
+переписывания назначения/SNI по принадлежности сети. Максимум 64 scoped groups;
+точные endpoint failures остаются отдельно (256 записей). VK/Яндекс не входят.
+
+Opaque Google recovery делит прежние 8 admission slots с известным googlevideo,
+32 waiters/2с; очереди не расширяются и DIRECT fallback не добавляется.
+`googlevideo_active_tunnels` считает только известные video origins;
+`opaque_google_active_tunnels` — неизвестные домены Google;
+`googlevideo_shared_limit_active` — их общую загрузку. Ноль известного googlevideo
+не доказывает отсутствие видео в opaque relay. Реальная приёмка должна показать
+hostname evidence; без него результат по googlevideo — UNKNOWN, не PASS.

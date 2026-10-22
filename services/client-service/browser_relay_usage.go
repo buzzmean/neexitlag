@@ -31,6 +31,9 @@ type relayMinute struct {
 	Received uint64    `json:"received_bytes"`
 }
 type relayUsageSnapshot struct {
+	OpaqueGoogleActive int `json:"opaque_google_active_tunnels"`
+	SharedVideoActive  int `json:"googlevideo_shared_limit_active"`
+
 	Active          int                 `json:"active_tcp_tunnels"`
 	Opened          uint64              `json:"tcp_tunnels_opened"`
 	ActiveOrigins   []relayActiveOrigin `json:"active_origins"`
@@ -51,6 +54,7 @@ type browserRelayUsage struct {
 	opened, overflowTunnels uint64
 	mu                      sync.Mutex
 	minutes                 map[relayMinuteKey]relayMinute
+	opaqueGoogle            int
 	video                   int
 	waiting                 int
 	admissionFailures       uint64
@@ -124,7 +128,7 @@ func (c *Controller) relayUsage() *browserRelayUsage {
 	return c.browser.usage
 }
 func (u *browserRelayUsage) acquireVideo() (func(), bool) { return u.tryAcquireVideo(true) }
-func (u *browserRelayUsage) tryAcquireVideo(count bool) (func(), bool) {
+func (u *browserRelayUsage) tryAcquireVideo(count bool, opaque ...bool) (func(), bool) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if u.video >= videoRelayLimit {
@@ -134,11 +138,18 @@ func (u *browserRelayUsage) tryAcquireVideo(count bool) (func(), bool) {
 		return nil, false
 	}
 	u.video++
+	isOpaque := len(opaque) > 0 && opaque[0]
+	if isOpaque {
+		u.opaqueGoogle++
+	}
 	var once sync.Once
 	return func() {
 		once.Do(func() {
 			u.mu.Lock()
 			u.video--
+			if isOpaque {
+				u.opaqueGoogle--
+			}
 			if u.changed != nil {
 				close(u.changed)
 				u.changed = nil
@@ -150,11 +161,11 @@ func (u *browserRelayUsage) tryAcquireVideo(count bool) (func(), bool) {
 
 // The caller's existing flow worker waits; no goroutine or unbounded queue is
 // created. Eight active tunnels and at most 32 waiters are shared by both browsers.
-func (u *browserRelayUsage) acquireVideoContext(ctx context.Context) (func(), bool) {
+func (u *browserRelayUsage) acquireVideoContext(ctx context.Context, opaque ...bool) (func(), bool) {
 	if ctx.Err() != nil {
 		return nil, false
 	}
-	if release, ok := u.acquireVideo(); ok {
+	if release, ok := u.tryAcquireVideo(true, opaque...); ok {
 		return release, true
 	}
 	u.mu.Lock()
@@ -176,7 +187,7 @@ func (u *browserRelayUsage) acquireVideoContext(ctx context.Context) (func(), bo
 		changed := u.changed
 		u.mu.Unlock()
 		if ctx.Err() == nil {
-			if release, ok := u.tryAcquireVideo(false); ok {
+			if release, ok := u.tryAcquireVideo(false, opaque...); ok {
 				return release, true
 			}
 		}
@@ -221,7 +232,7 @@ func (u *browserRelayUsage) account(profile, domain string, tx, rx uint64, at ti
 func (u *browserRelayUsage) snapshot() relayUsageSnapshot {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	s := relayUsageSnapshot{VideoActive: u.video, VideoLimit: videoRelayLimit, VideoLimitHits: u.limitHits, VideoWaiting: u.waiting, VideoTimeouts: u.admissionFailures, OverflowBytes: u.overflow, Minutes: []relayMinute{}}
+	s := relayUsageSnapshot{VideoActive: u.video - u.opaqueGoogle, OpaqueGoogleActive: u.opaqueGoogle, SharedVideoActive: u.video, VideoLimit: videoRelayLimit, VideoLimitHits: u.limitHits, VideoWaiting: u.waiting, VideoTimeouts: u.admissionFailures, OverflowBytes: u.overflow, Minutes: []relayMinute{}}
 	s.Active = u.active
 	s.Opened = u.opened
 	s.OverflowTunnels = u.overflowTunnels

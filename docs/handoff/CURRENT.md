@@ -2422,3 +2422,19 @@ A: IPv4 DNS/53 только атрибутированных native Chrome/Edge 
 ## 23.10.2026 — browser Secure DNS B
 
 B: известные DoH endpoints из Chromium snapshot (точные IP/hostname, TCP443) selected native browsers всегда RELAY_REQUIRED; explicit BLOCK, остальные приложения/disabled DIRECT сохранены. IPv6 guard без ослабления. Не ломаем strict Secure DNS преднамеренными RST: выбран разрешённый резерв B, транзитный DoH через relay. Automatic→DNS53 fallback НЕ принуждается и не заявлен доказанным; неизвестный custom DoH+ECH/shared IP не определяется без MITM. Содержимое/TTL encrypted DoH НЕ наблюдается. No-restart/no-settings path; Go targeted race/vet/Windows build PASS, native Windows/ISP ещё не проверены. Далее C–E, область занята.
+
+## 23.10.2026 — browser opaque DIRECT recovery C
+
+C: точный IP:порт cache не покрывал следующий Google IP; первый TLS alert/header
+ошибочно прекращал наблюдение. Теперь полный ServerHello (минимум38-byte body),
+1200мс budget после ClientHello, точные EOF/RST/alert/Write failure, callback cache
+до закрытия. Новые соединения только: ни replay, ни migration DIRECT→relay.
+Два разных реальных Google TCP443 отказа за10с => network/profile relay-first2мин,
+64group cap, не по одному ASN membership. VK/Яндекс/5228 не включаются.
+Opaque Google делит8слотов/32waiters/2с с googlevideo, отдельный счётчик неизвестных
+доменов; hostname/видео PASS по IP не выдумываются. После disable/stop cache не учится.
+Targeted race3пакета PASS; дополнительные TLS timer/polling/header/alert/ServerHello
+регрессии count3 PASS; vet и Windows build проверяются перед push. TLS recovery
+fixtures заменены с пустого ServerHello на структурно полный; no-byte replay и
+no-replay-after-any-origin-byte assertions сохранены. Реальный Windows/ISP не проверен.
+Далее D/E, область занята.

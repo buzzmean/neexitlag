@@ -15,6 +15,8 @@ import (
 	"time"
 )
 
+var retryServerHello = append([]byte{22, 3, 3, 0, 42, 2, 0, 0, 38}, make([]byte, 38)...)
+
 var retryHello = []byte{22, 3, 1, 0, 7, 1, 0, 0, 3, 1, 2, 3}
 
 func originFixture(t *testing.T, kind string, reply []byte) net.Conn {
@@ -50,7 +52,7 @@ func TestRelayOriginSilenceOrEOFRecoversOnlyClientHello(t *testing.T) {
 			calls := 0
 			x := WatchRelayOrigin(originFixture(t, kind, nil), OriginConfig{Context: context.Background(), Health: h, Scope: "network/profile/web.telegram.org/443/relay", Initial: one, Candidates: []netip.AddrPort{one, two}, Open: func(context.Context, netip.AddrPort) (net.Conn, error) {
 				calls++
-				return originFixture(t, "reply", []byte{22, 3, 3, 0, 4, 2, 0, 0, 0}), nil
+				return originFixture(t, "reply", retryServerHello), nil
 			}})
 			defer x.Close()
 			x.SetDeadline(time.Now().Add(3 * time.Second))
@@ -58,7 +60,7 @@ func TestRelayOriginSilenceOrEOFRecoversOnlyClientHello(t *testing.T) {
 				t.Fatal(err)
 			}
 			got, err := io.ReadAll(x)
-			if err != nil || !bytes.Equal(got, []byte{22, 3, 3, 0, 4, 2, 0, 0, 0}) || calls != 1 {
+			if err != nil || !bytes.Equal(got, retryServerHello) || calls != 1 {
 				t.Fatal(got, err, calls)
 			}
 			r := x.(OriginReporter).OriginAttempts()
@@ -141,7 +143,7 @@ func TestRelayOriginUsesIndependentDNSAndDoesNotRepeatTriedAddress(t *testing.T)
 		if ip != two {
 			t.Fatal(ip)
 		}
-		return originFixture(t, "reply", []byte{22, 3, 3, 0, 4, 2, 0, 0, 0}), nil
+		return originFixture(t, "reply", retryServerHello), nil
 	}})
 	defer x.Close()
 	x.Write(retryHello)
@@ -258,14 +260,14 @@ func TestOriginConcurrentEarlyReadAndWriteClosureRetriesExactlyOnce(t *testing.T
 		two := netip.MustParseAddrPort("8.8.4.4:443")
 		x := WatchRelayOrigin(alreadyClosedOrigin{}, OriginConfig{Context: context.Background(), Health: NewOriginHealth(), Initial: one, Candidates: []netip.AddrPort{one, two}, Open: func(context.Context, netip.AddrPort) (net.Conn, error) {
 			opens.Add(1)
-			return originFixture(t, "reply", []byte{22, 3, 3, 0, 4, 2, 0, 0, 0}), nil
+			return originFixture(t, "reply", retryServerHello), nil
 		}})
 		done := make(chan error, 1)
 		go func() { _, err := x.Write(retryHello); done <- err }()
 		body, err := io.ReadAll(x)
 		writeErr := <-done
 		x.Close()
-		if err != nil || writeErr != nil || len(body) != 9 || opens.Load() != 1 {
+		if err != nil || writeErr != nil || len(body) != len(retryServerHello) || opens.Load() != 1 {
 			t.Fatal(i, err, writeErr, len(body), opens.Load())
 		}
 	}
@@ -372,7 +374,7 @@ func TestOriginRecoveryPreservesLargeFragmentedClientHelloByteForByte(t *testing
 			}
 			received <- raw
 			if reply {
-				b.Write([]byte{22, 3, 3, 0, 4, 2, 0, 0, 0})
+				b.Write(retryServerHello)
 			}
 		}()
 		return a
@@ -387,7 +389,7 @@ func TestOriginRecoveryPreservesLargeFragmentedClientHelloByteForByte(t *testing
 			t.Fatal(e)
 		}
 	}
-	if body, e := io.ReadAll(x); e != nil || len(body) != 9 {
+	if body, e := io.ReadAll(x); e != nil || len(body) != len(retryServerHello) {
 		t.Fatal(e, len(body))
 	}
 	for i := 0; i < 2; i++ {

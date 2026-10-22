@@ -475,7 +475,7 @@ func (n *nativeBrowserRuntime) bytes(id uint64, tx, rx uint64) {
 		}
 		n.profiles[r.Owner.Profile] = p
 	}
-	if r.Sent > 0 && r.Received > 0 {
+	if r.Sent > 0 && r.Received > 0 && r.Failure == "" {
 		r.Result = "BIDIRECTIONAL_EXCHANGE"
 		p := n.profiles[r.Owner.Profile]
 		if !p.Activated.IsZero() && id > p.AfterFlow && p.FirstExchange.IsZero() {
@@ -604,13 +604,15 @@ func (c *Controller) openNativeBrowser(ctx context.Context, p profiles.Profile, 
 		return nil, d, err
 	} // No generic native fallback after a planned failure.
 	if current.network != "" && nativeFirstReplyEligible(q, plan) {
-		conn = &nativeFirstReplyConn{Conn: conn, timeout: 2 * time.Second, stalled: func() {
-			c.recordNativeBrowserStall(current, q, plan, opaque)
+		conn = &nativeFirstReplyConn{Conn: conn, timeout: 1200 * time.Millisecond, failed: func(failure string) {
+			if !c.recordNativeBrowserFailure(current, q, plan, opaque, failure) {
+				return
+			}
 			n.mu.Lock()
 			r, ok := n.records[record]
 			if ok {
 				r.Result = "DIRECT_STALL_NEW_CONNECTION_REQUIRED"
-				r.Failure = "DIRECT_STALL"
+				r.Failure = failure
 				n.records[record] = r
 			}
 			n.mu.Unlock()
