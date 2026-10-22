@@ -2318,3 +2318,12 @@ VPS/сертификаты/credentials/PR8/main/ветка Claude не трог�
 Владельцу: PowerShell админа из корня клона: git pull --ff-only origin codex/work;
 & .\tools\windows\build-setup.ps1. Затем ровно по docs/CLUB_PILOT.md, сначала2–3ПК.
 Область освобождена, дальнейшее ожидание owner Windows/image acceptance.
+
+Дополнительная граница SYSTEM task: публичный Setup tree/все boot dependencies
+и их parent directories явно owner=Administrators, запись SYSTEM/Admin only,
+owner SID только RX. Future standard guest не сохраняет owner WRITE_DAC после
+снятия membership Administrators. Reparse tree отвергается до ACL mutations.
+Native Windows temp-tree fixture проверяет owners/protected ACL/no guest write;
+на Linux этот участок явно SKIP, PS7 parser/остальные fixtures и Python7/7 PASS.
+Это не расширение прав на ProgramData/IPC и не замена Windows admin boundary.
+Новые поправки только installer/PS/docs, Go/C# код после последних PASS не менялся.

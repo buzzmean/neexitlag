@@ -1,12 +1,12 @@
 # Definitions only. Privileged image/boot operations call these explicitly.
-function Set-ClubFileAcl([string]$Path,[string]$OwnerSid='', [switch]$Public){
+function Set-ClubFileAcl([string]$Path,[string]$OwnerSid='', [switch]$Public, [switch]$Executable){
  if((Get-Item -LiteralPath $Path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'CLUB_REPARSE_POINT_REJECTED'}
  $acl=[Security.AccessControl.FileSecurity]::new();$acl.SetAccessRuleProtection($true,$false);$acl.SetOwner([Security.Principal.SecurityIdentifier]::new('S-1-5-32-544'))
  foreach($sid in @('S-1-5-18','S-1-5-32-544')){$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($sid),'FullControl','Allow'))}
- if($Public){$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($OwnerSid),'Read','Allow'))}
+ if($Public){$rights='Read';if($Executable){$rights='ReadAndExecute'};$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($OwnerSid),$rights,'Allow'))}
  Set-Acl -LiteralPath $Path -AclObject $acl
 }
-function Write-ClubJson([string]$Path,$Value,[string]$OwnerSid='', [switch]$Public){
+function Write-ClubJson([string]$Path,$Value,[string]$OwnerSid='', [switch]$Public, [switch]$Executable){
  $tmp=Join-Path (Split-Path $Path) ('.club-'+[Guid]::NewGuid().ToString('N'))
  try{
   [IO.File]::WriteAllText($tmp,($Value|ConvertTo-Json -Depth 8 -Compress),[Text.UTF8Encoding]::new($false));Set-ClubFileAcl $tmp
@@ -47,4 +47,24 @@ function Remove-OwnedClubBootTask {
  $args='-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command "& ' + "'"+$boot+"'"+' -InstallDirectory '+"'"+$directory+"'"+'"'
  Assert-ClubBootTaskOwnership $args
  Unregister-ScheduledTask -TaskName 'VELIQ Club Boot' -Confirm:$false
+}
+
+# Boot task dependencies and their parent directories must not retain the future
+# guest as owner: an owner can rewrite a DACL even after leaving Administrators.
+function Protect-ClubPackageTree([string]$Root,[string]$OwnerSid){
+ $dirs=@();$files=@();$todo=@((Get-Item -LiteralPath $Root -Force))
+ while($todo.Count){
+  $item=$todo[0];$todo=@($todo|Select-Object -Skip 1)
+  if($item.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'CLUB_PACKAGE_REPARSE_POINT_REJECTED'}
+  if($item.PSIsContainer){$dirs+=,$item;$todo+=@(Get-ChildItem -LiteralPath $item.FullName -Force)}else{$files+=,$item}
+ }
+ # All paths validated before mutating permissions. SYSTEM/Admin write only;
+ # installation owner may read/traverse, never write/replace a SYSTEM entrypoint.
+ foreach($dir in $dirs){
+  $acl=[Security.AccessControl.DirectorySecurity]::new();$acl.SetAccessRuleProtection($true,$false);$acl.SetOwner([Security.Principal.SecurityIdentifier]::new('S-1-5-32-544'))
+  foreach($sid in @('S-1-5-18','S-1-5-32-544')){$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($sid),'FullControl','ContainerInherit,ObjectInherit','None','Allow'))}
+  $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($OwnerSid),'ReadAndExecute','ContainerInherit,ObjectInherit','None','Allow'))
+  Set-Acl -LiteralPath $dir.FullName -AclObject $acl
+ }
+ foreach($file in $files){Set-ClubFileAcl $file.FullName -OwnerSid $OwnerSid -Public -Executable}
 }

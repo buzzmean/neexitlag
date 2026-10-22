@@ -109,7 +109,9 @@ $p = Start-Process -FilePath '.\bin\installer\VELIQ-Setup.exe' -ArgumentList @('
 Установщик ставит службу Automatic, GUI, WinDivert, публичный CA; сохраняет
 защищённый staged code, регистрирует SYSTEM task `VELIQ Club Boot` и HKCU
 автозапуск GUI в трее, затем останавливает службу. Enrollment при подготовке
-образа не выполняется. Старые/чужие задачи не перезаписываются.
+образа не выполняется. Старые/чужие задачи не перезаписываются. Публичное дерево Setup и зависимости
+SYSTEM-задачи получают owner Administrators и admin-only write ACL; будущий
+стандартный гость не сохраняет права владельца на boot-скрипты.
 
 ```powershell
 Get-Service neexitlag | Select-Object Status,StartType

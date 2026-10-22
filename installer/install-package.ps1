@@ -15,7 +15,7 @@ try{
   if((Invoke-CimMethod -InputObject $shell -MethodName GetOwnerSid).Sid -ne $owner){throw 'INSTALL_SAME_OWNER_ELEVATION_REQUIRED'}
  }
  $installed=Join-Path $env:ProgramData 'neexitlag';$manifest=Join-Path $installed 'service.json'
- if($ClubImage){if(!$ClubCodeFile -or $Remove){throw 'CLUB_IMAGE_CODE_FILE_REQUIRED'};. (Join-Path $root 'tools\windows\club-image-common.ps1');Assert-ClubImageClean $installed}
+ if($ClubImage){if(!$ClubCodeFile -or $Remove){throw 'CLUB_IMAGE_CODE_FILE_REQUIRED'};. (Join-Path $root 'tools\windows\club-image-common.ps1');Assert-ClubImageClean $installed;Protect-ClubPackageTree -Root $root -OwnerSid $owner}
  if(Test-Path $manifest){$existing=Get-Content -Raw -LiteralPath $manifest|ConvertFrom-Json;if($existing.owner_sid -ne $owner){throw 'INSTALL_OWNER_MISMATCH'}}
  # Ask only our same-owner GUI to exit; never stop/kill a browser or another process.
  $step='GUI_SHUTDOWN'

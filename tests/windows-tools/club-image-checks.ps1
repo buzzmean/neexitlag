@@ -25,3 +25,20 @@ try{
 $token=$null;$errors=$null;[void][Management.Automation.Language.Parser]::ParseFile((Join-Path $repo 'tools/windows/Get-ClubStatus.ps1'),[ref]$token,[ref]$errors);Check ($errors.Count -eq 0) 'status parser'
 function global:Get-Service { param($Name) return $null }
 try{$message=& (Join-Path $repo 'tools/windows/Get-ClubStatus.ps1');Check ($message -eq 'VELIQ SERVICE_STOPPED_OR_ABSENT') 'stopped service shown READY'}finally{Remove-Item function:global:Get-Service}
+
+if($env:OS -eq 'Windows_NT'){
+ $dir=Join-Path ([IO.Path]::GetTempPath()) ('veliq-acl-fixture-'+[guid]::NewGuid().ToString('N'))
+ try{
+  New-Item -ItemType Directory -Path (Join-Path $dir 'tools/windows') -Force|Out-Null
+  $file=Join-Path $dir 'tools/windows/boot-fixture.ps1';[IO.File]::WriteAllText($file,'# inert fixture')
+  $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+  Protect-ClubPackageTree -Root $dir -OwnerSid $sid
+  foreach($p in @($dir,(Join-Path $dir 'tools'),(Split-Path $file),$file)){
+   $acl=Get-Acl -LiteralPath $p
+   Check ($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -eq 'S-1-5-32-544') 'future guest owns SYSTEM dependency'
+   Check $acl.AreAccessRulesProtected 'SYSTEM dependency inherits writable permissions'
+   foreach($ace in $acl.Access){if($ace.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq $sid){Check (($ace.FileSystemRights -band [Security.AccessControl.FileSystemRights]::Write) -eq 0) 'guest can write SYSTEM dependency'}}
+  }
+  Write-Output 'PASS native Windows temporary SYSTEM-task dependency ownership/ACL; no scheduled task or installation'
+ }finally{if(Test-Path $dir){Remove-Item -LiteralPath $dir -Recurse -Force}}
+}else{Write-Output 'SKIP native Windows task dependency ACL (requires Windows admin); parser only'}
