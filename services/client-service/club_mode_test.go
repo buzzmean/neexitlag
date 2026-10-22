@@ -105,3 +105,16 @@ func TestClubUpgradesLegacyDirectBrowserButHonorsExplicitOptOut(t *testing.T) {
 		}
 	}
 }
+
+func TestClubReadOnlyGameEvidenceAllowedButGameChangesDenied(t *testing.T) {
+	for _, m := range []string{"gameudp.status", "capture.changes.marker", "capture.changes", "capture.diagnostics"} {
+		if !clubReadMethod(m) {
+			t.Fatal("read-only game evidence blocked", m)
+		}
+	}
+	for _, m := range []string{"gameudp.set", "pubg.set", "capture.start", "capture.stop", "optimize", "profile.set"} {
+		if clubReadMethod(m) {
+			t.Fatal("guest mutation allowed", m)
+		}
+	}
+}

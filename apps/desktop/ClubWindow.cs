@@ -14,7 +14,7 @@ public sealed class ClubWindow : Window
     readonly IServiceClient service=new ServiceClient();bool polling,exiting;
     public ClubWindow()
     {
-        Title="VELIQ";Width=440;Height=190;Background=Brushes.Black;Foreground=Brushes.White;Content=status;
+        Title="VELIQ";Width=440;Height=250;Background=Brushes.Black;Foreground=Brushes.White;Content=status;
         var stream=System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/Assets/NeExitLag.ico"));
         if(stream is not null)tray.Icon=new System.Drawing.Icon(stream.Stream);
         tray.Text="VELIQ · клуб";tray.Visible=true;
@@ -26,7 +26,10 @@ public sealed class ClubWindow : Window
     async Task Poll()
     {
         if(polling)return;polling=true;
-        try {var s=await service.Call<JsonElement>("club.status");var state=s.GetProperty("state").GetString();status.Text=state=="BASELINE_PASS_RUNTIME_UNVERIFIED" ? "VELIQ · подключение готово\nМаршрутизация новых соединений включена" : state=="ACTIVATION_ERROR" ? "VELIQ · требуется внимание администратора" : "VELIQ · подготовка подключения…";}
+        try {var s=await service.Call<JsonElement>("club.status");var state=s.GetProperty("state").GetString();status.Text=state=="BASELINE_PASS_RUNTIME_UNVERIFIED" ? "VELIQ · подключение готово\nМаршрутизация новых соединений включена" : state=="ACTIVATION_ERROR" ? "VELIQ · требуется внимание администратора" : "VELIQ · подготовка подключения…";
+            try{status.Text+="\n"+ClubPresentation.GameLine(await service.Call<GameUdpStatus>("gameudp.status"));}
+            catch{status.Text+="\nPUBG: диагностика пока недоступна";}
+        }
         catch {status.Text="VELIQ · ожидаем готовность службы…";}
         finally {polling=false;}
     }

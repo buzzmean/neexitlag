@@ -30,7 +30,23 @@ LAN/loopback/multicast, IPv6 и другие приложения не меня�
 
 ## Лестница, здоровье и ограничения
 
-Для каждой пары (fingerprint сети, точный exe) без измеренного результата:
+**PUBG с исправлением после e5e0127:** для неизвестного публичного endpoint
+сразу LOCAL_UDP K12/N2, без начального DIRECT trial. Это применяется при Steam
+discovery, ручном enable и восстановлении сохранённого game-udp.json v2.
+Другие игры сохраняют DIRECT-first и opt-in. После недостаточного ответа —
+следующий local вариант на следующем новом tuple, затем прежний bounded relay
+fallback. Первые24приманки не отправляются в VPS, оригиналы идут как DIRECT.
+
+Исключение — ранее подтверждённый sustained DIRECT **этой сети, exe и адреса:порта**.
+TTL6часов и реальная cadence остаются обязательными. App-wide/чужой endpoint/
+другая сеть/просроченный DIRECT не разрешают прямую пробу к новому серверу.
+Географию адреса не угадываем: неизвестный российский endpoint тоже получит
+короткую local-приманку; origin по-прежнему видит клиентский IP, не VPS.
+Успех после приманки не выдаётся за доказанную работоспособность без неё.
+Не добавляем фоновые копии/повторную отправку неизвестных игровых запросов.
+
+
+Для остальных игр, кроме PUBG, пара (fingerprint сети, точный exe) без измеренного результата:
 
 1. DIRECT, без приманок и релея.
 2. При недостаточном устойчивом ответном трафике — следующий **новый** поток
@@ -92,9 +108,19 @@ WinDivert остаётся прежней. Добавленным пакетам
 чтения памяти, патча exe, DLL в игре, эмуляции/отключения античита или обхода его
 проверок. Это не гарантия разрешения со стороны издателя/античита: владельцу
 нужно отдельно принять этот риск и проверить действующие правила игры.
-Vanguard/Valorant и FACEIT не включаются: process-name/SCM guard блокирует режим,
-пока такие службы/драйверы активны; выбор exe с именем/путём Valorant/FACEIT
-также отклоняется. Остальные пресеты кроме PUBG — opt-in, не compatibility PASS.
+PUBG/BattlEye включён по решению владельца. Установленный или загруженный FACEIT/
+Vanguard для другой игры больше не блокирует PUBG. Службы Stopped, даже с
+StartType=System, не означают activity. В guard отдельно видны driver/client флаги;
+legacy driver_anti_cheat оставлен только как информационное поле.
+Valorant и сами FACEIT exe остаются compatibility-gated. CS2/VAC opt-in допустим
+при одном загруженном FACEIT driver без активного клиента/службы. Для CS2 с
+активными FACEIT driver+client/service сохраняется gate; точное определение
+FACEIT-матча по этим metadata невозможно, отдельной интеграции с матчами нет.
+Неизвестное состояние FACEIT применимо к CS2, не к PUBG. Другие игры не наследуют
+чужую compatibility policy. Это не обещание совместимости нового кода с BattlEye.
+SCM/Toolhelp опрашиваются вне mutex из пути обработки пакетов; startup остаётся
+pending до первой проверки, результат старого scan после capture reset не принимается.
+Остальные пресеты кроме PUBG — opt-in, не compatibility PASS.
 
 WinDivert v2 REFLECT наблюдает уже открытые и новые foreign handles. После fence
 собственного inbound SNIFF handle detector готов. Compiled filters из подписанного
@@ -226,3 +252,106 @@ REFLECT native layout/fence/bounds, first-flight tombstone. Windows native seam
 CI не заменяет эти gates. Нельзя обещать отсутствие санкций античита или снижение
 пинга по unit-тестам. Для релиза нужен результат владельца и отдельный compatible
 allowlist по античитам; default-on PUBG — явное решение владельца для этой проверки.
+
+
+## Статусы после исправления e5e0127
+
+Для готового PUBG: `enabled=true` в engine, `state=ACTIVE`, `ready=true`, reason
+пустой. `activity=WAITING_NEW_FLOW` означает, что режим готов, но приманок ещё нет;
+`LOCAL_DECOYS_OBSERVED` — действительно наблюдались отправленные приманки.
+ACTIVE сам по себе не доказательство работы матча. При проблеме — PENDING и
+читаемая причина в обычном и клубном GUI; реальные WinDivert/process/VPN/capture/
+network guards не сняты. Статус сверяет guard сразу, не ждёт следующего тика.
+
+`engine.initial_policy=LOCAL_FIRST_UNCONFIRMED_ENDPOINT`, у нового потока
+`selection_reason=LOCAL_FIRST_UNCONFIRMED_ENDPOINT`, stage=LOCAL_UDP,
+variant=quic-v1-c8-k12-n2. После двух исходящих пакетов ожидаются24fake packets
+при отсутствии ошибок/лимита. Проверять actual capture counters, а не только variant.
+Exact DIRECT cache даёт `CONFIRMED_DIRECT_ENDPOINT`. Уже использованный tuple
+получает `EXISTING_TUPLE_PINNED_DIRECT`: не приманивается и не переигрывается.
+
+### Обновление тестового ПК: команды по одной
+
+PowerShell **администратора под SID владельца установки**, из корня клона.
+Античит-драйверы не останавливать; winws/zapret не должен обрабатывать этот же
+трафик. Закрывается только GUI VELIQ через его same-owner/session pipe;
+Chrome/Edge/игровые процессы helper не завершает. Обновлять до следующего матча.
+
+```powershell
+git pull --ff-only origin codex/work
+```
+
+```powershell
+& .\tools\windows\Close-VeliqGuiForUpdate.ps1
+```
+
+```powershell
+& .\tools\windows\build-e2e.ps1
+```
+
+```powershell
+& .\tools\windows\build-desktop.ps1
+```
+
+```powershell
+& .\tools\windows\update-service.ps1
+```
+
+```powershell
+& .\tools\windows\install-desktop.ps1
+```
+
+```powershell
+Start-Process "$env:LOCALAPPDATA\Programs\VELIQ\VELIQ.exe"
+```
+
+Проверить работающую службу и равенство хешей сборки/установленного service:
+
+```powershell
+Get-Service neexitlag
+```
+
+```powershell
+(Get-FileHash .\bin\windows-e2e\neexitlag-service.exe).Hash -eq (Get-FileHash "$env:ProgramData\neexitlag\neexitlag-service.exe").Hash
+```
+
+```powershell
+. .\tools\windows\common.ps1
+```
+
+```powershell
+Invoke-ServiceIPC 'gameudp.status' | ConvertTo-Json -Depth 12
+```
+
+В случае загруженного FACEIT для другой игры наличие его driver flag ожидаемо;
+оно не должно давать PUBG reason=DRIVER_ANTICHEAT_COMPATIBILITY_UNVERIFIED.
+Если PUBG ещё не найдена — Steam discovery обновляется каждые15с; после этого
+проверять установочный путь/профиль, не вручную включать режим по умолчанию.
+
+```powershell
+Get-Service FACEIT,FACEITService,vgk,vgc -ErrorAction SilentlyContinue | Select-Object Name,Status,StartType
+```
+
+Перед следующим новым подключением к матчу можно очистить DNS-кэш:
+
+```powershell
+Clear-DnsClientCache
+```
+
+Запустить сбор до начала матча (во время180с наблюдения перейти в игру и начать
+следующий матч; скрипт не запускает игру и не делает тестовых игровых отправок):
+
+```powershell
+& .\tools\windows\diag-game-udp.ps1 -DurationSeconds 180
+```
+
+Проверить actual destination (например, наблюдавшийся18.156.243.140), LOCAL_UDP,
+24fake для первых2оригиналов, inbound packets/first_reply и отсутствие relay
+packets у этих local flows в capture.json. DNS hint eu-central-1 — подсказка,
+не доказательство географии. Нужны3–5реальных загрузок франкфуртских матчей;
+успешный winws тест не считается PASS текущего VELIQ. При старом reused UDP tuple
+возможен PINNED_DIRECT, для нового first-flight нужна следующая попытка игры.
+Служба не пересылает повторно уже отправленные игровые запросы.
+
+Секреты/коды/identity/диагностические файлы не присылать в открытые каналы и git.
+VPS/сертификаты для этого обновлять не нужно; агент на них ничего не запускал.

@@ -9,7 +9,8 @@ $run=Join-Path $ReportDirectory ([DateTimeOffset]::UtcNow.ToString('yyyyMMddTHHm
 New-Item -ItemType Directory -Path $run -Force|Out-Null
 function Save-GameJson($Value,[string]$Name){$Value|ConvertTo-Json -Depth 24|Set-Content -LiteralPath (Join-Path $run $Name) -Encoding UTF8}
 $status=Invoke-ServiceIPC 'gameudp.status';Save-GameJson $status 'status-before.json'
-$status.profiles|Select-Object profile_id,name,state,reason|Format-Table -AutoSize
+$status.profiles|Select-Object profile_id,name,state,ready,activity,reason,@{Name='initial_policy';Expression={Get-GameField $_.engine 'initial_policy' 'UNKNOWN'}}|Format-Table -AutoSize
+Write-Host 'ACTIVE = режим готов, не доказательство матча; WAITING_NEW_FLOW = приманок пока нет. FACEIT/Vanguard в guard — наличие, решение по профилю.'
 Write-Host ('guard='+($status.guard|ConvertTo-Json -Compress))
 Get-GameUdpRows $status|Format-Table -AutoSize
 if($DurationSeconds -gt 0){

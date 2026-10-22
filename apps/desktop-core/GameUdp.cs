@@ -11,6 +11,8 @@ public sealed class GameUdpGuard { public string DriverAntiCheat {get;set;}=""; 
 public sealed class GameUdpProfile
 {
     public string ProfileId {get;set;}="";
+    public bool Ready {get;set;}
+    public string Activity {get;set;}="";
     public string Name {get;set;}="";
     public string State {get;set;}="";
     public string Reason {get;set;}="";
@@ -22,7 +24,11 @@ public sealed class GameUdpProfile
             if (!Engine.Enabled) return "Игровой UDP-обход выключен. Обычный маршрут приложения сохранён.";
             if (Reason!="") return "UDP-обход приостановлен: "+GameUdpMessages.Reason(Reason);
             var f=Engine.Flows.OrderByDescending(f=>f.FlowId).FirstOrDefault();
-            if(f is null)return "Готов для новых UDP-потоков: DIRECT → локальный обход → релей.";
+            if(f is null)return Engine.InitialPolicy=="LOCAL_FIRST_UNCONFIRMED_ENDPOINT"
+                ? "Обход включён для новых потоков · локальная приманка K12/N2. Ожидаем игровой UDP-трафик."
+                : "Готов для новых UDP-потоков: DIRECT → локальный обход → релей.";
+            if(f.State=="LOCAL_PRIMING_INCOMPLETE")return "Приманка отправлена не полностью · "+GameUdpMessages.Reason(f.Reason);
+            if(f.Reason=="EXISTING_UDP_PINNED_DIRECT_NO_FIRST_FLIGHT_PROOF")return GameUdpMessages.Reason(f.Reason);
             if(f.State=="TRANSPORT_FAILED")return "Игровой поток: "+GameUdpMessages.Reason(f.Reason);
             return f.Stage switch {
                 "LOCAL_UDP" when f.FakePackets>0=>"Обход активен · "+f.Destination+" · приманок: "+f.FakePackets+" · ответов: "+f.InboundPackets,
@@ -33,9 +39,9 @@ public sealed class GameUdpProfile
         }
     }
 }
-public sealed class GameUdpEngine { public bool Enabled {get;set;} public GameUdpFlow[] Flows {get;set;}=[]; }
+public sealed class GameUdpEngine { public string InitialPolicy {get;set;}=""; public bool Enabled {get;set;} public GameUdpFlow[] Flows {get;set;}=[]; }
 public sealed class GameUdpFlow {
-    public ulong FlowId {get;set;} public string Stage {get;set;}="";public string Destination {get;set;}="";
+    public string SelectionReason {get;set;}="";public ulong FlowId {get;set;} public string Stage {get;set;}="";public string Destination {get;set;}="";
     public ulong FakePackets {get;set;} public ulong FakeBytes {get;set;} public ulong OutgoingPackets {get;set;} public ulong InboundPackets {get;set;} public string State {get;set;}=""; public string Reason {get;set;}="";
 }
 public static class GameUdpMessages {
@@ -53,7 +59,15 @@ public static class GameUdpMessages {
         "CAPTURE_NOT_READY"=>"сетевой перехват ещё не готов",
         "EXTERNAL_VPN_ACTIVE"=>"обнаружен внешний VPN",
         "FOREIGN_UDP_INTERCEPTOR" or "FOREIGN_UDP_INTERCEPTOR_OR_OBSERVER_PENDING"=>"работает другой сетевой перехватчик; двойная обработка отключена",
-        "GAME_UDP_ANTICHEAT_COMPATIBILITY_UNVERIFIED" or "DRIVER_ANTICHEAT_COMPATIBILITY_UNVERIFIED"=>"совместимость с Vanguard/FACEIT не проверена; режим отключён",
+        "GAME_UDP_ANTICHEAT_COMPATIBILITY_UNVERIFIED" or "DRIVER_ANTICHEAT_COMPATIBILITY_UNVERIFIED"=>"для этой игры активен или требуется Vanguard/FACEIT; совместимость не проверена",
+        "GAME_PROCESS_CHECK_PENDING"=>"проверяем запущенные сетевые программы",
+        "GAME_PROCESS_LIST_UNAVAILABLE" or "GAME_PROCESS_LIST_INCOMPLETE"=>"не удалось проверить другие сетевые программы",
+        "UDP_REFLECT_OBSERVER_FAILED" or "UDP_REPLY_OBSERVER_FAILED" or "UDP_REFLECT_EVENT_INVALID" or "UDP_REFLECT_FILTER_BOUND" or "UDP_FOREIGN_HANDLE_LIMIT"=>"детектор сетевых конфликтов не готов; режим приостановлен",
+        "GAME_NOT_DISCOVERED"=>"ищем установленную игру",
+        "SUSTAINED_REPLY_NOT_OBSERVED"=>"ожидаем устойчивые ответы сервера",
+        "DECOY_RATE_LIMITED_ORIGINAL_PASSTHROUGH" or "GLOBAL_DECOY_RATE_LIMITED"=>"достигнут лимит приманок; оригиналы проходят без задержки",
+        "DECOY_SEND_FAILED_ORIGINAL_PASSTHROUGH"=>"не удалось отправить приманку; оригиналы проходят напрямую",
+        "EXISTING_UDP_PINNED_DIRECT_NO_FIRST_FLIGHT_PROOF"=>"старый UDP-поток сохранён напрямую; обход начнётся со следующего подключения",
         "NETWORK_FINGERPRINT_PENDING"=>"проверяем текущую сеть",
         _=>code.Length<=80 && code.All(c=>c is >='A' and <='Z' or >='0' and <='9' or '_')?code:"сбой службы; подробности в диагностике"
     };
@@ -64,7 +78,7 @@ public sealed partial class DesktopViewModel {
     public void ApplyGameUdp(GameUdpStatus status){var wire=System.Text.Json.JsonSerializer.Serialize(status);if(wire==lastGameUdp)return;lastGameUdp=wire;GameUdpProfiles.Clear();foreach(var p in status.Profiles.OrderBy(p=>p.Name,StringComparer.CurrentCultureIgnoreCase))GameUdpProfiles.Add(p);}
     public async Task RefreshGamesAsync(CancellationToken ct=default)=>ApplyGameUdp(await client.Call<GameUdpStatus>("gameudp.status",cancellationToken:ct));
     public async Task SetGameUdpAsync(string profileId,bool enabled,CancellationToken ct=default){
-        try {ApplyGameUdp(await client.Call<GameUdpStatus>("gameudp.set",new{profile_id=profileId,enabled},ct));Notice=enabled?"Игровая лестница включена для новых UDP-потоков. Релей используется только после неудачных DIRECT и локальных вариантов. Проверка загрузки матча ещё нужна.":"Игровой UDP-обход выключен.";}
+        try {ApplyGameUdp(await client.Call<GameUdpStatus>("gameudp.set",new{profile_id=profileId,enabled},ct));Notice=enabled?"Игровой UDP-обход включён для новых потоков. PUBG начинает с локальной приманки, остальные игры — с DIRECT. Проверка загрузки матча ещё нужна.":"Игровой UDP-обход выключен.";}
         catch(ServiceException e){ReportAuxiliaryFailure(e,"gameudp.set");Notice="Не удалось изменить игровой UDP-обход: "+GameUdpMessages.Reason(e.Message);}
     }
 }

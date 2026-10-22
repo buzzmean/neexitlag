@@ -26,3 +26,11 @@ public sealed class GameUdpRejectedTests {
  await vm.SetGameUdpAsync("game",true);Assert.Contains("Vanguard/FACEIT",vm.Notice);Assert.Same(row,Assert.Single(vm.Applications));Assert.Empty(vm.Error);
  }
 }
+public class PubgReadinessTests {
+ [Fact]public void ActiveArmedDoesNotClaimInjectedPacketsOrMatchPass(){
+ var s=JsonSerializer.Deserialize<GameUdpStatus>("""{"guard":{"driver_anti_cheat":"VANGUARD_OR_FACEIT"},"profiles":[{"profile_id":"pubg","state":"ACTIVE","ready":true,"activity":"WAITING_NEW_FLOW","engine":{"enabled":true,"initial_policy":"LOCAL_FIRST_UNCONFIRMED_ENDPOINT","flows":[]}}]}""",WireJson.Options)!;
+ var p=Assert.Single(s.Profiles);Assert.True(p.Ready);Assert.Contains("Ожидаем",p.Summary);Assert.Contains("K12/N2",p.Summary);Assert.DoesNotContain("Обход активен",p.Summary);Assert.DoesNotContain("успеш",p.Summary);Assert.Contains("PUBG:",ClubPresentation.GameLine(s));Assert.DoesNotContain("Vanguard",ClubPresentation.GameLine(s));
+ p.Reason="FOREIGN_UDP_INTERCEPTOR";Assert.Contains("двойная обработка",ClubPresentation.GameLine(s));
+ }
+ [Fact]public void IncompletePrimingHasHonestReadableFailure(){var p=new GameUdpProfile{Engine=new(){Enabled=true,Flows=[new(){Stage="LOCAL_UDP",State="LOCAL_PRIMING_INCOMPLETE",Reason="GLOBAL_DECOY_RATE_LIMITED",FakePackets=12}]}};Assert.Contains("не полностью",p.Summary);Assert.Contains("лимит",p.Summary);Assert.DoesNotContain("Обход активен",p.Summary);}
+}

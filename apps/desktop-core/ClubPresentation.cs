@@ -9,4 +9,9 @@ public static class ClubPresentation
     }
     public static string Summary(bool connected,bool optimizing,bool capture) =>
         connected&&optimizing&&capture ? "VELIQ · защита включена" : "VELIQ · подготовка подключения…";
+    public static string GameLine(GameUdpStatus status)
+    {
+        var pubg=status.Profiles.FirstOrDefault(p=>p.ProfileId=="pubg"||p.Engine.InitialPolicy=="LOCAL_FIRST_UNCONFIRMED_ENDPOINT");
+        return pubg is null?"PUBG: пока не обнаружена":"PUBG: "+pubg.Summary;
+    }
 }

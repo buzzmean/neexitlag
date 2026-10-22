@@ -54,6 +54,8 @@ type GameUDPStatus struct {
 	Error    string                `json:"error,omitempty"`
 }
 type GameProfileStatus struct {
+	Activity  string           `json:"activity"`
+	Ready     bool             `json:"ready"`
 	ProfileID string           `json:"profile_id"`
 	Name      string           `json:"name"`
 	State     string           `json:"state"`
@@ -319,6 +321,8 @@ func (c *Controller) classifyGameUDP(id wp.ProcessIdentity, t wp.Tuple) (wp.Deci
 	return d, true
 }
 func (c *Controller) gameStatus() GameUDPStatus {
+	// Reflect current guard/capture/optimization state without waiting for the tick.
+	c.updateGamesGate()
 	out := GameUDPStatus{Profiles: []GameProfileStatus{}, Guard: c.gameGuard()}
 	c.games.mu.Lock()
 	defer c.games.mu.Unlock()
@@ -326,13 +330,22 @@ func (c *Controller) gameStatus() GameUDPStatus {
 	for _, g := range c.games.items {
 		s := g.Engine.Snapshot()
 		state := "PENDING"
+		activity := "NOT_ARMED"
 		if !s.Enabled {
 			state = "DISABLED"
 		} else if s.Reason == "" {
 			state = "READY_NEW_FLOWS"
+			activity = "WAITING_NEW_FLOW"
+			if s.InitialPolicy == "LOCAL_FIRST_UNCONFIRMED_ENDPOINT" {
+				state = "ACTIVE"
+			}
 			for _, f := range s.Flows {
 				if f.Outgoing > 0 && time.Since(f.LastOutgoing) < 5*time.Second {
 					state = "ACTIVE"
+					activity = "TRAFFIC_OBSERVED"
+					if f.Stage == gameudp.Local && f.Fakes > 0 {
+						activity = "LOCAL_DECOYS_OBSERVED"
+					}
 					break
 				}
 			}
@@ -347,6 +360,7 @@ func (c *Controller) gameStatus() GameUDPStatus {
 				if l.Network == n.Fingerprint && l.Exhausted && time.Now().Before(l.Expires) {
 					state = "COOLDOWN"
 					reason = "GAME_UDP_LADDER_EXHAUSTED"
+					activity = "COOLDOWN"
 				}
 			}
 		}
@@ -354,7 +368,7 @@ func (c *Controller) gameStatus() GameUDPStatus {
 		if name == "" {
 			name = g.ProfileID
 		}
-		out.Profiles = append(out.Profiles, GameProfileStatus{g.ProfileID, name, state, reason, g.AntiCheat, s})
+		out.Profiles = append(out.Profiles, GameProfileStatus{ProfileID: g.ProfileID, Name: name, State: state, Reason: reason, AntiCheat: g.AntiCheat, Engine: s, Ready: s.Enabled && reason == "", Activity: activity})
 	}
 	sort.Slice(out.Profiles, func(i, j int) bool { return out.Profiles[i].ProfileID < out.Profiles[j].ProfileID })
 	// IPC responses must remain within the existing 64 KiB envelope.

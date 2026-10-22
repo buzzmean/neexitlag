@@ -2361,3 +2361,18 @@ exe/address:port имеет приоритет, TTL сохранён. Legacy app
 в evidence, нет постоянных IP pins. Детерминированный Bind+send fixture проверяет
 порядок12fake/original×2, последующий pass-through и relay_packets=0.
 Go race3пакета PASS; Windows cross-build PASS. РеальныйПК/матч/BattlEye не проверен.
+
+## 22.10.2026 (MSK) — PUBG status/GUI/приёмка
+
+PUBG ready => ACTIVE с отдельным activity=WAITING_NEW_FLOW/LOCAL_DECOYS_OBSERVED;
+это readiness, не фиктивные packets/матч PASS. При guard/capture/optimize проблеме
+status сразу пересчитывает gate, без задержки1с tick. GUI обычный и club показывает
+понятную причину/ожидание, incomplete priming не объявляется успешным. В club-status
+добавлены activity/initial_policy; readonly capture.changes(.marker)/diagnostics
+разрешены в club IPC, mutation gameudp.set/optimize по-прежнему запрещены.
+Диагностика показывает initial_policy/selection_reason и уточняет informational
+DriverAntiCheat. docs/GAME_UDP.md обновлён, команды по одной; same-owner/session
+Close-VeliqGuiForUpdate закрывает только GUI для обновления, без kill браузеров/игры.
+Go race3пакета/vet+Windows vet PASS; C#198/198, WPF cross-build0errors/4старыхCS8604;
+PS7 parser/StrictMode/read-only fixture PASS. Реальный WinDivert/SCM/BattlEye матч
+не выполнялся; CI PASS не заявлен. Дальше финальный full race/build gates.

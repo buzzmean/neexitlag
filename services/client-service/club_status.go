@@ -31,11 +31,13 @@ type ClubBrowserCheck struct {
 	Exchanges uint64 `json:"bidirectional_exchanges"`
 }
 type ClubGameCheck struct {
-	Profile  string `json:"profile"`
-	State    string `json:"state"`
-	Sent     uint64 `json:"outgoing"`
-	Received uint64 `json:"incoming"`
-	Fakes    uint64 `json:"fakes"`
+	Activity      string `json:"activity"`
+	InitialPolicy string `json:"initial_policy"`
+	Profile       string `json:"profile"`
+	State         string `json:"state"`
+	Sent          uint64 `json:"outgoing"`
+	Received      uint64 `json:"incoming"`
+	Fakes         uint64 `json:"fakes"`
 }
 type ClubStatus struct {
 	Version         int                `json:"version"`
@@ -87,7 +89,7 @@ func (c *Controller) clubStatus() ClubStatus {
 		out.Browsers = append(out.Browsers, v)
 	}
 	for _, p := range g.Profiles {
-		v := ClubGameCheck{Profile: p.Name, State: p.State}
+		v := ClubGameCheck{Profile: p.Name, State: p.State, Activity: p.Activity, InitialPolicy: p.Engine.InitialPolicy}
 		for _, f := range p.Engine.Flows {
 			v.Sent += f.Outgoing
 			v.Received += f.Replies
