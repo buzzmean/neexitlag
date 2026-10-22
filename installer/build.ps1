@@ -2,12 +2,12 @@
 param([Parameter(Mandatory=$true)][string]$PublicTrustDirectory,[Parameter(Mandatory=$true)][string]$ControlPlaneUrl,[Parameter(Mandatory=$true)][string]$ProbeTarget,[string]$TCPProbeTarget='',[switch]$Fixture, [string]$Output=(Join-Path $PSScriptRoot '..\bin\installer'),[string]$Compiler='C:\Program Files (x86)\Inno Setup 6\ISCC.exe')
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 $repo=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-if(!(Test-Path -LiteralPath $Compiler)){throw 'INNO_SETUP_6_4_3_COMPILER_REQUIRED'}
-if((Get-Item $Compiler).VersionInfo.FileVersion -notmatch '^6\.4\.3(\.|$)'){throw 'INNO_COMPILER_VERSION_MISMATCH'}
-if((Get-AuthenticodeSignature $Compiler).Status -ne 'Valid'){throw 'INNO_COMPILER_SIGNATURE_INVALID'}
+. (Join-Path $PSScriptRoot 'build-support.ps1')
+Assert-VeliqInnoCompiler $Compiler
 $trust=(Resolve-Path $PublicTrustDirectory).Path
 if(@(Get-ChildItem -LiteralPath $trust -File | Where-Object {$_.Name -notin @('ca.pem')}).Count){throw 'PUBLIC_TRUST_DIRECTORY_MUST_CONTAIN_ONLY_CA'}
 $caText=[IO.File]::ReadAllText((Join-Path $trust 'ca.pem'));if($caText -match 'PRIVATE KEY' -or $caText -notmatch 'BEGIN CERTIFICATE'){throw 'PUBLIC_CA_REQUIRED'}
+Assert-VeliqPublicCA (Join-Path $trust 'ca.pem')
 $ca=[Security.Cryptography.X509Certificates.X509Certificate2]::new((Join-Path $trust 'ca.pem'))
 $hash=[Security.Cryptography.SHA256]::Create();try{$pin=([BitConverter]::ToString($hash.ComputeHash($ca.RawData))).Replace('-','').ToLowerInvariant()}finally{$hash.Dispose();$ca.Dispose()}
 $head=(& git -C $repo rev-parse HEAD).Trim();if($LASTEXITCODE -or $head -notmatch '^[0-9a-f]{40}$'){throw 'EXACT_BUILD_COMMIT_REQUIRED'}

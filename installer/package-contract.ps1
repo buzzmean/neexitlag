@@ -3,6 +3,9 @@ function Assert-VeliqPackage([string]$Root,[switch]$ForPackaging){
  if($manifest.product -ne 'VELIQ' -or $manifest.commit -notmatch '^[0-9a-f]{40}$' -or @($manifest.files).Count -gt 128){throw 'INSTALL_PACKAGE_INVALID'}
  $required=@('service/neexitlag-service.exe','gui/VELIQ.exe','gui/NeExitLag.exe','driver/WinDivert.dll','driver/WinDivert64.sys','driver/pins.json','public/ca.pem','public/release.json','installer/install-package.ps1','installer/package-contract.ps1')
  $names=@($manifest.files|ForEach-Object {([string]$_.path).Replace('\','/').ToLowerInvariant()})
+ foreach($name in $names){
+  if($name -match '(^|/)(identity\.json|device\.pem|ipc\.token|admin\.token|activation-code\.json.*)$' -or $name -match '\.(key|pfx|p12)$'){throw 'INSTALL_SECRET_FILE_REJECTED'}
+ }
  $prefix=[IO.Path]::GetFullPath($Root)+[IO.Path]::DirectorySeparatorChar
  $covered=@(Get-ChildItem -LiteralPath $Root -Recurse -File | Where-Object { $_.FullName.Substring($prefix.Length) -notmatch '^(package\.json|install-(result|success)\.json|unins[0-9]{3}\.(exe|dat|msg))$' })
  if(@($names|Select-Object -Unique).Count -ne $names.Count -or $covered.Count -ne $names.Count){throw 'INSTALL_PACKAGE_COVERAGE_INVALID'}

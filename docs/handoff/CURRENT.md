@@ -2198,3 +2198,14 @@ SSL_PROTOCOL_ERROR требуют нового короткого owner retest; 
 кандидат только для relay/recovery, не DIRECT; DNS ambiguity остаётся в evidence,
 inner SNI не объявляется известным. Без outer конкретное имя не угадывается.
 Targeted race count=3 и повторные полные gates PASS.
+
+## 22.10.2026 — клубный пилот A: сборка Setup
+
+Новая одна команда: `& .\tools\windows\build-setup.ps1`. Чистый tracked HEAD,
+.NET SDK8, существующий NuGet helper, approved Inno6.4.3 (winget только если нет),
+Authenticode publisher/version, public CA constraints/validity; сборка всех
+компонентов и pinned WinDivert; изолированный staging, VELIQ-Setup.exe/SHA256SUMS
+в bin/installer. Code/identity/keys не входят в payload; secret filenames rejected.
+Python installer 4/4 и PS7 public-CA/parser/package-tamper fixtures PASS.
+Реальная Inno компиляция/установка Windows не выполнялась; нужен ПК владельца.
+На VPS ничего не выполнялось. Дальше image/boot B и club/status C–F.
