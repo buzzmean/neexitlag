@@ -1999,3 +1999,7 @@ Global Optimize/Automatic off явно отделён от profile DIRECT/pendin
 ### Браузеры B: native не ждёт PAC
 
 A ba38329; classifier native AUTO исключён из browser_policy_suspended bypass, automatic OFF остаётся DIRECT. GUI native prepare не ждёт PolicyReady и не вызывает новый PAC для native; fresh/repair проверяют native, legacy compatibility сохранена. Старые native journals не переустанавливают policy, owned cleanup сохраняет foreign. SNI protected/opaque ECH/UDP443 fail-closed, DNS53 DIRECT; IPv6 guard остаётся без заявления поддержки. Service/platform race PASS, C#182/182 PASS, WPF0errors/4 старых CS8604. Chrome157/WinDivert/ISP здесь не выполнялись; подробности BROWSER_AUTOMATIC_START.md. Далее C — готовность и сроки native.
+
+### Браузеры C: readiness и native timing
+
+B 3d11370. Native readiness state/reason/configured_profiles/guard отделены от PAC и page verification; при отсутствии capture/relay — PREPARING, при готовности — READY_NEW_CONNECTIONS, при OFF — DISABLED. GUI показывает подготовку/готовность новых соединений, diag2026-10-22.1 показывает фактические native ingress/timers. Публикация профиля при включённом capture начинает epoch до первого flow. Focused native/Fresh race PASS, C#183/183 PASS, WPF0errors/4 прежнихCS8604, PS parse PASS. Реальное время Chrome157/ISP не измерено; VPS не тронут.

@@ -287,7 +287,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-21.1 (DNS address evidence distinct from HTTP success)'
+$ScriptVersion='2026-10-22.1 (automatic native browser readiness; PAC-independent ingress)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -583,6 +583,7 @@ function Write-BrowserFirstByteEvidence($snapshot,[string]$lane) {
 
 function Write-NativeIngressEvidence($native) {
  Write-TlsWireEvidence $native 'native.actual_upstream'
+ Say ('native readiness: state='+(Prop $native 'state' 'UNINSTRUMENTED')+' reason='+(Prop $native 'reason' 'UNINSTRUMENTED')+' configured='+(Prop $native 'configured_profiles' 0)+' guard='+(Prop $native 'guard' 'UNINSTRUMENTED'))
  $state=Prop $native 'native_only_state' 'NATIVE_ONLY_UNINSTRUMENTED'
  $totals=Prop $native 'native_only_totals'
  if($state -eq 'NATIVE_ONLY_OBSERVED' -and ([long](Prop $totals 'bidirectional_exchanges' 0) -le 0 -or [long](Prop $totals 'sent_bytes' 0) -le 0 -or [long](Prop $totals 'received_bytes' 0) -le 0)){$state='NATIVE_ONLY_INVALID_EVIDENCE'}
@@ -594,7 +595,7 @@ function Write-NativeIngressEvidence($native) {
    Say ('ingress '+$path+': profile='+(Prop $browserProfile 'profile_id')+' accepted='+(Prop $m 'accepted' 0)+' opened='+(Prop $m 'opened' 0)+' failed='+(Prop $m 'failed' 0)+' exchanges='+(Prop $m 'bidirectional_exchanges' 0)+' active='+(Prop $m 'active' 0)+' tx='+(Prop $m 'sent_bytes' 0)+' rx='+(Prop $m 'received_bytes' 0)+' first_open='+(Prop $m 'first_opened_at' 'NOT_OBSERVED')+' first_exchange='+(Prop $m 'first_exchange_at' 'NOT_OBSERVED')+' enable_to_first_open_ms='+(Prop $m 'enable_to_first_open_ms' -1)+' enable_to_first_exchange_ms='+(Prop $m 'enable_to_first_exchange_ms' -1))
   }
  }
- Say 'PAC_NATIVE_UPSTREAM is not native-only. Current mandatory PAC is the crash guard; returning DIRECT would require independent fail-closed protection. No policy changed by diagnostics.'
+ Say 'PAC_NATIVE_UPSTREAM is not native-only. Native new TCP does not require policy refresh. Active opaque TLS/QUIC is relay-only; process capture is not an independent kernel crash guard. No policy changed by diagnostics.'
 }
 function Write-NativeFirewallEvidence($firewall) {
  $state=Prop $firewall 'state' 'UNKNOWN'

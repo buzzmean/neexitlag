@@ -4,6 +4,9 @@ namespace Neexitlag.Desktop;
 
 public sealed class NativeBrowserStatus
 {
+    public string State {get;set;}="";
+    public string Reason {get;set;}="";
+    public string NativeOnlyState {get;set;}="";
     public int Version { get; set; }
     public bool CaptureReady { get; set; }
     public bool Optimizing { get; set; }
@@ -42,6 +45,13 @@ public sealed class NativeBrowserRecord
 }
 public sealed partial class DesktopViewModel
 {
+    public string BrowserReadinessText {get;private set;}="Подготавливаем браузер…";
+    public void ApplyNativeBrowserReadiness(NativeBrowserStatus status){
+        var next=!Optimizing?"Браузеры используют обычную сеть.":status.CaptureReady&&status.State=="READY_NEW_CONNECTIONS"
+          ?"Браузеры готовы: новые соединения используют VELIQ."
+          :"Подготавливаем браузер…";
+        if(BrowserReadinessText!=next){BrowserReadinessText=next;Changed(nameof(BrowserReadinessText));}
+    }
     public static bool NativeBrowser(Profile p) => p.PolicyData is { } data && data.TryGetValue("browser_transport", out var v)
         && v.ValueKind == JsonValueKind.String && v.GetString() == "native";
     public bool NativeBrowserCandidate(Profile p) => (BrowserCatalog.IsChrome(p) || BrowserCatalog.IsEdge(p))
@@ -55,8 +65,8 @@ public sealed partial class DesktopViewModel
     }
     public async Task EnableNativeBrowserAsync(Profile p, CancellationToken ct = default)
     {
-        // Endpoint validates an existing owned crash-guard before any mutation.
-        // Do not convert a refusal into PAC installation or a browser restart.
+        // Endpoint validates owner/capture before native publication, without PAC.
+        // A refusal never starts or closes browser processes.
         await client.Call<JsonElement>("browser.native.enable", new { profile_id = p.Id }, ct);
         startupChromeProfiles.Remove(p.Id);
         await RefreshAsync(ct);
@@ -84,6 +94,7 @@ public sealed partial class DesktopViewModel
     {
         if (!Applications.Any(a => NativeBrowser(a.Profile))) return;
         var status = await client.Call<NativeBrowserStatus>("browser.native.status", cancellationToken: ct);
+        ApplyNativeBrowserReadiness(status);
         // An empty native ledger must never replace a working PAC snapshot.
         // A PAC ingress may delegate an upstream into native: label both pieces,
         // never count them as two independent requests or a native-only PASS.

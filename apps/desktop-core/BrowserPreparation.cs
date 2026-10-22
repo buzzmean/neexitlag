@@ -21,6 +21,7 @@ public sealed partial class DesktopViewModel {
  public void ClearBrowserPreparationIssue(){if(browserIssueNotice is not null&&Notice==browserIssueNotice)Notice="";browserIssueNotice=null;}
  void ApplyDisabledBrowserDisplay(){
   if(Optimizing)return;
+  ApplyNativeBrowserReadiness(new());
   if(Applications.Any(a=>BrowserCatalog.IsChrome(a.Profile))){const string direct="Chrome: прямая сеть (оптимизация выключена)";if(ChromePolicyState!=direct){ChromePolicyState=direct;Changed(nameof(ChromePolicyState));}}
   if(Applications.Any(a=>BrowserCatalog.IsEdge(a.Profile))){const string direct="Edge: прямая сеть (оптимизация выключена)";if(EdgeState!=direct){EdgeState=direct;Changed(nameof(EdgeState));}}
  }

@@ -172,6 +172,7 @@ func (c *Controller) handleProfileDelete(ctx context.Context, raw json.RawMessag
 }
 
 func (c *Controller) handleProfileSet(ctx context.Context, raw json.RawMessage) (any, error) {
+	activationStarted := time.Now()
 	c.pruneTrials(time.Now())
 	var p profiles.Profile
 	if e := security.Parse(raw, &p); e != nil {
@@ -315,6 +316,9 @@ func (c *Controller) handleProfileSet(ctx context.Context, raw json.RawMessage) 
 	}
 	if err := c.saveProfiles(); err != nil {
 		return nil, err
+	}
+	if nativeBrowserProfile(p) && nativeActive {
+		c.browser.native.activateAt(p.ID, false, activationStarted)
 	}
 	return c.Profiles.List(), nil
 }

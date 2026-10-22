@@ -75,6 +75,10 @@ type nativeBrowserRecord struct {
 	Active         bool               `json:"active"`
 }
 type nativeBrowserSnapshot struct {
+	State              string                       `json:"state"`
+	Reason             string                       `json:"reason"`
+	ConfiguredProfiles int                          `json:"configured_profiles"`
+	Guard              string                       `json:"guard"`
 	NativeOnlyState    string                       `json:"native_only_state"`
 	NativeOnlyAutoMode string                       `json:"native_only_auto_mode"`
 	NativeOnly         nativeIngressCounters        `json:"native_only_totals"`
@@ -118,10 +122,37 @@ func (c *Controller) nativeBrowserActivation(enabled, wasEnabled bool, at time.T
 	}
 }
 func (c *Controller) nativeSnapshot() nativeBrowserSnapshot {
-	s := nativeBrowserSnapshot{NativeOnlyState: "NATIVE_ONLY_NOT_OBSERVED", NativeOnlyAutoMode: "NOT_AVAILABLE_WITH_PAC_AS_ONLY_CRASH_GUARD", Version: 1, Ready: c.nativeBackendReady(), ExistingTCP: "PINNED_UNTIL_CLOSED; reload may reuse HTTP/2", PageVerification: "NOT_OBSERVED; bidirectional bytes are not HTTPS/page PASS", Profiles: []nativeBrowserProfileStatus{}, Records: []nativeBrowserRecord{}}
+	s := nativeBrowserSnapshot{NativeOnlyState: "NATIVE_ONLY_NOT_OBSERVED", NativeOnlyAutoMode: "AUTOMATIC_NATIVE_NEW_CONNECTIONS_NO_PAC_DEPENDENCY", Version: 1, Ready: c.nativeBackendReady(), ExistingTCP: "PINNED_UNTIL_CLOSED; reload may reuse HTTP/2", PageVerification: "NOT_OBSERVED; bidirectional bytes are not HTTPS/page PASS", Profiles: []nativeBrowserProfileStatus{}, Records: []nativeBrowserRecord{}}
 	c.mu.Lock()
 	s.Enabled = c.enabled
 	c.mu.Unlock()
+	s.Guard = "PROCESS_CAPTURE_ONLY; no independent kernel crash guard"
+	for _, p := range c.Profiles.List() {
+		if nativeBrowserProfile(p) {
+			s.ConfiguredProfiles++
+		}
+	}
+	s.State = "PREPARING"
+	s.Reason = "NATIVE_CAPTURE_NOT_READY"
+	c.mu.Lock()
+	automatic := c.settings.Automatic
+	c.mu.Unlock()
+	switch {
+	case !s.Enabled || !automatic:
+		s.State = "DISABLED"
+		s.Reason = "OPTIMIZATION_DISABLED"
+	case !c.activationNetworkAllowed():
+		s.Reason = "ACTIVATION_REQUIRED"
+	case s.ConfiguredProfiles == 0:
+		s.Reason = "BROWSER_PROFILES_PENDING"
+	case !s.Ready:
+		s.Reason = "NATIVE_CAPTURE_NOT_READY"
+	case !c.relayConnected():
+		s.Reason = "RELAY_NOT_CONNECTED"
+	default:
+		s.State = "READY_NEW_CONNECTIONS"
+		s.Reason = "NATIVE_CAPTURE_ARMED; PAGE_NOT_VERIFIED"
+	}
 	s.RelayUsage = c.relayUsage().snapshot()
 	n := &c.browser.native
 	n.mu.Lock()

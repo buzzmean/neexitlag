@@ -67,3 +67,13 @@ Chrome157 live policy uptake не подтверждён и НЕ являетс�
 bidirectional bytes отдельно от PAC_CONNECT/PAC_NATIVE_UPSTREAM; сами bytes не
 доказывают HTTP/TLS/page success. Старые TCP не сбрасываются и не мигрируют;
 новая вкладка может переиспользовать старый HTTP/2 connection до его закрытия.
+
+## C. Готовность и время
+
+Главная показывает «Подготавливаем браузер…», затем готовность новых соединений
+по actual backend + relay, без требования PAC. browser.native.status содержит
+state/reason/configured_profiles/guard, отдельно native-only и PAC upstream.
+Время AUTO-публикации при уже включённом capture сохраняется до первого flow;
+последующий enable не сбрасывает часы. First-open/first-exchange — наблюдаемые
+события, не обещание «сайт готов за N секунд». На ISP/Chrome157 требуемый срок
+ещё не измерен. Обычный polling GUI — до2с во время подготовки; нет restart wait.
