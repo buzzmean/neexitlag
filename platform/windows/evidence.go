@@ -99,9 +99,10 @@ type EvidenceQuery struct {
 	Since        *EvidenceMarker `json:"since,omitempty"`
 }
 type CaptureEvidence struct {
-	Marker       EvidenceMarker  `json:"marker"`
-	Since        *EvidenceMarker `json:"since,omitempty"`
-	EvidenceLost bool            `json:"evidence_lost,omitempty"`
+	Ingress      *CaptureIngressSnapshot `json:"ingress,omitempty"`
+	Marker       EvidenceMarker          `json:"marker"`
+	Since        *EvidenceMarker         `json:"since,omitempty"`
+	EvidenceLost bool                    `json:"evidence_lost,omitempty"`
 
 	Counters   CaptureCounters             `json:"counters"`
 	Flows      []FlowEvidence              `json:"flows"`

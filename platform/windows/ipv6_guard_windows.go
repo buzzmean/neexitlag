@@ -33,6 +33,7 @@ func (b *WinDivertBackend) guardIPv6(classify Classifier) {
 	}
 }
 func (b *WinDivertBackend) processIPv6(d *divertDLL, packet []byte, a [80]byte, classify Classifier) {
+	b.ingress.ipv6.Add(1)
 	b.policyMu.RLock()
 	defer b.policyMu.RUnlock()
 	n := uint32(len(packet))
@@ -72,6 +73,9 @@ func (b *WinDivertBackend) processIPv6(d *divertDLL, packet []byte, a [80]byte, 
 			}
 		}
 		decision, _ := ClassifyCapture(id, t, uint32(os.Getpid()), classify)
+		if outbound {
+			b.ingress.record("IPV6_NETWORK", id, t, decision, ingressDecision(id, decision, flags&0x12 == 2, false), "IPV6_OWNER_OR_SOCKET", "")
+		}
 		b.evidence.RecordBytes(id, t, "captured", "", uint64(n))
 		b.evidence.RecordInitialPolicy(id, t, decision)
 		if b.v6guard.Block(id, t, flags, decision, uint32(os.Getpid()), time.Now()) {

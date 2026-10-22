@@ -605,6 +605,8 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 	switch method {
 	case "activation.status", "activation.set":
 		return c.handleActivation(method, raw)
+	case "browser.native.attribution":
+		return c.nativeBrowserAttribution(), nil
 	case "browser.native.firewall":
 		return windowsplatform.InspectNativeFirewall(ctx), nil
 	case "browser.native.enable", "browser.native.status":

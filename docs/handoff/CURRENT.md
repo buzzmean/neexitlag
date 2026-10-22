@@ -2042,3 +2042,7 @@ GUI больше не выдаёт armed capture за готовый брауз�
 ### Нулевой ingress d3aad37 — E
 
 Приёмка disabled/exit/stopped теперь явно сообщает, что ready не прошёл, вместо побочного BASELINE_REQUIRED. Proof ready сохраняется только после успешной проверки каждого браузера и PID/birth. PS7 fixture/parser PASS; PS5.1/реальный ПК не выполнены.
+
+### Нулевой ingress d3aad37 — B: диагностика границ
+
+Добавлены bounded SOCKET/TCP-SYN/reflection/UDP443/IPv6 события, фактические фильтры, коды owner-table ошибок и opt-in browser.native.attribution: текущие IPv4 TCP сокеты Chrome/Edge и текущая классификация независимо от routing.Engine. diag версия 2026-10-22.2. Метаданные без payload/commandline/секретов, IPC bounded; пакеты игр не семплируются. Focused Go race, Windows cross-build, PS7 parse PASS. Причина отказа на ПК ещё не доказана; реальные owner/driver наблюдения нужны.

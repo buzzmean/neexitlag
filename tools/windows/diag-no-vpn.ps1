@@ -287,7 +287,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-22.1 (automatic native browser readiness; PAC-independent ingress)'
+$ScriptVersion='2026-10-22.2 (SOCKET/TCP SYN/profile attribution; native exchange required)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -583,6 +583,15 @@ function Write-BrowserFirstByteEvidence($snapshot,[string]$lane) {
 
 function Write-NativeIngressEvidence($native) {
  Write-TlsWireEvidence $native 'native.actual_upstream'
+ $ingress=Prop $native 'capture_ingress'
+ if($null -eq $ingress){Say 'capture ingress: UNINSTRUMENTED (update service required)'}else{
+  Say ('capture ingress: scope='+(Prop $ingress 'scope')+' tcp_packets='+(Prop $ingress 'tcp_packets' 0)+' udp443='+(Prop $ingress 'udp_443_packets' 0)+' ipv6='+(Prop $ingress 'ipv6_packets' 0)+' socket_events='+(Prop $ingress 'socket_events' 0)+' unknown_tcp_owner='+(Prop $ingress 'unknown_tcp_owner' 0)+' samples_lost='+(Prop $ingress 'lost' 0))
+  foreach($key in @('tcp_filter','udp_filter','socket_filter','ipv6_filter')){Say ($key+'='+(Prop $ingress $key 'UNAVAILABLE'))}
+  foreach($sample in @(Prop $ingress 'records' @())){
+   Say ('capture attribution: stage='+(Prop $sample 'stage')+' pid='+(Prop $sample 'pid' 0)+' birth='+(Prop $sample 'creation_time' 0)+' exe='+(Prop $sample 'exe')+' protocol='+(Prop $sample 'protocol')+' destination='+(Prop $sample 'destination')+' owner='+(Prop $sample 'owner_lookup')+' profile='+(Prop $sample 'profile_id' 'NONE')+' decision='+(Prop $sample 'decision')+' policy='+(Prop $sample 'policy_source')+' error='+(Prop $sample 'error' 'NONE'))
+  }
+ }
+
  Say ('native readiness: state='+(Prop $native 'state' 'UNINSTRUMENTED')+' reason='+(Prop $native 'reason' 'UNINSTRUMENTED')+' configured='+(Prop $native 'configured_profiles' 0)+' guard='+(Prop $native 'guard' 'UNINSTRUMENTED'))
  $state=Prop $native 'native_only_state' 'NATIVE_ONLY_UNINSTRUMENTED'
  $totals=Prop $native 'native_only_totals'
@@ -662,6 +671,14 @@ Section 'Native browser new-connection evidence (owned PAC crash-guard retained)
 Step 'native_browser' {
  $native=Invoke-IPC 'browser.native.status'
  Write-NativeIngressEvidence $native
+ try{
+  $inventory=Invoke-IPC 'browser.native.attribution'
+  Say ('live browser TCP inventory: scope='+(Prop $inventory 'scope')+' truncated='+(Prop $inventory 'truncated' $false)+' error='+(Prop $inventory 'error' 'NONE'))
+  foreach($row in @(Prop $inventory 'records' @())){
+   $identity=Prop $row 'identity'
+   Say ('live browser socket: pid='+(Prop $identity 'PID')+' birth='+(Prop $identity 'CreationTime')+' exe='+(Prop $identity 'Path')+' destination='+(Prop $row 'destination')+' loopback='+(Prop $row 'loopback')+' state='+(Prop $row 'tcp_state')+' profile='+(Prop $row 'profile_id' 'NONE')+' deferred='+(Prop $row 'deferred')+' native_opener='+(Prop $row 'native_opener'))
+  }
+ }catch{Say 'live browser TCP inventory unavailable (service update required); zero Engine flows does not prove zero network packets'}
  try{Write-NativeFirewallEvidence (Invoke-IPC 'browser.native.firewall')}catch{Say 'native firewall: UNKNOWN_IPC_UNAVAILABLE; no assumption about the rule'}
  Say ("capture_ready="+(Prop $native 'capture_ready')+" optimizing="+(Prop $native 'optimizing')+" existing_tcp="+(Prop $native 'existing_tcp')+" truncated="+(Prop $native 'truncated')+" lost="+(Prop $native 'lost'))
  foreach($p in @(Prop $native 'profiles' @())){
@@ -683,7 +700,7 @@ Step 'native_browser' {
  foreach($o in @(Prop $usage 'active_origins' @())){Say ("relay active: "+(Json $o))}
  $refresh=Join-Path $env:LOCALAPPDATA 'NeExitLag\browser-native-policy-refresh.txt'
  if(Test-Path $refresh){Say ('Historical refresh request (not live evidence): '+(Get-Content $refresh -TotalCount 1))}
- Say 'Fresh without owned PAC guard: native is NOT auto-activated. Registry/refresh/tunnel bytes are NOT live-policy/site PASS. Existing HTTP/2 may be reused on reload; no connection egress migration. Opaque ECH uses RELAY only; domain cannot be inferred.'
+ Say 'Native mode does not require PAC. Registry/refresh/tunnel bytes are NOT live-policy/site PASS. Existing HTTP/2 may be reused on reload; no connection egress migration. Opaque ECH uses RELAY only; domain cannot be inferred.'
 }
 Section 'Existing browser processes and startup profile registration (no browser restart)'
 Step 'startup_profiles' {

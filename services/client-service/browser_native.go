@@ -75,6 +75,7 @@ type nativeBrowserRecord struct {
 	Active         bool               `json:"active"`
 }
 type nativeBrowserSnapshot struct {
+	CaptureIngress     *wp.CaptureIngressSnapshot   `json:"capture_ingress,omitempty"`
 	State              string                       `json:"state"`
 	Reason             string                       `json:"reason"`
 	ConfiguredProfiles int                          `json:"configured_profiles"`
@@ -153,6 +154,12 @@ func (c *Controller) nativeSnapshot() nativeBrowserSnapshot {
 		s.State = "READY_NEW_CONNECTIONS"
 		s.Reason = "NATIVE_CAPTURE_ARMED; PAGE_NOT_VERIFIED"
 	}
+	if backend, ok := c.Backend.(interface {
+		CaptureIngressStatus() wp.CaptureIngressSnapshot
+	}); ok {
+		v := backend.CaptureIngressStatus()
+		s.CaptureIngress = &v
+	}
 	s.RelayUsage = c.relayUsage().snapshot()
 	n := &c.browser.native
 	n.mu.Lock()
@@ -201,6 +208,9 @@ func (c *Controller) nativeSnapshot() nativeBrowserSnapshot {
 		case len(s.RelayUsage.ActiveOrigins) > 0:
 			s.RelayUsage.ActiveOrigins = s.RelayUsage.ActiveOrigins[:len(s.RelayUsage.ActiveOrigins)-1]
 			s.RelayUsage.Truncated = true
+		case s.CaptureIngress != nil && len(s.CaptureIngress.Records) > 0:
+			s.CaptureIngress.Records = s.CaptureIngress.Records[1:]
+			s.CaptureIngress.Lost++
 		case len(s.Profiles) > 0:
 			s.Profiles = s.Profiles[:len(s.Profiles)-1]
 		default:

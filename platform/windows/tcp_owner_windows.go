@@ -19,12 +19,12 @@ func resolveTCPOwner(t Tuple) (uint32, error) {
 			continue
 		}
 		if uint32(r) != uint32(windows.ERROR_INSUFFICIENT_BUFFER) || size < 4 || size > 8*1024*1024 {
-			return 0, fmt.Errorf("TCP owner table sizing: %d", r)
+			return 0, fmt.Errorf("TCP_OWNER_TABLE_SIZING family=%d code=%d bytes=%d", family, r, size)
 		}
 		var b []byte
 		for tries := 0; tries < 3; tries++ {
 			if size < 4 || size > 8*1024*1024 {
-				return 0, fmt.Errorf("TCP owner table size")
+				return 0, fmt.Errorf("TCP_OWNER_TABLE_SIZE family=%d bytes=%d", family, size)
 			}
 			b = make([]byte, size)
 			r, _, _ = getTCPTable.Call(uintptr(unsafe.Pointer(&b[0])), uintptr(unsafe.Pointer(&size)), 0, family, 5, 0)
@@ -33,7 +33,7 @@ func resolveTCPOwner(t Tuple) (uint32, error) {
 			}
 		}
 		if r != 0 {
-			return 0, fmt.Errorf("TCP owner table: %d", r)
+			return 0, fmt.Errorf("TCP_OWNER_TABLE_READ family=%d code=%d bytes=%d", family, r, size)
 		}
 		found, e := tcpOwners(b, t, family == 23)
 		if e != nil {
@@ -43,5 +43,14 @@ func resolveTCPOwner(t Tuple) (uint32, error) {
 			owners[p] = true
 		}
 	}
-	return uniqueUDPOwner(owners)
+	if len(owners) == 0 {
+		return 0, fmt.Errorf("TCP_OWNER_NOT_FOUND")
+	}
+	if len(owners) != 1 {
+		return 0, fmt.Errorf("TCP_OWNER_AMBIGUOUS")
+	}
+	for pid := range owners {
+		return pid, nil
+	}
+	panic("unreachable")
 }

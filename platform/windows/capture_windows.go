@@ -5,6 +5,7 @@ package windowsplatform
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/buzzmean/neexitlag/core/localstrategy"
@@ -44,6 +45,7 @@ type captureFlow struct {
 	lastSeen    time.Time
 }
 type WinDivertBackend struct {
+	ingress             captureIngress
 	testBrowserLoopback bool // Set only from export_test.go, never production configuration.
 	policyEpoch         atomic.Uint64
 	policyMu            sync.RWMutex
@@ -122,20 +124,20 @@ func (b *WinDivertBackend) Start(parent context.Context, classify Classifier) (r
 		dll.dll.Release()
 		return e
 	}
-	network, e := dll.openHandle("outbound and ip and udp and !loopback and !impostor", 0, 0)
+	network, e := dll.openHandle(captureUDPFilter, 0, 0)
 	if e != nil {
 		dll.close.Call(flow)
 		dll.dll.Release()
 		return e
 	}
-	socket, e := dll.openHandle("(tcp and event == CONNECT) or (ipv6 and (event == CONNECT or (udp and event == BIND)))", 3, 1|4)
+	socket, e := dll.openHandle(captureSocketFilter, 3, 1|4)
 	if e != nil {
 		dll.close.Call(network)
 		dll.close.Call(flow)
 		dll.dll.Release()
 		return e
 	}
-	ipv6, e := dll.openHandle("ipv6 and (tcp or udp) and !loopback and !impostor", 0, 0)
+	ipv6, e := dll.openHandle(captureIPv6Filter, 0, 0)
 	if e != nil {
 		dll.close.Call(socket)
 		dll.close.Call(network)
@@ -356,6 +358,9 @@ func (b *WinDivertBackend) processUDP(d *divertDLL, packet []byte, address [80]b
 		}
 	}
 	b.associations.Touch(tuple)
+	if tuple.Destination.Port() == 443 {
+		b.ingress.udp443.Add(1)
+	}
 	b.mu.Lock()
 	f := b.flows[tuple]
 	if f != nil && f.retired {
@@ -409,6 +414,9 @@ func (b *WinDivertBackend) processUDP(d *divertDLL, packet []byte, address [80]b
 		decision := Decision{Route: routing.Route{}}
 		if known {
 			decision, _ = ClassifyCapture(identity, tuple, uint32(os.Getpid()), classify)
+		}
+		if tuple.Destination.Port() == 443 {
+			b.ingress.record("UDP443_NETWORK", identity, tuple, decision, "UDP443_"+string(decision.Policy.Action), "UDP_OWNER_OR_FLOW", "")
 		}
 		if b.hotFrozen(decision) {
 			b.evidence.RecordPolicy(identity, tuple, decision, "")
@@ -831,6 +839,16 @@ func (b *WinDivertBackend) DiagnosticsScoped(query EvidenceQuery) (CaptureEviden
 		f := &out.Flows[i]
 		f.IdentityCurrent = IsCurrent(ProcessIdentity{PID: f.PID, CreationTime: f.CreationTime, Path: f.Executable})
 	}
+	ingress := b.ingress.snapshot(query.PID)
+	out.Ingress = &ingress
+	for len(ingress.Records) > 0 {
+		raw, _ := json.Marshal(out)
+		if len(raw) <= 60*1024 {
+			break
+		}
+		ingress.Records = ingress.Records[1:]
+		ingress.Lost++
+	}
 	out.Counters.Dropped = b.Drops.Load()
 	out.LocalDrops = b.LocalDrops.Snapshot()
 	out.LocalDrops["capture_kernel_queue_drops"] = telemetry.Metric{Available: false, Unit: "packets"}
@@ -916,4 +934,8 @@ func (b *WinDivertBackend) flowDecision(f *captureFlow) Decision {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return f.decision
+}
+
+func (b *WinDivertBackend) CaptureIngressStatus() CaptureIngressSnapshot {
+	return b.ingress.snapshot(0)
 }

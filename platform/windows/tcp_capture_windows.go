@@ -51,6 +51,9 @@ func (b *WinDivertBackend) startTCP(d *divertDLL) (*tcpRedirect, error) {
 	if b.testBrowserLoopback {
 		filter = "ip and tcp and !impostor"
 	}
+	b.ingress.mu.Lock()
+	b.ingress.tcpFilter = filter
+	b.ingress.mu.Unlock()
 	h, err := d.openHandle(filter, 0, 0)
 	if err != nil {
 		l.Close()
@@ -165,6 +168,7 @@ func (t *tcpRedirect) packets(classify Classifier) {
 	}
 }
 func (t *tcpRedirect) processPacket(p []byte, a [80]byte, classify Classifier) {
+	t.b.ingress.tcp.Add(1)
 	t.b.policyMu.RLock()
 	defer t.b.policyMu.RUnlock()
 
@@ -298,10 +302,21 @@ func (t *tcpRedirect) processPacket(p []byte, a [80]byte, classify Classifier) {
 	// Query the exact native TCP owner first, especially for service-created
 	// DIRECT/CONNECT sockets; stale Chrome associations must never recurse.
 	pid, ownerErr := resolveTCPOwner(tuple)
+	ownerSource, ownerCode := "TCP_OWNER_TABLE", ""
 	if ownerErr == nil {
-		id, _ = t.b.cache.Lookup(pid)
+		var lookupErr error
+		id, lookupErr = t.b.cache.Lookup(pid)
+		if lookupErr != nil {
+			ownerCode = "PROCESS_LOOKUP_FAILED"
+			id.PID = pid
+		}
 	} else if known && IsCurrent(association.Identity) {
 		id = association.Identity
+		ownerSource = "SOCKET_OR_FLOW_ASSOCIATION"
+	}
+	if ownerErr != nil {
+		t.b.ingress.unknown.Add(1)
+		ownerCode = ownerErr.Error()
 	}
 	decision, self := ClassifyCapture(id, tuple, uint32(os.Getpid()), classify)
 	t.delegatedMu.Lock()
@@ -324,6 +339,9 @@ func (t *tcpRedirect) processPacket(p []byte, a [80]byte, classify Classifier) {
 		id = delegated.owner.identity
 		decision = delegated.decision
 		self = false
+	}
+	if flags&0x12 == 2 {
+		t.b.ingress.record("TCP_SYN_CLASSIFY", id, tuple, decision, ingressDecision(id, decision, true, self), ownerSource, ownerCode)
 	}
 	mode := "direct"
 	if !self && (t.b.hotFrozen(decision) || flags&0x12 != 0x02 && needsHotAttach(decision)) {
@@ -524,6 +542,7 @@ func (t *tcpRedirect) accept() {
 			c.Close()
 			continue
 		}
+		t.b.ingress.record("TCP_REFLECTION_ACCEPT", e.identity, e.tuple, e.decision, "LOCAL_TCP_ACCEPTED", "EXACT_REFLECTION_MAPPING", "")
 		e.local = c
 		if e.decision.Deferred {
 			e.openDone = make(chan struct{})
