@@ -167,6 +167,7 @@ type Engine struct {
 	ladder                     bool
 	shared                     *Budget
 	application                string
+	network                    string
 	enabled                    bool
 	generation, next, lost     uint64
 	reason                     string
@@ -208,7 +209,7 @@ func learnKey(n, a string) string       { return n + "\x00" + Canonical(a) }
 func (e *Engine) Open(k Key, now time.Time) (*Flow, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if !e.enabled || e.reason != "" || len(k.Network) != 64 || k.PID == 0 || k.Birth == 0 || !Eligible(k.Application, e.application, "udp", k.Destination) {
+	if !e.enabled || e.reason != "" || (e.network != "" && e.network != k.Network) || len(k.Network) != 64 || k.PID == 0 || k.Birth == 0 || !Eligible(k.Application, e.application, "udp", k.Destination) {
 		return nil, errors.New("GAME_UDP_SCOPE_UNAVAILABLE")
 	}
 	e.cleanup(now)
@@ -622,4 +623,18 @@ func (e *Engine) TransportFailed(f *Flow, cause string) {
 	f.failed = true
 	f.e.State = "TRANSPORT_FAILED"
 	f.e.Reason = cause
+}
+
+// A physical network change invalidates training/remaining first flight of old
+// flows. It does not move their packets or reuse results on the new network.
+func (e *Engine) SetNetwork(network string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if len(network) != 64 {
+		network = ""
+	}
+	if e.network != network {
+		e.network = network
+		e.generation++
+	}
 }

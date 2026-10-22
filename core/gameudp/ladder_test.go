@@ -237,3 +237,23 @@ func TestHealthyEndpointChurnDoesNotEvictFailureLadder(t *testing.T) {
 		t.Fatal("QoS cache churn erased blocked path learning")
 	}
 }
+func TestNetworkChangeStopsOldFlowTrainingWithoutMigratingIt(t *testing.T) {
+	e, f, at := fixture(t)
+	e.SetNetwork(strings.Repeat("b", 64))
+	if _, k := e.Plan(f, at); k != 0 {
+		t.Fatal("old first flight continued on a different network")
+	}
+	for i := 0; i < 8; i++ {
+		e.Outgoing(f, 50, at.Add(time.Duration(i)*time.Second))
+		e.Tick(at.Add(time.Duration(i) * time.Second))
+	}
+	if len(e.Snapshot().Learning) != 0 {
+		t.Fatal("new path taught old fingerprint")
+	}
+	if _, err := e.Open(f.key, at.Add(8*time.Second)); err == nil {
+		t.Fatal("stale classifier fingerprint accepted")
+	}
+	if e.Evidence(f).Stage != Local {
+		t.Fatal("existing flow migrated")
+	}
+}

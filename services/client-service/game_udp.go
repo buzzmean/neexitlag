@@ -248,6 +248,11 @@ func (c *Controller) updateGamesGate() {
 		if !g.Enabled {
 			r = "DISABLED_BY_USER"
 		}
+		if n != nil {
+			g.Engine.SetNetwork(n.Fingerprint)
+		} else {
+			g.Engine.SetNetwork("")
+		}
 		g.Engine.SetReason(r)
 	}
 }
