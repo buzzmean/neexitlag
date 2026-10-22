@@ -30,7 +30,7 @@ func DecodeSocketEvent(a [80]byte) (uint32, Tuple, error) {
 		for i := 0; i < 4; i++ {
 			binary.BigEndian.PutUint32(ip[i*4:], binary.LittleEndian.Uint32(b[(3-i)*4:]))
 		}
-		return netip.AddrFrom16(ip)
+		return netip.AddrFrom16(ip).Unmap()
 	}
 	return binary.LittleEndian.Uint32(data[16:20]), Tuple{protocol, netip.AddrPortFrom(decode(data[20:36]), binary.LittleEndian.Uint16(data[52:54])), netip.AddrPortFrom(decode(data[36:52]), binary.LittleEndian.Uint16(data[54:56]))}, nil
 }

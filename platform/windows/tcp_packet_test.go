@@ -184,3 +184,40 @@ func TestNewTCPSynReusesTupleWithoutInheritingOldRoute(t *testing.T) {
 		t.Fatal("retired virtual port leaked")
 	}
 }
+
+func TestSocketDualStackChromeOwnerMatchesIPv4SYN(t *testing.T) {
+	var a [80]byte
+	a[8] = 3
+	a[9] = 4
+	a[10] = 16
+	data := a[16:]
+	binary.LittleEndian.PutUint32(data[16:20], 777)
+	data[56] = 6
+	tuple := testTuple()
+	for _, part := range []struct {
+		offset int
+		addr   netip.Addr
+	}{{20, tuple.Source.Addr()}, {36, tuple.Destination.Addr()}} {
+		ip := part.addr.As16()
+		for i := 0; i < 4; i++ {
+			binary.LittleEndian.PutUint32(data[part.offset+(3-i)*4:], binary.BigEndian.Uint32(ip[i*4:]))
+		}
+	}
+	binary.LittleEndian.PutUint16(data[52:54], tuple.Source.Port())
+	binary.LittleEndian.PutUint16(data[54:56], tuple.Destination.Port())
+	pid, socketTuple, err := DecodeSocketEvent(a)
+	if err != nil || pid != 777 || socketTuple != tuple {
+		t.Fatalf("dual-stack NetworkService association misses IPv4 SYN: pid=%d tuple=%v want=%v err=%v", pid, socketTuple, tuple, err)
+	}
+	associations := NewAssociations(4)
+	id := ProcessIdentity{PID: 777, CreationTime: 17, Path: `C:\Apps\chrome.exe`}
+	associations.Put(Association{Identity: id, Tuple: socketTuple})
+	if _, ok := associations.Get(tuple, id); !ok {
+		t.Fatal("utility child lost at SOCKET to NETWORK boundary")
+	}
+	reused := id
+	reused.CreationTime++
+	if _, ok := associations.Get(tuple, reused); ok {
+		t.Fatal("reused utility PID inherited old identity")
+	}
+}

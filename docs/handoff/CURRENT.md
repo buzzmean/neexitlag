@@ -2046,3 +2046,7 @@ GUI больше не выдаёт armed capture за готовый брауз�
 ### Нулевой ingress d3aad37 — B: диагностика границ
 
 Добавлены bounded SOCKET/TCP-SYN/reflection/UDP443/IPv6 события, фактические фильтры, коды owner-table ошибок и opt-in browser.native.attribution: текущие IPv4 TCP сокеты Chrome/Edge и текущая классификация независимо от routing.Engine. diag версия 2026-10-22.2. Метаданные без payload/commandline/секретов, IPC bounded; пакеты игр не семплируются. Focused Go race, Windows cross-build, PS7 parse PASS. Причина отказа на ПК ещё не доказана; реальные owner/driver наблюдения нужны.
+
+### Нулевой ingress d3aad37 — A: воспроизведён dual-stack дефект
+
+SOCKET CONNECT с IPv4-mapped IPv6 адресами давал ключ ::ffff:IPv4, а NETWORK IPv4 SYN — IPv4. Ассоциация utility/NetworkService PID терялась. Новый TestSocketDualStackChromeOwnerMatchesIPv4SYN сначала FAIL на старом коде, после Unmap PASS; PID/birth reuse по-прежнему отвергается. Focused race PASS. Это подтверждённый дефект кода, но его причинность именно на ПК владельца ещё не доказана; реальный Windows driver gate впереди.
