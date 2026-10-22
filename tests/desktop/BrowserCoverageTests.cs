@@ -39,6 +39,16 @@ public class BrowserCoverageTests
         Assert.Empty(BrowserCatalog.Discover(_ => true, _ => null));
     }
 
+    [Fact]
+    public void RegistryDiscoverySupportsNonstandardInstallAndOperaGxIsListedSeparately() {
+        var custom=@"D:\Browsers\Chrome\chrome.exe";
+        var gx=@"C:\Users\u\AppData\Local\Programs\Opera GX\opera.exe";
+        var installed=BrowserCatalog.Discover(p=>p==custom||p==gx,Env,id=>id=="chrome"?[custom]:[]);
+        Assert.Equal(custom,installed.Single(b=>b.Id=="chrome").ExePath);
+        Assert.Equal(gx,installed.Single(b=>b.Id=="opera-gx").ExePath);
+        Assert.DoesNotContain(installed,b=>b.Id=="opera");
+    }
+
     static string TempChrome(out string dir)
     {
         dir = Path.Combine(Path.GetTempPath(), "veliq-" + Guid.NewGuid().ToString("N"));

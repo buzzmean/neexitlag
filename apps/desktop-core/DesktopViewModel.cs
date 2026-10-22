@@ -361,6 +361,10 @@ public sealed partial class DesktopViewModel : Observable
         }
         var copy = original.Copy();
         copy.Mode = mode;
+        if(BrowserCatalog.IsChrome(copy)||BrowserCatalog.IsEdge(copy)){
+            copy.PolicyData??=new();copy.PolicyData["browser_auto_disabled"]=System.Text.Json.JsonSerializer.SerializeToElement(mode!="AUTO");
+            if(mode=="AUTO")copy=NativeAutoProfile(copy);
+        }
         if(mode!="AUTO" && (BrowserCatalog.IsChrome(copy)||BrowserCatalog.IsEdge(copy))){
             copy.PolicyData??=new();copy.PolicyData["browser_transport"]=System.Text.Json.JsonSerializer.SerializeToElement("");
             if(BrowserCatalog.IsEdge(copy))copy.PolicyData["app_preset"]=System.Text.Json.JsonSerializer.SerializeToElement("edge-sites");

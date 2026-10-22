@@ -33,7 +33,7 @@ public partial class MainWindow
             await model.RefreshAsync(lifetime.Token);
             if (!model.Available) throw new IOException("Служба недоступна");
             phase = "profiles";
-            var profiles = await model.PrepareFreshBrowserProfilesAsync(BrowserCatalog.Discover(File.Exists, Environment.GetEnvironmentVariable), lifetime.Token);
+            var profiles = await model.PrepareFreshBrowserProfilesAsync(BrowserDiscovery.Installed(), lifetime.Token);
             // Reuse owner-scoped recovery/listeners and quiet owned policy writes.
             // No browser launch, nonce helper, process wait or restart.
             // Edge commits its PAC without enabling Optimize. Chrome's legacy

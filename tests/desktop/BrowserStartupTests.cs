@@ -13,11 +13,13 @@ public sealed class BrowserStartupTests
         public Task<T> Call<T>(string method, object? payload = null, CancellationToken cancellationToken = default)
         {
             if (method == "profiles" && RejectProfiles) return Task.FromException<T>(new ServiceException(ServiceFailure.Unavailable));
+            if (method == "profile.set" && payload is Profile edgeProfile && BrowserCatalog.IsEdge(edgeProfile) && RejectEdge) return Task.FromException<T>(new ServiceException(ServiceFailure.Rejected,"secret=do-not-persist"));
             if (method == "edge.status")
             {
                 if (RejectEdge) return Task.FromException<T>(new ServiceException(ServiceFailure.Rejected, "secret=do-not-persist"));
                 return Task.FromResult((T)(object)new EdgeTransportStatus { ActivationVersion = Version });
             }
+            if(method=="profile.set" && payload is Profile replacement)Inner.State.Profiles=Inner.State.Profiles.Where(p=>p.Id!=replacement.Id).ToArray();
             return Inner.Call<T>(method, payload, cancellationToken);
         }
     }
@@ -49,11 +51,11 @@ public sealed class BrowserStartupTests
         Assert.Equal(2, vm.Applications.Count);
         var chrome = Assert.Single(service.Inner.State.Profiles, BrowserCatalog.IsChrome);
         var edge = Assert.Single(service.Inner.State.Profiles, BrowserCatalog.IsEdge);
-        Assert.Equal("DIRECT", chrome.Mode); Assert.True(vm.StartupChromeNeedsActivation(chrome));
-        Assert.Equal("DIRECT", edge.Mode); Assert.Equal("edge-sites-pending", edge.PolicyData!["app_preset"].GetString());
+        Assert.Equal("AUTO", chrome.Mode); Assert.True(DesktopViewModel.NativeBrowser(chrome));
+        Assert.Equal("AUTO", edge.Mode); Assert.Equal("edge-sites", edge.PolicyData!["app_preset"].GetString());
         foreach (var profile in service.Inner.State.Profiles) Assert.Contains(Assert.Single(profile.Executables), installed.Select(b => Path.GetFullPath(b.ExePath)));
         Assert.Equal(2, service.Inner.Calls.Count(c => c.Method == "profile.set"));
-        Assert.All(vm.BrowserStartup!.Browsers, r => Assert.Equal("CREATED_PENDING_ACTIVATION", r.State));
+        Assert.All(vm.BrowserStartup!.Browsers, r => Assert.Equal("AUTO_CONFIGURED", r.State));
         Assert.True(vm.BrowserStartup.Completed >= vm.BrowserStartup.Started); Assert.True(vm.BrowserStartup.ElapsedMs >= 0);
         Assert.False(vm.Optimizing);
         Assert.DoesNotContain(service.Inner.Calls, c => c.Method.Contains("prepare") || c.Method.Contains("confirm") || c.Method.Contains("policy") || c.Method == "optimize" || c.Method.Contains("kill") || c.Method.Contains("launch"));
@@ -89,14 +91,14 @@ public sealed class BrowserStartupTests
     });
 
     [Fact]
-    public Task StartupStagesMissingEdgeDirectEvenDuringCaptureWithoutPolicyOrBlock() => WithInstalled(async installed =>
+    public Task StartupConfiguresMissingEdgeAutoDuringCaptureWithoutPolicyOrRestart() => WithInstalled(async installed =>
     {
         var service = new Service(); service.Inner.State.Optimizing = true;
         var vm = new DesktopViewModel(service); await vm.RefreshAsync(); await vm.EnsureStartupBrowserProfilesAsync(installed);
         var edge=Assert.Single(service.Inner.State.Profiles,BrowserCatalog.IsEdge);
-        Assert.Equal("DIRECT",edge.Mode);
-        Assert.Equal("edge-sites-pending",edge.PolicyData!["app_preset"].GetString());
-        Assert.Equal("CREATED_PENDING_ACTIVATION", vm.BrowserStartup!.Browsers.Single(b=>b.Browser=="edge").State);
+        Assert.Equal("AUTO",edge.Mode);
+        Assert.Equal("edge-sites",edge.PolicyData!["app_preset"].GetString());
+        Assert.Equal("AUTO_CONFIGURED", vm.BrowserStartup!.Browsers.Single(b=>b.Browser=="edge").State);
     });
 
     [Fact]
@@ -108,6 +110,17 @@ public sealed class BrowserStartupTests
         Assert.True(vm.Available); Assert.Equal("game", Assert.Single(vm.Applications).Profile.Id);
         Assert.All(vm.BrowserStartup!.Browsers, r => Assert.Equal("FAILED", r.State));
         Assert.False(vm.Busy);
+    });
+
+    [Fact]
+    public Task FreezeAndLegacyDefaultDirectBecomeNativeAutoButExplicitOptOutStaysDirect() => WithInstalled(async installed => {
+        var service=new Service();
+        service.Inner.State.Profiles=installed.Select(b=>new Profile{Id=b.Id,Name=b.Name,Executables=[b.ExePath],Mode="DIRECT",Custom=true,PolicyData=b.Id=="edge"?new(){["browser_auto_disabled"]=System.Text.Json.JsonSerializer.SerializeToElement(true)}:null}).ToArray();
+        var vm=new DesktopViewModel(service);await vm.RefreshAsync();await vm.EnsureStartupBrowserProfilesAsync(installed);
+        Assert.Equal("AUTO",service.Inner.State.Profiles.Single(BrowserCatalog.IsChrome).Mode);
+        Assert.Equal("DIRECT",service.Inner.State.Profiles.Single(BrowserCatalog.IsEdge).Mode);
+        Assert.Single(service.Inner.Calls,c=>c.Method=="profile.set");
+        Assert.DoesNotContain(service.Inner.Calls,c=>c.Method.Contains("policy")||c.Method.Contains("prepare")||c.Method.Contains("launch")||c.Method.Contains("kill"));
     });
 
     [Fact]

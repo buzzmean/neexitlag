@@ -27,7 +27,8 @@ type TrialScope struct {
 	Expires      time.Time `json:"expires"`
 }
 type Profile struct {
-	BrowserTransport string `json:"browser_transport,omitempty"`
+	BrowserAutoDisabled bool   `json:"browser_auto_disabled,omitempty"`
+	BrowserTransport    string `json:"browser_transport,omitempty"`
 	// Recovery preserves domain rules while a fail-closed Chrome PAC guards them.
 	BrowserRecoveryRules []flowpolicy.Rule    `json:"browser_recovery_rules,omitempty"`
 	Trial                *TrialScope          `json:"trial_scope,omitempty"`

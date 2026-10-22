@@ -48,3 +48,13 @@ func (c *Controller) reconfigureApplications(ids []string, change func() error) 
 	}
 	return change()
 }
+
+// Browser enrollment changes new connections only; existing HTTP/2/TCP stays pinned.
+func (c *Controller) reconfigureBrowserNewConnections(app string, change func() error) error {
+	if b, ok := c.Backend.(interface {
+		ReconfigureNewConnections(string, func() error) error
+	}); ok {
+		return b.ReconfigureNewConnections(app, change)
+	}
+	return change()
+}

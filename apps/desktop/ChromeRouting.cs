@@ -22,7 +22,7 @@ public partial class MainWindow {
  // steps. Failure here must not block the rest of the optimization (Telegram, Claude...).
  // Returns a notice about installed browsers VELIQ cannot route automatically, or null.
  async Task<string?> EnsureBrowserCoverageAsync(){
-  var installed=BrowserCatalog.Discover(File.Exists,Environment.GetEnvironmentVariable);
+  var installed=BrowserDiscovery.Installed();
   try{
    var created=await model.EnsureChromeProfileAsync(installed,lifetime.Token);
    var pending=created??model.Applications.Select(r=>r.Profile).FirstOrDefault(model.StartupChromeNeedsActivation);
@@ -38,7 +38,7 @@ public partial class MainWindow {
   return gaps.Length==0?null:Text.Get("BrowsersNotCovered")+" "+string.Join(", ",gaps)+".";
  }
  async Task EnableOptimizationAsync(){
-  await model.EnsureStartupBrowserProfilesAsync(BrowserCatalog.Discover(File.Exists,Environment.GetEnvironmentVariable),lifetime.Token);
+  await model.EnsureStartupBrowserProfilesAsync(BrowserDiscovery.Installed(),lifetime.Token);
   await BrowserOptimizationSequence.RunAsync(()=>model.OptimizeAsync(true,lifetime.Token),()=>model.Optimizing,()=>model.Snapshot?.Settings.Automatic==true,EnsureSilentBrowserLanesAsync,()=>PrepareNativeBrowsersAsync());
  }
  async Task EnableOptimizationCoreAsync()=>await EnableOptimizationAsync();

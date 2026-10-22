@@ -50,24 +50,20 @@ func ownNativeEdge(c *Controller) {
 	e.active = func(_, v string) bool { return v != "" }
 	e.write = func(string, []string, string) error { return nil }
 }
-func TestNativeFreshRequiresOwnedGuardAndCannotBypassViaProfileSet(t *testing.T) {
+func TestNativeFreshPreparesCaptureWithoutPACAndPublishesAUTO(t *testing.T) {
 	c, p, b := nativeEdgeFixture(t)
-	_, err := edgeCall(c, "browser.native.enable", map[string]string{"profile_id": p.ID})
-	if err == nil || !strings.Contains(err.Error(), "NATIVE_OWNED_PAC_GUARD_REQUIRED") {
+	result, err := edgeCall(c, "browser.native.enable", map[string]string{"profile_id": p.ID})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if b.ready {
-		t.Fatal("fresh gate started capture")
+	if !b.ready || !nativeBrowserProfile(findNativeEdge(c)) || result.(map[string]any)["compatibility"] != (*nativeBrowserCompatibility)(nil) {
+		t.Fatal("native preparation failed", result)
 	}
-	p.Mode = profiles.Auto
-	p.BrowserTransport = "native"
-	if _, err = edgeCall(c, "profile.set", p); err == nil {
-		t.Fatal("profile.set bypassed guard")
-	}
-	if got := c.Profiles.List(); findNativeEdge(c).Mode != profiles.Direct || findNativeEdge(c).BrowserTransport != "" {
-		t.Fatal(got)
+	if c.browser.edge != nil && len(c.browser.edge.saved.Owned) > 0 {
+		t.Fatal("fresh activation wrote policy")
 	}
 }
+
 func TestNativeEdgeEnablePreservesStreamsAndRepairsGuardWithoutNonce(t *testing.T) {
 	c, p, b := nativeEdgeFixture(t)
 	ownNativeEdge(c)

@@ -24,7 +24,7 @@ public partial class MainWindow {
  }
  async void OpenEdgeSites(object sender,RoutedEventArgs args)=>await Execute(async()=>{
   var profile=EdgeProfileSelection.Select((AppGrid.SelectedItem as ApplicationRow)?.Profile,model.Applications.Select(r=>r.Profile));
-  profile ??= await model.EnsureEdgeProfileAsync(BrowserCatalog.Discover(File.Exists,Environment.GetEnvironmentVariable),lifetime.Token);
+  profile ??= await model.EnsureEdgeProfileAsync(BrowserDiscovery.Installed(),lifetime.Token);
   if(profile is null)throw new EdgeActivationException("edge.prepare","EDGE_PROFILE_NOT_FOUND","Установленный Microsoft Edge не найден.");
   await model.OptimizeAsync(true,lifetime.Token);
   if(!await ActivateEdgeSites(profile))return;

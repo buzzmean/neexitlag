@@ -22,18 +22,21 @@ public static class BrowserCatalog
             [@"%ProgramFiles%\BraveSoftware\Brave-Browser\Application\brave.exe", @"%LOCALAPPDATA%\BraveSoftware\Brave-Browser\Application\brave.exe"]),
         new("yandex", "Яндекс Браузер", false,
             [@"%LOCALAPPDATA%\Yandex\YandexBrowser\Application\browser.exe"]),
+        new("opera-gx", "Opera GX", false,
+            [@"%LOCALAPPDATA%\Programs\Opera GX\opera.exe", @"%ProgramFiles%\Opera GX\opera.exe"]),
         new("opera", "Opera", false,
             [@"%LOCALAPPDATA%\Programs\Opera\opera.exe", @"%ProgramFiles%\Opera\opera.exe"]),
         new("vivaldi", "Vivaldi", false,
             [@"%LOCALAPPDATA%\Vivaldi\Application\vivaldi.exe", @"%ProgramFiles%\Vivaldi\Application\vivaldi.exe"]),
     ];
 
-    public static IReadOnlyList<InstalledBrowser> Discover(Func<string, bool> exists, Func<string, string?> environment)
+    public static IReadOnlyList<InstalledBrowser> Discover(Func<string, bool> exists, Func<string, string?> environment, Func<string,IEnumerable<string>>? registered = null)
     {
         var found = new List<InstalledBrowser>();
         foreach (var entry in Entries)
         {
-            foreach (var template in entry.Candidates)
+            var registryPaths=(registered?.Invoke(entry.Id)??[]).Take(32).Where(p=>p.Length>3&&char.IsLetter(p[0])&&p[1]==':'&&p[2]=='\\'&&p.EndsWith(".exe",StringComparison.OrdinalIgnoreCase));
+            foreach (var template in registryPaths.Concat(entry.Candidates))
             {
                 var path = Expand(template, environment);
                 if (path is null || !exists(path)) continue;
@@ -44,7 +47,7 @@ public static class BrowserCatalog
         return found;
     }
 
-    static string? Expand(string template, Func<string, string?> environment)
+    static string? Expand(string template, Func<string, string?> environment, Func<string,IEnumerable<string>>? registered = null)
     {
         var result = template;
         foreach (var name in new[] { "ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA" })

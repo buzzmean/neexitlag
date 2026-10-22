@@ -54,6 +54,9 @@ func (c *Controller) nativeBrowserCompatibility(p profiles.Profile, requested bo
 		}
 		return &nativeBrowserCompatibility{OwnedPolicy: true, PolicyChanged: changed, Address: e.server.Address(), Verification: "LIVE_LISTENER; running browser policy refresh NOT_OBSERVED"}, nil
 	}
+	if c.browser.expectedPAC == "" && len(c.browser.silent.Owned) == 0 {
+		return nil, nil // Fresh native ingress has no policy dependency.
+	}
 	// Chrome's owner-user journal/recovery remains unchanged. Replacing its PAC
 	// here would invalidate that journal and could disable the independent guard.
 	if !wp.ChromeProxyPolicyActive(c.BrowserOwnerSID, c.browser.expectedPAC) {
@@ -104,27 +107,17 @@ func (c *Controller) edgeRollbackPAC(e *edgeRuntime, p profiles.Profile) (string
 	return strings.TrimPrefix(args[1], "--proxy-pac-url="), nil
 }
 
-// This gate cannot be bypassed by profile.set or an authenticated but stale GUI.
-// Only an existing service-owned policy for the installation SID is accepted.
-// Registry presence does NOT certify uptake by an already-running browser.
-func (c *Controller) nativeGuardReady(p profiles.Profile) error {
-	c.browser.mu.Lock()
-	defer c.browser.mu.Unlock()
-	return c.nativeGuardReadyLocked(p)
-}
+// Native admission requires owner-bound capture capability, not a registry PAC.
+// Registry presence does not establish live policy uptake or a kernel crash guard.
+func (c *Controller) nativeGuardReady(p profiles.Profile) error { return c.nativeGuardReadyLocked(p) }
 func (c *Controller) nativeGuardReadyLocked(p profiles.Profile) error {
 	if c.BrowserOwnerSID == "" {
-		return errors.New("NATIVE_OWNED_PAC_GUARD_REQUIRED")
+		return errors.New("NATIVE_OWNER_SID_REQUIRED")
 	}
-	if edgeProfile(p) {
-		e := c.edgeLocked()
-		if len(e.saved.Owned) > 0 && (e.policyActive(c.BrowserOwnerSID) || e.guardActive(c.BrowserOwnerSID)) {
-			return nil
-		}
-	} else if c.browser.expectedPAC != "" && wp.ChromeProxyPolicyActive(c.BrowserOwnerSID, c.browser.expectedPAC) {
-		return nil
+	if !c.nativeBackendConfigured() {
+		return errors.New("NATIVE_CAPTURE_NOT_CONFIGURED")
 	}
-	return errors.New("NATIVE_OWNED_PAC_GUARD_REQUIRED")
+	return nil
 }
 
 func nativeEdgeCompatibilityArguments(p profiles.Profile, e *edgeRuntime) ([]string, error) {

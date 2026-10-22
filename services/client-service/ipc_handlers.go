@@ -185,6 +185,9 @@ func (c *Controller) handleProfileSet(ctx context.Context, raw json.RawMessage) 
 	}
 	for _, old := range c.Profiles.List() {
 		if old.ID == p.ID && sameProfileExecutables(old.Executables, p.Executables) {
+			if _, ok := fields["browser_auto_disabled"]; !ok {
+				p.BrowserAutoDisabled = old.BrowserAutoDisabled
+			}
 			if _, ok := fields["browser_transport"]; !ok {
 				p.BrowserTransport = old.BrowserTransport
 			}
@@ -263,7 +266,10 @@ func (c *Controller) handleProfileSet(ctx context.Context, raw json.RawMessage) 
 			return nil, err
 		}
 	}
-	if nativeBrowserProfile(p) && !c.nativeBackendReady() {
+	c.mu.Lock()
+	nativeActive := c.enabled && c.settings.Automatic
+	c.mu.Unlock()
+	if nativeBrowserProfile(p) && nativeActive && !c.nativeBackendReady() {
 		return nil, errors.New("NATIVE_CAPTURE_NOT_READY")
 	}
 	for _, old := range c.Profiles.List() {
@@ -275,7 +281,11 @@ func (c *Controller) handleProfileSet(ctx context.Context, raw json.RawMessage) 
 			}
 		}
 	}
-	if e := c.reconfigure(p.ID, func() error {
+	reconfigure := c.reconfigure
+	if nativeBrowserProfile(p) {
+		reconfigure = c.reconfigureBrowserNewConnections
+	}
+	if e := reconfigure(p.ID, func() error {
 		if e := c.Profiles.Upsert(p); e != nil {
 			return e
 		}
