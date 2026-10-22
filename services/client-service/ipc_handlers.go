@@ -184,8 +184,10 @@ func (c *Controller) handleProfileSet(ctx context.Context, raw json.RawMessage) 
 	if e := json.Unmarshal(raw, &fields); e != nil {
 		return nil, e
 	}
+	wasNative := false
 	for _, old := range c.Profiles.List() {
 		if old.ID == p.ID && sameProfileExecutables(old.Executables, p.Executables) {
+			wasNative = nativeBrowserProfile(old)
 			if _, ok := fields["browser_auto_disabled"]; !ok {
 				p.BrowserAutoDisabled = old.BrowserAutoDisabled
 			}
@@ -283,7 +285,7 @@ func (c *Controller) handleProfileSet(ctx context.Context, raw json.RawMessage) 
 		}
 	}
 	reconfigure := c.reconfigure
-	if nativeBrowserProfile(p) {
+	if nativeBrowserProfile(p) || wasNative {
 		reconfigure = c.reconfigureBrowserNewConnections
 	}
 	if e := reconfigure(p.ID, func() error {

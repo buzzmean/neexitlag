@@ -77,3 +77,18 @@ state/reason/configured_profiles/guard, отдельно native-only и PAC upst
 последующий enable не сбрасывает часы. First-open/first-exchange — наблюдаемые
 события, не обещание «сайт готов за N секунд». На ISP/Chrome157 требуемый срок
 ещё не измерен. Обычный polling GUI — до2с во время подготовки; нет restart wait.
+
+## D. Выключение и выход
+
+Fresh native не записывает ProxySettings и не требует proxy listener. OFF
+сразу прекращает классификацию новых потоков выбранного браузера; AUTO-намерение
+остаётся, чтобы ON снова работал автоматически. Отключение только браузера
+сохраняет opt-out и касается новых соединений: established TCP не пересоздаются
+при редактировании профиля. Игры/остальные приложения не получают новый режим.
+
+Для прежнего cached PAC действуют BROWSER_DISABLE_RECOVERY.md: OS DIRECT у
+owner-validated listener после OFF/Exit, retirement только после idle без
+активных sockets, уведомление user GP и завершение helper при штатном SCM stop.
+Нельзя выдавать уведомление за фактическое обновление chrome://policy.
+Современный availability PAC имеет DIRECT; чужой/старый PAC без DIRECT — явно
+описанное ограничение. Никаких browser kill/quit/restart в выключении нет.

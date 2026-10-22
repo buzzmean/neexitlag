@@ -77,6 +77,7 @@ public sealed partial class DesktopViewModel
     {
         var copy=original.Copy();copy.Mode="DIRECT";copy.PolicyData ??= new();
         copy.PolicyData["browser_transport"]=JsonSerializer.SerializeToElement("");
+        copy.PolicyData["browser_auto_disabled"]=JsonSerializer.SerializeToElement(true);
         if(BrowserCatalog.IsEdge(copy)) copy.PolicyData["app_preset"]=JsonSerializer.SerializeToElement("edge-sites");
         await client.Call<Profile[]>("profile.set",copy,ct);
         startupChromeProfiles.Remove(copy.Id);

@@ -2003,3 +2003,7 @@ A ba38329; classifier native AUTO исключён из browser_policy_suspended
 ### Браузеры C: readiness и native timing
 
 B 3d11370. Native readiness state/reason/configured_profiles/guard отделены от PAC и page verification; при отсутствии capture/relay — PREPARING, при готовности — READY_NEW_CONNECTIONS, при OFF — DISABLED. GUI показывает подготовку/готовность новых соединений, diag2026-10-22.1 показывает фактические native ingress/timers. Публикация профиля при включённом capture начинает epoch до первого flow. Focused native/Fresh race PASS, C#183/183 PASS, WPF0errors/4 прежнихCS8604, PS parse PASS. Реальное время Chrome157/ISP не измерено; VPS не тронут.
+
+### Браузеры D: выключение native и совместимость cached PAC
+
+C 6a4c07f. OFF/Exit/host stop для fresh native не требует proxy или registry uptake; Classify новых TCP/UDP возвращает DIRECT, AUTO намерение сохраняется. Переход из native в пользовательский DIRECT использует ReconfigureNewConnections, а не reset established TCP; явный opt-out сохранён. Старый cached PAC DIRECT/idle/SCM recovery guard остаётся из 227160d. Core/service/host targeted race PASS, C# browser disable/startup/readiness проверены перед commit; настоящий SCM/Chrome/ISP не выполнялся. VPS/PR8 не изменены.
