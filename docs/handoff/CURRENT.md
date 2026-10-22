@@ -2255,3 +2255,17 @@ Get-ClubStatus.ps1 — одна локальная read-only команда; opt
 не просит пароль и не меняет firewall. Старый/недоступный файл явно STALE/UNAVAILABLE.
 Go nonce/TCP/UDP/status race и PS7 checks PASS; WPF cross-build PASS, 4 прежних warnings.
 Live network echo здесь только локальная фикстура; production VPS не вызывался.
+
+## 22.10.2026 — клубный пилот E: замена кода без переустановки
+
+New-ClubCodeFile.ps1 сохраняет введённый владельцем код в private SYSTEM/Admin file
+(не argv/лог/публичный Setup). Set-ClubActivationCode.ps1 заменяет только protected
+activation-code.json.pending, свежий request ID, без удаления identity/history.
+Live режим перезапускает только службу для сброса revoked-runtime состояния;
+Image режим сохраняет остановленную службу и требует отсутствие runtime identity,
+boot marker/private pending keys. Freeze: менять sealed base/offline original,
+не запекать identity от техрежима; если платформа не умеет offline edit, новый
+чистый image. Автоматический API Langame неизвестен, не имитируем его.
+Изменение локального overlay потеряется после freeze; базовый файл тоже обновить.
+PS7 parser/pending-record/mock rotation/image-stop/write-failure restoration PASS.
+Реальная Windows ACL/SCM/code replacement и production revoke не выполнялись.
