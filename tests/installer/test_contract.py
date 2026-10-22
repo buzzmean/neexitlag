@@ -18,3 +18,23 @@ class InstallerContract(unittest.TestCase):
   self.assertIn('PUBLIC_TRUST_DIRECTORY_MUST_CONTAIN_ONLY_CA',build)
   self.assertNotIn('device.pem',build);self.assertNotIn('identity.json',build)
   self.assertIn('RestartIfNeededByRun=no',(ROOT/'installer/setup.iss').read_text())
+
+class ClubImageContract(unittest.TestCase):
+ def test_public_payload_only_and_club_scripts_present(self):
+  text=(ROOT/'installer/build.ps1').read_text(encoding='utf-8-sig')
+  for script in ('configure-club-image','club-image-boot','club-image-common','club-code-common','Set-ClubActivationCode','Get-ClubStatus'):
+   self.assertIn("'"+script+"'",text)
+  self.assertNotIn('club-code.txt',text)
+ def test_silent_image_install_has_no_gui_launch_or_browser_kill(self):
+  text=(ROOT/'installer/setup.iss').read_text(encoding='utf-8-sig')
+  self.assertIn('Check: NotClubImage',text)
+  seal=(ROOT/'tools/windows/configure-club-image.ps1').read_text(encoding='utf-8-sig')
+  self.assertIn('Assert-ClubImageClean',seal)
+  self.assertLess(seal.index('Assert-ClubBootTaskOwnership'),seal.index('Register-ScheduledTask'))
+  self.assertNotIn('Start-Service',seal)
+  self.assertNotIn('Stop-Process',seal)
+ def test_club_ui_cannot_mutate_settings(self):
+  text=(ROOT/'apps/desktop/ClubWindow.cs').read_text(encoding='utf-8')
+  self.assertIn('"club.status"',text)
+  for forbidden in ('"optimize"','"settings"','"profile.set"','"activation.set"','MessageBox','Process.Kill','chrome://quit'):
+   self.assertNotIn(forbidden,text)

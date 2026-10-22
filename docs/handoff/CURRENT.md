@@ -20,7 +20,7 @@
 
 | Работа | Файлы | Агент | Ветка | Статус |
 |---|---|---|---|---|
-| Пилот клуба: Setup/image/boot/status A–F (22.10.2026) | installer/*; tools/windows club/build/status; services/client-service club/activation/startup/settings IPC; desktop club/tray; tests/docs | Codex | codex/work | В РАБОТЕ; без production/PR8; guest-admin isolation честно ограничен Windows |
+| Пилот клуба: Setup/image/boot/status A–F (22.10.2026) | installer/*; tools/windows club/build/status; services/client-service club/activation/startup/settings IPC; desktop club/tray; tests/docs | Codex | codex/work | СВОБОДНО: A–F подготовлены/запушены; реальный Setup/2–3ПК freeze pilot ожидает владельца |
 | Browser opaque/ECH DIRECT и Telegram recovery (22.10.2026) | core browserproxy/domaininspect; platform/windows domain/DNS; services/client-service browser*; tools/windows browser startup/diag; tests/docs | Codex | codex/work | КОД/ЛОКАЛЬНЫЕ GATES ГОТОВЫ; область освобождена. fbab84f, 49ecb96, 5c8f3be, 885d836, 2804508. Windows/ISP и ECH+DoH/shared-IP ограничения — новый handoff ниже |
 | Общий игровой UDP обход A–H (22.10.2026) | core/gameudp/*; platform/windows UDP capture/reply/discovery/REFLECT/conflicts; services/client-service game_udp/controller/local_auto (additive conflict metadata); apps/desktop{,-core}/GameUdp и UI; tools/windows game UDP/diag; tests/workflows/docs | Codex | codex/work | КОД ГОТОВ; область освобождена. PUBG default-on; остальные opt-in. DIRECT → local → authenticated relay, новые tuples; античит gate. Local gates PASS; actual Windows/driver/BattlEye/3–5 матчей/RTT не проверены, CI steps=[] |
 | Native Chrome/Edge: нулевой ingress d3aad37 (22.10.2026) | platform/windows capture/process/TCP/UDP и tests; services/client-service browser/status; desktop readiness; tools/windows диагностика/приёмка; workflows; docs | Codex | codex/work | КОД И ДИАГНОСТИКА ГОТОВЫ, область освобождена; подтверждён unit dual-stack bug; Windows gate не выполнен, A/C/F не приняты |
@@ -2284,3 +2284,37 @@ Go targeted race/Windows test EXE cross-compile и PS7 mocks PASS.
 Полный race первый раз: demo route selection 25с timeout, повтор count3 имел1fail;
 baseline0ea5284 count3 PASS за66с. Полный повтор race -p1 затем PASS без правки
 самого demo/таймаутов; это наблюдаемая timing-нестабильность, не скрываем её.
+
+
+## 22.10.2026 — клубный пилот F: передача владельцу
+
+A399f03d, B2be19c8, Cdb200c4, D4351360, E0051660, уточнения420d052.
+Полная инструкция docs/CLUB_PILOT.md: one-command build, private code input,
+Setup /CLUBIMAGE, seal без identity,2–3разных overlay/freeze, readonly сводка,
+замена pending file/offline image, owner-only revoke, rollback исходным image.
+Новый test-club-local.ps1 без installation/SSH/enroll: core/club Go native,
+PS fixtures,C# иWPF; optional -Race лишь при уже имеющемся Windows race toolchain.
+Публичный Setup без клубного кода; частный образ содержит защищённый code, не ключи.
+Одинаковый SID допускается только локально, overlay у каждого ПК изолирован.
+Полный admin guest не защищается приложением, отдельного VELIQ password нет;
+для настоящего запрета настроек нужен стандартный guest при том же owner SID.
+Автоматизировать API/commit Langame без сведений невозможно; это действие владельца
+в панели boot-провайдера. Runtime identity в техобраз обратно не сохранять.
+Офлайн helper не трогает SCM adminPC. Старый бинарник один не откатывать: старый
+LoadManifest не знает club fields; откат всего исходного sealed image.
+
+Финальные доступные gates: Go test -race -p1 ./... PASS (disposable PostgreSQL,
+с cache где применимо), go vet ./... PASS, Linux/Windows amd64 go build ./... PASS,
+Windows platform/service vet и оба Windows test EXE compile PASS. PG3машины×3boot,
+HTTP CSR5freeze c одним request ID/lostresponse,50replacement/seat/revoke PASS.
+C#196/196 PASS; WPF cross-build PASS,4прежних CS8604. Python installer7/7 и
+PS7 build/package/image/task/rotation/parser fixtures PASS. Ранний demo timing
+timeout и последующие успешные повторы описаны выше; сам тест не ослаблялся.
+Disposable PostgreSQL container и наш baseline worktree удалены. Native Windows
+Inno/SCM/ACL/task,реальный HWND/tray,iSCSI boot/overlay/PUBG античит/36PC нагрузка
+не исполнялись. CI PASS не заявлен (известный billing block владельца).
+VPS/сертификаты/credentials/PR8/main/ветка Claude не трогались.
+
+Владельцу: PowerShell админа из корня клона: git pull --ff-only origin codex/work;
+& .\tools\windows\build-setup.ps1. Затем ровно по docs/CLUB_PILOT.md, сначала2–3ПК.
+Область освобождена, дальнейшее ожидание owner Windows/image acceptance.
