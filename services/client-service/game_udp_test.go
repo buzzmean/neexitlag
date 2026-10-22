@@ -193,3 +193,31 @@ func TestGameFeatureCannotPreemptProtectedHelperGroup(t *testing.T) {
 		t.Fatal("game opt-in preempted protected helper ancestry", d)
 	}
 }
+
+func TestPUBGColdLocalFirstAfterDiscoveryCustomEnableAndReload(t *testing.T) {
+	c, id := gameController(t)
+	if p := c.games.items["pubg"].Engine.Snapshot().InitialPolicy; p != "LOCAL_FIRST_UNCONFIRMED_ENDPOINT" {
+		t.Fatal("discovery DIRECT-first", p)
+	}
+	c.customPath = filepath.Join(t.TempDir(), "profiles.json")
+	if _, err := c.handleGameUDP(context.Background(), "gameudp.set", json.RawMessage(`{"profile_id":"pubg","enabled":true}`)); err != nil {
+		t.Fatal(err)
+	}
+	fresh := New(context.Background())
+	defer fresh.Close()
+	fresh.customPath = c.customPath
+	fresh.loadGames()
+	if fresh.games.error != "" || fresh.games.items["pubg"].Engine.Snapshot().InitialPolicy != "LOCAL_FIRST_UNCONFIRMED_ENDPOINT" {
+		t.Fatal("reload lost policy", fresh.games.error)
+	}
+	fresh.games.items["pubg"].Engine.SetReason("")
+	now := time.Now()
+	flow, err := fresh.games.items["pubg"].Engine.Open(gameudp.Key{Network: strings.Repeat("a", 64), Application: id.Path, PID: id.PID, Birth: id.CreationTime, Source: policyTuple("udp", 7766).Source, Destination: policyTuple("udp", 7766).Destination}, now)
+	if err != nil || fresh.games.items["pubg"].Engine.Evidence(flow).Stage != gameudp.Local {
+		t.Fatal("first reloaded packet is not local", err)
+	}
+	other := c.newGameLadder(`D:\Games\Other\game.exe`)
+	if other.Snapshot().InitialPolicy != "DIRECT_FIRST" {
+		t.Fatal("other game default changed")
+	}
+}

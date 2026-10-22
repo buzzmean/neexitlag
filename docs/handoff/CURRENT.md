@@ -2329,7 +2329,7 @@ Native Windows temp-tree fixture проверяет owners/protected ACL/no gues
 Это не расширение прав на ProgramData/IPC и не замена Windows admin boundary.
 Новые поправки только installer/PS/docs, Go/C# код после последних PASS не менялся.
 
-## 23.10.2026 (MSK) — PUBG: область античит-проверки
+## 22.10.2026 (MSK) — PUBG: область античит-проверки
 
 Причина e5e0127: updateGamesGate и gameudp.set глобально запрещали все игры при
 DriverAntiCheat!=empty. Теперь PUBG/BattlEye и остальные непричастные профили не
@@ -2345,3 +2345,19 @@ startup pending и защита от stale result после reset покрыт�
 Go race core/gameudp+platform/windows+client-service PASS; Windows platform test
 EXE cross-compile PASS. Windows SCM/настоящие FACEIT/BattlEye/матчи не запускались.
 VPS/сертификаты/PR8 не менялись. Дальше PUBG local-first и GUI/diag.
+
+## 22.10.2026 (MSK) — PUBG local-first
+
+Только selected TslGame.exe: constructor задаёт LOCAL_FIRST_UNCONFIRMED_ENDPOINT
+при discovery, custom enable и восстановлении game-udp.json v2. Первый новый
+публичный IPv4 UDP tuple сразу получает K12/N2 (24 decoys перед2оригиналами),
+без предварительного6с DIRECT trial. Exact confirmed DIRECT cache этой сети/
+exe/address:port имеет приоритет, TTL сохранён. Legacy app-wide DIRECT не служит
+авторизацией другого endpoint и не тормозит переход к следующим local вариантам.
+Не определяем страну по IP: неизвестный российский endpoint тоже local-first,
+оригиналы DIRECT без VPS; fake success не выдаётся за доказанный pure DIRECT.
+Остальные игры DIRECT-first; existing tuples pinned, bounded ladder/budget/cutoff
+и fallback после local alternatives сохранены. Selection_reason/initial_policy
+в evidence, нет постоянных IP pins. Детерминированный Bind+send fixture проверяет
+порядок12fake/original×2, последующий pass-through и relay_packets=0.
+Go race3пакета PASS; Windows cross-build PASS. РеальныйПК/матч/BattlEye не проверен.

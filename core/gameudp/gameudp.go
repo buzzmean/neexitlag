@@ -96,6 +96,7 @@ const (
 )
 
 type Evidence struct {
+	Selection     string    `json:"selection_reason"`
 	Sequence      uint64    `json:"update_seq"`
 	Stage         string    `json:"stage"`
 	ID            uint64    `json:"flow_id"`
@@ -153,18 +154,20 @@ type Learning struct {
 	Expires     time.Time `json:"expires"`
 }
 type Snapshot struct {
-	Enabled     bool       `json:"enabled"`
-	Application string     `json:"application"`
-	Generation  uint64     `json:"generation"`
-	Reason      string     `json:"reason"`
-	Flows       []Evidence `json:"flows"`
-	Learning    []Learning `json:"learning"`
-	Truncated   bool       `json:"truncated"`
-	Lost        uint64     `json:"lost"`
+	InitialPolicy string     `json:"initial_policy"`
+	Enabled       bool       `json:"enabled"`
+	Application   string     `json:"application"`
+	Generation    uint64     `json:"generation"`
+	Reason        string     `json:"reason"`
+	Flows         []Evidence `json:"flows"`
+	Learning      []Learning `json:"learning"`
+	Truncated     bool       `json:"truncated"`
+	Lost          uint64     `json:"lost"`
 }
 type Engine struct {
 	mu                         sync.Mutex
 	ladder                     bool
+	startLocal                 bool
 	shared                     *Budget
 	application                string
 	network                    string
@@ -185,6 +188,14 @@ func New() *Engine {
 // NewLadder starts every unmeasured network/game DIRECT. Route/variant changes
 // apply to NEXT flows only; the caller owns authenticated relay transport.
 func NewLadder(b *Budget) *Engine { e := New(); e.ladder = true; e.shared = b; return e }
+
+// SetStartLocal affects only subsequent Open calls; existing tuples keep their
+// selected stage and first-flight cutoff. Exact confirmed DIRECT endpoints win.
+func (e *Engine) SetStartLocal(enabled bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.startLocal = enabled
+}
 func (e *Engine) Configure(application string, enabled bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -217,6 +228,10 @@ func (e *Engine) Open(k Key, now time.Time) (*Flow, error) {
 		return nil, errors.New("GAME_UDP_FLOW_CAPACITY")
 	}
 	cache := e.learning[learnKey(k.Network, k.Application)]
+	// Legacy application-wide DIRECT results are not proof of this endpoint.
+	if e.ladder && e.startLocal && cache.Stage == Direct {
+		cache = Learning{}
+	}
 	if e.ladder {
 		if direct := e.learning[endpointKey(k.Network, k.Application, k.Destination.String())]; direct.Confirmed && direct.Stage == Direct && now.Before(direct.Expires) {
 			cache = direct
@@ -224,13 +239,19 @@ func (e *Engine) Open(k Key, now time.Time) (*Flow, error) {
 	}
 	index := 0
 	stage := Local
-	if e.ladder {
+	selection := "LOCAL_FIRST_UNCONFIRMED_ENDPOINT"
+	if e.ladder && !e.startLocal {
 		stage = Direct
+		selection = "DEFAULT_DIRECT_TRIAL"
 	}
 	if now.Before(cache.Expires) {
 		index = cache.Index
 		if e.ladder && cache.Stage != "" {
 			stage = cache.Stage
+		}
+		selection = "LEARNED_NETWORK_TRIAL"
+		if stage == Direct && cache.Confirmed && cache.Endpoint == k.Destination.String() {
+			selection = "CONFIRMED_DIRECT_ENDPOINT"
 		}
 		if cache.Exhausted || (!e.ladder && cache.Tried >= len(Variants()) && !cache.Confirmed) {
 			return nil, errors.New("GAME_UDP_VARIANTS_EXHAUSTED")
@@ -249,7 +270,7 @@ func (e *Engine) Open(k Key, now time.Time) (*Flow, error) {
 		}
 	}
 	e.next++
-	f := &Flow{engine: e, key: k, generation: e.generation, payload: p, last: now, e: Evidence{Stage: stage, ID: e.next, Network: k.Network, PID: k.PID, Birth: k.Birth, Application: k.Application, Source: k.Source.String(), Destination: k.Destination.String(), Variant: v, Started: now, State: "PROBATION", Reason: "SUSTAINED_REPLY_NOT_OBSERVED"}}
+	f := &Flow{engine: e, key: k, generation: e.generation, payload: p, last: now, e: Evidence{Selection: selection, Stage: stage, ID: e.next, Network: k.Network, PID: k.PID, Birth: k.Birth, Application: k.Application, Source: k.Source.String(), Destination: k.Destination.String(), Variant: v, Started: now, State: "PROBATION", Reason: "SUSTAINED_REPLY_NOT_OBSERVED"}}
 	e.flows[f.e.ID] = f
 	return f, nil
 }
@@ -383,6 +404,9 @@ func (e *Engine) health(f *Flow, now time.Time) {
 	}
 	key := learnKey(f.key.Network, f.key.Application)
 	old := e.learning[key]
+	if e.ladder && e.startLocal && old.Stage == Direct {
+		old = Learning{}
+	}
 	if sustained && !f.learned {
 		f.learned = true
 		f.e.State = "SUSTAINED_REPLIES"
@@ -511,7 +535,11 @@ func (e *Engine) cleanup(now time.Time) {
 func (e *Engine) Snapshot() Snapshot {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	out := Snapshot{Enabled: e.enabled, Application: e.application, Generation: e.generation, Reason: e.reason, Flows: []Evidence{}, Learning: []Learning{}, Lost: e.lost}
+	initialPolicy := "LOCAL_FIRST_UNCONFIRMED_ENDPOINT"
+	if e.ladder && !e.startLocal {
+		initialPolicy = "DIRECT_FIRST"
+	}
+	out := Snapshot{InitialPolicy: initialPolicy, Enabled: e.enabled, Application: e.application, Generation: e.generation, Reason: e.reason, Flows: []Evidence{}, Learning: []Learning{}, Lost: e.lost}
 	for _, f := range e.flows {
 		out.Flows = append(out.Flows, f.e)
 	}
@@ -604,6 +632,7 @@ func (e *Engine) PinUnverifiedDirect(f *Flow) {
 	f.e.Variant = Variant{}
 	f.ordinal = MaxCutoff + 1
 	f.failed = true
+	f.e.Selection = "EXISTING_TUPLE_PINNED_DIRECT"
 	f.e.State = "NEW_FLOW_UNVERIFIED"
 	f.e.Reason = "EXISTING_UDP_PINNED_DIRECT_NO_FIRST_FLIGHT_PROOF"
 }

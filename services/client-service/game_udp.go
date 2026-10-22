@@ -77,7 +77,7 @@ func (c *Controller) loadGames() {
 			c.games.error = "GAME_UDP_CONFIG_INVALID"
 			return
 		}
-		e := gameudp.NewLadder(c.games.budget)
+		e := c.newGameLadder(d.Path)
 		if err := e.Restore(d.Learning, time.Now()); err != nil {
 			c.games.error = "GAME_UDP_CONFIG_INVALID"
 			return
@@ -184,7 +184,7 @@ func (c *Controller) registerGame(preset gameudp.Preset, path string) {
 		if len(c.games.items) >= maxGameProfiles {
 			return
 		}
-		g = &gameEntry{ProfileID: p.ID, Path: path, Enabled: preset.DefaultEnabled, Engine: gameudp.NewLadder(c.games.budget)}
+		g = &gameEntry{ProfileID: p.ID, Path: path, Enabled: preset.DefaultEnabled, Engine: c.newGameLadder(path)}
 		c.games.items[p.ID] = g
 		g.Engine.Configure(path, g.Enabled)
 	}
@@ -312,7 +312,7 @@ func (c *Controller) classifyGameUDP(id wp.ProcessIdentity, t wp.Tuple) (wp.Deci
 	if n == nil || len(n.Fingerprint) != 64 || time.Since(n.ObservedAt) > 45*time.Second {
 		return wp.Decision{}, false
 	}
-	d := wp.Decision{NewConnectionsOnly: true, Revision: "game-udp-ladder-v2", Group: p.ID, Network: n.Fingerprint, GameUDP: g.Engine, GameRelayID: "VPS-01", Flow: routing.Flow{PID: id.PID, ProcessPath: id.Path, ApplicationID: p.ID, Protocol: t.Protocol, Source: t.Source, Destination: t.Destination, PinnedPolicy: &routing.Policy{}}, Policy: flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailOpen, Source: "game_udp_ladder", Reason: "DIRECT trial; route pinned at first datagram"}}
+	d := wp.Decision{NewConnectionsOnly: true, Revision: "game-udp-ladder-v2", Group: p.ID, Network: n.Fingerprint, GameUDP: g.Engine, GameRelayID: "VPS-01", Flow: routing.Flow{PID: id.PID, ProcessPath: id.Path, ApplicationID: p.ID, Protocol: t.Protocol, Source: t.Source, Destination: t.Destination, PinnedPolicy: &routing.Policy{}}, Policy: flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailOpen, Source: "game_udp_ladder", Reason: "game route chosen and pinned before first datagram"}}
 	if p.RelayID != "" {
 		d.GameRelayID = p.RelayID
 	}
@@ -424,7 +424,7 @@ func (c *Controller) handleGameUDP(_ context.Context, method string, raw json.Ra
 			c.games.mu.Unlock()
 			return nil, errors.New("GAME_UDP_EXACT_EXECUTABLE_REQUIRED_OR_CAPACITY")
 		}
-		g = &gameEntry{ProfileID: p.ID, Name: p.Name, Path: p.Executables[0], Engine: gameudp.NewLadder(c.games.budget), AntiCheat: "runtime compatibility unverified"}
+		g = &gameEntry{ProfileID: p.ID, Name: p.Name, Path: p.Executables[0], Engine: c.newGameLadder(p.Executables[0]), AntiCheat: "runtime compatibility unverified"}
 		g.Engine.Configure(g.Path, false)
 		c.games.items[p.ID] = g
 	}

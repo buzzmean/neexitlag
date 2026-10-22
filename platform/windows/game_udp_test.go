@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/buzzmean/neexitlag/core/flowpolicy"
 	"github.com/buzzmean/neexitlag/core/gameudp"
 	"github.com/buzzmean/neexitlag/core/routing"
 )
@@ -260,4 +261,45 @@ func TestGameGuardPollingAndCaptureRestartDoNotReplaceMutex(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+}
+
+func TestPUBGColdFirstDatagramBoundToLocalAndPrimedBeforeOriginal(t *testing.T) {
+	e := gameudp.NewLadder(nil)
+	id := ProcessIdentity{PID: 17, CreationTime: 20, Path: `C:\Steam\PUBG\TslGame.exe`}
+	e.SetStartLocal(true)
+	e.Configure(id.Path, true)
+	e.SetReason("")
+	p, tuple := gamePacket()
+	at := time.Unix(1000, 0)
+	base := Decision{GameUDP: e, GameRelayID: "VPS-01", Network: strings.Repeat("a", 64), Flow: routing.Flow{PID: id.PID, ProcessPath: id.Path, Protocol: "udp", Source: tuple.Source, Destination: tuple.Destination, PinnedPolicy: &routing.Policy{}}}
+	d, f, err := BindGameUDP(base, id, tuple, at)
+	if err != nil || !d.Route.Direct() || d.Policy.Action != flowpolicy.DirectPlus || e.Evidence(f).Stage != gameudp.Local {
+		t.Fatal("cold DIRECT or relay delay", d, err)
+	}
+	ledger := NewEvidenceLedger()
+	ledger.BeginFlow(id, tuple)
+	fakes, originals := 0, 0
+	send := func(q []byte) error {
+		if bytes.Equal(q, p) {
+			originals++
+			if originals <= 2 && fakes != originals*12 {
+				t.Error("original sent before decoys")
+			}
+		} else {
+			fakes++
+		}
+		return nil
+	}
+	for i := 0; i < 5; i++ {
+		if err := SendGameUDP(e, f, id, tuple, p, send, ledger, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if fakes != 24 || originals != 5 {
+		t.Fatal(fakes, originals)
+	}
+	s := ledger.Snapshot(id.PID)
+	if len(s.Flows) != 1 || s.Flows[0].Counters.Relayed != 0 || s.Flows[0].Counters.GameFakePackets != 24 {
+		t.Fatal("wrong evidence", s)
+	}
 }
