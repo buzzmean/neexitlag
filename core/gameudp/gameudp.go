@@ -1,4 +1,4 @@
-// Package gameudp implements a bounded, local-only UDP first-flight decoy.
+// Package gameudp implements a bounded per-game UDP transport ladder and first-flight decoy.
 // It has no relay, protocol decryption, process access or packet capture code.
 package gameudp
 
@@ -88,7 +88,15 @@ type Key struct {
 	Birth               uint64
 	Source, Destination netip.AddrPort
 }
+
+const (
+	Direct = "DIRECT"
+	Local  = "LOCAL_UDP"
+	Relay  = "RELAY"
+)
+
 type Evidence struct {
+	Stage         string    `json:"stage"`
 	ID            uint64    `json:"flow_id"`
 	Network       string    `json:"network_fingerprint"`
 	PID           uint32    `json:"pid"`
@@ -127,6 +135,8 @@ type Flow struct {
 	last        time.Time
 }
 type Learning struct {
+	Stage       string    `json:"stage,omitempty"`
+	Exhausted   bool      `json:"exhausted,omitempty"`
 	Network     string    `json:"network"`
 	Application string    `json:"application"`
 	Index       int       `json:"index"`
@@ -146,6 +156,8 @@ type Snapshot struct {
 }
 type Engine struct {
 	mu                         sync.Mutex
+	ladder                     bool
+	shared                     *Budget
 	application                string
 	enabled                    bool
 	generation, next, lost     uint64
@@ -158,8 +170,12 @@ type Engine struct {
 }
 
 func New() *Engine {
-	return &Engine{enabled: true, generation: 1, flows: map[uint64]*Flow{}, learning: map[string]Learning{}, reason: "PUBG_NOT_DISCOVERED"}
+	return &Engine{enabled: true, generation: 1, flows: map[uint64]*Flow{}, learning: map[string]Learning{}, reason: "GAME_NOT_DISCOVERED"}
 }
+
+// NewLadder starts every unmeasured network/game DIRECT. Route/variant changes
+// apply to NEXT flows only; the caller owns authenticated relay transport.
+func NewLadder(b *Budget) *Engine { e := New(); e.ladder = true; e.shared = b; return e }
 func (e *Engine) Configure(application string, enabled bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -192,19 +208,30 @@ func (e *Engine) Open(k Key, now time.Time) (*Flow, error) {
 	}
 	cache := e.learning[learnKey(k.Network, k.Application)]
 	index := 0
+	stage := Local
+	if e.ladder {
+		stage = Direct
+	}
 	if now.Before(cache.Expires) {
 		index = cache.Index
-		if cache.Tried >= len(Variants()) && !cache.Confirmed {
+		if e.ladder && cache.Stage != "" {
+			stage = cache.Stage
+		}
+		if cache.Exhausted || (!e.ladder && cache.Tried >= len(Variants()) && !cache.Confirmed) {
 			return nil, errors.New("GAME_UDP_VARIANTS_EXHAUSTED")
 		}
 	}
 	v := Variants()[index]
-	p, err := Generate(v, nil)
-	if err != nil {
-		return nil, err
+	var p []byte
+	if stage == Local {
+		var err error
+		p, err = Generate(v, nil)
+		if err != nil {
+			return nil, err
+		}
 	}
 	e.next++
-	f := &Flow{engine: e, key: k, generation: e.generation, payload: p, last: now, e: Evidence{ID: e.next, Network: k.Network, PID: k.PID, Birth: k.Birth, Application: k.Application, Source: k.Source.String(), Destination: k.Destination.String(), Variant: v, Started: now, State: "PROBATION", Reason: "SUSTAINED_REPLY_NOT_OBSERVED"}}
+	f := &Flow{engine: e, key: k, generation: e.generation, payload: p, last: now, e: Evidence{Stage: stage, ID: e.next, Network: k.Network, PID: k.PID, Birth: k.Birth, Application: k.Application, Source: k.Source.String(), Destination: k.Destination.String(), Variant: v, Started: now, State: "PROBATION", Reason: "SUSTAINED_REPLY_NOT_OBSERVED"}}
 	e.flows[f.e.ID] = f
 	return f, nil
 }
@@ -219,7 +246,7 @@ func (e *Engine) Plan(f *Flow, now time.Time) ([]byte, int) {
 	}
 	f.last = now
 	f.ordinal++
-	if !e.enabled || e.reason != "" || f.generation != e.generation || f.ordinal > f.e.Variant.Cutoff {
+	if f.e.Stage != Local || !e.enabled || e.reason != "" || f.generation != e.generation || f.ordinal > f.e.Variant.Cutoff {
 		return nil, 0
 	}
 	k := f.e.Variant.Repeats
@@ -231,6 +258,11 @@ func (e *Engine) Plan(f *Flow, now time.Time) ([]byte, int) {
 	if e.budgetPackets+k > MaxFakePerSecond || e.budgetBytes+k*len(f.payload) > MaxFakeBytesPerSecond {
 		f.e.RateLimited += uint64(k)
 		f.e.Reason = "DECOY_RATE_LIMITED_ORIGINAL_PASSTHROUGH"
+		return nil, 0
+	}
+	if e.shared != nil && !e.shared.take(k, k*len(f.payload), now) {
+		f.e.RateLimited += uint64(k)
+		f.e.Reason = "GLOBAL_DECOY_RATE_LIMITED"
 		return nil, 0
 	}
 	e.budgetPackets += k
@@ -296,13 +328,13 @@ func (e *Engine) health(f *Flow, now time.Time) {
 		return
 	}
 	sustained := f.e.LastOutgoing.Sub(f.e.Started) >= ConfirmationSpan && f.e.Replies >= 6 && f.buckets >= 3 && f.e.LastReply.Sub(f.e.FirstReply) >= ConfirmationSpan && now.Sub(f.e.LastReply) < 2*time.Second
-	if f.e.Fakes == 0 || f.e.FakeErrors > 0 || f.e.RateLimited > 0 {
+	if f.e.Stage == Local && (f.e.Fakes == 0 || f.e.FakeErrors > 0 || f.e.RateLimited > 0) {
 		f.e.State = "LOCAL_PRIMING_INCOMPLETE"
 		return
 	}
 	key := learnKey(f.key.Network, f.key.Application)
 	old := e.learning[key]
-	if sustained && !f.learned && f.e.Fakes > 0 && f.e.FakeErrors == 0 && f.e.RateLimited == 0 {
+	if sustained && !f.learned {
 		f.learned = true
 		f.e.State = "SUSTAINED_REPLIES"
 		f.e.Reason = "TRANSPORT_CADENCE_CONFIRMED_NOT_MATCH_LOAD_PROOF"
@@ -312,7 +344,7 @@ func (e *Engine) health(f *Flow, now time.Time) {
 				index = i
 			}
 		}
-		e.putLearning(key, Learning{Network: f.key.Network, Application: f.key.Application, Index: index, Confirmed: true, Expires: now.Add(LearnTTL)}, now)
+		e.putLearning(key, Learning{Stage: f.e.Stage, Network: f.key.Network, Application: f.key.Application, Index: index, Confirmed: true, Expires: now.Add(LearnTTL)}, now)
 		return
 	}
 	failed := !f.learned && now.Sub(f.e.Started) >= Probation || f.learned && now.Sub(f.e.LastReply) >= Liveness
@@ -321,7 +353,7 @@ func (e *Engine) health(f *Flow, now time.Time) {
 	}
 	f.failed = true
 	f.e.State = "INSUFFICIENT_REPLIES"
-	f.e.Reason = "NEXT_FLOW_VARIANT_ONLY_NO_RELAY"
+	f.e.Reason = "NEXT_FLOW_ONLY_NO_REPLAY_OR_MIGRATION"
 	index := 0
 	for i, v := range Variants() {
 		if v.ID == f.e.Variant.ID {
@@ -330,7 +362,7 @@ func (e *Engine) health(f *Flow, now time.Time) {
 	}
 	// Parallel failures of the same candidate advance only once. A losing trial
 	// cannot overwrite a different sustained winner or drain all alternatives.
-	if now.Before(old.Expires) && old.Index != index {
+	if now.Before(old.Expires) && (old.Index != index || e.ladder && old.Stage != f.e.Stage) {
 		return
 	}
 	if old.Confirmed {
@@ -345,16 +377,28 @@ func (e *Engine) health(f *Flow, now time.Time) {
 	if !now.Before(old.Expires) {
 		tried = 1
 	}
-	next := index + 1
-	if next >= len(Variants()) {
+	next, stage, exhausted := index+1, f.e.Stage, false
+	if e.ladder {
+		switch f.e.Stage {
+		case Direct:
+			stage, next = Local, 0
+		case Local:
+			if next >= len(Variants()) {
+				stage, next = Relay, 0
+			}
+		case Relay:
+			exhausted, next = true, 0
+		}
+	} else if next >= len(Variants()) {
 		next = index
 		tried = len(Variants())
+		exhausted = true
 	}
 	expiry := now.Add(10 * time.Minute)
-	if tried >= len(Variants()) {
+	if exhausted {
 		expiry = now.Add(time.Hour)
 	}
-	e.putLearning(key, Learning{Network: f.key.Network, Application: f.key.Application, Index: next, Tried: tried, Expires: expiry}, now)
+	e.putLearning(key, Learning{Stage: stage, Exhausted: exhausted, Network: f.key.Network, Application: f.key.Application, Index: next, Tried: tried, Expires: expiry}, now)
 }
 func (e *Engine) putLearning(key string, v Learning, now time.Time) {
 	if _, ok := e.learning[key]; !ok && len(e.learning) >= MaxNetworks {
@@ -406,7 +450,7 @@ func (e *Engine) Restore(all []Learning, now time.Time) error {
 		return errors.New("GAME_UDP_LEARNING_CAPACITY")
 	}
 	for _, l := range all {
-		if len(l.Network) != 64 || len(l.Application) > 2048 || l.Index < 0 || l.Index >= len(Variants()) || l.Tried < 0 || l.Tried > len(Variants()) || l.Expires.After(now.Add(LearnTTL)) {
+		if len(l.Network) != 64 || len(l.Application) > 2048 || l.Index < 0 || l.Index >= len(Variants()) || l.Tried < 0 || l.Tried > len(Variants())+2 || (l.Stage != "" && l.Stage != Direct && l.Stage != Local && l.Stage != Relay) || l.Expires.After(now.Add(LearnTTL)) {
 			return errors.New("GAME_UDP_LEARNING_INVALID")
 		}
 	}
@@ -425,4 +469,30 @@ func (e *Engine) Evidence(f *Flow) Evidence {
 		return Evidence{}
 	}
 	return f.e
+}
+
+func (e *Engine) Ready() bool { e.mu.Lock(); defer e.mu.Unlock(); return e.enabled && e.reason == "" }
+
+// Budget is shared by all game profiles on a PC. It bounds amplification even
+// when multiple games start together. No sleeps, queues or delayed originals.
+type Budget struct {
+	mu             sync.Mutex
+	at             time.Time
+	packets, bytes int
+}
+
+func (b *Budget) take(p, n int, now time.Time) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.at.IsZero() || now.Sub(b.at) >= time.Second {
+		b.at = now
+		b.packets = 0
+		b.bytes = 0
+	}
+	if b.packets+p > MaxFakePerSecond || b.bytes+n > MaxFakeBytesPerSecond {
+		return false
+	}
+	b.packets += p
+	b.bytes += n
+	return true
 }
