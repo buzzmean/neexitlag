@@ -9,8 +9,17 @@ public sealed partial class DesktopViewModel {
   if(browserAutomaticStartDecided||!Available||Busy||Snapshot?.Settings.Automatic!=true||Activation?.Status.CapturePermitted==false||!Applications.Any(a=>a.Profile.Mode=="AUTO"&&NativeBrowser(a.Profile)))return;
   if(Interlocked.CompareExchange(ref browserAutomaticStartInFlight,1,0)!=0)return;
   try{
-   if(!Optimizing)await OptimizeAsync(true,ct);
+   if(!Optimizing){
+    await gate.WaitAsync(ct);Busy=true;
+    try {
+     var status=await client.Call<Snapshot>("optimize",new{enabled=true},ct);
+     if(!status.Optimizing)throw new ServiceException(ServiceFailure.Rejected,"CAPTURE_START_FAILED");
+     Apply(status);Error="";
+    }finally{Busy=false;gate.Release();}
+   }
    if(Optimizing)browserAutomaticStartDecided=true;
-  }finally{Interlocked.Exchange(ref browserAutomaticStartInFlight,0);}
+  }catch(OperationCanceledException)when(ct.IsCancellationRequested){throw;}
+  catch(Exception error){if(!browserAutomaticStartDecided){ReportBrowserPreparationFailure(error,"browser.startup.optimize");browserIssueNotice="Браузер пока не готов. VELIQ повторит подготовку автоматически.";Notice=browserIssueNotice;}}
+  finally{Interlocked.Exchange(ref browserAutomaticStartInFlight,0);}
  }
 }

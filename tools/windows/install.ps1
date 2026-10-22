@@ -14,11 +14,13 @@ param(
  [string]$TCPProbeTarget="",
  [string]$ProbeTokenFile="",
  [string]$InstallDirectory="$env:ProgramData\neexitlag",
- [switch]$Reinstall
+ [switch]$Reinstall,
+ [switch]$NativeTcpFirewall=$true
 )
 $ErrorActionPreference="Stop"
 . (Join-Path $PSScriptRoot "common.ps1")
 . (Join-Path $PSScriptRoot "service-startup.ps1")
+. (Join-Path $PSScriptRoot "native-tcp-firewall.ps1")
 . (Join-Path $PSScriptRoot "reinstall-state.ps1")
 $current=[Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if(!$current.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw "Administrator access is required to install the service."}
@@ -75,6 +77,9 @@ New-Service -Name neexitlag -BinaryPathName $binary -DisplayName "VELIQ Routing 
 Set-VeliqServiceAutomatic
 & sc.exe failure neexitlag reset= 86400 actions= restart/5000/restart/5000/restart/5000 | Out-Null
 if($LASTEXITCODE){throw "Failed to configure service recovery"}
+# Owner-authorized native browser TCP requires this app-scoped inbound reflection rule.
+# Installing a rule does not load WinDivert or activate traffic before enrollment.
+if($NativeTcpFirewall){[void](Add-NativeTcpFirewallAdmission (Join-Path $InstallDirectory 'neexitlag-service.exe'))}
 Start-Service neexitlag
 (Get-Service neexitlag).WaitForStatus('Running',[TimeSpan]::FromSeconds(30))
 Write-Host "VELIQ service installed. Run the desktop GUI without elevation."

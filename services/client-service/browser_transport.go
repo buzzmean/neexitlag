@@ -563,6 +563,9 @@ func (c *Controller) handleBrowser(method string, raw json.RawMessage) (result a
 	if method == "browser.status" {
 		if c.browser.server == nil {
 			view := browserStatusView{PolicyRefresh: wp.BrowserPolicyRefreshStatus(), Snapshot: browserproxy.Snapshot{ReadyProfiles: []string{}, Failures: map[string]uint64{}, Records: []browserproxy.Record{}}, DirectTimeouts: c.browser.directTimeouts.Stats(), RelayUsage: c.relayUsageLocked(), LastError: c.browser.lastError, ReadinessState: "NOT_PREPARED"}
+			if state := c.nativeBrowserReadiness(false); state != "" {
+				view.ReadinessState = state
+			}
 			view.bound()
 			return view, nil
 		}
@@ -581,6 +584,9 @@ func (c *Controller) handleBrowser(method string, raw json.RawMessage) (result a
 		view.SilentActivation = c.silentViewLocked(false, view.Snapshot)
 		if len(view.SilentActivation.ConfiguredProfiles) > 0 {
 			view.ReadinessState = view.SilentActivation.State
+		}
+		if state := c.nativeBrowserReadiness(false); state != "" {
+			view.ReadinessState = state
 		}
 		view.bound()
 		return view, nil

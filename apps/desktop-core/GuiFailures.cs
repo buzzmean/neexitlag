@@ -9,7 +9,7 @@ public sealed partial class DesktopViewModel {
  public GuiFailure? LastGuiFailure {get;private set;}
  public event Action<GuiFailure>? GuiFailureReported;
  public void RecordGuiFailure(Exception error,string phase){
-  LastGuiFailure=new(phase,error.GetType().Name,DateTimeOffset.UtcNow,error is EdgeActivationException edge?edge.Code:error is ChromeActivationException chrome?chrome.Code:error is BrowserPreparationDeferredException?"BROWSER_PREPARATION_DEFERRED":error is ServiceException ipc?"IPC_"+ipc.Failure.ToString().ToUpperInvariant():"");
+  LastGuiFailure=new(phase,error.GetType().Name,DateTimeOffset.UtcNow,error is EdgeActivationException edge?edge.Code:error is ChromeActivationException chrome?chrome.Code:error is BrowserPreparationDeferredException?"BROWSER_PREPARATION_DEFERRED":error is ServiceException ipc?(BrowserPhase(phase)&&NativeBrowserErrorCode(error) is var nativeCode&&nativeCode!="NATIVE_ACTIVATION_FAILED"?nativeCode:"IPC_"+ipc.Failure.ToString().ToUpperInvariant()):"");
   GuiFailureReported?.Invoke(LastGuiFailure);Changed(nameof(LastGuiFailure));
  }
  public void ReportAuxiliaryFailure(Exception error,string phase){

@@ -56,6 +56,6 @@ try{
  $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '../../tools/windows/update-service.ps1'),[ref]$tokens,[ref]$errors)
  Assert-Check ($errors.Count -eq 0) 'updater parse errors'
  $switch=@($ast.ParamBlock.Parameters|Where-Object {$_.Name.VariablePath.UserPath -eq 'NativeTcpFirewall'})
- Assert-Check ($switch.Count -eq 1 -and $null -eq $switch[0].DefaultValue) 'firewall is not an explicit opt-in'
- Write-Host 'PASS native firewall: app/TCP scope, idempotence, foreign refusal, API errors, policy denial, rollback and opt-in updater'
+ Assert-Check ($switch.Count -eq 1 -and $switch[0].DefaultValue.Extent.Text -eq '$true') 'native default update omitted app-scoped admission'
+ Write-Host 'PASS native firewall: app/TCP scope, idempotence, foreign refusal, API errors, policy denial, rollback and native default updater'
 }finally{if(Test-Path -LiteralPath $root){Remove-Item -LiteralPath $root -Recurse -Force}}

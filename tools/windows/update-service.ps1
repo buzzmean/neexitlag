@@ -2,7 +2,7 @@
 param(
  [string]$ServiceExecutable=(Join-Path $PSScriptRoot '..\..\bin\windows-e2e\neexitlag-service.exe'),
  [string]$InstallDirectory="$env:ProgramData\neexitlag",
- [switch]$NativeTcpFirewall
+ [switch]$NativeTcpFirewall=$true
 )
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')

@@ -376,8 +376,14 @@ func (c *Controller) handleEdge(method string, raw json.RawMessage) (result any,
 			}
 			break
 		}
+		nativeState := c.nativeBrowserReadiness(true)
+		if nativeState != "" && !e.policyActive(c.BrowserOwnerSID) && !e.guardActive(c.BrowserOwnerSID) {
+			transportMode = "NATIVE_NEW_TCP"
+			state = nativeState
+			nonceState = "NOT_REQUIRED_FOR_NATIVE"
+		}
 		pendingProfile := e.healthProfile
-		if transportMode == "NATIVE_ARMED_PAC_GUARD" {
+		if transportMode == "NATIVE_ARMED_PAC_GUARD" || transportMode == "NATIVE_NEW_TCP" {
 			pendingProfile = ""
 		}
 		guardRaw, _ := base64.StdEncoding.DecodeString(strings.TrimPrefix(e.saved.GuardPAC, "data:application/x-ns-proxy-autoconfig;base64,"))

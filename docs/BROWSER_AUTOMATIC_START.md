@@ -122,3 +122,29 @@ relay отдельно покрывается integration/relay_origin_test.go.
 Automatic и native AUTO. Явный OFF/Exit подавляет дальнейший auto-start в этом
 окне; настройка Automatic=false не обходится. Нет browser process manipulation.
 Новые C# регрессии проверяют оба случая.
+
+## G. Приёмка владельца
+
+Команды по одной: [BROWSER_AUTOMATIC_ACCEPTANCE.md](BROWSER_AUTOMATIC_ACCEPTANCE.md).
+Read-only test-browser-startup.ps1 фиксирует оба уже открытых браузера до GUI,
+затем требует native-only exchanges каждого профиля и сохранённые PID/birth.
+Ни policy presence, ни PAC bytes, ни один односторонний пакет не дают PASS.
+Скрипт не управляет браузерами, не выполняет install/enroll и не ходит на VPS.
+
+Для новой native установки/install/update app-scoped TCP firewall admission
+проверяется автоматически (прежний helper, без расширения scope). Это нужно
+для Windows reflected SYN в service listener; отсутствие правила не должно
+превращаться в требование ручного -NativeTcpFirewall. Denial/foreign policy
+не обходится. Identity/ACL/certs и правила игр не меняются.
+
+Ограничение opaque ECH: без достоверного hostname per-domain DNS recovery не
+может безопасно восстановить ошибочный исходный IP. Такой flow остаётся relay-only
+к исходному адресу и может завершиться ошибкой; Internet успех не обещается.
+Лимит googlevideo применяется к достоверно определённому домену; opaque relay
+остаётся в общем bounded pool и отображается отдельно, его нагрузку надо измерить.
+
+Запоздалый native enable после OFF отвергается самой службой под общим
+activationMu и не запускает driver заново; старая GUI-задача не отменяет OFF.
+Отдельный тест проверяет NATIVE_OPTIMIZATION_DISABLED и отсутствие capture start.
+Fresh browser.status/edge.status показывают native readiness отдельно от
+listening/policy_ready=false: отсутствие PAC listener теперь ожидаемо.

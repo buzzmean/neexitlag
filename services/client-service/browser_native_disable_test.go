@@ -71,3 +71,13 @@ func TestFreshNativeDisableAndHostStopNeedNoPACListeners(t *testing.T) {
 		t.Fatal("unneeded Edge listener retained")
 	}
 }
+
+func TestLateNativeEnableCannotRearmAfterExplicitOff(t *testing.T) {
+	c, p, b := nativeEdgeFixture(t)
+	if _, err := edgeCall(c, "browser.native.enable", map[string]string{"profile_id": p.ID}); err == nil || err.Error() != "NATIVE_OPTIMIZATION_DISABLED" {
+		t.Fatal("late activation accepted", err)
+	}
+	if b.ready || findNativeEdge(c).Mode != profiles.Direct {
+		t.Fatal("late preparation rearmed capture")
+	}
+}

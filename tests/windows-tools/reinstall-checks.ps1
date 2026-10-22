@@ -49,7 +49,7 @@ try {
   New-Item $driver -ItemType Directory|Out-Null
   foreach($name in @('WinDivert.dll','WinDivert64.sys')){[IO.File]::WriteAllText((Join-Path $driver $name),"fixture $name")}
   $exe=Join-Path $temp 'service.exe';[IO.File]::WriteAllText($exe,'first executable')
-  $params=@{ServiceExecutable=$exe;OwnerSid=$owner;DeviceDirectory=$source;TrustDirectory=$source;DriverDirectory=$driver;DllSha256=(Get-FileHash (Join-Path $driver 'WinDivert.dll')).Hash;DriverSha256=(Get-FileHash (Join-Path $driver 'WinDivert64.sys')).Hash;ControlPlaneUrl=$manifest.control_plane_url;ProbeTarget=$manifest.probe_target;InstallDirectory=$target}
+  $params=@{NativeTcpFirewall=$false;ServiceExecutable=$exe;OwnerSid=$owner;DeviceDirectory=$source;TrustDirectory=$source;DriverDirectory=$driver;DllSha256=(Get-FileHash (Join-Path $driver 'WinDivert.dll')).Hash;DriverSha256=(Get-FileHash (Join-Path $driver 'WinDivert64.sys')).Hash;ControlPlaneUrl=$manifest.control_plane_url;ProbeTarget=$manifest.probe_target;InstallDirectory=$target}
   $installScript=Join-Path $PSScriptRoot '../../tools/windows/install.ps1'
   & $installScript @params
   $state=Join-Path $target 'state/profile-fixture.json';[IO.File]::WriteAllText($state,'preserve profile/settings state')

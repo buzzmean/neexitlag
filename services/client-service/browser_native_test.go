@@ -52,6 +52,7 @@ func ownNativeEdge(c *Controller) {
 }
 func TestNativeFreshPreparesCaptureWithoutPACAndPublishesAUTO(t *testing.T) {
 	c, p, b := nativeEdgeFixture(t)
+	c.enabled = true
 	result, err := edgeCall(c, "browser.native.enable", map[string]string{"profile_id": p.ID})
 	if err != nil {
 		t.Fatal(err)
@@ -66,6 +67,7 @@ func TestNativeFreshPreparesCaptureWithoutPACAndPublishesAUTO(t *testing.T) {
 
 func TestNativeEdgeEnablePreservesStreamsAndRepairsGuardWithoutNonce(t *testing.T) {
 	c, p, b := nativeEdgeFixture(t)
+	c.enabled = true
 	ownNativeEdge(c)
 	result, err := edgeCall(c, "browser.native.enable", map[string]string{"profile_id": p.ID})
 	if err != nil {
@@ -105,6 +107,7 @@ func TestNativeEdgeEnablePreservesStreamsAndRepairsGuardWithoutNonce(t *testing.
 }
 func TestNativeBackendFailurePreservesPendingAndOwnedPolicy(t *testing.T) {
 	c, p, b := nativeEdgeFixture(t)
+	c.enabled = true
 	ownNativeEdge(c)
 	b.fail = true
 	if _, err := edgeCall(c, "browser.native.enable", map[string]string{"profile_id": p.ID}); err == nil {
@@ -327,6 +330,7 @@ func (b *nativeBackendFixture) ReconfigureNewConnections(_ string, publish func(
 }
 func TestNativeIdempotentEnableDoesNotRetireUDPEveryMonitorTick(t *testing.T) {
 	c, p, b := nativeEdgeFixture(t)
+	c.enabled = true
 	ownNativeEdge(c)
 	for i := 0; i < 3; i++ {
 		if _, err := edgeCall(c, "browser.native.enable", map[string]string{"profile_id": p.ID}); err != nil {
@@ -340,6 +344,7 @@ func TestNativeIdempotentEnableDoesNotRetireUDPEveryMonitorTick(t *testing.T) {
 
 func TestNativeEdgeStatusSeparatesCaptureFromPACNonceReadiness(t *testing.T) {
 	c, p, _ := nativeEdgeFixture(t)
+	c.enabled = true
 	ownNativeEdge(c)
 	if _, err := edgeCall(c, "browser.native.enable", map[string]string{"profile_id": p.ID}); err != nil {
 		t.Fatal(err)

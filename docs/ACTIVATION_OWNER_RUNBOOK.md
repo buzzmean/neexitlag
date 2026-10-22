@@ -721,3 +721,13 @@ GUI не пишет «Подключено» при connected=False. Desktop rel
 отзывает и все устройства, привязанные к тестовым кодам**. Пока ваш ПК активирован
 таким кодом, это не команда проверки. Агент её не запускал. Schema 003 и история
 security state сохраняются после удаления временного runtime.
+
+## Автоматические браузеры после clean activation
+
+С новой native реализацией Chrome/Edge автоматически получают AUTO; не нужны
+ручные profile.set/browser.silent.apply, PAC-кнопки или Reload policies.
+Подготовка и границы доказательства: [BROWSER_AUTOMATIC_START.md](BROWSER_AUTOMATIC_START.md).
+Точные owner update/fresh/freeze и short acceptance команды:
+[BROWSER_AUTOMATIC_ACCEPTANCE.md](BROWSER_AUTOMATIC_ACCEPTANCE.md).
+install/update теперь по умолчанию проверяют app-scoped TCP reflection rule;
+это не включение capture до активации и не глобальное firewall правило.

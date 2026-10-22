@@ -1,6 +1,7 @@
 package clientservice
 
 import (
+	"encoding/json"
 	"github.com/buzzmean/neexitlag/core/profiles"
 	"testing"
 )
@@ -25,5 +26,37 @@ func TestNativeReadinessIndependentOfPACAndNotPageSuccess(t *testing.T) {
 	c.enabled = false
 	if c.nativeSnapshot().State != "DISABLED" {
 		t.Fatal(c.nativeSnapshot())
+	}
+}
+
+func TestFreshNativeStatusDoesNotReportPACNotPrepared(t *testing.T) {
+	c, p, b := nativeEdgeFixture(t)
+	b.ready = true
+	c.enabled = true
+	c.settings.Automatic = true
+	c.browser.readiness.relay = func() bool { return true }
+	p.Mode = profiles.Auto
+	p.BrowserTransport = "native"
+	c.Profiles.Upsert(p)
+	result, err := edgeCall(c, "edge.status", map[string]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(result)
+	var status map[string]any
+	json.Unmarshal(raw, &status)
+	if status["transport_mode"] != "NATIVE_NEW_TCP" || status["readiness_state"] != "NATIVE_READY_NEW_CONNECTIONS" || status["policy_ready"] != false || status["listening"] != false {
+		t.Fatal(status)
+	}
+	p.Executables = []string{`C:\Apps\chrome.exe`}
+	p.AppPreset = ""
+	c.Profiles.Upsert(p)
+	result, err = edgeCall(c, "browser.status", map[string]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := result.(browserStatusView)
+	if view.ReadinessState != "NATIVE_READY_NEW_CONNECTIONS" || view.Listening || view.PolicyReady {
+		t.Fatal(view)
 	}
 }
