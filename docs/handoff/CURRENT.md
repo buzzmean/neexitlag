@@ -2050,3 +2050,7 @@ GUI больше не выдаёт armed capture за готовый брауз�
 ### Нулевой ingress d3aad37 — A: воспроизведён dual-stack дефект
 
 SOCKET CONNECT с IPv4-mapped IPv6 адресами давал ключ ::ffff:IPv4, а NETWORK IPv4 SYN — IPv4. Ассоциация utility/NetworkService PID терялась. Новый TestSocketDualStackChromeOwnerMatchesIPv4SYN сначала FAIL на старом коде, после Unmap PASS; PID/birth reuse по-прежнему отвергается. Focused race PASS. Это подтверждённый дефект кода, но его причинность именно на ПК владельца ещё не доказана; реальный Windows driver gate впереди.
+
+### Нулевой ingress d3aad37 — A/C: native QUIC → TCP
+
+Для AUTO/native Chrome/Edge UDP443 теперь fail-closed с однократным ICMP port-unreachable (только IP+UDP заголовки) вместо отдельного opaque QUIC relay-потока без native TCP counters. Это явно запрошенный TCP fallback; DNS53, legacy PAC, игры и другие приложения сохраняют прежнюю политику. Go race регрессии QUIC/Native/Socket/BrowserPolicy PASS; полный Windows build PASS; actual Windows ICMP→TCP и сайты пока НЕ проверены.

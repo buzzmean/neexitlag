@@ -71,6 +71,12 @@ func (c *Controller) browserFlow(p profiles.Profile, id wp.ProcessIdentity, t wp
 	if t.Destination.Port() == 53 && (t.Protocol == "udp" || t.Protocol == "tcp") {
 		return flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailOpen, Source: "browser_dns", Reason: "resolver bootstrap: preserve browser/system DNS path"}
 	}
+	// Native origin routing requires a TCP ClientHello/Host. Reject only these
+	// selected native browser QUIC attempts; DNS and other applications keep their
+	// existing policy. The backend returns a bounded ICMP error to prompt TCP.
+	if nativeBrowserProfile(p) && t.Protocol == "udp" && t.Destination.Port() == 443 {
+		return flowpolicy.Result{Action: flowpolicy.Block, Fallback: flowpolicy.FailBlock, Source: "browser_native_quic_tcp_fallback", Reason: "selected native browser HTTP/3 requires TCP origin routing; no UDP DIRECT bypass"}
+	}
 	// Opaque is never classified from a DNS/IP guess or a request on another
 	// connection. Safe transport pending richer origin evidence is authenticated
 	// relay, including IPv6/QUIC which cannot use IPv4 ClientHello interception.

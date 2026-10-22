@@ -26,23 +26,24 @@ type queuedDatagram struct {
 	enqueued time.Time
 }
 type captureFlow struct {
-	recovering  atomic.Bool
-	policyEpoch uint64
-	cancelOpen  context.CancelFunc
-	retired     bool
-	opening     bool
-	localState  localstrategy.State
-	decision    Decision
-	dropCause   telemetry.Category
-	queue       chan queuedDatagram
-	done        chan struct{}
-	once        sync.Once
-	datagram    routing.Datagram
-	template    []byte
-	address     [80]byte
-	identity    ProcessIdentity
-	endpoint    uint64
-	lastSeen    time.Time
+	quicNotified bool
+	recovering   atomic.Bool
+	policyEpoch  uint64
+	cancelOpen   context.CancelFunc
+	retired      bool
+	opening      bool
+	localState   localstrategy.State
+	decision     Decision
+	dropCause    telemetry.Category
+	queue        chan queuedDatagram
+	done         chan struct{}
+	once         sync.Once
+	datagram     routing.Datagram
+	template     []byte
+	address      [80]byte
+	identity     ProcessIdentity
+	endpoint     uint64
+	lastSeen     time.Time
 }
 type WinDivertBackend struct {
 	ingress             captureIngress
@@ -472,6 +473,23 @@ func (b *WinDivertBackend) processUDP(d *divertDLL, packet []byte, address [80]b
 	decision := f.decision
 	b.mu.Unlock()
 	// An expired identity must not retain a previous process's BLOCK decision.
+	if decision.Block && known && decision.Policy.Source == "browser_native_quic_tcp_fallback" {
+		b.mu.Lock()
+		notify := !f.quicNotified
+		f.quicNotified = true
+		b.mu.Unlock()
+		b.evidence.RecordQuicFallback(identity, tuple, "native-tcp", "browser")
+		if notify {
+			if reply, err := RejectBrowserQUIC(packet); err == nil {
+				a := address
+				a[10] &= ^byte(2)
+				if err = b.inject(d, reply, a); err != nil && b.ctx.Err() == nil {
+					b.fail(err)
+					return
+				}
+			}
+		}
+	}
 	if decision.Block && known {
 		b.LocalDrops.Attempt(f.dropCause)
 		b.LocalDrops.Drop(f.dropCause)

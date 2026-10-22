@@ -158,8 +158,8 @@ func TestNativeSNIHostOpaqueDNSIPv6AndLegacyIsolation(t *testing.T) {
 	tuple.Protocol = "udp"
 	tuple.Destination = netip.MustParseAddrPort("203.0.113.1:443")
 	d = c.Classify(id, tuple)
-	if d.Policy.Action != flowpolicy.RelayRequired || !d.BlockOnFailure {
-		t.Fatal("opaque QUIC leak", d)
+	if !d.Block || d.Policy.Action != flowpolicy.Block || !d.BlockOnFailure || d.Policy.Source != "browser_native_quic_tcp_fallback" {
+		t.Fatal("opaque QUIC fallback not enforced", d)
 	}
 	id.Path = "unrelated.exe"
 	if d = c.Classify(id, tuple); d.Block || !d.Route.Direct() {
@@ -480,5 +480,22 @@ func TestNativeBrowserHealthRequiresActualExchangeInsteadOfArmedCapture(t *testi
 	n.mu.Unlock()
 	if h := c.browserPolicyHealth(); h.EdgeReady {
 		t.Fatal("PAC exchange fabricated native readiness", h)
+	}
+	c.browser.readiness.mu.Lock()
+	c.browser.readiness.relay = func() bool { return true }
+	c.browser.readiness.mu.Unlock()
+	n.mu.Lock()
+	v = n.profiles[p.ID]
+	v.NativeOnly.Exchanges = 1
+	v.NativeOnly.Sent = 10
+	v.NativeOnly.Received = 10
+	n.profiles[p.ID] = v
+	n.mu.Unlock()
+	if h := c.browserPolicyHealth(); !h.EdgeReady || h.EdgeReason != "NATIVE_ONLY_OBSERVED" {
+		t.Fatal("actual exchange not reflected in common header", h)
+	}
+	c.enabled = false
+	if h := c.browserPolicyHealth(); h.EdgeReady {
+		t.Fatal("historic exchange hid OFF", h)
 	}
 }

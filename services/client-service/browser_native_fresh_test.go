@@ -40,7 +40,7 @@ func TestFreshNativeDoesNotWaitForPACAndNeverAuthorizesOpaqueDirect(t *testing.T
 			t.Fatal(ordinary)
 		}
 		quic := c.Classify(id, policyTuple("udp", 443))
-		if quic.Route.Direct() || !quic.BlockOnFailure {
+		if !quic.Block || !quic.BlockOnFailure || quic.Policy.Source != "browser_native_quic_tcp_fallback" {
 			t.Fatal("opaque QUIC leaked", quic)
 		}
 		dns := c.Classify(id, policyTuple("udp", 53))
@@ -52,5 +52,40 @@ func TestFreshNativeDoesNotWaitForPACAndNeverAuthorizesOpaqueDirect(t *testing.T
 		if !off.Route.Direct() || off.Block || off.Deferred || off.OpenDeferred != nil {
 			t.Fatal("automatic off trapped browser", off)
 		}
+	}
+}
+
+func TestNativeBrowserMatchesEveryNetworkServicePIDAfterProfilePublication(t *testing.T) {
+	c, p, _ := nativeEdgeFixture(t)
+	c.enabled = true
+	p.Mode = profiles.Direct
+	p.BrowserTransport = ""
+	c.Profiles.Upsert(p)
+	child := wp.ProcessIdentity{PID: 777, ParentPID: 77, CreationTime: 2, ParentCreationTime: 1, Path: p.Executables[0]}
+	if d := c.Classify(child, policyTuple("tcp", 443)); d.OpenDeferred != nil {
+		t.Fatal("DIRECT profile captured")
+	}
+	p.Mode = profiles.Auto
+	p.BrowserTransport = "native"
+	p.AppPreset = "edge-sites"
+	c.Profiles.Upsert(p)
+	// No optimize restart or root-PID pinning. A sandbox NetworkService child has
+	// the same executable identity but its own PID and process creation time.
+	for _, pid := range []uint32{777, 778, 779} {
+		child.PID = pid
+		d := c.Classify(child, policyTuple("tcp", 443))
+		if !d.Deferred || d.OpenDeferred == nil || d.Flow.ApplicationID != p.ID {
+			t.Fatal("utility child missed hot profile", pid, d)
+		}
+	}
+	unknown := child
+	unknown.Path = `C:\Other\msedge.exe`
+	if d := c.Classify(unknown, policyTuple("tcp", 443)); d.OpenDeferred != nil {
+		t.Fatal("path boundary weakened")
+	}
+	game := wp.ProcessIdentity{PID: 999, CreationTime: 1, Path: `C:\Games\cs2.exe`}
+	d := c.Classify(game, policyTuple("udp", 443))
+	if d.Block || !d.Route.Direct() {
+		t.Fatal("game UDP policy changed", d)
 	}
 }
