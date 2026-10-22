@@ -26,7 +26,7 @@ public sealed class ClubWindow : Window
     async Task Poll()
     {
         if(polling)return;polling=true;
-        try {var s=await service.Call<JsonElement>("status");status.Text=ClubPresentation.Summary(s.GetProperty("connected").GetBoolean(),s.GetProperty("optimizing").GetBoolean(),s.GetProperty("capture_active").GetBoolean());}
+        try {var s=await service.Call<JsonElement>("club.status");var state=s.GetProperty("state").GetString();status.Text=state=="BASELINE_PASS_RUNTIME_UNVERIFIED" ? "VELIQ · подключение готово\nМаршрутизация новых соединений включена" : state=="ACTIVATION_ERROR" ? "VELIQ · требуется внимание администратора" : "VELIQ · подготовка подключения…";}
         catch {status.Text="VELIQ · ожидаем готовность службы…";}
         finally {polling=false;}
     }

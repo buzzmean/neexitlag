@@ -73,6 +73,7 @@ func (c *Controller) ConfigureClub(m Manifest) error {
 		return err
 	}
 	c.syncPolicies()
+	c.clubConfig.Store(&clubConfiguration{manifest: m})
 	c.clubMode.Store(true)
 	return nil
 }

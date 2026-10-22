@@ -86,6 +86,8 @@ type Snapshot struct {
 	ActiveApps       []string                      `json:"active_apps"`
 }
 type Controller struct {
+	clubConfig      atomic.Pointer[clubConfiguration]
+	clubProbe       atomic.Pointer[ClubRelayCheck]
 	clubMode        atomic.Bool
 	games           gameRuntime
 	activation      activationRuntime
@@ -222,6 +224,10 @@ func (c *Controller) syncPolicies() {
 	}
 }
 func (c *Controller) Start() {
+	if c.clubMode.Load() {
+		c.wg.Add(1)
+		go func() { defer c.wg.Done(); c.watchClubStatus() }()
+	}
 	c.wg.Add(1)
 	go func() { defer c.wg.Done(); c.watchBrowserDomainCache() }()
 	c.wg.Add(1)
@@ -559,6 +565,9 @@ func (c *Controller) Snapshot() Snapshot {
 	return snapshot
 }
 func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMessage) (result any, err error) {
+	if method == "club.status" {
+		return c.clubStatus(), nil
+	}
 	if (method == "profile.set" || method == "profile.delete" || method == "auto.commit") && c.browserProfileMutation(raw) {
 		defer func() { _ = c.CleanupOwnedBrowserPolicies() }()
 	}

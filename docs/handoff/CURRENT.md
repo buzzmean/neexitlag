@@ -2241,3 +2241,17 @@ allowlist (неизвестные методы тоже запрещены), в�
 Go targeted race PASS; C# 196/196 PASS; WPF cross-build PASS (4 прежних CS8604).
 Живой WPF/SCM/обычный guest на реальном Windows пока не проверены. Full-admin/UAC-off
 пользователя приложение не ограничивает; для защиты настроек нужен стандартный гость.
+
+## 22.10.2026 — клубный пилот D: одна сводка загрузки
+
+club.status и owner-readonly ProgramData/neexitlag/club-status.json (каждые 10с):
+activation/relay/native browser/game состояния без machine hash/ключей/кодов.
+Короткий authenticated TCP+UDP echo через существующий VPS-01 pool с nonce/HMAC,
+3с на протокол, начальный jitter 0–29с; успешный повтор раз в5мин, неудача30–59с.
+Baseline PASS означает только session/capture+реальный echo; страницы и матчи
+UNVERIFIED, native bidirectional отдельно, игры без трафика не выдают PASS.
+Get-ClubStatus.ps1 — одна локальная read-only команда; optional список PC читает
+только готовый public status по существующему admin-share, не включает SMB/WinRM,
+не просит пароль и не меняет firewall. Старый/недоступный файл явно STALE/UNAVAILABLE.
+Go nonce/TCP/UDP/status race и PS7 checks PASS; WPF cross-build PASS, 4 прежних warnings.
+Live network echo здесь только локальная фикстура; production VPS не вызывался.

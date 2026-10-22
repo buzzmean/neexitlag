@@ -22,3 +22,6 @@ try{
  $errorCode='';try{Assert-ClubBootTaskOwnership 'foreign'}catch{$errorCode=$_.Exception.Message};Check ($errorCode -eq 'CLUB_FOREIGN_BOOT_TASK_PRESERVED') 'foreign task replaced'
  Write-Output 'PASS clean image/private material/boot flag gates, no deletion, PS parser; SYSTEM task and real freeze NOT executed'
 }finally{Remove-Item -LiteralPath $temp -Recurse -Force}
+$token=$null;$errors=$null;[void][Management.Automation.Language.Parser]::ParseFile((Join-Path $repo 'tools/windows/Get-ClubStatus.ps1'),[ref]$token,[ref]$errors);Check ($errors.Count -eq 0) 'status parser'
+function global:Get-Service { param($Name) return $null }
+try{$message=& (Join-Path $repo 'tools/windows/Get-ClubStatus.ps1');Check ($message -eq 'VELIQ SERVICE_STOPPED_OR_ABSENT') 'stopped service shown READY'}finally{Remove-Item function:global:Get-Service}
