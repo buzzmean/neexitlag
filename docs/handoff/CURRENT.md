@@ -2128,3 +2128,12 @@ DoH+TLS/HTTP проверка IP, TTL/singleflight через существую
 Изолированная real TLS+GET регрессия .40 bad/.99 good: отдельный probe, затем
 два настоящих TLS/HTTP app соединения к .99, cache hit без повторной DNS,
 cert/SNI проверены; race count=3 PASS. VPS не выполнялся; ISP/Chrome runtime не проверен.
+
+## 22.10.2026 — browser startup, шаг 3
+
+Telegram/preflight запушен отдельным коммитом (см. git log).
+PowerShell startup helper: help/examples, точная & .\tools\windows\... команда;
+без Phase — BROWSER_STARTUP_USAGE до CIM/IPC, без интерактивного ввода.
+Bare name без пути не может быть перехвачен скриптом: shell не запускает файл;
+это прямо объяснено в BROWSER_HOT_ATTACH.md. Регрессия реально вызывает helper
+без параметров в изолированном каталоге. Никаких browser restart/policy changes.

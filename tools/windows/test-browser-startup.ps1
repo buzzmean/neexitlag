@@ -1,8 +1,25 @@
 ﻿#requires -Version 5.1
+<#
+.SYNOPSIS
+Проверка native hot attach без закрытия Chrome/Edge.
+.EXAMPLE
+& .\tools\windows\test-browser-startup.ps1 -Phase baseline
+.EXAMPLE
+& .\tools\windows\test-browser-startup.ps1 -Phase ready
+.NOTES
+Из корня репозитория используйте полный относительный путь и &. PowerShell не
+ищет ps1 в текущем каталоге/PATH автоматически; bare name не запускает скрипт.
+#>
 [CmdletBinding()]
-param([Parameter(Mandatory=$true)][ValidateSet('baseline','ready','disabled','exit','stopped')][string]$Phase,[ValidateRange(1,60)][int]$WaitSeconds=20)
+param([ValidateSet('baseline','ready','disabled','exit','stopped')][string]$Phase,[ValidateRange(1,60)][int]$WaitSeconds=20)
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
+if([string]::IsNullOrEmpty($Phase)){
+ throw 'BROWSER_STARTUP_USAGE: из корня репозитория выполните & .\tools\windows\test-browser-startup.ps1 -Phase baseline, затем -Phase ready после открытия новых вкладок. Chrome и Edge не закрывать. Это диагностика, не установка.'
+}
+if([string]::IsNullOrEmpty($PSScriptRoot)){
+ throw 'BROWSER_STARTUP_SCRIPT_PATH_REQUIRED: запустите файл из корня репозитория через & .\tools\windows\test-browser-startup.ps1 -Phase baseline; не вставляйте содержимое скрипта в консоль.'
+}
 . (Join-Path $PSScriptRoot 'browser-startup-evidence.ps1')
 $repo=(Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $file=Join-Path $repo 'bin\diagnostics\browser-before-veliq.json'
@@ -21,7 +38,7 @@ if($Phase -eq 'baseline'){
  Write-Output 'BASELINE_SAVED; Chrome/Edge stay open; launch VELIQ and open new tabs; no browser commands or policy reload.'
  return
 }
-if(!(Test-Path -LiteralPath $file)){throw 'BROWSER_BASELINE_MISSING: сначала выполните test-browser-startup.ps1 -Phase baseline при открытых Chrome и Edge; браузеры не закрывать.'}
+if(!(Test-Path -LiteralPath $file)){throw 'BROWSER_BASELINE_MISSING: сначала выполните & .\tools\windows\test-browser-startup.ps1 -Phase baseline при открытых Chrome и Edge; браузеры не закрывать.'}
 $before=Get-Content -Raw -LiteralPath $file|ConvertFrom-Json
 function Assert-BrowserStartupIdentity {
  foreach($browser in @($before.browsers)){
@@ -33,7 +50,7 @@ Assert-BrowserStartupIdentity
 if($Phase -ne 'ready'){
  $disableBaseline=Join-Path $repo 'bin\diagnostics\browser-disable-baseline.json'
  $confirmed=Get-BrowserEvidenceField $before 'native_ready_confirmed' $false
- if(!$confirmed -or !(Test-Path -LiteralPath $disableBaseline)){throw 'BROWSER_READY_NOT_CONFIRMED: фаза ready ещё не прошла; это не новый отказ выключения. Сначала откройте новые вкладки в работающих браузерах и выполните test-browser-startup.ps1 -Phase ready. См. browser.native.status и capture.diagnostics.'}
+ if(!$confirmed -or !(Test-Path -LiteralPath $disableBaseline)){throw 'BROWSER_READY_NOT_CONFIRMED: фаза ready ещё не прошла; это не новый отказ выключения. Сначала откройте новые вкладки в работающих браузерах и выполните & .\tools\windows\test-browser-startup.ps1 -Phase ready. См. browser.native.status и capture.diagnostics.'}
  & (Join-Path $PSScriptRoot 'check-browser-disable.ps1') -Stage $Phase
  return
 }

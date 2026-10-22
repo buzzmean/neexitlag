@@ -1,5 +1,15 @@
 # Браузеры без перезапуска: поэтапная проверка
 
+> Актуальная native проверка 22.10.2026: из корня клона в обычном PowerShell
+> `& .\tools\windows\test-browser-startup.ps1 -Phase baseline`, затем после
+> запуска VELIQ и открытия новых вкладок в тех же браузерах —
+> `& .\tools\windows\test-browser-startup.ps1 -Phase ready`.
+> Браузеры не закрывать. Имя `test-browser-startup.ps1` без пути PowerShell
+> не находит: до запуска скрипта это ошибка поиска команды, а не отказ native.
+> При пропущенной фазе сам скрипт теперь выводит BROWSER_STARTUP_USAGE без
+> интерактивного запроса. ECH/DNS маршруты и ограничения: BROWSER_OPAQUE_ROUTING.md.
+
+
 > Актуальное решение владельца 20.10.2026: выбран вариант A — тихий owned PAC без browser restart; см. [BROWSER_SILENT_POLICY.md](BROWSER_SILENT_POLICY.md). Независимый WFP/driver guard ниже — будущий вариант B. Исторические restart-инструкции не относятся к текущему UX.
 
 > 20.10.2026: владелец разрешил этап (в) и запретил пользовательские диалоги/

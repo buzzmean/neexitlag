@@ -37,6 +37,9 @@ $temp=Join-Path ([IO.Path]::GetTempPath()) ('veliq-startup-check-'+[guid]::NewGu
 try{
  $scripts=Join-Path $temp 'tools\windows';New-Item -ItemType Directory -Force $scripts|Out-Null
  foreach($n in @('test-browser-startup.ps1','browser-startup-evidence.ps1')){Copy-Item (Join-Path $repo ('tools\windows\'+$n)) (Join-Path $scripts $n)}
+ $reason='';try{& (Join-Path $scripts 'test-browser-startup.ps1')}catch{$reason=$_.Exception.Message}
+ Assert ($reason -like 'BROWSER_STARTUP_USAGE:*') ('missing phase must explain exact launch syntax: '+$reason)
+ Assert ($reason.Contains('& .\tools\windows\test-browser-startup.ps1')) 'missing full relative path and invocation operator'
  Set-Content (Join-Path $scripts 'check-browser-disable.ps1') "throw 'SHOULD_NOT_DELEGATE'" -Encoding UTF8
  $bin=Join-Path $temp 'bin\diagnostics';New-Item -ItemType Directory -Force $bin|Out-Null
  $born=[datetime]::SpecifyKind([datetime]'2026-10-22 00:00:00',[DateTimeKind]::Utc)
