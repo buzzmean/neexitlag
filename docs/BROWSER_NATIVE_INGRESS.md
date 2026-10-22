@@ -111,6 +111,12 @@ git pull --ff-only origin codex/work
 & .\tools\windows\build-desktop.ps1
 ```
 
+До обновления службы сохранить baseline уже открытых браузеров:
+
+```powershell
+& .\tools\windows\test-browser-startup.ps1 -Phase baseline
+```
+
 ```powershell
 & .\tools\windows\update-service.ps1
 ```
@@ -123,13 +129,7 @@ git pull --ff-only origin codex/work
 (Get-FileHash .\bin\windows-e2e\neexitlag-service.exe).Hash -eq (Get-FileHash "$env:ProgramData\neexitlag\neexitlag-service.exe").Hash
 ```
 
-True обязательно. Затем baseline при уже открытых Chrome/Edge:
-
-```powershell
-& .\tools\windows\test-browser-startup.ps1 -Phase baseline
-```
-
-Запустить установленный VELIQ (обычный owner, при UAC-off full-admin):
+True обязательно. Запустить установленный VELIQ (обычный owner, при UAC-off full-admin):
 
 ```powershell
 Start-Process "$env:LOCALAPPDATA\Programs\VELIQ\VELIQ.exe"
