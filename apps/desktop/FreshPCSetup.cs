@@ -33,34 +33,14 @@ public partial class MainWindow
             await model.RefreshAsync(lifetime.Token);
             if (!model.Available) throw new IOException("Служба недоступна");
             phase = "profiles";
-            var profiles = await model.PrepareFreshBrowserProfilesAsync(BrowserDiscovery.Installed(), lifetime.Token);
-            // Reuse owner-scoped recovery/listeners and quiet owned policy writes.
-            // No browser launch, nonce helper, process wait or restart.
-            // Edge commits its PAC without enabling Optimize. Chrome's legacy
-            // commit enables Optimize, so prepare Edge first to avoid racing an
-            // unprepared installed Edge lane during that transaction.
-            phase = "optimize";
+            var profiles = await model.PrepareAutomaticBrowserProfilesAsync(BrowserDiscovery.Installed(), lifetime.Token);
+            phase="optimize";
             await model.OptimizeAsync(true,lifetime.Token);
-            phase = "edge_pac"; browser = "edge";
-            foreach (var profile in profiles.Where(BrowserCatalog.IsEdge))
-                if (!await ActivateEdgeSites(profile)) throw new ChromeActivationException("Активация Edge отменена", "edge_pac", "BROWSER_ACTIVATION_CANCELLED");
-            phase = "chrome_pac"; browser = "chrome";
-            foreach (var row in model.Applications.Where(r => IsChrome(r.Profile) && profiles.Any(p => p.Id == r.Profile.Id)).ToArray())
-                if (!await ActivateChromeSites(row)) throw new ChromeActivationException("Активация Chrome отменена", "chrome_pac", "BROWSER_ACTIVATION_CANCELLED");
-            phase = "optimize";
-            // Fresh setup configures the owned PAC lanes first. Native adoption remains
-            // the ordinary GUI path AFTER both guards/proofs exist.
-            await model.OptimizeAsync(true, lifetime.Token);
-            await model.RefreshAsync(lifetime.Token);
-            if (!model.Optimizing) throw new ChromeActivationException("Оптимизация не включена", "optimize", "BROWSER_OPTIMIZE_FAILED");
-            phase = "verify_pac";
-            foreach (var profile in profiles)
-            {
-                browser = BrowserCatalog.IsEdge(profile) ? "edge" : "chrome";
-                await model.VerifyFreshBrowserAsync(profile.Id, BrowserCatalog.IsEdge(profile), lifetime.Token);
-                if (IsChrome(profile) && !(await model.ChromeStatusAsync(lifetime.Token)).PolicyReady)
-                    throw new ChromeActivationException("Owned Chrome policy absent", "verify_pac", "CHROME_POLICY_NOT_OWNED");
-            }
+            if(!model.Optimizing)throw new ChromeActivationException("Capture not enabled","optimize","BROWSER_OPTIMIZE_FAILED");
+            phase="native_prepare";
+            foreach(var profile in profiles)await model.EnableNativeBrowserAsync(profile,lifetime.Token);
+            phase="verify_native";
+            foreach(var profile in profiles)await model.VerifyNativeBrowserAsync(profile.Id,lifetime.Token);
             pass = true;
             phase = "ready"; code = "OK"; browser = "both";
         }
@@ -80,7 +60,7 @@ public partial class MainWindow
             var pending = report + "." + Guid.NewGuid().ToString("N") + ".pending";
             try {
                 await using (var file = new FileStream(pending, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-                    await JsonSerializer.SerializeAsync(file, new { pass, stage = phase, code, browser, states, error_class = errorClass, scope = "owned PAC configuration; browser uptake may be pending; not Internet page PASS" });
+                    await JsonSerializer.SerializeAsync(file, new { pass, stage = phase, code, browser, states, error_class = errorClass, scope = "native capture armed; no PAC or browser restart; not Internet page PASS" });
                 File.Move(pending, report);
             }
             finally { if (File.Exists(pending)) File.Delete(pending); timer.Start(); }

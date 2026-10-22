@@ -3,7 +3,7 @@ public partial class MainWindow {
  bool silentPolicyRefreshRequested;
  async Task EnsureSilentBrowserLanesAsync(){
   if(!model.BrowserPreparationAllowed)return;
-  foreach(var p in model.Applications.Select(a=>a.Profile.Copy()).Where(p=>model.NativeBrowserCandidate(p)).ToArray()){
+  foreach(var p in model.Applications.Select(a=>a.Profile.Copy()).Where(p=>model.NativeBrowserCandidate(p)&&!DesktopViewModel.NativeBrowser(p)).ToArray()){
    if(!model.BrowserPreparationAllowed)return;
    if(BrowserCatalog.IsEdge(p)){
     var status=await model.EdgeStatusAsync(lifetime.Token);

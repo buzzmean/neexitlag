@@ -342,7 +342,7 @@ func (c *Controller) Classify(identity windowsplatform.ProcessIdentity, t window
 	}
 	// Owner-authorized availability contract: no opaque native browser capture
 	// while its PAC lane is suspended. Desktop apps and games retain their policy.
-	if c.browser.readiness.enforced.Load() && profile.Mode == profiles.Auto && (chromeProfile(profile) || edgeProfile(profile)) {
+	if c.browser.readiness.enforced.Load() && profile.Mode == profiles.Auto && !nativeBrowserProfile(profile) && (chromeProfile(profile) || edgeProfile(profile)) {
 		lane := 0
 		if edgeProfile(profile) {
 			lane = 1
@@ -392,14 +392,11 @@ func (c *Controller) Classify(identity windowsplatform.ProcessIdentity, t window
 		automatic := c.settings.Automatic
 		c.mu.Unlock()
 		if !automatic {
-			if nativeBrowserProfile(profile) {
-				decision.Block = true
-				decision.BlockOnFailure = true
-				decision.NewConnectionsOnly = true
-				decision.Policy = flowpolicy.Result{Action: flowpolicy.Block, Fallback: flowpolicy.Required, Source: "native_automatic_disabled", Reason: "native browser AUTO disabled; no DIRECT authorization"}
-			}
+			decision.Flow.PinnedPolicy = &routing.Policy{}
+			decision.Policy = flowpolicy.Result{Action: flowpolicy.Direct, Source: "optimization_disabled", Reason: "automatic optimization disabled"}
 			return decision
 		}
+
 		if automaticRelayAllowed(profile) {
 			primary := c.Selector.Select(time.Now()).Primary
 			if primary != optimizer.Direct {

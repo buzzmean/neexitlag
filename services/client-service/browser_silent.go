@@ -291,6 +291,24 @@ func (c *Controller) RetrySilentBrowserPolicies() {
 		if !configured {
 			continue
 		}
+		// Native is the default. Do not re-install policy from an old journal;
+		// cached PAC still has live compatibility listeners during withdrawal.
+		nativeOnly := true
+		ids := c.browser.silent.Profiles
+		if edge {
+			ids = c.edgeLocked().saved.Silent.Profiles
+		}
+		for _, id := range ids {
+			for _, p := range c.Profiles.List() {
+				if p.ID == id && !nativeBrowserProfile(p) {
+					nativeOnly = false
+				}
+			}
+		}
+		if nativeOnly {
+			_ = c.cleanupOwnedBrowserPoliciesLocked(&edge)
+			continue
+		}
 		if err := c.browserPolicyPublishReadyLocked(edge); err != nil {
 			continue
 		}

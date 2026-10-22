@@ -1995,3 +1995,7 @@ Global Optimize/Automatic off явно отделён от profile DIRECT/pendin
 ### Браузеры fresh A: AUTO без PAC-круга
 
 Новые Chrome/Edge startup profiles — native AUTO; старый default DIRECT/pending мигрирует без замены ID/path; явный opt-out сохраняется. Discovery читает App Paths/StartMenuInternet и стандартные пути, Opera GX отдельно; дополнительные браузеры обнаруживаются, runtime support не заявлен. Native profile admission зависит от owner/capture, а не PAC presence. C#182/182 PASS, focused service race PASS; WPF проверяется перед commit. Нативный Windows/Chrome157/ISP не выполнялся. Следующий пункт B — снять PAC-зависимость из orchestration/classifier и проверить native TCP ingress. VPS/PR8 не тронуты.
+
+### Браузеры B: native не ждёт PAC
+
+A ba38329; classifier native AUTO исключён из browser_policy_suspended bypass, automatic OFF остаётся DIRECT. GUI native prepare не ждёт PolicyReady и не вызывает новый PAC для native; fresh/repair проверяют native, legacy compatibility сохранена. Старые native journals не переустанавливают policy, owned cleanup сохраняет foreign. SNI protected/opaque ECH/UDP443 fail-closed, DNS53 DIRECT; IPv6 guard остаётся без заявления поддержки. Service/platform race PASS, C#182/182 PASS, WPF0errors/4 старых CS8604. Chrome157/WinDivert/ISP здесь не выполнялись; подробности BROWSER_AUTOMATIC_START.md. Далее C — готовность и сроки native.

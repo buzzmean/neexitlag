@@ -36,3 +36,34 @@ WinDivert освобождает handles. Сохранён прежний раз
 contract; новый WFP/driver guard здесь не добавляется. Во время активного capture
 неоднозначный TLS/ECH не получает DIRECT-авторизацию. Нельзя заявлять безусловный
 protected no-leak при смерти всего процесса без независимого guard.
+
+## B. Основной путь без PAC
+
+GUI не ждёт PolicyReady для native и не вызывает silent PAC prepare для native
+профилей. Fresh/repair используют тот же native prepare и проверяют capture,
+а не наличие ProxySettings. Classifier больше не заменяет native AUTO на DIRECT
+из-за неготового PAC. Legacy PAC путь проверяется по-прежнему. При восстановлении
+старого журнала native-профили не вызывают новую запись политики; owned policy
+снимается, cached PAC обслуживается совместимым listener до прекращения запросов.
+Чужая policy не удаляется.
+
+Новый IPv4 TCP выбранного браузера сначала принимается WinDivert deferred
+backend, затем bounded исходный ClientHello/HTTP Host определяет маршрут.
+Известные заблокированные группы идут relay-first; обычный видимый домен —
+DIRECT-first с существующим bounded recovery. ECH outer name не считается
+доменом назначения: исходные TLS bytes идут в authenticated relay к исходному IP,
+без DIRECT fallback. Никакой расшифровки, подмены сертификатов или ECH stripping.
+
+Opaque UDP/443 идёт authenticated RELAY_REQUIRED; DNS/53 остаётся DIRECT.
+При отказе QUIC возможен штатный TCP fallback браузера, его время не обещается.
+IPv6 native транспорт не реализован: существующий app-scoped IPv6 guard блокирует
+неподдерживаемый flow; IPv4 попытка браузера обслуживается. Нельзя заявлять IPv6
+support. DoH, coalescing и ECH могут сделать домен непрозрачным: тогда relay-only,
+не эвристическая DIRECT-авторизация по IP. Это может повысить нагрузку VPS.
+Лимит googlevideo8, очередь2с и byte/tunnel accounting сохраняются.
+
+Chrome157 live policy uptake не подтверждён и НЕ является условием native пути.
+Доказательство native-only — реальные записи NATIVE_TCP, owner PID/birth и
+bidirectional bytes отдельно от PAC_CONNECT/PAC_NATIVE_UPSTREAM; сами bytes не
+доказывают HTTP/TLS/page success. Старые TCP не сбрасываются и не мигрируют;
+новая вкладка может переиспользовать старый HTTP/2 connection до его закрытия.

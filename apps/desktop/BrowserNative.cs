@@ -4,7 +4,6 @@ public partial class MainWindow
 {
     bool nativeBrowsersActivating;
     readonly Dictionary<string, DateTimeOffset> nativeBrowserRetry = [];
-    readonly HashSet<string> nativeBrowserPolicyRefreshed = [];
     async Task PrepareNativeBrowsersAsync(bool forOptimize = false)
     {
         if (chromeActivating || edgeActivating || nativeBrowsersActivating || !model.Available || model.Busy || model.Snapshot?.Settings.Automatic!=true || (!forOptimize && !model.Optimizing)) return;
@@ -15,10 +14,7 @@ public partial class MainWindow
             {
                 // Idempotent enable repairs an owned Edge guard/listener after service restart.
                 if (!forOptimize && nativeBrowserRetry.TryGetValue(p.Id, out var at) && at > DateTimeOffset.UtcNow) continue;
-                // Pending CONNECT self-checks are an honest readiness state, not
-                // an error to show repeatedly or a reason to arm native early.
-                bool policyReady=BrowserCatalog.IsEdge(p)?(await model.EdgeStatusAsync(lifetime.Token)).PolicyReady:(await model.ChromeStatusAsync(lifetime.Token)).PolicyReady;
-                if(!policyReady)continue;
+                // Native ingress never waits for browser policy or PAC uptake.
                 nativeBrowserRetry[p.Id] = DateTimeOffset.UtcNow.AddSeconds(30);
                 var phase="browser.native.enable";
                 try {
@@ -31,20 +27,13 @@ public partial class MainWindow
                         if (File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NeExitLag", "edge-recovery.json")))
                             await edgeRecovery.StartAsync(lifetime.Token);
                     } else if (ChromePolicy.Monitored || File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NeExitLag", "chrome-recovery.json"))) await chromeRecovery.StartAsync(lifetime.Token);
-                    phase="browser.native.policy-refresh";
-                    if (nativeBrowserPolicyRefreshed.Add(p.Id))
-                    {
-                        var refresh = BrowserNativePolicy.RequestRefresh();
-                        var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NeExitLag");
-                        Directory.CreateDirectory(folder);
-                        await File.WriteAllTextAsync(Path.Combine(folder, "browser-native-policy-refresh.txt"), refresh, lifetime.Token);
-                    }
+
                 }
                 catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { throw; }
                 catch (Exception error)
                 {
                     model.RecordGuiFailure(error, phase);
-                    model.SetNotice(phase+": "+DesktopViewModel.NativeBrowserErrorCode(error)+". Подготовка не завершена; фактический режим — в диагностике. Нужны обновлённая служба, WinDivert и существующий owned PAC crash-guard. Fresh без guard не активируется; старые кнопки PAC доступны. Профили и окна сохранены.");
+                    model.ReportBrowserPreparationFailure(error,phase);
                 }
             }
             await model.ObserveAuxiliaryAsync(() => model.ObserveNativeBrowsersAsync(lifetime.Token), "browser.native.status", lifetime.Token);

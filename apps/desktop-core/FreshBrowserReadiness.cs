@@ -32,6 +32,20 @@ public sealed partial class DesktopViewModel
         return result.ToArray();
     }
 
+    public async Task<Profile[]> PrepareAutomaticBrowserProfilesAsync(IReadOnlyList<InstalledBrowser> installed,CancellationToken ct=default) {
+        await EnsureStartupBrowserProfilesAsync(installed,ct);
+        var profiles=await client.Call<Profile[]>("profiles",cancellationToken:ct);
+        var result=profiles.Where(p=>NativeBrowser(p)&&p.Mode=="AUTO").ToArray();
+        if(installed.Any(b=>b.AutoSupported)&&result.Length==0)throw new ChromeActivationException("Browser profiles not prepared","profiles","BROWSER_AUTO_NOT_COMMITTED");
+        return result;
+    }
+    public async Task VerifyNativeBrowserAsync(string id,CancellationToken ct=default) {
+        var profiles=await client.Call<Profile[]>("profiles",cancellationToken:ct);
+        var status=await client.Call<NativeBrowserStatus>("browser.native.status",cancellationToken:ct);
+        if(!profiles.Any(p=>p.Id==id&&p.Mode=="AUTO"&&NativeBrowser(p))||!status.CaptureReady||!status.Optimizing)
+            throw new ChromeActivationException("Native path not armed","verify_native","NATIVE_CAPTURE_NOT_READY");
+    }
+
     public async Task VerifyFreshBrowserAsync(string id, bool edge, CancellationToken ct = default)
     {
         var profiles = await client.Call<Profile[]>("profiles", cancellationToken: ct);

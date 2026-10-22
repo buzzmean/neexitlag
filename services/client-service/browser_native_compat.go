@@ -28,7 +28,10 @@ func (c *Controller) nativeBrowserCompatibility(p profiles.Profile, requested bo
 			return nil, nil
 		}
 		if !e.policyActive(c.BrowserOwnerSID) && !e.guardActive(c.BrowserOwnerSID) {
-			return nil, errors.New("EDGE_POLICY_OWNERSHIP_CHANGED")
+			if err := c.ensureBrowserListenerLocked(true); err != nil {
+				return nil, err
+			}
+			return &nativeBrowserCompatibility{Address: e.saved.Address, Verification: "CACHED_PAC_COMPATIBILITY_ONLY; native does not require policy"}, nil
 		}
 		if err := c.listenEdge(e); err != nil {
 			return nil, errors.New("EDGE_LISTENER_BIND_FAILED")
@@ -60,7 +63,10 @@ func (c *Controller) nativeBrowserCompatibility(p profiles.Profile, requested bo
 	// Chrome's owner-user journal/recovery remains unchanged. Replacing its PAC
 	// here would invalidate that journal and could disable the independent guard.
 	if !wp.ChromeProxyPolicyActive(c.BrowserOwnerSID, c.browser.expectedPAC) {
-		return nil, errors.New("NATIVE_OWNED_PAC_GUARD_REQUIRED")
+		if err := c.ensureBrowserListenerLocked(false); err != nil {
+			return nil, err
+		}
+		return &nativeBrowserCompatibility{Address: c.browser.address, Verification: "CACHED_PAC_COMPATIBILITY_ONLY; native does not require policy"}, nil
 	}
 	if c.browser.server == nil {
 		server, err := browserproxy.Listen(c.ctx, browserproxy.Config{TransportCheck: c.transportCheckSettings, RequireClientHelloReplay: true, Address: c.browser.address, Authorize: c.browserOwner, AuthorizeForwarded: c.browserRecoveryOwner, Plan: c.browserPlan, Open: c.browserOpen, OpenPlan: c.browserOpenPlan, TransformApplied: c.browserTransform, OnStall: c.browserStall, OnDirectAnswered: c.browserDirectAnswered})
