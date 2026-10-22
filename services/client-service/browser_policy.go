@@ -77,10 +77,16 @@ func (c *Controller) browserFlow(p profiles.Profile, id wp.ProcessIdentity, t wp
 	if nativeBrowserProfile(p) && t.Protocol == "udp" && t.Destination.Port() == 443 {
 		return flowpolicy.Result{Action: flowpolicy.Block, Fallback: flowpolicy.FailBlock, Source: "browser_native_quic_tcp_fallback", Reason: "selected native browser HTTP/3 requires TCP origin routing; no UDP DIRECT bypass"}
 	}
-	// Opaque is never classified from a DNS/IP guess or a request on another
-	// connection. Safe transport pending richer origin evidence is authenticated
-	// relay. Native QUIC is rejected above; IPv6 remains guarded as unsupported.
+	// Native opaque default follows the owner availability contract. The deferred
+	// opener may restrict it from TTL-bound DNS/outer metadata before any payload.
+	// Legacy PAC retains its original strict opaque policy.
 	if domain == "" {
+		if nativeBrowserProfile(p) {
+			if r, ok := flowpolicy.Evaluate(p.Rules, flowpolicy.Input{Protocol: t.Protocol, Destination: t.Destination, Network: network}); ok {
+				return r
+			}
+			return flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailOpen, Source: "browser_opaque_direct_default", Reason: "unknown native browser origin: owner-selected DIRECT default; hidden protected domains cannot be guaranteed"}
+		}
 		return required("domain unavailable: opaque browser transport; no DIRECT authorization")
 	}
 	if protectedBrowserDomain(domain) {

@@ -25,6 +25,7 @@ import (
 )
 
 type browserRuntime struct {
+	domains   browserDomainIndex
 	readiness browserPolicyReadiness
 
 	silent          browserSilentState

@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestFreshNativeDoesNotWaitForPACAndNeverAuthorizesOpaqueDirect(t *testing.T) {
+func TestFreshNativeDoesNotWaitForPACAndUsesOwnerOpaqueDirectDefault(t *testing.T) {
 	for _, edge := range []bool{false, true} {
 		c, p, _ := nativeEdgeFixture(t)
 		if !edge {
@@ -32,8 +32,8 @@ func TestFreshNativeDoesNotWaitForPACAndNeverAuthorizesOpaqueDirect(t *testing.T
 			}
 		}
 		opaque := wp.ResolveDeferredDecision(initial, "cloudflare-ech.com", "ECH_OUTER_SNI_ONLY")
-		if opaque.Policy.Action != flowpolicy.RelayRequired || !opaque.BlockOnFailure || opaque.Route.Direct() {
-			t.Fatal("ECH leaked", opaque)
+		if opaque.Policy.Action != flowpolicy.Direct || opaque.BlockOnFailure || !opaque.Route.Direct() {
+			t.Fatal("unidentified ordinary ECH forced through VPS", opaque)
 		}
 		ordinary := wp.ResolveDeferredDecision(initial, "ordinary.example", "TLS_SNI")
 		if !ordinary.Route.Direct() || ordinary.Block {

@@ -43,7 +43,8 @@ type Decision struct {
 	NewConnectionsOnly bool
 	OpenDeferred       func(context.Context, Decision, string) (net.Conn, Decision, error)
 	// OriginDomain comes from validated CONNECT or this flow's unambiguous
-	// ClientHello SNI/HTTP Host. ECH outer names never authorize DIRECT.
+	// ClientHello SNI/HTTP Host; native DNS hints are separately labelled in diagnostics.
+	OuterSNI        string // ECH outer metadata; never authenticated inner origin.
 	OriginDomain    string
 	Revision        string
 	Policy          flowpolicy.Result

@@ -287,7 +287,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-22.3 (game UDP ladder/first-flight/reply evidence; native exchange required)'
+$ScriptVersion='2026-10-22.4 (opaque routing provenance, DNS TTL hints, native exchange required)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -582,6 +582,7 @@ function Write-BrowserFirstByteEvidence($snapshot,[string]$lane) {
 }
 
 function Write-NativeIngressEvidence($native) {
+ $dc=Prop $native 'domain_cache';if($dc){Say ('native DNS cache: checked='+(Prop $dc 'checked_at')+' error='+(Prop $dc 'last_error')+' addresses='+(Prop $dc 'addresses')+' source='+(Prop $dc 'source')+' unknown_policy='+(Prop $dc 'unknown_policy'))}
  Write-TlsWireEvidence $native 'native.actual_upstream'
  $ingress=Prop $native 'capture_ingress'
  if($null -eq $ingress){Say 'capture ingress: UNINSTRUMENTED (update service required)'}else{
@@ -604,7 +605,7 @@ function Write-NativeIngressEvidence($native) {
    Say ('ingress '+$path+': profile='+(Prop $browserProfile 'profile_id')+' accepted='+(Prop $m 'accepted' 0)+' opened='+(Prop $m 'opened' 0)+' failed='+(Prop $m 'failed' 0)+' exchanges='+(Prop $m 'bidirectional_exchanges' 0)+' active='+(Prop $m 'active' 0)+' tx='+(Prop $m 'sent_bytes' 0)+' rx='+(Prop $m 'received_bytes' 0)+' first_open='+(Prop $m 'first_opened_at' 'NOT_OBSERVED')+' first_exchange='+(Prop $m 'first_exchange_at' 'NOT_OBSERVED')+' enable_to_first_open_ms='+(Prop $m 'enable_to_first_open_ms' -1)+' enable_to_first_exchange_ms='+(Prop $m 'enable_to_first_exchange_ms' -1))
   }
  }
- Say 'PAC_NATIVE_UPSTREAM is not native-only. Native new TCP does not require policy refresh. Opaque TLS is relay-only; native UDP443 is rejected to TCP; process capture is not an independent kernel crash guard. No policy changed by diagnostics.'
+ Say 'PAC_NATIVE_UPSTREAM is not native-only. Native new TCP does not require policy refresh. Opaque TLS defaults DIRECT under owner policy; observed protected associations remain relay-only; native UDP443 is rejected to TCP; process capture is not an independent kernel crash guard. No policy changed by diagnostics.'
 }
 function Write-NativeFirewallEvidence($firewall) {
  $state=Prop $firewall 'state' 'UNKNOWN'
@@ -691,6 +692,7 @@ Step 'native_browser' {
   }catch{Say ($lane+' path metrics unavailable: '+(Scrub $_.Exception.Message))}
  }
  foreach($r in @(Prop $native 'records' @())|Select-Object -First 32){
+  $de=Prop $r 'domain_evidence';if($de){Say ('native domain evidence: source='+(Prop $de 'source')+' confidence='+(Prop $de 'confidence')+' outer='+(Prop $de 'outer_sni')+' candidates='+(@(Prop $de 'candidates' @()) -join ',')+' ambiguous='+(Prop $de 'ambiguous')+' restricted='+(Prop $de 'restricted'))}
   $owner=Prop $r 'owner';$policy=Prop $r 'policy'
   Say ("native ingress="+(Prop $r 'ingress' 'UNINSTRUMENTED')+" #"+(Prop $r 'id')+" pid="+(Prop $owner 'pid')+" birth="+(Prop $owner 'creation_time')+" domain="+(Prop $r 'domain')+" destination="+(Prop $r 'destination')+" route="+(Prop $policy 'action')+" relay="+(Prop $policy 'relay_id')+" source="+(Prop $policy 'source')+" result="+(Prop $r 'result')+" failure="+(Prop $r 'failure_reason')+" tx="+(Prop $r 'sent_bytes')+" rx="+(Prop $r 'received_bytes'))
  }
@@ -700,7 +702,7 @@ Step 'native_browser' {
  foreach($o in @(Prop $usage 'active_origins' @())){Say ("relay active: "+(Json $o))}
  $refresh=Join-Path $env:LOCALAPPDATA 'NeExitLag\browser-native-policy-refresh.txt'
  if(Test-Path $refresh){Say ('Historical refresh request (not live evidence): '+(Get-Content $refresh -TotalCount 1))}
- Say 'Native mode does not require PAC. Registry/refresh/tunnel bytes are NOT live-policy/site PASS. Existing HTTP/2 may be reused on reload; no connection egress migration. Opaque ECH uses RELAY only; native QUIC is rejected to TCP; domain cannot be inferred.'
+ Say 'Native mode does not require PAC. Registry/refresh/tunnel bytes are NOT live-policy/site PASS. Existing HTTP/2 may be reused on reload; no connection egress migration. Opaque ECH without protected evidence defaults DIRECT; encrypted inner domain is NOT guaranteed; native QUIC is rejected to TCP; domain cannot be inferred.'
 }
 Section 'Existing browser processes and startup profile registration (no browser restart)'
 Step 'startup_profiles' {

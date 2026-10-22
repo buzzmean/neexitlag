@@ -134,7 +134,7 @@ func TestNativeSNIHostOpaqueDNSIPv6AndLegacyIsolation(t *testing.T) {
 		want         flowpolicy.Action
 	}{
 		{"ordinary.example", "TLS_SNI", flowpolicy.Direct}, {"chatgpt.com", "TLS_SNI", flowpolicy.RelayRequired},
-		{"www.google.com", "ECH_OUTER_SNI_ONLY", flowpolicy.RelayRequired}, {"", "CLIENTHELLO_INCOMPLETE", flowpolicy.RelayRequired},
+		{"www.google.com", "ECH_OUTER_SNI_ONLY", flowpolicy.Direct}, {"", "CLIENTHELLO_INCOMPLETE", flowpolicy.Direct},
 		{"ordinary.example", "HTTP_HOST", flowpolicy.Direct},
 	} {
 		d := wp.ResolveDeferredDecision(initial, tt.host, tt.reason)

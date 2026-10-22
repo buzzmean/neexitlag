@@ -222,6 +222,8 @@ func (c *Controller) syncPolicies() {
 }
 func (c *Controller) Start() {
 	c.wg.Add(1)
+	go func() { defer c.wg.Done(); c.watchBrowserDomainCache() }()
+	c.wg.Add(1)
 	go func() { defer c.wg.Done(); c.watchGames() }()
 	c.wg.Add(1)
 	go func() { defer c.wg.Done(); c.maintainSilentBrowserPolicies() }()

@@ -1,0 +1,181 @@
+package clientservice
+
+import (
+	"context"
+	"net/netip"
+	"sort"
+	"sync"
+	"time"
+
+	"github.com/buzzmean/neexitlag/core/browserproxy"
+	"github.com/buzzmean/neexitlag/core/flowpolicy"
+	"github.com/buzzmean/neexitlag/core/profiles"
+	wp "github.com/buzzmean/neexitlag/platform/windows"
+)
+
+type browserDomainEvidence struct {
+	Source     string   `json:"source"`
+	Domain     string   `json:"domain,omitempty"`
+	Outer      string   `json:"outer_sni,omitempty"`
+	Candidates []string `json:"candidates"`
+	Restricted bool     `json:"restricted"`
+	Ambiguous  bool     `json:"ambiguous"`
+	// DNS/outer metadata is a routing hint, never authenticated inner SNI.
+	Confidence string `json:"confidence"`
+}
+type browserDNSObservation struct {
+	name    string
+	expires time.Time
+}
+type browserDomainIndex struct {
+	mu        sync.Mutex
+	network   string
+	checked   time.Time
+	errorCode string
+	entries   map[netip.Addr][]browserDNSObservation
+	failed    map[string]time.Time
+}
+
+func (x *browserDomainIndex) replace(network string, rows []wp.DNSCacheEntry, err error, now time.Time) {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	x.network = network
+	x.checked = now
+	x.entries = map[netip.Addr][]browserDNSObservation{}
+	x.errorCode = ""
+	if err != nil {
+		x.errorCode = "DNS_CACHE_UNAVAILABLE"
+		return
+	}
+	for i, r := range rows {
+		if i >= 256 {
+			break
+		}
+		ip, e := netip.ParseAddr(r.Address)
+		if e != nil || !browserproxy.ValidPublicDNSName(r.Name) || r.TTL == 0 {
+			continue
+		}
+		ttl := time.Duration(r.TTL) * time.Second
+		if ttl > 5*time.Minute {
+			ttl = 5 * time.Minute
+		}
+		x.entries[ip.Unmap()] = append(x.entries[ip.Unmap()], browserDNSObservation{r.Name, now.Add(ttl)})
+	}
+}
+func restrictiveBrowserDomain(host string) bool {
+	return protectedBrowserDomain(host) || flowpolicy.KnownBrowserRelayGroup(host) != "" || youtubeRelayDomain(host)
+}
+func (x *browserDomainIndex) evidence(network string, destination netip.Addr, outer string, now time.Time) browserDomainEvidence {
+	out := browserDomainEvidence{Source: "OPAQUE_UNKNOWN_DIRECT_DEFAULT", Confidence: "UNKNOWN; ECH inner name not observed", Outer: outer, Candidates: []string{}}
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	seen := map[string]bool{}
+	if network != "" && network == x.network {
+		for _, r := range x.entries[destination.Unmap()] {
+			if now.Before(r.expires) {
+				seen[r.name] = true
+			}
+		}
+	}
+	for name := range seen {
+		out.Candidates = append(out.Candidates, name)
+	}
+	sort.Strings(out.Candidates)
+	out.Ambiguous = len(out.Candidates) > 1
+	// A protected association can restrict a shared IP but can never authorize
+	// DIRECT for it. Never claim that an ambiguous shared IP identifies a site.
+	for _, host := range out.Candidates {
+		if restrictiveBrowserDomain(host) {
+			out.Restricted = true
+		}
+	}
+	if len(out.Candidates) == 1 {
+		out.Domain = out.Candidates[0]
+		out.Source = "SYSTEM_DNS_CACHE_TTL_HINT"
+		out.Confidence = "OS cache hint; browser/inner ECH not proven"
+	}
+	if out.Ambiguous {
+		out.Source = "SYSTEM_DNS_CACHE_AMBIGUOUS"
+	}
+	// A visible protected outer name may only make policy MORE restrictive.
+	// In GREASE flows this also restores TLS-first-flight IP health/recovery.
+	if browserproxy.ValidPublicDNSName(outer) && restrictiveBrowserDomain(outer) {
+		out.Restricted = true
+		if !out.Ambiguous && (out.Domain == "" || out.Domain == outer) {
+			out.Domain = outer
+			out.Source = "ECH_PROTECTED_OUTER_HINT"
+			out.Confidence = "outer SNI only; inner ECH not proven"
+		}
+	}
+	if len(out.Candidates) > 8 {
+		out.Candidates = out.Candidates[:8]
+	}
+	return out
+}
+func opaqueFailureKey(network, profile string, dst netip.AddrPort) string {
+	return network + "|" + profile + "|" + dst.String()
+}
+func (x *browserDomainIndex) failedDirect(network, profile string, dst netip.AddrPort, now time.Time) {
+	if network == "" {
+		return
+	}
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	if x.failed == nil {
+		x.failed = map[string]time.Time{}
+	}
+	for key, until := range x.failed {
+		if !now.Before(until) {
+			delete(x.failed, key)
+		}
+	}
+	if len(x.failed) >= 256 {
+		return
+	}
+	x.failed[opaqueFailureKey(network, profile, dst)] = now.Add(2 * time.Minute)
+}
+func (x *browserDomainIndex) directFailed(network, profile string, dst netip.AddrPort, now time.Time) bool {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	until := x.failed[opaqueFailureKey(network, profile, dst)]
+	return network != "" && now.Before(until)
+}
+func (x *browserDomainIndex) snapshot() map[string]any {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	return map[string]any{"source": "WINDOWS_SYSTEM_DNS_CACHE; not browser-private DoH", "checked_at": x.checked, "last_error": x.errorCode, "addresses": len(x.entries), "maximum_rows": 256, "maximum_ttl_seconds": 300, "refresh_seconds": 10, "unknown_policy": "DIRECT_DEFAULT; hidden protected domain cannot be guaranteed"}
+}
+func (c *Controller) watchBrowserDomainCache() {
+	for {
+		network := ""
+		if n := c.network.Load(); n != nil && n.Error == "" && time.Since(n.ObservedAt) <= 45*time.Second {
+			network = n.Fingerprint
+		}
+		ctx, cancel := context.WithTimeout(c.ctx, 3*time.Second)
+		rows, err := wp.ReadDNSCache(ctx)
+		cancel()
+		c.browser.domains.replace(network, rows, err, time.Now())
+		timer := time.NewTimer(10 * time.Second)
+		select {
+		case <-c.ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
+}
+func (c *Controller) nativeOpaquePlan(p profiles.Profile, t wp.Tuple, network string, e browserDomainEvidence) browserproxy.Plan {
+	policy := c.browserFlow(p, wp.ProcessIdentity{}, t, e.Domain, network)
+	// Per-IP/explicit rules retain priority, even without a hostname.
+	if r, ok := flowpolicy.Evaluate(p.Rules, flowpolicy.Input{Protocol: t.Protocol, Destination: t.Destination, Domain: e.Domain, Network: network}); ok {
+		policy = r
+	}
+	if policy.Source != "rule" && (e.Restricted || c.browser.domains.directFailed(network, p.ID, t.Destination, time.Now())) {
+		relay := p.RelayID
+		if relay == "" {
+			relay = "VPS-01"
+		}
+		policy = flowpolicy.Result{Action: flowpolicy.RelayRequired, RelayID: relay, Fallback: flowpolicy.Required, Source: "browser_opaque_evidence", Reason: "protected DNS/outer association or observed DIRECT failure; authenticated relay only"}
+	}
+	return browserproxy.Plan{Enabled: true, Network: network, Destination: t.Destination, Policy: policy, Probe: e.Source}
+}

@@ -41,7 +41,9 @@ func ReadDeferredHello(c net.Conn) ([]byte, string, string) {
 }
 
 func ResolveDeferredDecision(initial Decision, domain, reason string) Decision {
+	outer := ""
 	if reason == "ECH_OUTER_SNI_ONLY" {
+		outer = domain
 		domain = ""
 	}
 	if initial.ResolveDomain == nil {
@@ -53,6 +55,7 @@ func ResolveDeferredDecision(initial Decision, domain, reason string) Decision {
 		return initial
 	}
 	d := initial.ResolveDomain(domain)
+	d.OuterSNI = outer
 	d.Deferred = false
 	d.ResolveDomain = nil
 	// Missing SNI is not a failed relay open. Chrome sends an ECH extension

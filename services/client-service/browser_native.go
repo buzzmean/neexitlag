@@ -55,6 +55,7 @@ type nativeBrowserProfileStatus struct {
 	FirstExchangeMS int64                `json:"enable_to_first_exchange_ms"`
 }
 type nativeBrowserRecord struct {
+	DomainEvidence *browserDomainEvidence     `json:"domain_evidence,omitempty"`
 	Origin         *browserproxy.OriginReport `json:"origin_attempts,omitempty"`
 	originReporter browserproxy.OriginReporter
 	TLS            *browserproxy.TLSWireEvidence `json:"tls_wire,omitempty"`
@@ -75,6 +76,7 @@ type nativeBrowserRecord struct {
 	Active         bool               `json:"active"`
 }
 type nativeBrowserSnapshot struct {
+	DomainCache        map[string]any               `json:"domain_cache"`
 	CaptureIngress     *wp.CaptureIngressSnapshot   `json:"capture_ingress,omitempty"`
 	State              string                       `json:"state"`
 	Reason             string                       `json:"reason"`
@@ -161,6 +163,7 @@ func (c *Controller) nativeSnapshot() nativeBrowserSnapshot {
 		s.CaptureIngress = &v
 	}
 	s.RelayUsage = c.relayUsage().snapshot()
+	s.DomainCache = c.browser.domains.snapshot()
 	n := &c.browser.native
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -498,7 +501,7 @@ func (n *nativeBrowserRuntime) closed(id uint64) {
 func (c *Controller) openNativeBrowser(ctx context.Context, p profiles.Profile, id wp.ProcessIdentity, t wp.Tuple, d wp.Decision, reason string) (net.Conn, wp.Decision, error) {
 	d.BlockOnFailure = true // Owner/policy errors must not reach the legacy DIRECT fallback.
 	// ResolveDomain was evaluated from this flow's actual ClientHello/Host.
-	// Never use the visible ECH outer name or a DNS/IP association as authorization.
+	// ECH outer/DNS metadata remains explicitly a hint, not an inner SNI claim.
 	if reason == "ECH_OUTER_SNI_ONLY" {
 		d.OriginDomain = ""
 	}
@@ -522,10 +525,32 @@ func (c *Controller) openNativeBrowser(ctx context.Context, p profiles.Profile, 
 	if err != nil {
 		return nil, d, err
 	}
-	plan := browserproxy.Plan{Enabled: true, Network: current.network, Destination: t.Destination, Policy: d.Policy, Probe: "OPAQUE_AUTHENTICATED_RELAY_ONLY"}
-	if q.Host != "" {
+	opaque := q.Host == ""
+	evidence := browserDomainEvidence{Source: "CLIENTHELLO_SNI_OR_HTTP_HOST", Domain: q.Host, Confidence: "observed on this connection", Candidates: []string{}}
+	plan := browserproxy.Plan{Enabled: true, Network: current.network, Destination: t.Destination, Policy: d.Policy}
+	if opaque {
+		evidence = c.browser.domains.evidence(current.network, t.Destination.Addr(), d.OuterSNI, time.Now())
+		q.Host = evidence.Domain
+		plan = c.nativeOpaquePlan(current.profile, t, current.network, evidence)
+		if steered, ok := c.steerTimedOutOrigin(plan, current, q, time.Now()); ok && q.Host != "" {
+			plan = steered
+		}
+		// Metadata may select a stricter relay route; it never enables DIRECT+ on
+		// hidden SNI and never replaces an ordinary destination from a DNS hint.
+		if plan.Policy.Action == flowpolicy.DirectPlus {
+			plan.Policy = flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailOpen, Source: "browser_opaque_direct_default", Reason: "hidden SNI cannot authorize a local transform"}
+		}
+	} else {
 		plan, err = c.browserPlan(ctx, q)
 	}
+	n.mu.Lock()
+	r := n.records[record]
+	r.DomainEvidence = &evidence
+	if q.Host != "" {
+		r.Domain = q.Host
+	}
+	n.records[record] = r
+	n.mu.Unlock()
 	if err == nil && plan.Policy.Action == flowpolicy.DirectPlus {
 		// Keep delegation/evidence bound to the original native tuple. No DNS/IP
 		// change may splice a configured local transform into a different flow.
@@ -533,10 +558,9 @@ func (c *Controller) openNativeBrowser(ctx context.Context, p profiles.Profile, 
 	}
 	var conn net.Conn
 	if err == nil {
-		if q.Host == "" {
-			conn, err = c.browserOpen(ctx, q, plan)
-		} else {
-			conn, plan, err = c.browserOpenPlan(ctx, q, plan)
+		conn, plan, err = c.browserOpenPlan(ctx, q, plan)
+		if opaque && plan.Policy.Source == "direct_open_retry" {
+			c.browser.domains.failedDirect(current.network, p.ID, t.Destination, time.Now())
 		}
 	}
 	n.opened(record, plan, err)
@@ -550,6 +574,9 @@ func (c *Controller) openNativeBrowser(ctx context.Context, p profiles.Profile, 
 	if current.network != "" && directTimeoutEligible(q, plan) {
 		conn = &nativeFirstReplyConn{Conn: conn, timeout: 2 * time.Second, stalled: func() {
 			c.recordBrowserStall(current, q, plan)
+			if opaque {
+				c.browser.domains.failedDirect(current.network, p.ID, t.Destination, time.Now())
+			}
 			n.mu.Lock()
 			r, ok := n.records[record]
 			if ok {

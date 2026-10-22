@@ -2105,3 +2105,16 @@ CI Game UDP: https://github.com/buzzmean/neexitlag/actions/runs/39801168382 ; Li
 Дополнения владельца приняты явно: механизм общий, PUBG default-on, остальные игры одной кнопкой; RELAY разрешён последней ступенью, включая PUBG (новое дополнение заменяет прежнее «без relay»). Состояние и обучение scoped к игре/сети; healthy DIRECT endpoint исключён из ненужного relay и не удерживает другой endpoint DIRECT; cadence и global amplification bounded; unknown pre-existing flow DIRECT, без replay. Смена сети прекращает priming/training старого flow, не его трафик/egress. Никаких обещаний совместимости BattlEye/Vanguard/FACEIT, снижения пинга или загрузки матча по transport counters.
 
 Владельцу: из клона codex/work под тем же owner SID обновить только клиент через build-e2e/build-desktop/update-service/install-desktop (GUI закрыть только для замены EXE). Полные команды по одной, SHA256, Clear-DnsClientCache, Frankfurt DNS-hints, 3–5 новых матчей и выключенный контроль — docs/GAME_UDP.md. Без Happ/winws; service/PUBG запускают штатно, другие приложения не перезапускают. Проверка: `& .\tools\windows\diag-game-udp.ps1 -DurationSeconds 300`. Это сбор evidence, не автоматический match PASS. Следующий вариант — только следующий новый UDP tuple; игра не принуждается к reconnect. На VPS/ПК агент ничего не выполнял, PR8 не merge, force-push не было. Область файлов освобождена.
+
+## 22.10.2026 — browser opaque, шаг 1
+
+Владелец подтвердил native hot attach 29fdeb5: Chrome accepted240/opened236,
+233 exchanges. Причина тотального VPS: любой ECH/GREASE стирал SNI и выбирал
+RELAY_REQUIRED. Native теперь имеет запрошенный DIRECT default для неизвестного
+origin; известные SNI/защищённые DNS/outer associations — relay-required.
+Read-only OS DNS cache (256 записей, реальный остаточный TTL <=300с, network scope),
+неоднозначный IP не объявляется конкретным доменом; provenance/ошибки в native diag .4.
+Детали и неизбежное ограничение ECH+DoH/shared-IP no-leak — docs/BROWSER_OPAQUE_ROUTING.md.
+Desktop/protected app policy, игры, PAC, TLS/mTLS и VPS не менялись.
+Проверки: Go race browserproxy/platform/service PASS; Windows amd64 cross-build PASS.
+Windows/ISP/DNS cmdlet runtime не проверены. Следом Telegram first-flight/preflight и PS helper.
