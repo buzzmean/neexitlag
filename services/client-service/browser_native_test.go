@@ -147,8 +147,8 @@ func TestNativeSNIHostOpaqueDNSIPv6AndLegacyIsolation(t *testing.T) {
 	}
 	tuple.Destination = netip.MustParseAddrPort("192.0.2.53:53")
 	d := c.Classify(id, tuple)
-	if d.Deferred || !d.Route.Direct() || d.OpenDeferred != nil {
-		t.Fatal("DNS changed", d)
+	if d.Deferred || !d.Route.Direct() || d.OpenDeferred == nil || d.DNSExchange == nil {
+		t.Fatal("native DNS broker missing or DNS/53 relayed", d)
 	}
 	tuple.Destination = netip.MustParseAddrPort("[2001:db8::1]:443")
 	d = c.Classify(id, tuple)

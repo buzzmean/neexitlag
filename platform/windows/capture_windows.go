@@ -49,6 +49,8 @@ type captureFlow struct {
 	lastSeen     time.Time
 }
 type WinDivertBackend struct {
+	dnsSlots chan struct{}
+
 	gameGuard                gameGuardState
 	gameReflect, gameReplies uintptr
 	gameEval                 *windows.Proc
@@ -88,7 +90,7 @@ type WinDivertBackend struct {
 }
 
 func NewWinDivert(files DriverFiles, engine *routing.Engine) *WinDivertBackend {
-	return &WinDivertBackend{Files: files, Engine: engine, status: CaptureStatus{Backend: "WinDivert", Capabilities: Capabilities{UDP: true, TCP: true, IPv4: true, Transparent: true}}, flows: make(map[Tuple]*captureFlow), associations: NewAssociations(8192), hotRequests: make(chan struct{}, 1), openWorkers: make(chan struct{}, 64), cache: NewProcessCache(NewDiscovery(), IsCurrent), evidence: NewEvidenceLedger()}
+	return &WinDivertBackend{dnsSlots: make(chan struct{}, 16), Files: files, Engine: engine, status: CaptureStatus{Backend: "WinDivert", Capabilities: Capabilities{UDP: true, TCP: true, IPv4: true, Transparent: true}}, flows: make(map[Tuple]*captureFlow), associations: NewAssociations(8192), hotRequests: make(chan struct{}, 1), openWorkers: make(chan struct{}, 64), cache: NewProcessCache(NewDiscovery(), IsCurrent), evidence: NewEvidenceLedger()}
 }
 func (b *WinDivertBackend) Status() CaptureStatus { b.mu.Lock(); defer b.mu.Unlock(); return b.status }
 func (d *divertDLL) openHandle(filter string, layer uintptr, flags uintptr) (uintptr, error) {
@@ -420,6 +422,13 @@ func (b *WinDivertBackend) processUDP(d *divertDLL, packet []byte, address [80]b
 		}
 	}
 	b.associations.Touch(tuple)
+	if known && tuple.Destination.Port() == 53 {
+		decision, _ := ClassifyCapture(identity, tuple, uint32(os.Getpid()), classify)
+		if decision.DNSExchange != nil {
+			b.handleBrowserDNS(d, identity, tuple, packet, payload, address, decision)
+			return
+		}
+	}
 	if tuple.Destination.Port() == 443 {
 		b.ingress.udp443.Add(1)
 	}

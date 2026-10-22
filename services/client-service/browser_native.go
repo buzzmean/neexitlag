@@ -78,6 +78,8 @@ type nativeBrowserRecord struct {
 	Active          bool               `json:"active"`
 }
 type nativeBrowserSnapshot struct {
+	DNS map[string]any `json:"browser_dns"`
+
 	DomainCache        map[string]any               `json:"domain_cache"`
 	CaptureIngress     *wp.CaptureIngressSnapshot   `json:"capture_ingress,omitempty"`
 	State              string                       `json:"state"`
@@ -166,6 +168,7 @@ func (c *Controller) nativeSnapshot() nativeBrowserSnapshot {
 	}
 	s.RelayUsage = c.relayUsage().snapshot()
 	s.DomainCache = c.browser.domains.snapshot()
+	s.DNS = c.browser.dnsWire.snapshot()
 	n := &c.browser.native
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -531,7 +534,7 @@ func (c *Controller) openNativeBrowser(ctx context.Context, p profiles.Profile, 
 	evidence := browserDomainEvidence{Source: "CLIENTHELLO_SNI_OR_HTTP_HOST", Domain: q.Host, Confidence: "observed on this connection", Candidates: []string{}}
 	plan := browserproxy.Plan{Enabled: true, Network: current.network, Destination: t.Destination, Policy: d.Policy}
 	if opaque {
-		evidence = c.browser.domains.evidence(current.network, t.Destination.Addr(), d.OuterSNI, time.Now())
+		evidence = c.browser.domains.profileEvidence(current.network, p.ID, t.Destination.Addr(), d.OuterSNI, time.Now())
 		q.Host = evidence.Domain
 		plan = c.nativeOpaquePlan(current.profile, t, current.network, evidence)
 		if q.Host != "" {

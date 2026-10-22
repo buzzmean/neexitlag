@@ -204,6 +204,9 @@ func (c *Controller) scopedDecision(p profiles.Profile, id wp.ProcessIdentity, t
 		return d
 	}
 	out := resolve("")
+	if nativeBrowserProfile(p) && t.Destination.Port() == 53 {
+		return c.browserDNSDecision(p, id, t, out, network)
+	}
 	if t.Protocol == "tcp" && out.Policy.Source != "browser_dns" && (browserAuto(p) || flowpolicy.NeedsDomain(p.Rules, "tcp") || p.Mode == profiles.Auto && !c.hasBaseline(p, network) && c.AutoLearned.HasApplication(network, applicationKey(p), "tcp", time.Now())) {
 		// The existing redirect accepts the app connection before any upstream is
 		// opened. The closure captures a profile snapshot; edits affect new flows.

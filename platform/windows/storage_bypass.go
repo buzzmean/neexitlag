@@ -13,7 +13,7 @@ func outsidePrivateIPv4Filter(field string) string {
 // Network-layer exclusion: diskless storage never enters the redirect queue.
 // Match the private STORAGE peer, not the always-private client source address.
 func nativeTCPNetworkFilter(port uint16, loopbackFixture bool) string {
-	base := fmt.Sprintf("ip and tcp and !impostor and ((outbound and !loopback) or (inbound and (!loopback or tcp.DstPort == %d)))", port)
+	base := fmt.Sprintf("ip and tcp and !impostor and ((outbound and (!loopback or tcp.DstPort == 53)) or (inbound and (!loopback or tcp.DstPort == %d)))", port)
 	if loopbackFixture {
 		base = "ip and tcp and !impostor"
 	}

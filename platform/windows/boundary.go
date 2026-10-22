@@ -36,6 +36,9 @@ type CaptureStatus struct {
 	Capabilities Capabilities `json:"capabilities"`
 }
 type Decision struct {
+	// Selected browser DNS only; no DNS/53 packet is relayed.
+	DNSExchange func(context.Context, []byte) ([]byte, error)
+
 	GameUDP     *gameudp.Engine
 	GameRelayID string
 	// Native browser planning runs only in the bounded deferred worker, never

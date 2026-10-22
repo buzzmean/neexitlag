@@ -27,7 +27,13 @@ type browserDNSObservation struct {
 	name    string
 	expires time.Time
 }
+type browserDNSKey struct {
+	network, profile string
+	address          netip.Addr
+}
 type browserDomainIndex struct {
+	owned map[browserDNSKey][]browserDNSObservation
+
 	mu        sync.Mutex
 	network   string
 	checked   time.Time
@@ -66,6 +72,9 @@ func restrictiveBrowserDomain(host string) bool {
 	return protectedBrowserDomain(host) || flowpolicy.KnownBrowserRelayGroup(host) != "" || youtubeRelayDomain(host)
 }
 func (x *browserDomainIndex) evidence(network string, destination netip.Addr, outer string, now time.Time) browserDomainEvidence {
+	return x.profileEvidence(network, "", destination, outer, now)
+}
+func (x *browserDomainIndex) profileEvidence(network, profile string, destination netip.Addr, outer string, now time.Time) browserDomainEvidence {
 	out := browserDomainEvidence{Source: "OPAQUE_UNKNOWN_DIRECT_DEFAULT", Confidence: "UNKNOWN; ECH inner name not observed", Outer: outer, Candidates: []string{}}
 	x.mu.Lock()
 	defer x.mu.Unlock()
@@ -73,6 +82,18 @@ func (x *browserDomainIndex) evidence(network string, destination netip.Addr, ou
 	if network != "" && network == x.network {
 		for _, r := range x.entries[destination.Unmap()] {
 			if now.Before(r.expires) {
+				seen[r.name] = true
+			}
+		}
+	}
+	owned := false
+	if network != "" && profile != "" {
+		for _, r := range x.owned[browserDNSKey{network, profile, destination.Unmap()}] {
+			if now.Before(r.expires) {
+				if !owned {
+					seen = map[string]bool{}
+					owned = true
+				}
 				seen[r.name] = true
 			}
 		}
@@ -96,6 +117,13 @@ func (x *browserDomainIndex) evidence(network string, destination netip.Addr, ou
 	}
 	if out.Ambiguous {
 		out.Source = "SYSTEM_DNS_CACHE_AMBIGUOUS"
+	}
+	if owned {
+		out.Source = "BROWSER_DNS_REPLY_PROFILE_TTL_HINT"
+		out.Confidence = "response delivered to this browser profile; shared IP/ECH inner identity not proven"
+		if out.Ambiguous {
+			out.Source = "BROWSER_DNS_REPLY_AMBIGUOUS"
+		}
 	}
 	// A visible protected outer name may only make policy MORE restrictive.
 	// In GREASE flows this also restores TLS-first-flight IP health/recovery.
@@ -143,7 +171,7 @@ func (x *browserDomainIndex) directFailed(network, profile string, dst netip.Add
 func (x *browserDomainIndex) snapshot() map[string]any {
 	x.mu.Lock()
 	defer x.mu.Unlock()
-	return map[string]any{"source": "WINDOWS_SYSTEM_DNS_CACHE; not browser-private DoH", "checked_at": x.checked, "last_error": x.errorCode, "addresses": len(x.entries), "maximum_rows": 256, "maximum_ttl_seconds": 300, "refresh_seconds": 10, "unknown_policy": "DIRECT_DEFAULT; hidden protected domain cannot be guaranteed"}
+	return map[string]any{"source": "WINDOWS_SYSTEM_DNS_CACHE; not browser-private DoH", "checked_at": x.checked, "last_error": x.errorCode, "browser_scoped_addresses": len(x.owned), "addresses": len(x.entries), "maximum_rows": 256, "maximum_ttl_seconds": 300, "refresh_seconds": 10, "unknown_policy": "DIRECT_DEFAULT; hidden protected domain cannot be guaranteed"}
 }
 func (c *Controller) watchBrowserDomainCache() {
 	for {
@@ -184,4 +212,57 @@ func (c *Controller) nativeOpaquePlan(p profiles.Profile, t wp.Tuple, network st
 		policy = flowpolicy.Result{Action: flowpolicy.RelayRequired, RelayID: relay, Fallback: flowpolicy.Required, Source: "browser_opaque_evidence", Reason: "protected DNS/outer association or observed DIRECT failure; authenticated relay only"}
 	}
 	return browserproxy.Plan{Enabled: true, Network: network, Destination: t.Destination, Policy: policy, Probe: e.Source}
+}
+
+func (x *browserDomainIndex) observeBrowserDNS(network, profile string, rows []browserproxy.DNSHint, now time.Time) {
+	if network == "" || profile == "" {
+		return
+	}
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	if x.owned == nil {
+		x.owned = map[browserDNSKey][]browserDNSObservation{}
+	}
+	for k, rows := range x.owned {
+		kept := rows[:0]
+		for _, r := range rows {
+			if now.Before(r.expires) {
+				kept = append(kept, r)
+			}
+		}
+		if len(kept) == 0 {
+			delete(x.owned, k)
+		} else {
+			x.owned[k] = kept
+		}
+	}
+	for i, r := range rows {
+		if i >= 128 {
+			break
+		}
+		ip, err := netip.ParseAddr(r.Address)
+		if err != nil || !ip.IsGlobalUnicast() || ip.IsPrivate() || !browserproxy.ValidPublicDNSName(r.Name) || r.TTL == 0 {
+			continue
+		}
+		k := browserDNSKey{network, profile, ip.Unmap()}
+		if len(x.owned) >= 1024 && len(x.owned[k]) == 0 {
+			continue
+		}
+		ttl := time.Duration(r.TTL) * time.Second
+		if ttl > 5*time.Minute {
+			ttl = 5 * time.Minute
+		}
+		values := x.owned[k]
+		found := false
+		for j := range values {
+			if values[j].name == r.Name {
+				values[j].expires = now.Add(ttl)
+				found = true
+			}
+		}
+		if !found && len(values) < 8 {
+			values = append(values, browserDNSObservation{r.Name, now.Add(ttl)})
+		}
+		x.owned[k] = values
+	}
 }
