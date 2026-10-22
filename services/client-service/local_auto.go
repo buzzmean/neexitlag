@@ -76,6 +76,7 @@ func (c *Controller) mergeConflicts(n *windowsplatform.NetworkContext) {
 		return
 	}
 	n.Conflicts = append([]string(nil), scan.Conflicts...)
+	n.AntiCheats = append([]string(nil), scan.AntiCheats...)
 	n.ConflictsObservedAt = scan.ObservedAt
 	if scan.Incomplete {
 		n.ConflictScan = "some process modules inaccessible; conflict scan incomplete"

@@ -67,19 +67,21 @@ $doh='browser Secure DNS unknown; system DoH cmdlet unavailable';if(Get-Command 
 
 func inspectConflicts(ctx context.Context) ConflictScan {
 	script := `[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);$OutputEncoding=[Console]::OutputEncoding;$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';$me=` + strconv.Itoa(os.Getpid()) + `;
-$c=@(Get-Process|Where-Object{$_.Id -ne $me -and $_.ProcessName -match '^(winws|winws2|goodbyedpi|easyanticheat.*|beservice.*|vgc)$'}|ForEach-Object{$_.ProcessName});
+$c=@(Get-Process|Where-Object{$_.Id -ne $me -and $_.ProcessName -match '^(winws|winws2|goodbyedpi)$'}|ForEach-Object{$_.ProcessName});
+$anti=@(Get-Process|Where-Object{$_.ProcessName -match '^(easyanticheat.*|beservice.*|vgc|faceit.*)$'}|Select-Object -ExpandProperty ProcessName -Unique);
 $unknown=$false;foreach($p in @(Get-Process|Where-Object{$_.Id -ne $me -and $_.Id -gt 4 -and $_.ProcessName -notmatch '^(TslGame|cs2|dota2|r5apex|VALORANT.*|FACEIT.*|beservice.*|easyanticheat.*|vgc)$'})){try{if(@($p.Modules|Where-Object{$_.ModuleName -ieq 'WinDivert.dll'}).Count -gt 0){$c+=($p.ProcessName+':WinDivert.dll')}}catch{$unknown=$true}};
-@{conflicts=$c;incomplete=$unknown}|ConvertTo-Json -Depth 3 -Compress`
+@{conflicts=$c;anti_cheats=$anti;incomplete=$unknown}|ConvertTo-Json -Depth 3 -Compress`
 	raw, err := runPowerShell(ctx, script)
 	if err != nil {
 		return ConflictScan{Error: "conflict scan unavailable: " + err.Error()}
 	}
 	var out struct {
 		Conflicts  []string `json:"conflicts"`
+		AntiCheats []string `json:"anti_cheats"`
 		Incomplete bool     `json:"incomplete"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return ConflictScan{Error: "invalid conflict scan snapshot"}
 	}
-	return ConflictScan{Conflicts: out.Conflicts, Incomplete: out.Incomplete}
+	return ConflictScan{Conflicts: out.Conflicts, AntiCheats: out.AntiCheats, Incomplete: out.Incomplete}
 }

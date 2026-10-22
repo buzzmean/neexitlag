@@ -15,6 +15,7 @@ type PUBGInstallation struct {
 }
 
 var steamLibraryPath = regexp.MustCompile(`"path"\s*"((?:\\.|[^"\\])*)"`)
+var steamAppID = regexp.MustCompile(`"appid"\s*"([0-9]+)"`)
 var steamInstallDir = regexp.MustCompile(`"installdir"\s*"([^"\\/]+)"`)
 
 // FindPUBG reads Steam's bounded text manifests and file metadata only. It never
@@ -54,6 +55,10 @@ func FindSteamGame(roots []string, preset gameudp.Preset) PUBGInstallation {
 	for _, library := range libraries {
 		data, err := readSteamText(filepath.Join(library, "steamapps", "appmanifest_"+preset.SteamID+".acf"))
 		if err != nil {
+			continue
+		}
+		appid := steamAppID.FindSubmatch(data)
+		if len(appid) != 2 || string(appid[1]) != preset.SteamID {
 			continue
 		}
 		match := steamInstallDir.FindSubmatch(data)

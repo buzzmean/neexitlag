@@ -238,6 +238,10 @@ func (c *Controller) updateGamesGate() {
 	defer c.games.mu.Unlock()
 	for _, g := range c.games.items {
 		r := reason
+		p, ok := c.Profiles.Match(wp.ProcessIdentity{PID: 1, CreationTime: 1, Path: g.Path})
+		if !ok || p.ID != g.ProfileID || !gameProfileSafe(p) {
+			r = "GAME_PROFILE_OVERRIDDEN_OR_REMOVED"
+		}
 		if c.games.error != "" {
 			r = c.games.error
 		}
@@ -331,11 +335,20 @@ func (c *Controller) gameStatus() GameUDPStatus {
 			s.Flows = s.Flows[:12]
 			s.Truncated = true
 		}
+		reason := s.Reason
+		if n := c.network.Load(); n != nil && s.Reason == "" {
+			for _, l := range s.Learning {
+				if l.Network == n.Fingerprint && l.Exhausted && time.Now().Before(l.Expires) {
+					state = "COOLDOWN"
+					reason = "GAME_UDP_LADDER_EXHAUSTED"
+				}
+			}
+		}
 		name := g.Name
 		if name == "" {
 			name = g.ProfileID
 		}
-		out.Profiles = append(out.Profiles, GameProfileStatus{g.ProfileID, name, state, s.Reason, g.AntiCheat, s})
+		out.Profiles = append(out.Profiles, GameProfileStatus{g.ProfileID, name, state, reason, g.AntiCheat, s})
 	}
 	sort.Slice(out.Profiles, func(i, j int) bool { return out.Profiles[i].ProfileID < out.Profiles[j].ProfileID })
 	// IPC responses must remain within the existing 64 KiB envelope.
@@ -354,7 +367,17 @@ func (c *Controller) gameStatus() GameUDPStatus {
 			}
 		}
 		if !trimmed {
-			break
+			for i := range out.Profiles {
+				e := &out.Profiles[i].Engine
+				if len(e.Learning) > 0 {
+					e.Learning = e.Learning[:len(e.Learning)-1]
+					e.Truncated = true
+					trimmed = true
+				}
+			}
+			if !trimmed {
+				break
+			}
 		}
 	}
 	return out

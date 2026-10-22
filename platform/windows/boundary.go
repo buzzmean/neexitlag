@@ -36,8 +36,8 @@ type CaptureStatus struct {
 	Capabilities Capabilities `json:"capabilities"`
 }
 type Decision struct {
-	GameUDP *gameudp.Engine
- GameRelayID string
+	GameUDP     *gameudp.Engine
+	GameRelayID string
 	// Native browser planning runs only in the bounded deferred worker, never
 	// under the packet-loop lock. Existing streams keep their original decision.
 	NewConnectionsOnly bool
@@ -74,17 +74,18 @@ type Association struct {
 	Endpoint uint64
 }
 type FlowAssociations struct {
-	mu    sync.RWMutex
-	items map[Tuple]Association
-	limit int
-	seen  map[Tuple]time.Time
+	mu       sync.RWMutex
+	items    map[Tuple]Association
+	limit    int
+	seen     map[Tuple]time.Time
+	gameSeen map[Tuple]bool
 }
 
 func NewAssociations(limit int) *FlowAssociations {
 	if limit <= 0 {
 		limit = 8192
 	}
-	return &FlowAssociations{items: make(map[Tuple]Association), limit: limit, seen: map[Tuple]time.Time{}}
+	return &FlowAssociations{items: make(map[Tuple]Association), limit: limit, seen: map[Tuple]time.Time{}, gameSeen: map[Tuple]bool{}}
 }
 func (a *FlowAssociations) Put(v Association) bool {
 	if v.Identity.PID == 0 || v.Identity.CreationTime == 0 {
@@ -94,6 +95,14 @@ func (a *FlowAssociations) Put(v Association) bool {
 	defer a.mu.Unlock()
 	if _, ok := a.items[v.Tuple]; !ok && len(a.items) >= a.limit {
 		return false
+	}
+	if old, ok := a.items[v.Tuple]; ok {
+		if old.Identity.PID != v.Identity.PID || old.Identity.CreationTime != v.Identity.CreationTime || (v.Endpoint != 0 && old.Endpoint != v.Endpoint) {
+			delete(a.gameSeen, v.Tuple)
+		}
+		if v.Endpoint == 0 && old.Identity == v.Identity {
+			v.Endpoint = old.Endpoint
+		}
 	}
 	a.items[v.Tuple] = v
 	a.seen[v.Tuple] = time.Now()
@@ -105,6 +114,7 @@ func (a *FlowAssociations) Delete(t Tuple, endpoint uint64) {
 	if old, ok := a.items[t]; ok && old.Endpoint == endpoint {
 		delete(a.items, t)
 		delete(a.seen, t)
+		delete(a.gameSeen, t)
 	}
 }
 func (a *FlowAssociations) Get(t Tuple, current ProcessIdentity) (Association, bool) {
@@ -138,6 +148,20 @@ func (a *FlowAssociations) Cleanup(now time.Time) {
 		if now.Sub(at) > 2*time.Minute {
 			delete(a.items, t)
 			delete(a.seen, t)
+			delete(a.gameSeen, t)
 		}
 	}
+}
+
+// MarkGameFirstFlight consumes the first-flight proof once per native flow.
+// The mark outlives the 60s packet cache; idle tuples cannot reset the cutoff.
+func (a *FlowAssociations) MarkGameFirstFlight(t Tuple, id ProcessIdentity) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	v, ok := a.items[t]
+	if !ok || v.Endpoint == 0 || v.Identity.PID != id.PID || v.Identity.CreationTime != id.CreationTime || a.gameSeen[t] {
+		return false
+	}
+	a.gameSeen[t] = true
+	return true
 }

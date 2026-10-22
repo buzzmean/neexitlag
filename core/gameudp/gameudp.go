@@ -96,6 +96,7 @@ const (
 )
 
 type Evidence struct {
+	Sequence      uint64    `json:"update_seq"`
 	Stage         string    `json:"stage"`
 	ID            uint64    `json:"flow_id"`
 	Network       string    `json:"network_fingerprint"`
@@ -120,7 +121,13 @@ type Evidence struct {
 	State         string    `json:"state"`
 	Reason        string    `json:"reason"`
 }
+type cadenceBucket struct {
+	second            int64
+	replies, outgoing uint64
+}
 type Flow struct {
+	cadence     [8]cadenceBucket
+	degradedAt  time.Time
 	engine      *Engine
 	key         Key
 	e           Evidence
@@ -222,6 +229,9 @@ func (e *Engine) Open(k Key, now time.Time) (*Flow, error) {
 		}
 	}
 	v := Variants()[index]
+	if stage != Local {
+		v = Variant{}
+	}
 	var p []byte
 	if stage == Local {
 		var err error
@@ -245,6 +255,7 @@ func (e *Engine) Plan(f *Flow, now time.Time) ([]byte, int) {
 		return nil, 0
 	}
 	f.last = now
+	f.e.Sequence++
 	f.ordinal++
 	if f.e.Stage != Local || !e.enabled || e.reason != "" || f.generation != e.generation || f.ordinal > f.e.Variant.Cutoff {
 		return nil, 0
@@ -255,18 +266,18 @@ func (e *Engine) Plan(f *Flow, now time.Time) ([]byte, int) {
 		e.budgetPackets = 0
 		e.budgetBytes = 0
 	}
-	if e.budgetPackets+k > MaxFakePerSecond || e.budgetBytes+k*len(f.payload) > MaxFakeBytesPerSecond {
+	if e.budgetPackets+k > MaxFakePerSecond || e.budgetBytes+k*(len(f.payload)+68) > MaxFakeBytesPerSecond {
 		f.e.RateLimited += uint64(k)
 		f.e.Reason = "DECOY_RATE_LIMITED_ORIGINAL_PASSTHROUGH"
 		return nil, 0
 	}
-	if e.shared != nil && !e.shared.take(k, k*len(f.payload), now) {
+	if e.shared != nil && !e.shared.take(k, k*(len(f.payload)+68), now) {
 		f.e.RateLimited += uint64(k)
 		f.e.Reason = "GLOBAL_DECOY_RATE_LIMITED"
 		return nil, 0
 	}
 	e.budgetPackets += k
-	e.budgetBytes += k * len(f.payload)
+	e.budgetBytes += k * (len(f.payload) + 68)
 	// Caller treats payload as immutable; no kernel packet references are retained.
 	return f.payload, k
 }
@@ -276,6 +287,7 @@ func (e *Engine) FakeSent(f *Flow, n int, err error) {
 	if f == nil || f.engine != e {
 		return
 	}
+	f.e.Sequence++
 	if err != nil {
 		f.e.FakeErrors++
 		f.e.Reason = "DECOY_SEND_FAILED_ORIGINAL_PASSTHROUGH"
@@ -290,6 +302,15 @@ func (e *Engine) Outgoing(f *Flow, n int, now time.Time) {
 	if f == nil || f.engine != e {
 		return
 	}
+	f.e.Sequence++
+	if !f.e.LastOutgoing.IsZero() && now.Sub(f.e.LastOutgoing) > 2*time.Second {
+		f.degradedAt = now
+	}
+	b := &f.cadence[uint64(now.Unix())%8]
+	if b.second != now.Unix() {
+		*b = cadenceBucket{second: now.Unix()}
+	}
+	b.outgoing++
 	f.e.Outgoing++
 	f.e.OutgoingBytes += uint64(n)
 	f.e.LastOutgoing = now
@@ -301,6 +322,12 @@ func (e *Engine) Reply(f *Flow, n int, now time.Time) {
 	if f == nil || f.engine != e {
 		return
 	}
+	f.e.Sequence++
+	b := &f.cadence[uint64(now.Unix())%8]
+	if b.second != now.Unix() {
+		*b = cadenceBucket{second: now.Unix()}
+	}
+	b.replies++
 	f.e.Replies++
 	f.e.ReplyBytes += uint64(n)
 	f.e.LastReply = now
@@ -327,8 +354,22 @@ func (e *Engine) health(f *Flow, now time.Time) {
 	if f.failed || f.generation != e.generation || !e.enabled || e.reason != "" || f.e.Outgoing < 6 || now.Sub(f.e.LastOutgoing) > 2*time.Second {
 		return
 	}
-	sustained := f.e.LastOutgoing.Sub(f.e.Started) >= ConfirmationSpan && f.e.Replies >= 6 && f.buckets >= 3 && f.e.LastReply.Sub(f.e.FirstReply) >= ConfirmationSpan && now.Sub(f.e.LastReply) < 2*time.Second
-	if f.e.Stage == Local && (f.e.Fakes == 0 || f.e.FakeErrors > 0 || f.e.RateLimited > 0) {
+	replies, outgoing, buckets := uint64(0), uint64(0), 0
+	for _, b := range f.cadence {
+		if now.Unix()-b.second >= 0 && now.Unix()-b.second < 6 {
+			replies += b.replies
+			outgoing += b.outgoing
+			if b.replies > 0 {
+				buckets++
+			}
+		}
+	}
+	if outgoing < 6 {
+		return
+	}
+	sustained := f.e.LastOutgoing.Sub(f.e.Started) >= ConfirmationSpan && replies >= 6 && buckets >= 3 && f.e.LastReply.Sub(f.e.FirstReply) >= ConfirmationSpan && now.Sub(f.e.LastReply) < 2*time.Second
+	f.e.Sequence++
+	if f.e.Stage == Local && (f.e.Fakes < uint64(f.e.Variant.Repeats*f.e.Variant.Cutoff) || f.e.FakeErrors > 0 || f.e.RateLimited > 0) {
 		f.e.State = "LOCAL_PRIMING_INCOMPLETE"
 		return
 	}
@@ -347,7 +388,20 @@ func (e *Engine) health(f *Flow, now time.Time) {
 		e.putLearning(key, Learning{Stage: f.e.Stage, Network: f.key.Network, Application: f.key.Application, Index: index, Confirmed: true, Expires: now.Add(LearnTTL)}, now)
 		return
 	}
-	failed := !f.learned && now.Sub(f.e.Started) >= Probation || f.learned && now.Sub(f.e.LastReply) >= Liveness
+	if f.learned {
+		if sustained {
+			f.degradedAt = time.Time{}
+			f.e.State = "SUSTAINED_REPLIES"
+			f.e.Reason = "TRANSPORT_CADENCE_CONFIRMED_NOT_MATCH_LOAD_PROOF"
+		} else {
+			if f.degradedAt.IsZero() {
+				f.degradedAt = now
+			}
+			f.e.State = "CADENCE_PROBATION"
+			f.e.Reason = "SPARSE_REPLIES_WHILE_OUTBOUND_CONTINUES"
+		}
+	}
+	failed := !f.learned && now.Sub(f.e.Started) >= Probation || f.learned && (!f.degradedAt.IsZero() && now.Sub(f.degradedAt) >= Liveness || now.Sub(f.e.LastReply) >= Liveness)
 	if !failed {
 		return
 	}
@@ -367,7 +421,7 @@ func (e *Engine) health(f *Flow, now time.Time) {
 	}
 	if old.Confirmed {
 		for _, peer := range e.flows {
-			if peer != f && peer.learned && !peer.failed && learnKey(peer.key.Network, peer.key.Application) == key && now.Sub(peer.e.LastReply) < 2*time.Second && now.Sub(peer.e.LastOutgoing) < 2*time.Second {
+			if peer != f && peer.learned && !peer.failed && peer.degradedAt.IsZero() && learnKey(peer.key.Network, peer.key.Application) == key && now.Sub(peer.e.LastReply) < 2*time.Second && now.Sub(peer.e.LastOutgoing) < 2*time.Second {
 				f.e.Reason = "FLOW_FAILED_NETWORK_WINNER_STILL_RESPONDING"
 				return
 			}
@@ -495,4 +549,40 @@ func (b *Budget) take(p, n int, now time.Time) bool {
 	b.packets += p
 	b.bytes += n
 	return true
+}
+
+// PinUnverifiedDirect is called before the first send when capture cannot prove
+// the tuple was born after activation. Never prime or change egress of an
+// already-used UDP tuple. This observation must not teach a candidate failure.
+func (e *Engine) PinUnverifiedDirect(f *Flow) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if f == nil || f.engine != e || f.e.Outgoing != 0 || f.e.Fakes != 0 {
+		return
+	}
+	f.e.Sequence++
+	f.e.Stage = Direct
+	f.payload = nil
+	f.e.Variant = Variant{}
+	f.ordinal = MaxCutoff + 1
+	f.failed = true
+	f.e.State = "NEW_FLOW_UNVERIFIED"
+	f.e.Reason = "EXISTING_UDP_PINNED_DIRECT_NO_FIRST_FLIGHT_PROOF"
+}
+
+// Transport failure is evidence, not a fabricated server-health observation.
+// A peer session/new flow remains eligible; an established flow is never replayed.
+func (e *Engine) TransportFailed(f *Flow, cause string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if f == nil || f.engine != e || f.e.Stage != Relay || f.e.State == "TRANSPORT_FAILED" {
+		return
+	}
+	if cause != "GAME_RELAY_OPEN_FAILED" {
+		cause = "GAME_RELAY_TRANSPORT_FAILED"
+	}
+	f.e.Sequence++
+	f.failed = true
+	f.e.State = "TRANSPORT_FAILED"
+	f.e.Reason = cause
 }

@@ -25,6 +25,7 @@ type NetworkContext struct {
 	Egress      string    `json:"egress"`
 	// Conflict scan is slower than the route fingerprint and runs separately. A zero
 	// time means no scan has succeeded yet: Conflicts is then unknown, not clean.
+	AntiCheats          []string  `json:"anti_cheats,omitempty"`
 	ConflictsObservedAt time.Time `json:"conflicts_observed_at,omitempty"`
 	ConflictScan        string    `json:"conflict_scan,omitempty"`
 }
@@ -32,6 +33,7 @@ type NetworkContext struct {
 // ConflictScan is the result of the process/module scan for known DPI tools,
 // anti-cheat services and foreign WinDivert users.
 type ConflictScan struct {
+	AntiCheats []string // Presence alone is not evidence of an overlapping packet interceptor.
 	ObservedAt time.Time
 	Conflicts  []string
 	Incomplete bool

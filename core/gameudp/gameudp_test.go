@@ -104,10 +104,7 @@ func TestScopeOnlyExactPUBGIPv4PublicHighUDP(t *testing.T) {
 func TestReplyBurstCannotTeachHealthyNetwork(t *testing.T) {
 	for _, replies := range []int{0, 1, 15} {
 		e, f, at := fixture(t)
-		p, k := e.Plan(f, at)
-		for i := 0; i < k; i++ {
-			e.FakeSent(f, len(p), nil)
-		}
+		prime(e, f, at)
 		for sec := 0; sec <= 7; sec++ {
 			now := at.Add(time.Duration(sec) * time.Second)
 			e.Outgoing(f, 60, now)
@@ -132,10 +129,7 @@ func TestReplyBurstCannotTeachHealthyNetwork(t *testing.T) {
 	}
 }
 func sustain(e *Engine, f *Flow, at time.Time) {
-	p, k := e.Plan(f, at)
-	for i := 0; i < k; i++ {
-		e.FakeSent(f, len(p), nil)
-	}
+	prime(e, f, at)
 	for i := 0; i < 8; i++ {
 		now := at.Add(time.Duration(i) * time.Second / 2)
 		e.Outgoing(f, 60, now)
@@ -189,10 +183,7 @@ func TestFiniteAlternativesAndHardGlobalBudget(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		p, k := e.Plan(f, at)
-		for i := 0; i < k; i++ {
-			e.FakeSent(f, len(p), nil)
-		}
+		prime(e, f, at)
 		for sec := 0; sec <= 7; sec++ {
 			now := at.Add(time.Duration(sec) * time.Second)
 			e.Outgoing(f, 50, now)
@@ -239,5 +230,28 @@ func TestIncompletePrimingDoesNotTeachNetworkFailure(t *testing.T) {
 	e.Tick(at.Add(7 * time.Second))
 	if len(e.Snapshot().Learning) != 0 {
 		t.Fatal("unsent strategy learned as network failure")
+	}
+}
+
+func prime(e *Engine, f *Flow, at time.Time) {
+	for n := 0; n < f.e.Variant.Cutoff; n++ {
+		p, k := e.Plan(f, at)
+		for i := 0; i < k; i++ {
+			e.FakeSent(f, len(p)+28, nil)
+		}
+	}
+}
+func TestIncompletePrimingWithoutSendErrorDoesNotTeachFailure(t *testing.T) {
+	e, f, at := fixture(t)
+	p, k := e.Plan(f, at)
+	for i := 0; i < k; i++ {
+		e.FakeSent(f, len(p)+28, nil)
+	}
+	for i := 0; i < 8; i++ {
+		e.Outgoing(f, 50, at.Add(time.Duration(i)*time.Second))
+	}
+	e.Tick(at.Add(7 * time.Second))
+	if len(e.Snapshot().Learning) != 0 {
+		t.Fatal("incomplete first flight taught a failure")
 	}
 }

@@ -118,3 +118,48 @@ func TestGamePathValidation(t *testing.T) {
 		t.Fatal("owner local profile path rejected")
 	}
 }
+func TestAntiCheatPresenceDoesNotMasqueradeAsForeignWinDivert(t *testing.T) {
+	c, _ := gameController(t)
+	c.conflicts.Store(&wp.ConflictScan{AntiCheats: []string{"BEService"}, ObservedAt: time.Now()})
+	n := wp.NetworkContext{}
+	c.mergeConflicts(&n)
+	if len(n.Conflicts) != 0 || len(n.AntiCheats) != 1 {
+		t.Fatal("anti-cheat presence blocked unrelated routing", n)
+	}
+	c.conflicts.Store(&wp.ConflictScan{Conflicts: []string{"winws"}, AntiCheats: []string{"BEService"}, ObservedAt: time.Now()})
+	c.mergeConflicts(&n)
+	if len(n.Conflicts) != 1 {
+		t.Fatal("real interceptor conflict lost")
+	}
+}
+func TestGameStatusRemainsWithinIPCFrameWithLongPathsAndAllCaches(t *testing.T) {
+	c := New(context.Background())
+	defer c.Close()
+	now := time.Now()
+	path := `C:\` + strings.Repeat(`a\`, 1000) + `g.exe`
+	for i := 0; i < 8; i++ {
+		e := gameudp.NewLadder(c.games.budget)
+		e.Configure(path, true)
+		learning := []gameudp.Learning{}
+		for n := 0; n < 16; n++ {
+			learning = append(learning, gameudp.Learning{Network: strings.Repeat(string(rune('a'+n)), 64), Application: path, Stage: gameudp.Direct, Confirmed: true, Expires: now.Add(time.Hour)})
+		}
+		if err := e.Restore(learning, now); err != nil {
+			t.Fatal(err)
+		}
+		id := strings.Repeat(string(rune('A'+i)), 128)
+		c.games.items[id] = &gameEntry{ProfileID: id, Path: path, Name: id, Enabled: true, Engine: e}
+	}
+	status := c.gameStatus()
+	raw, err := json.Marshal(status)
+	if err != nil || len(raw) > 56*1024 {
+		t.Fatal("oversized IPC", len(raw), err)
+	}
+	trimmed := false
+	for _, p := range status.Profiles {
+		trimmed = trimmed || p.Engine.Truncated
+	}
+	if !trimmed {
+		t.Fatal("silent cache truncation")
+	}
+}

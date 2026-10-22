@@ -25,6 +25,10 @@ type ChangePage struct {
 }
 
 func cloneFlow(v FlowEvidence) FlowEvidence {
+	if v.GameUDP != nil {
+		copy := *v.GameUDP
+		v.GameUDP = &copy
+	}
 	if v.TCPAdmission != nil {
 		copy := *v.TCPAdmission
 		v.TCPAdmission = &copy

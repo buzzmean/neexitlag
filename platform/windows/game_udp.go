@@ -86,6 +86,9 @@ func (l *EvidenceLedger) RecordGameUDP(id ProcessIdentity, t Tuple, v gameudp.Ev
 	if !ok {
 		return
 	}
+	if old := flow.GameUDP; old != nil && old.ID == v.ID && old.Sequence > v.Sequence {
+		return
+	}
 	flow.GameUDP = &v
 	l.storeLocked(k, flow)
 }

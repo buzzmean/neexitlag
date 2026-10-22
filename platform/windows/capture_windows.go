@@ -333,6 +333,13 @@ func (b *WinDivertBackend) track() {
 		identity, e := discovery.Lookup(pid)
 		if e == nil {
 			b.associations.Put(Association{identity, tuple, endpoint})
+			// FLOW can arrive after the first packet/owner fallback. Consume proof for
+			// an already-observed tuple instead of rearming it after packet-cache expiry.
+			b.mu.Lock()
+			if b.flows[tuple] != nil {
+				b.associations.MarkGameFirstFlight(tuple, identity)
+			}
+			b.mu.Unlock()
 		}
 	}
 }
@@ -415,6 +422,9 @@ func (b *WinDivertBackend) processUDP(d *divertDLL, packet []byte, address [80]b
 	}
 	b.mu.Lock()
 	f := b.flows[tuple]
+	if f != nil && known {
+		b.associations.MarkGameFirstFlight(tuple, identity)
+	}
 	if f != nil && f.retired {
 		b.mu.Unlock()
 		b.Drops.Add(1)
@@ -425,6 +435,9 @@ func (b *WinDivertBackend) processUDP(d *divertDLL, packet []byte, address [80]b
 		f.identity = identity
 		f.policyEpoch = ^uint64(0)
 		f.endpoint = association.Endpoint
+		if f.game != nil {
+			b.associations.MarkGameFirstFlight(tuple, identity)
+		}
 	}
 	if f != nil && known && f.endpoint == 0 && f.identity.CreationTime == identity.CreationTime {
 		f.endpoint = association.Endpoint
@@ -502,9 +515,19 @@ func (b *WinDivertBackend) processUDP(d *divertDLL, packet []byte, address [80]b
 			return
 		}
 
+		if decision.GameUDP == nil {
+			b.associations.MarkGameFirstFlight(tuple, identity)
+		}
 		var game *gameudp.Flow
 		var gameErr error
 		decision, game, gameErr = BindGameUDP(decision, identity, tuple, time.Now())
+		if game != nil && !b.associations.MarkGameFirstFlight(tuple, identity) {
+			decision.GameUDP.PinUnverifiedDirect(game)
+			decision.Route = routing.Route{}
+			decision.BlockOnFailure = false
+			decision.Flow.PinnedPolicy = &routing.Policy{}
+			decision.Policy = flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailOpen, Source: "game_udp_ladder", Reason: "EXISTING_UDP_PINNED_DIRECT_NO_FIRST_FLIGHT_PROOF"}
+		}
 		if gameErr != nil {
 			b.evidence.RecordLifecycle(identity, tuple, gameErr.Error())
 		}
@@ -518,6 +541,9 @@ func (b *WinDivertBackend) processUDP(d *divertDLL, packet []byte, address [80]b
 		b.flows[tuple] = f
 		b.evidence.RecordPolicy(identity, tuple, decision, "")
 		b.evidence.RecordHotAttach(identity, tuple, b.hot.snapshot().Epoch, "HOT_ATTACH_NEW_FLOW", decision.Revision)
+		if f.game != nil && decision.GameUDP != nil {
+			b.evidence.RecordGameUDP(identity, tuple, decision.GameUDP.Evidence(f.game))
+		}
 		if (!decision.Route.Direct() || decision.ProbeDirect) && !decision.Block {
 			if b.admission.acquire(decision.ProbeDirect) {
 				b.wg.Add(1)
@@ -674,6 +700,10 @@ func (b *WinDivertBackend) forward(tuple Tuple, f *captureFlow, d *divertDLL) {
 	}
 	if !adaptive {
 		b.evidence.RecordRelayOpen(f.identity, tuple, openStarted, err)
+		if err != nil && f.game != nil && f.decision.GameUDP != nil {
+			f.decision.GameUDP.TransportFailed(f.game, "GAME_RELAY_OPEN_FAILED")
+			b.evidence.RecordGameUDP(f.identity, tuple, f.decision.GameUDP.Evidence(f.game))
+		}
 	}
 	if err == nil {
 		for _, flow := range b.Engine.Snapshot() {
@@ -968,6 +998,10 @@ func (b *WinDivertBackend) fallback(tuple Tuple, f *captureFlow, d *divertDLL, f
 		f.decision.Route = routing.Route{}
 	}
 	b.mu.Unlock()
+	if f.game != nil && f.decision.GameUDP != nil {
+		f.decision.GameUDP.TransportFailed(f.game, "GAME_RELAY_TRANSPORT_FAILED")
+		b.evidence.RecordGameUDP(f.identity, tuple, f.decision.GameUDP.Evidence(f.game))
+	}
 	b.evidence.RecordPolicy(f.identity, tuple, b.flowDecision(f), "TRANSPORT_FAILED")
 	b.evidence.RecordFailure(f.identity, tuple, "TRANSPORT_FAILED", block)
 	inject := func(payload []byte) {

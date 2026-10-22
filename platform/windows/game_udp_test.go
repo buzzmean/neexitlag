@@ -137,9 +137,11 @@ func TestGameBindingDoesNotRelayUntilDirectAndAllLocalTrialsFailed(t *testing.T)
 				t.Fatal("relay not pinned fail closed", d)
 			}
 		}
-		p, k := e.Plan(f, at)
-		for j := 0; j < k; j++ {
-			e.FakeSent(f, len(p)+28, nil)
+		for n := 0; n < e.Evidence(f).Variant.Cutoff; n++ {
+			p, k := e.Plan(f, at)
+			for j := 0; j < k; j++ {
+				e.FakeSent(f, len(p)+28, nil)
+			}
 		}
 		for sec := 0; sec <= 7; sec++ {
 			now := at.Add(time.Duration(sec) * time.Second)
@@ -195,5 +197,44 @@ func TestReflectNativeAddressLayoutAndBounds(t *testing.T) {
 	a[8] = 3
 	if _, _, err := decodeGameReflect(a, nil); err == nil {
 		t.Fatal("wrong layer")
+	}
+}
+func TestGameNativeFirstFlightProofIsOncePerFlowNotPerPacketCache(t *testing.T) {
+	a := NewAssociations(4)
+	_, tuple := gamePacket()
+	id := ProcessIdentity{PID: 17, CreationTime: 20, Path: `C:\Games\game.exe`}
+	a.Put(Association{Identity: id, Tuple: tuple})
+	if a.MarkGameFirstFlight(tuple, id) {
+		t.Fatal("unproven existing socket")
+	}
+	a.Put(Association{Identity: id, Tuple: tuple, Endpoint: 1})
+	if !a.MarkGameFirstFlight(tuple, id) || a.MarkGameFirstFlight(tuple, id) {
+		t.Fatal("cutoff restarted")
+	}
+	a.Put(Association{Identity: id, Tuple: tuple})
+	if a.MarkGameFirstFlight(tuple, id) {
+		t.Fatal("owner fallback restarted cutoff")
+	}
+	a.Delete(tuple, 1)
+	a.Put(Association{Identity: id, Tuple: tuple, Endpoint: 2})
+	if !a.MarkGameFirstFlight(tuple, id) {
+		t.Fatal("genuine new flow not eligible")
+	}
+}
+func TestGameEvidenceDoesNotRegressAcrossConcurrentPublishers(t *testing.T) {
+	ledger := NewEvidenceLedger()
+	_, tuple := gamePacket()
+	id := ProcessIdentity{PID: 17, CreationTime: 20, Path: `C:\Games\game.exe`}
+	ledger.BeginFlow(id, tuple)
+	ledger.RecordBytes(id, tuple, "captured", "", 32)
+	ledger.RecordGameUDP(id, tuple, gameudp.Evidence{ID: 1, Sequence: 2, Replies: 1})
+	ledger.RecordGameUDP(id, tuple, gameudp.Evidence{ID: 1, Sequence: 1, Replies: 0})
+	s := ledger.Snapshot(id.PID)
+	if len(s.Flows) != 1 || s.Flows[0].GameUDP.Replies != 1 {
+		t.Fatal("stale snapshot overwrote reply")
+	}
+	s.Flows[0].GameUDP.Replies = 10
+	if ledger.Snapshot(id.PID).Flows[0].GameUDP.Replies != 1 {
+		t.Fatal("external reader mutated ledger")
 	}
 }
