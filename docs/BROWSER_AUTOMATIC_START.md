@@ -104,3 +104,21 @@ relay ID; явный DIRECT/custom/opt-out не перезаписывается
 Неуспешный native prepare повторяется через2с, успешный проверяется периодически.
 Видимая готовность снимается при потере capture/connected, а не остаётся от
 предыдущего успешного опроса. Реальный WPF внешний вид здесь не проверен.
+
+## F. Проверки и границы доказательства
+
+TestWindowsNativeBrowserStartsBeforeControllerWithoutPAC запускает настоящий
+Chrome/Edge раньше контроллера. Без policy/proxy flags тот же PID/birth получает
+контролируемый HTTP body до запуска, через native deferred Host + QUIC/mTLS
+one-shot ticket relay после запуска, DIRECT после OFF/host close. Источник
+relay127.0.0.3 отличается от DIRECT127.0.0.1; required open не имеет fallback.
+Имитируется только privileged packet reflection в TCP accept; это не запуск
+WinDivert/SCM и не Internet/HTTPS PASS. Фикстура включена отдельным шагом Windows
+workflow; здесь скомпилирована, не выполнена. TLS с проверкой сертификата через
+relay отдельно покрывается integration/relay_origin_test.go.
+
+Проверки обнаружили отсутствие автоматического старта при повторном запуске GUI
+после Exit: добавлен один автоматический start для нового GUI lifetime при
+Automatic и native AUTO. Явный OFF/Exit подавляет дальнейший auto-start в этом
+окне; настройка Automatic=false не обходится. Нет browser process manipulation.
+Новые C# регрессии проверяют оба случая.

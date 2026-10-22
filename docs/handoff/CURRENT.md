@@ -2011,3 +2011,7 @@ C 6a4c07f. OFF/Exit/host stop для fresh native не требует proxy ил
 ### Браузеры E: автоматический UX без технических PAC кнопок
 
 D 6b20bcd. Обычный AUTO/Optimize использует native; PAC/Origin-probe moved в collapsed advanced diagnostics, legacy путь сохранён опционально. Нет фонового silent PAC prepare. Legacy AUTO сохраняет strategy/rules/custom preset/relay ID при adoption; DIRECT opt-out не сбрасывается. Startup rejection показывает нейтральный статус, safe IPC code остаётся в журнале; retry2s, ready сбрасывается при connected/capture loss. C#183/183 PASS; WPF0errors/4 прежних warnings PASS. Реальный Windows UI/Chrome157 не выполнялся.
+
+### Браузеры F: native Chrome/Edge fixture и регрессии
+
+E f655cdf. Windows fixture: реальный браузер до контроллера, без PAC/proxy flags, original Host/native opener + authenticated mTLS/tickets relay, разный response source, HTTP body, PID/birth, OFF/host-close; только packet-reflection seam, НЕ actual WinDivert/SCM/ISP proof. Windows fixture compile PASS; workflow подключён. Найден и исправлен auto-start нового GUI после предыдущего Exit при Automatic=true; явный OFF в текущем окне не отменяется, Automatic=false не обходится. C#185/185, WPF0errors/4 старых warnings; полный Go race/vet/Linux/Windows gates перед commit. Реальный Windows/Chrome157 недоступен; CI outcome проверяется после final push. CP/relay/VPS не менялись.

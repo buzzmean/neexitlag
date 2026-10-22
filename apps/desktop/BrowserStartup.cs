@@ -11,6 +11,7 @@ public partial class MainWindow
         if (model.Activation?.Status.CapturePermitted==false || !model.Available || model.Busy || DateTimeOffset.UtcNow < nextBrowserStartup) return;
         nextBrowserStartup = DateTimeOffset.UtcNow.AddSeconds(model.Snapshot?.BrowserPolicy is {ChromeReady:true,EdgeReady:true}?10:2);
         await model.EnsureStartupBrowserProfilesAsync(BrowserDiscovery.Installed(), lifetime.Token);
+        await model.EnsureBrowserOptimizationOnStartupAsync(lifetime.Token);
         if(model.Optimizing && model.Snapshot?.Settings.Automatic==true && model.Snapshot?.Connected==true)await PrepareNativeBrowsersAsync();
         if (ReferenceEquals(savedBrowserStartup, model.BrowserStartup) || model.BrowserStartup is null) return;
         // Bounded, owner-user report; no policy, tokens, certificates or payloads.

@@ -277,7 +277,7 @@ public sealed partial class DesktopViewModel : Observable
     }
     public async Task OptimizeAsync(bool enabled, CancellationToken ct = default)
     {
-        if(!enabled)InvalidateBrowserPreparation();
+        if(!enabled){SuppressAutomaticBrowserStartup();InvalidateBrowserPreparation();}
         if (await Act(async () => { if(!enabled)InvalidateBrowserPreparation();await client.Call<Snapshot>("optimize", new { enabled }, ct); }, ct))
             await RefreshAsync(ct);
     }

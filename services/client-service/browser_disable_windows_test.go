@@ -50,7 +50,11 @@ func (b *continuityBackend) OpenBrowserNativeTCP(ctx context.Context, _ wp.Proce
 	return (&net.Dialer{}).DialContext(ctx, "tcp", dst.String())
 }
 
-func continuityResolver(t *testing.T) *net.Resolver {
+func continuityResolver(t *testing.T, addresses ...[4]byte) *net.Resolver {
+	answer := [4]byte{127, 0, 0, 1}
+	if len(addresses) > 0 {
+		answer = addresses[0]
+	}
 	t.Helper()
 	dns, e := net.ListenPacket("udp4", "127.0.0.1:0")
 	if e != nil {
@@ -71,7 +75,7 @@ func continuityResolver(t *testing.T) *net.Resolver {
 			question := q.Questions[0]
 			response := dnsmessage.Message{Header: dnsmessage.Header{ID: q.Header.ID, Response: true, Authoritative: true, RecursionAvailable: true}, Questions: q.Questions}
 			if question.Type == dnsmessage.TypeA {
-				response.Answers = []dnsmessage.Resource{{Header: dnsmessage.ResourceHeader{Name: question.Name, Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET, TTL: 30}, Body: &dnsmessage.AResource{A: [4]byte{127, 0, 0, 1}}}}
+				response.Answers = []dnsmessage.Resource{{Header: dnsmessage.ResourceHeader{Name: question.Name, Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET, TTL: 30}, Body: &dnsmessage.AResource{A: answer}}}
 			}
 			raw, e := response.Pack()
 			if e == nil {
