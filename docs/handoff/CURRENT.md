@@ -2228,3 +2228,16 @@ PASS; actual official WinDivertHelperEvalFilter проверяется кома�
 на Windows перед упаковкой. Здесь DLL evaluator/SCM/Inno/freeze не исполнялись.
 Критично: каждому ПК нужен изолированный writable overlay, не общий live state.
 Полный admin guest не может быть ограничен приложением; нужен стандартный гость.
+
+## 22.10.2026 — клубный пилот C: сервисные defaults и простой GUI
+
+ConfigureClub до activation/IPC создаёт отсутствующие Chrome/Edge AUTO native по
+доверенным полным путям из образа, сохраняет существующий admin opt-out, включает
+Automatic; PUBG использует существующий discovery/default-enabled без смены ladder.
+Клубный GUI автоматически скрыт в трее, показывает только состояние; нет технических
+экранов, отключения/выхода/изменения маршрутов. Внешний IPC club owner — read-only
+allowlist (неизвестные методы тоже запрещены), внутренние activation/optimize работают.
+Обычный не-клубный GUI/IPC не изменены. Только Windows admin правит manifest/service.
+Go targeted race PASS; C# 196/196 PASS; WPF cross-build PASS (4 прежних CS8604).
+Живой WPF/SCM/обычный guest на реальном Windows пока не проверены. Full-admin/UAC-off
+пользователя приложение не ограничивает; для защиты настроек нужен стандартный гость.

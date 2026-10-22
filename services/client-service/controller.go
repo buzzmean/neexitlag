@@ -86,6 +86,7 @@ type Snapshot struct {
 	ActiveApps       []string                      `json:"active_apps"`
 }
 type Controller struct {
+	clubMode        atomic.Bool
 	games           gameRuntime
 	activation      activationRuntime
 	remoteDone      chan struct{}

@@ -27,6 +27,12 @@ public partial class App : System.Windows.Application
             Shutdown();
             return;
         }
+        if (ClubWindow.IsClubInstallation())
+        {
+            MainWindow = new ClubWindow(); // Starts in tray, no end-user prompts.
+            _ = ListenForActivation(lifetime.Token);
+            return;
+        }
         var freshReport = FreshPCSetupArguments(e.Args);
         var window = freshReport is null ? new MainWindow() : new MainWindow(LocalPreferences.Load(), false, true);
         MainWindow = window;
@@ -46,14 +52,16 @@ public partial class App : System.Windows.Application
                 using var readDeadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 readDeadline.CancelAfter(TimeSpan.FromSeconds(2));
                 if (await pipe.ReadAsync(signal, readDeadline.Token) == 1) {
-                    if(signal[0]==1) await Dispatcher.InvokeAsync(() => ((MainWindow)MainWindow).ShowFromTray());
-                    else if(signal[0]==2) await Dispatcher.InvokeAsync(() => ((MainWindow)MainWindow).Exit());
+                    if(signal[0]==1) await Dispatcher.InvokeAsync(() => ShowCurrentWindow());
+                    else if(signal[0]==2) await Dispatcher.InvokeAsync(() => ExitCurrentWindow());
                 }
             }
             catch (OperationCanceledException) { }
             catch (IOException) { await Task.Delay(200, ct).ConfigureAwait(false); }
         }
     }
+    void ShowCurrentWindow(){if(MainWindow is ClubWindow club)club.ShowFromTray();else if(MainWindow is MainWindow main)main.ShowFromTray();}
+    void ExitCurrentWindow(){if(MainWindow is ClubWindow club)club.Exit();else if(MainWindow is MainWindow main)main.Exit();}
     protected override void OnExit(ExitEventArgs e)
     {
         lifetime.Cancel();

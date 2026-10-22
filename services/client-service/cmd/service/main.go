@@ -36,6 +36,9 @@ func runReady(ctx context.Context, path string, ready func()) error {
 	if e = controller.SetCustomPath(manifest.StateDirectory + string(os.PathSeparator) + "profiles.json"); e != nil {
 		return e
 	}
+	if e = controller.ConfigureClub(manifest); e != nil {
+		return e
+	}
 	{ // Every boot, including freeze: remove only journal-owned stale policy before initialization.
 		if err := controller.CleanupOwnedBrowserPolicies(); err != nil {
 			slog.Warn("preactivation owned browser policy cleanup incomplete", "class", "BROWSER_POLICY_CLEANUP_FAILED")
@@ -46,7 +49,7 @@ func runReady(ctx context.Context, path string, ready func()) error {
 	// the GUI can tell "starting" from "not installed". Methods are rejected until
 	// initialization finishes (see startupGate).
 	var gate startupGate
-	server, e := ipc.New(strings.TrimSpace(string(token)), gate.wrap(controller.Handle))
+	server, e := ipc.New(strings.TrimSpace(string(token)), gate.wrap(controller.HandleOwnerIPC))
 	if e != nil {
 		return e
 	}
