@@ -1,0 +1,428 @@
+// Package gameudp implements a bounded, local-only UDP first-flight decoy.
+// It has no relay, protocol decryption, process access or packet capture code.
+package gameudp
+
+import (
+	"crypto/rand"
+	"encoding/binary"
+	"errors"
+	"github.com/buzzmean/neexitlag/core/routing"
+	"io"
+	"net/netip"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+)
+
+const (
+	MaxRepeats            = 16
+	MaxCutoff             = 4
+	MaxPayload            = 1400
+	MaxPerFlow            = MaxRepeats * MaxCutoff
+	MaxFlows              = 128
+	MaxNetworks           = 16
+	MaxFakePerSecond      = 256
+	MaxFakeBytesPerSecond = MaxFakePerSecond * MaxPayload
+	Probation             = 6 * time.Second
+	ConfirmationSpan      = 2 * time.Second
+	Liveness              = 5 * time.Second
+	LearnTTL              = 6 * time.Hour
+)
+
+type Variant struct {
+	ID      string `json:"id"`
+	Repeats int    `json:"repeats"`
+	Cutoff  int    `json:"cutoff"`
+	Size    int    `json:"payload_size"`
+	First   byte   `json:"first_byte"`
+}
+
+func Variants() []Variant {
+	return []Variant{
+		{"quic-v1-c8-k12-n2", 12, 2, 1250, 0xc8},
+		{"quic-v1-c8-k6-n3", 6, 3, 1250, 0xc8},
+		{"quic-v1-c8-k10-n3", 10, 3, 1250, 0xc8},
+		{"quic-v1-c8-k14-n3", 14, 3, 1250, 0xc8},
+		{"quic-v1-c8-k12-n4", 12, 4, 1250, 0xc8},
+		{"quic-v1-c0-k10-n2", 10, 2, 1280, 0xc0},
+	}
+}
+func (v Variant) Validate() error {
+	if v.Repeats < 1 || v.Repeats > MaxRepeats || v.Cutoff < 1 || v.Cutoff > MaxCutoff || v.Size < 1200 || v.Size > MaxPayload || (v.First != 0xc8 && v.First != 0xc0) {
+		return errors.New("GAME_UDP_VARIANT_INVALID")
+	}
+	return nil
+}
+
+// Generate uses an independent random DCID, SCID and body for every flow. This
+// is an intentionally unauthenticated QUIC-shaped datagram, not a QUIC session.
+func Generate(v Variant, random io.Reader) ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if random == nil {
+		random = rand.Reader
+	}
+	p := make([]byte, v.Size)
+	if _, err := io.ReadFull(random, p); err != nil {
+		return nil, errors.New("GAME_UDP_RANDOM_UNAVAILABLE")
+	}
+	p[0] = v.First
+	binary.BigEndian.PutUint32(p[1:5], 1)
+	p[5] = 8
+	p[14] = 8
+	p[23] = 0
+	binary.BigEndian.PutUint16(p[24:26], 0x4000|uint16(len(p)-26))
+	return p, nil
+}
+func Canonical(p string) string { return strings.ToLower(strings.ReplaceAll(p, `\`, "/")) }
+func Eligible(application, selected, protocol string, dst netip.AddrPort) bool {
+	return selected != "" && Canonical(application) == Canonical(selected) && protocol == "udp" && dst.IsValid() && dst.Addr().Is4() && dst.Port() >= 1024 && !routing.LocalDestination(dst.Addr())
+}
+
+type Key struct {
+	Network             string
+	Application         string
+	PID                 uint32
+	Birth               uint64
+	Source, Destination netip.AddrPort
+}
+type Evidence struct {
+	ID            uint64    `json:"flow_id"`
+	Network       string    `json:"network_fingerprint"`
+	PID           uint32    `json:"pid"`
+	Birth         uint64    `json:"creation_time"`
+	Application   string    `json:"exe"`
+	Source        string    `json:"source"`
+	Destination   string    `json:"destination"`
+	Variant       Variant   `json:"variant"`
+	Started       time.Time `json:"started_at"`
+	LastOutgoing  time.Time `json:"last_outgoing"`
+	FirstReply    time.Time `json:"first_reply"`
+	LastReply     time.Time `json:"last_reply"`
+	Outgoing      uint64    `json:"outgoing_packets"`
+	OutgoingBytes uint64    `json:"outgoing_bytes"`
+	Replies       uint64    `json:"inbound_packets"`
+	ReplyBytes    uint64    `json:"inbound_bytes"`
+	Fakes         uint64    `json:"fake_packets"`
+	FakeBytes     uint64    `json:"fake_bytes"`
+	FakeErrors    uint64    `json:"fake_send_errors"`
+	RateLimited   uint64    `json:"rate_limited_packets"`
+	State         string    `json:"state"`
+	Reason        string    `json:"reason"`
+}
+type Flow struct {
+	engine      *Engine
+	key         Key
+	e           Evidence
+	payload     []byte
+	ordinal     int
+	generation  uint64
+	bucketFirst int64
+	bucketLast  int64
+	buckets     int
+	learned     bool
+	failed      bool
+	last        time.Time
+}
+type Learning struct {
+	Network     string    `json:"network"`
+	Application string    `json:"application"`
+	Index       int       `json:"index"`
+	Tried       int       `json:"tried"`
+	Confirmed   bool      `json:"confirmed"`
+	Expires     time.Time `json:"expires"`
+}
+type Snapshot struct {
+	Enabled     bool       `json:"enabled"`
+	Application string     `json:"application"`
+	Generation  uint64     `json:"generation"`
+	Reason      string     `json:"reason"`
+	Flows       []Evidence `json:"flows"`
+	Learning    []Learning `json:"learning"`
+	Truncated   bool       `json:"truncated"`
+	Lost        uint64     `json:"lost"`
+}
+type Engine struct {
+	mu                         sync.Mutex
+	application                string
+	enabled                    bool
+	generation, next, lost     uint64
+	reason                     string
+	flows                      map[uint64]*Flow
+	learning                   map[string]Learning
+	revision                   uint64
+	budgetAt                   time.Time
+	budgetPackets, budgetBytes int
+}
+
+func New() *Engine {
+	return &Engine{enabled: true, generation: 1, flows: map[uint64]*Flow{}, learning: map[string]Learning{}, reason: "PUBG_NOT_DISCOVERED"}
+}
+func (e *Engine) Configure(application string, enabled bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if Canonical(e.application) != Canonical(application) || e.enabled != enabled {
+		e.generation++
+	}
+	e.application = application
+	e.enabled = enabled
+}
+func (e *Engine) SetReason(reason string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if (e.reason == "") != (reason == "") {
+		e.generation++
+	}
+	e.reason = reason
+}
+func (e *Engine) Application() string { e.mu.Lock(); defer e.mu.Unlock(); return e.application }
+func (e *Engine) Enabled() bool       { e.mu.Lock(); defer e.mu.Unlock(); return e.enabled }
+func learnKey(n, a string) string     { return n + "\x00" + Canonical(a) }
+func (e *Engine) Open(k Key, now time.Time) (*Flow, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !e.enabled || e.reason != "" || len(k.Network) != 64 || k.PID == 0 || k.Birth == 0 || !Eligible(k.Application, e.application, "udp", k.Destination) {
+		return nil, errors.New("GAME_UDP_SCOPE_UNAVAILABLE")
+	}
+	e.cleanup(now)
+	if len(e.flows) >= MaxFlows {
+		return nil, errors.New("GAME_UDP_FLOW_CAPACITY")
+	}
+	cache := e.learning[learnKey(k.Network, k.Application)]
+	index := 0
+	if now.Before(cache.Expires) {
+		index = cache.Index
+		if cache.Tried >= len(Variants()) && !cache.Confirmed {
+			return nil, errors.New("GAME_UDP_VARIANTS_EXHAUSTED")
+		}
+	}
+	v := Variants()[index]
+	p, err := Generate(v, nil)
+	if err != nil {
+		return nil, err
+	}
+	e.next++
+	f := &Flow{engine: e, key: k, generation: e.generation, payload: p, last: now, e: Evidence{ID: e.next, Network: k.Network, PID: k.PID, Birth: k.Birth, Application: k.Application, Source: k.Source.String(), Destination: k.Destination.String(), Variant: v, Started: now, State: "PROBATION", Reason: "SUSTAINED_REPLY_NOT_OBSERVED"}}
+	e.flows[f.e.ID] = f
+	return f, nil
+}
+
+// Plan advances the input cutoff even if a decoy fails. Existing flows never
+// restart their first flight after settings/learning/network changes.
+func (e *Engine) Plan(f *Flow, now time.Time) ([]byte, int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if f == nil || f.engine != e {
+		return nil, 0
+	}
+	f.last = now
+	f.ordinal++
+	if !e.enabled || e.reason != "" || f.generation != e.generation || f.ordinal > f.e.Variant.Cutoff {
+		return nil, 0
+	}
+	k := f.e.Variant.Repeats
+	if e.budgetAt.IsZero() || now.Sub(e.budgetAt) >= time.Second {
+		e.budgetAt = now
+		e.budgetPackets = 0
+		e.budgetBytes = 0
+	}
+	if e.budgetPackets+k > MaxFakePerSecond || e.budgetBytes+k*len(f.payload) > MaxFakeBytesPerSecond {
+		f.e.RateLimited += uint64(k)
+		f.e.Reason = "DECOY_RATE_LIMITED_ORIGINAL_PASSTHROUGH"
+		return nil, 0
+	}
+	e.budgetPackets += k
+	e.budgetBytes += k * len(f.payload)
+	// Caller treats payload as immutable; no kernel packet references are retained.
+	return f.payload, k
+}
+func (e *Engine) FakeSent(f *Flow, n int, err error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if f == nil || f.engine != e {
+		return
+	}
+	if err != nil {
+		f.e.FakeErrors++
+		f.e.Reason = "DECOY_SEND_FAILED_ORIGINAL_PASSTHROUGH"
+		return
+	}
+	f.e.Fakes++
+	f.e.FakeBytes += uint64(n)
+}
+func (e *Engine) Outgoing(f *Flow, n int, now time.Time) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if f == nil || f.engine != e {
+		return
+	}
+	f.e.Outgoing++
+	f.e.OutgoingBytes += uint64(n)
+	f.e.LastOutgoing = now
+	f.last = now
+}
+func (e *Engine) Reply(f *Flow, n int, now time.Time) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if f == nil || f.engine != e {
+		return
+	}
+	f.e.Replies++
+	f.e.ReplyBytes += uint64(n)
+	f.e.LastReply = now
+	f.last = now
+	if f.e.FirstReply.IsZero() {
+		f.e.FirstReply = now
+		f.bucketFirst = now.Unix()
+		f.bucketLast = now.Unix()
+		f.buckets = 1
+	} else if now.Unix() > f.bucketLast {
+		f.bucketLast = now.Unix()
+		f.buckets++
+	}
+}
+func (e *Engine) Tick(now time.Time) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, f := range e.flows {
+		e.health(f, now)
+	}
+	e.cleanup(now)
+}
+func (e *Engine) health(f *Flow, now time.Time) {
+	if f.failed || f.generation != e.generation || !e.enabled || e.reason != "" || f.e.Outgoing < 6 || now.Sub(f.e.LastOutgoing) > 2*time.Second {
+		return
+	}
+	sustained := f.e.LastOutgoing.Sub(f.e.Started) >= ConfirmationSpan && f.e.Replies >= 6 && f.buckets >= 3 && f.e.LastReply.Sub(f.e.FirstReply) >= ConfirmationSpan && now.Sub(f.e.LastReply) < 2*time.Second
+	if f.e.Fakes == 0 || f.e.FakeErrors > 0 || f.e.RateLimited > 0 {
+		f.e.State = "LOCAL_PRIMING_INCOMPLETE"
+		return
+	}
+	key := learnKey(f.key.Network, f.key.Application)
+	old := e.learning[key]
+	if sustained && !f.learned && f.e.Fakes > 0 && f.e.FakeErrors == 0 && f.e.RateLimited == 0 {
+		f.learned = true
+		f.e.State = "SUSTAINED_REPLIES"
+		f.e.Reason = "TRANSPORT_CADENCE_CONFIRMED_NOT_MATCH_LOAD_PROOF"
+		index := 0
+		for i, v := range Variants() {
+			if v.ID == f.e.Variant.ID {
+				index = i
+			}
+		}
+		e.putLearning(key, Learning{Network: f.key.Network, Application: f.key.Application, Index: index, Confirmed: true, Expires: now.Add(LearnTTL)}, now)
+		return
+	}
+	failed := !f.learned && now.Sub(f.e.Started) >= Probation || f.learned && now.Sub(f.e.LastReply) >= Liveness
+	if !failed {
+		return
+	}
+	f.failed = true
+	f.e.State = "INSUFFICIENT_REPLIES"
+	f.e.Reason = "NEXT_FLOW_VARIANT_ONLY_NO_RELAY"
+	index := 0
+	for i, v := range Variants() {
+		if v.ID == f.e.Variant.ID {
+			index = i
+		}
+	}
+	// Parallel failures of the same candidate advance only once. A losing trial
+	// cannot overwrite a different sustained winner or drain all alternatives.
+	if now.Before(old.Expires) && old.Index != index {
+		return
+	}
+	if old.Confirmed {
+		for _, peer := range e.flows {
+			if peer != f && peer.learned && !peer.failed && learnKey(peer.key.Network, peer.key.Application) == key && now.Sub(peer.e.LastReply) < 2*time.Second && now.Sub(peer.e.LastOutgoing) < 2*time.Second {
+				f.e.Reason = "FLOW_FAILED_NETWORK_WINNER_STILL_RESPONDING"
+				return
+			}
+		}
+	}
+	tried := old.Tried + 1
+	if !now.Before(old.Expires) {
+		tried = 1
+	}
+	next := index + 1
+	if next >= len(Variants()) {
+		next = index
+		tried = len(Variants())
+	}
+	expiry := now.Add(10 * time.Minute)
+	if tried >= len(Variants()) {
+		expiry = now.Add(time.Hour)
+	}
+	e.putLearning(key, Learning{Network: f.key.Network, Application: f.key.Application, Index: next, Tried: tried, Expires: expiry}, now)
+}
+func (e *Engine) putLearning(key string, v Learning, now time.Time) {
+	if _, ok := e.learning[key]; !ok && len(e.learning) >= MaxNetworks {
+		oldest := ""
+		var at time.Time
+		for k, v := range e.learning {
+			if oldest == "" || v.Expires.Before(at) {
+				oldest, at = k, v.Expires
+			}
+		}
+		delete(e.learning, oldest)
+	}
+	e.learning[key] = v
+	e.revision++
+}
+func (e *Engine) cleanup(now time.Time) {
+	for id, f := range e.flows {
+		if now.Sub(f.last) > 2*time.Minute {
+			delete(e.flows, id)
+			e.lost++
+		}
+	}
+	for k, v := range e.learning {
+		if !now.Before(v.Expires) {
+			delete(e.learning, k)
+			e.revision++
+		}
+	}
+}
+func (e *Engine) Snapshot() Snapshot {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	out := Snapshot{Enabled: e.enabled, Application: e.application, Generation: e.generation, Reason: e.reason, Flows: []Evidence{}, Learning: []Learning{}, Lost: e.lost}
+	for _, f := range e.flows {
+		out.Flows = append(out.Flows, f.e)
+	}
+	for _, l := range e.learning {
+		out.Learning = append(out.Learning, l)
+	}
+	sort.Slice(out.Flows, func(i, j int) bool { return out.Flows[i].ID > out.Flows[j].ID })
+	sort.Slice(out.Learning, func(i, j int) bool { return out.Learning[i].Network < out.Learning[j].Network })
+	return out
+}
+func (e *Engine) Revision() uint64 { e.mu.Lock(); defer e.mu.Unlock(); return e.revision }
+func (e *Engine) Restore(all []Learning, now time.Time) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if len(all) > MaxNetworks {
+		return errors.New("GAME_UDP_LEARNING_CAPACITY")
+	}
+	for _, l := range all {
+		if len(l.Network) != 64 || len(l.Application) > 2048 || l.Index < 0 || l.Index >= len(Variants()) || l.Tried < 0 || l.Tried > len(Variants()) || l.Expires.After(now.Add(LearnTTL)) {
+			return errors.New("GAME_UDP_LEARNING_INVALID")
+		}
+	}
+	for _, l := range all {
+		if now.Before(l.Expires) {
+			e.learning[learnKey(l.Network, l.Application)] = l
+		}
+	}
+	return nil
+}
+
+func (e *Engine) Evidence(f *Flow) Evidence {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if f == nil || f.engine != e {
+		return Evidence{}
+	}
+	return f.e
+}

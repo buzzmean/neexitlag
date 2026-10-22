@@ -2069,3 +2069,7 @@ SOCKET CONNECT с IPv4-mapped IPv6 адресами давал ключ ::ffff:I
 ### CI итог actual-driver gate 7de94e0
 
 GitHub API после push: https://github.com/buzzmean/neexitlag/actions/runs/39759360991 — chrome-policy и browser-native-driver завершились failure за 2–3 секунды, у обоих `steps=[]`. Следовательно ни checkout, ни Chrome, ни WinDivert тест не запускались; это не результат приёмочного теста. Verify https://github.com/buzzmean/neexitlag/actions/runs/39759361435 и Edge https://github.com/buzzmean/neexitlag/actions/runs/39759361292 также failure. Точная свежая annotation недоступна через connector; раньше owner подтвердил billing/spending gate, нельзя приписывать этот отказ quota artifacts. Реальный Windows gate остаётся блокером A/C/F. На VPS/ПК агент не выполнял действий. Этот заключительный commit меняет только handoff и порядок owner-команд в документации; runtime код — 7de94e0.
+
+### PUBG A: ядро локальной приманки и bounded first-flight
+
+Собственная QUIC-v1-подобная генерация crypto/rand на поток (1250 bytes, C8/v1/DCID8); default K12/N2. Отдельный потолок K16/N4/payload1400, flow128/network16 и 256 fakes/s глобально, никаких relay/API зависимостей. Ядро уже содержит bounded cadence learning для подключения этапом D: burst не healthy, immutable вариант текущего потока, 6 кандидатов, cooldown. Scope только точный exe/IPv4 public UDP >=1024. Go race package PASS; WinDivert/ПК/BattlEye ещё не подключены и не проверены.
