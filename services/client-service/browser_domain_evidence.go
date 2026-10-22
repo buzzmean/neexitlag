@@ -166,14 +166,20 @@ func (c *Controller) watchBrowserDomainCache() {
 }
 func (c *Controller) nativeOpaquePlan(p profiles.Profile, t wp.Tuple, network string, e browserDomainEvidence) browserproxy.Plan {
 	policy := c.browserFlow(p, wp.ProcessIdentity{}, t, e.Domain, network)
-	// Per-IP/explicit rules retain priority, even without a hostname.
+	// Explicit BLOCK remains authoritative. An ordinary DIRECT rule cannot
+	// override a known protected association, even on an ambiguous shared IP.
 	if r, ok := flowpolicy.Evaluate(p.Rules, flowpolicy.Input{Protocol: t.Protocol, Destination: t.Destination, Domain: e.Domain, Network: network}); ok {
-		policy = r
+		if !e.Restricted || r.Action == flowpolicy.Block || r.Action == flowpolicy.RelayRequired {
+			policy = r
+		}
 	}
-	if policy.Source != "rule" && (e.Restricted || c.browser.domains.directFailed(network, p.ID, t.Destination, time.Now())) {
+	if policy.Action != flowpolicy.Block && (e.Restricted || policy.Source != "rule" && c.browser.domains.directFailed(network, p.ID, t.Destination, time.Now())) {
 		relay := p.RelayID
 		if relay == "" {
 			relay = "VPS-01"
+		}
+		if policy.Action == flowpolicy.RelayRequired && policy.RelayID != "" {
+			relay = policy.RelayID
 		}
 		policy = flowpolicy.Result{Action: flowpolicy.RelayRequired, RelayID: relay, Fallback: flowpolicy.Required, Source: "browser_opaque_evidence", Reason: "protected DNS/outer association or observed DIRECT failure; authenticated relay only"}
 	}

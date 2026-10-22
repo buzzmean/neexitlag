@@ -2137,3 +2137,10 @@ PowerShell startup helper: help/examples, точная & .\tools\windows\... к�
 Bare name без пути не может быть перехвачен скриптом: shell не запускает файл;
 это прямо объяснено в BROWSER_HOT_ATTACH.md. Регрессия реально вызывает helper
 без параметров в изолированном каталоге. Никаких browser restart/policy changes.
+
+## 22.10.2026 — дополнительная защита DNS hint
+
+При ревью добавлена отдельная регрессия: явное DIRECT IP-правило не может
+ослабить protected association, в том числе ambiguous shared-IP; BLOCK остаётся
+приоритетным. Для обычных сайтов явные правила сохраняются. Targeted race PASS.
+Startup helper запушен 5c8f3be; Telegram шаг — 49ecb96. Общие проверки идут.

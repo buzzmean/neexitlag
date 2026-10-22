@@ -91,3 +91,21 @@ func TestNativeDNSFailureMemoryBoundedAndExpires(t *testing.T) {
 		t.Fatal("unbounded cache", len(index.failed))
 	}
 }
+
+func TestProtectedOpaqueAssociationCannotBeDowngradedByDirectIPRule(t *testing.T) {
+	c, p, _ := nativeEdgeFixture(t)
+	p.Mode = profiles.Auto
+	p.BrowserTransport = "native"
+	tuple := policyTuple("tcp", 443)
+	p.Rules = []flowpolicy.Rule{{ID: "ip-direct", CIDRs: []string{tuple.Destination.Addr().String() + "/32"}, Action: flowpolicy.Direct}}
+	for _, e := range []browserDomainEvidence{{Domain: "chatgpt.com", Restricted: true}, {Restricted: true, Ambiguous: true}} {
+		plan := c.nativeOpaquePlan(p, tuple, "network", e)
+		if plan.Policy.Action != flowpolicy.RelayRequired || plan.Policy.Fallback != flowpolicy.Required {
+			t.Fatal("protected hint weakened by DIRECT rule", plan)
+		}
+	}
+	p.Rules[0].Action = flowpolicy.Block
+	if plan := c.nativeOpaquePlan(p, tuple, "network", browserDomainEvidence{Restricted: true}); plan.Policy.Action != flowpolicy.Block {
+		t.Fatal("BLOCK weakened", plan)
+	}
+}
