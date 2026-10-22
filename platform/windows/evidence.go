@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/buzzmean/neexitlag/core/flowpolicy"
+	"github.com/buzzmean/neexitlag/core/gameudp"
 	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"github.com/buzzmean/neexitlag/core/routing"
 	"github.com/buzzmean/neexitlag/core/telemetry"
@@ -16,6 +17,8 @@ import (
 )
 
 type CaptureCounters struct {
+	GameFakePackets    uint64 `json:"game_fake_packets"`
+	GameFakeBytes      uint64 `json:"game_fake_bytes"`
 	DirectReplyPackets uint64 `json:"direct_reply_packets"`
 	DirectReplyBytes   uint64 `json:"direct_reply_bytes"`
 	FakeTLS            uint64 `json:"fake_tls_packets"`
@@ -41,6 +44,7 @@ type TCPAdmissionEvidence struct {
 }
 
 type FlowEvidence struct {
+	GameUDP         *gameudp.Evidence     `json:"game_udp,omitempty"`
 	TCPAdmission    *TCPAdmissionEvidence `json:"tcp_admission,omitempty"`
 	HotAttach       *HotAttachFlow        `json:"hot_attach,omitempty"`
 	FailureCause    string                `json:"failure_cause,omitempty"`
@@ -133,6 +137,8 @@ func NewEvidenceLedger() *EvidenceLedger {
 }
 func increment(c *CaptureCounters, event string) {
 	switch event {
+	case "game_fake":
+		c.GameFakePackets++
 	case "direct_reply":
 		c.DirectReplyPackets++
 	case "quic_fallback":
@@ -325,6 +331,8 @@ func ClassifyCapture(id ProcessIdentity, t Tuple, self uint32, classify Classifi
 
 func incrementBytes(c *CaptureCounters, event string, n uint64) {
 	switch event {
+	case "game_fake":
+		c.GameFakeBytes += n
 	case "local":
 		c.DirectPlusBytes += n
 	case "captured":

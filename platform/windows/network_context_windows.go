@@ -68,7 +68,7 @@ $doh='browser Secure DNS unknown; system DoH cmdlet unavailable';if(Get-Command 
 func inspectConflicts(ctx context.Context) ConflictScan {
 	script := `[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);$OutputEncoding=[Console]::OutputEncoding;$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';$me=` + strconv.Itoa(os.Getpid()) + `;
 $c=@(Get-Process|Where-Object{$_.Id -ne $me -and $_.ProcessName -match '^(winws|winws2|goodbyedpi|easyanticheat.*|beservice.*|vgc)$'}|ForEach-Object{$_.ProcessName});
-$unknown=$false;foreach($p in @(Get-Process|Where-Object{$_.Id -ne $me -and $_.Id -gt 4})){try{if(@($p.Modules|Where-Object{$_.ModuleName -ieq 'WinDivert.dll'}).Count -gt 0){$c+=($p.ProcessName+':WinDivert.dll')}}catch{$unknown=$true}};
+$unknown=$false;foreach($p in @(Get-Process|Where-Object{$_.Id -ne $me -and $_.Id -gt 4 -and $_.ProcessName -notmatch '^(TslGame|cs2|dota2|r5apex|VALORANT.*|FACEIT.*|beservice.*|easyanticheat.*|vgc)$'})){try{if(@($p.Modules|Where-Object{$_.ModuleName -ieq 'WinDivert.dll'}).Count -gt 0){$c+=($p.ProcessName+':WinDivert.dll')}}catch{$unknown=$true}};
 @{conflicts=$c;incomplete=$unknown}|ConvertTo-Json -Depth 3 -Compress`
 	raw, err := runPowerShell(ctx, script)
 	if err != nil {

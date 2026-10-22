@@ -23,6 +23,7 @@ import (
 
 	"github.com/buzzmean/neexitlag/core/browserproxy"
 	"github.com/buzzmean/neexitlag/core/flowpolicy"
+	"github.com/buzzmean/neexitlag/core/gameudp"
 	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"github.com/buzzmean/neexitlag/core/measurement"
 	"github.com/buzzmean/neexitlag/core/optimizer"
@@ -85,6 +86,7 @@ type Snapshot struct {
 	ActiveApps       []string                      `json:"active_apps"`
 }
 type Controller struct {
+	games           gameRuntime
 	activation      activationRuntime
 	remoteDone      chan struct{}
 	remoteMu        sync.Mutex
@@ -142,6 +144,8 @@ type Controller struct {
 func New(ctx context.Context) *Controller {
 	ctx, cancel := context.WithCancel(ctx)
 	c := &Controller{browser: newBrowserRuntime(), relayPools: map[string]*transport.Pool{}, AutoLearned: flowpolicy.NewLearning(), groupBindings: map[uint32]groupBinding{}, autoJobs: map[string]autoLease{}, discovery: windowsplatform.NewDiscovery(), Local: localstrategy.New(), Learned: localstrategy.NewCache(1024), Engine: routing.New(4096), Selector: optimizer.New(optimizer.DefaultParameters()), Measurements: measurement.New(measurement.Defaults()), Profiles: profiles.New(profiles.Defaults()), recentApps: make(map[string]time.Time), localProfiles: make(map[string]profiles.Profile), acceptanceRelays: make(map[string]acceptanceRelaySource), transportDrops: make(map[string]func() map[string]telemetry.Metric), settings: Settings{Automatic: true, Failover: "DIRECT", UpdateChannel: "stable"}, ctx: ctx, cancel: cancel}
+	c.games.items = map[string]*gameEntry{}
+	c.games.budget = &gameudp.Budget{}
 	c.selfExecutable, _ = os.Executable()
 	c.Local.Guard = func(m localstrategy.Metadata) bool {
 		if c.autoCandidateQuarantined(m) {
@@ -218,6 +222,8 @@ func (c *Controller) syncPolicies() {
 }
 func (c *Controller) Start() {
 	c.wg.Add(1)
+	go func() { defer c.wg.Done(); c.watchGames() }()
+	c.wg.Add(1)
 	go func() { defer c.wg.Done(); c.maintainSilentBrowserPolicies() }()
 	c.wg.Add(1)
 	go func() { defer c.wg.Done(); c.watchNetwork() }()
@@ -249,6 +255,7 @@ func (c *Controller) Close() {
 }
 func (c *Controller) SetCustomPath(path string) error {
 	c.customPath = path
+	c.loadGames()
 	if err := c.loadAutoLearning(); err != nil {
 		return err
 	}
@@ -335,6 +342,9 @@ func (c *Controller) Classify(identity windowsplatform.ProcessIdentity, t window
 	decision := windowsplatform.Decision{Route: routing.Route{}}
 	if !enabled || c.selfExecutable != "" && strings.EqualFold(identity.Path, c.selfExecutable) {
 		return decision
+	}
+	if d, ok := c.classifyGameUDP(identity, t); ok {
+		return d
 	}
 	profile, ok := c.matchApplication(identity)
 	if !ok {
@@ -603,6 +613,8 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		}()
 	}
 	switch method {
+	case "gameudp.status", "gameudp.set", "pubg.status", "pubg.set":
+		return c.handleGameUDP(ctx, method, raw)
 	case "activation.status", "activation.set":
 		return c.handleActivation(method, raw)
 	case "browser.native.attribution":

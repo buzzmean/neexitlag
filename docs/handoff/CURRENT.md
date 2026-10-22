@@ -2076,3 +2076,7 @@ GitHub API после push: https://github.com/buzzmean/neexitlag/actions/runs/3
 
 ### 22.10.2026: уточнение владельца — общий игровой UDP механизм
 Готово ядро генерации `eb4c265`. По новому явному разрешению владельца добавлена лестница DIRECT → LOCAL_UDP (6 bounded вариантов) → RELAY, отдельно на игру/сеть; изменение касается только следующих новых UDP tuples. Работающий DIRECT сохраняется, старые потоки не перепримируются/не переезжают. Общий бюджет приманок 256 пакетов/с на ПК; собственный потолок K16/N4. Кэш с TTL, finite exhaustion/cooldown. Новый engine race suite PASS. Интеграция WinDivert/профили/GUI ещё в работе; реальный Windows/античит/матч PASS не заявлен. PUBG opt-in default подтверждён владельцем, Vanguard/FACEIT default-off до runtime compatibility. VPS не тронут.
+
+### 22.10.2026: игровой UDP — интеграция захвата и профилей
+
+Готова интеграция per-game ladder с WinDivert: выбор и pin маршрута до UDP admission; свой first-flight sender, реальные inbound cadence/counters, отдельная sniff/REFLECT диагностика конфликтов и SCM/process-name guard Vanguard/FACEIT (без process memory). Steam PUBG default-on, CS2/Dota2/Apex opt-in, arbitrary exact-path game profiles через gameudp.set. Остальные игры/приложения и UDP53/443/LAN/IPv6 не меняются. Race core/gameudp+platform/windows+client-service PASS; targeted vet и Windows all-build/test-EXE compile PASS. Реальные драйвер/античит/игра/Windows seam execution НЕ проверены. VPS не тронут. Следующий этап GUI и owner diagnostics.

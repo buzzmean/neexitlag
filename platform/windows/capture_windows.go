@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/buzzmean/neexitlag/core/flowpolicy"
+	"github.com/buzzmean/neexitlag/core/gameudp"
 	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"github.com/buzzmean/neexitlag/core/protocol"
 	"github.com/buzzmean/neexitlag/core/routing"
@@ -26,6 +28,7 @@ type queuedDatagram struct {
 	enqueued time.Time
 }
 type captureFlow struct {
+	game         *gameudp.Flow
 	quicNotified bool
 	recovering   atomic.Bool
 	policyEpoch  uint64
@@ -46,39 +49,42 @@ type captureFlow struct {
 	lastSeen     time.Time
 }
 type WinDivertBackend struct {
-	ingress             captureIngress
-	testBrowserLoopback bool // Set only from export_test.go, never production configuration.
-	policyEpoch         atomic.Uint64
-	policyMu            sync.RWMutex
-	transition          map[string]bool
-	transitionAll       bool
-	hot                 hotAttachState
-	hotRequests         chan struct{}
-	classify            Classifier
-	Files               DriverFiles
-	Engine              *routing.Engine
-	RX, TX, Drops       atomic.Uint64
-	LocalDrops          telemetry.Counters
-	mu                  sync.Mutex
-	life                sync.Mutex
-	status              CaptureStatus
-	dll                 *divertDLL
-	native              *divertDLL
-	network, flow       uintptr
-	socket              uintptr
-	ipv6                uintptr
-	v6guard             IPv6Guard
-	flows               map[Tuple]*captureFlow
-	associations        *FlowAssociations
-	ctx                 context.Context
-	cancel              context.CancelFunc
-	wg                  sync.WaitGroup
-	packetWriter        func([]byte, [80]byte) error // optional native test seam; production uses WinDivert
-	openWorkers         chan struct{}                // setup only; never held for UDP flow lifetime
-	admission           udpAdmission
-	cache               *ProcessCache
-	tcp                 *tcpRedirect
-	evidence            *EvidenceLedger
+	gameGuard                gameGuardState
+	gameReflect, gameReplies uintptr
+	gameEval                 *windows.Proc
+	ingress                  captureIngress
+	testBrowserLoopback      bool // Set only from export_test.go, never production configuration.
+	policyEpoch              atomic.Uint64
+	policyMu                 sync.RWMutex
+	transition               map[string]bool
+	transitionAll            bool
+	hot                      hotAttachState
+	hotRequests              chan struct{}
+	classify                 Classifier
+	Files                    DriverFiles
+	Engine                   *routing.Engine
+	RX, TX, Drops            atomic.Uint64
+	LocalDrops               telemetry.Counters
+	mu                       sync.Mutex
+	life                     sync.Mutex
+	status                   CaptureStatus
+	dll                      *divertDLL
+	native                   *divertDLL
+	network, flow            uintptr
+	socket                   uintptr
+	ipv6                     uintptr
+	v6guard                  IPv6Guard
+	flows                    map[Tuple]*captureFlow
+	associations             *FlowAssociations
+	ctx                      context.Context
+	cancel                   context.CancelFunc
+	wg                       sync.WaitGroup
+	packetWriter             func([]byte, [80]byte) error // optional native test seam; production uses WinDivert
+	openWorkers              chan struct{}                // setup only; never held for UDP flow lifetime
+	admission                udpAdmission
+	cache                    *ProcessCache
+	tcp                      *tcpRedirect
+	evidence                 *EvidenceLedger
 }
 
 func NewWinDivert(files DriverFiles, engine *routing.Engine) *WinDivertBackend {
@@ -86,11 +92,14 @@ func NewWinDivert(files DriverFiles, engine *routing.Engine) *WinDivertBackend {
 }
 func (b *WinDivertBackend) Status() CaptureStatus { b.mu.Lock(); defer b.mu.Unlock(); return b.status }
 func (d *divertDLL) openHandle(filter string, layer uintptr, flags uintptr) (uintptr, error) {
+	return d.openHandlePriority(filter, layer, flags, 0)
+}
+func (d *divertDLL) openHandlePriority(filter string, layer uintptr, flags uintptr, priority int16) (uintptr, error) {
 	s, e := windows.BytePtrFromString(filter)
 	if e != nil {
 		return 0, e
 	}
-	h, _, callErr := d.open.Call(uintptr(unsafe.Pointer(s)), layer, 0, flags)
+	h, _, callErr := d.open.Call(uintptr(unsafe.Pointer(s)), layer, uintptr(priority), flags)
 	if h == ^uintptr(0) {
 		return 0, fmt.Errorf("WinDivertOpen(layer=%d filter=%q flags=%d): %w; administrator access and signed driver required", layer, filter, flags, callErr)
 	}
@@ -168,7 +177,29 @@ func (b *WinDivertBackend) Start(parent context.Context, classify Classifier) (r
 		dll.dll.Release()
 		return e
 	}
+	// Optional game-only observation. Failure suspends priming, never the
+	// ordinary networking/capture backend. Open REFLECT before the final sniff
+	// handle: its own priority marker fences the replayed initial handle list.
+	b.gameGuard = gameGuardState{}
+	reflectHandle, reflectErr := dll.openHandle("true", 4, 1|4)
+	var replyHandle uintptr
+	eval, evalErr := dll.dll.FindProc("WinDivertHelperEvalFilter")
+	if reflectErr == nil && evalErr == nil {
+		replyHandle, reflectErr = dll.openHandlePriority(gameUDPReplyFilter, 0, 1|4, gameReplyPriority)
+	}
+	if reflectErr != nil || evalErr != nil {
+		b.gameGuard.fail("UDP_CONFLICT_DETECTOR_UNAVAILABLE")
+		if reflectHandle != 0 {
+			dll.close.Call(reflectHandle)
+		}
+		reflectHandle = 0
+		if replyHandle != 0 {
+			dll.close.Call(replyHandle)
+		}
+		replyHandle = 0
+	}
 	b.mu.Lock()
+	b.gameReflect, b.gameReplies, b.gameEval = reflectHandle, replyHandle, eval
 	b.tcp = tcp
 	b.socket = socket
 	b.ipv6 = ipv6
@@ -191,6 +222,14 @@ func (b *WinDivertBackend) Start(parent context.Context, classify Classifier) (r
 	go b.socketGuard(classify)
 	go b.guardIPv6(classify)
 	go b.cleanup()
+	if b.gameReflect != 0 {
+		b.wg.Add(1)
+		go b.observeGameReflect()
+	}
+	if b.gameReplies != 0 {
+		b.wg.Add(1)
+		go b.observeGameReplies()
+	}
 	go b.packets(classify)
 	tcp.start(classify)
 	watch := b.ctx
@@ -219,6 +258,12 @@ func (b *WinDivertBackend) stopLocked() error {
 	d.shutdown.Call(b.flow, 1)
 	d.shutdown.Call(b.socket, 1)
 	d.shutdown.Call(b.ipv6, 1)
+	if b.gameReflect != 0 {
+		d.shutdown.Call(b.gameReflect, 1)
+	}
+	if b.gameReplies != 0 {
+		d.shutdown.Call(b.gameReplies, 1)
+	}
 	for _, f := range b.flows {
 		f.once.Do(func() { close(f.done) })
 	}
@@ -229,6 +274,12 @@ func (b *WinDivertBackend) stopLocked() error {
 	d.close.Call(b.flow)
 	d.close.Call(b.socket)
 	d.close.Call(b.ipv6)
+	if b.gameReflect != 0 {
+		d.close.Call(b.gameReflect)
+	}
+	if b.gameReplies != 0 {
+		d.close.Call(b.gameReplies)
+	}
 	d.dll.Release()
 	b.mu.Lock()
 	b.flows = make(map[Tuple]*captureFlow)
@@ -386,6 +437,14 @@ func (b *WinDivertBackend) processUDP(d *divertDLL, packet []byte, address [80]b
 	if f != nil && f.policyEpoch != b.policyEpoch.Load() {
 		latest, _ := ClassifyCapture(identity, tuple, uint32(os.Getpid()), classify)
 		f.policyEpoch = b.policyEpoch.Load()
+		if latest.GameUDP != nil && f.game == nil && latest.Revision != f.decision.Revision {
+			// Already observed UDP never acquires a new first-flight strategy merely
+			// because a late owner/profile appeared. Wait for a genuinely new tuple.
+			latest.GameUDP = nil
+			latest.Policy.Action = flowpolicy.Direct
+			latest.Policy.Reason = "EXISTING_UDP_PINNED_UNTIL_CLOSED"
+			f.decision = latest
+		}
 		if latest.Revision != f.decision.Revision {
 			f.retired = true
 			f.once.Do(func() { close(f.done) })
@@ -442,12 +501,20 @@ func (b *WinDivertBackend) processUDP(d *divertDLL, packet []byte, address [80]b
 			}
 			return
 		}
-		f = &captureFlow{policyEpoch: b.policyEpoch.Load(), decision: decision, dropCause: telemetry.Policy, identity: identity, endpoint: association.Endpoint, done: make(chan struct{}), address: address}
+
+		var game *gameudp.Flow
+		var gameErr error
+		decision, game, gameErr = BindGameUDP(decision, identity, tuple, time.Now())
+		if gameErr != nil {
+			b.evidence.RecordLifecycle(identity, tuple, gameErr.Error())
+		}
+		f = &captureFlow{policyEpoch: b.policyEpoch.Load(), decision: decision, game: game, dropCause: telemetry.Policy, identity: identity, endpoint: association.Endpoint, done: make(chan struct{}), address: address}
 		if (!decision.Route.Direct() || decision.ProbeDirect) && !decision.Block {
 			f.opening = true
 			f.queue = make(chan queuedDatagram, 32)
 			f.template = udpReplyTemplate(packet)
 		}
+
 		b.flows[tuple] = f
 		b.evidence.RecordPolicy(identity, tuple, decision, "")
 		b.evidence.RecordHotAttach(identity, tuple, b.hot.snapshot().Epoch, "HOT_ATTACH_NEW_FLOW", decision.Revision)
@@ -494,6 +561,15 @@ func (b *WinDivertBackend) processUDP(d *divertDLL, packet []byte, address [80]b
 		b.LocalDrops.Attempt(f.dropCause)
 		b.LocalDrops.Drop(f.dropCause)
 		b.drop(identity, tuple)
+		return
+	}
+	if f.game != nil && decision.GameUDP != nil && known && decision.Route.Direct() {
+		if !b.primeGameAllowed(packet, address) {
+			decision.GameUDP.SetReason("FOREIGN_UDP_INTERCEPTOR_OR_OBSERVER_PENDING")
+		}
+		if err := SendGameUDP(decision.GameUDP, f.game, identity, tuple, packet, func(q []byte) error { return b.inject(d, q, address) }, b.evidence, time.Now()); err != nil {
+			b.fail(err)
+		}
 		return
 	}
 	if (decision.Route.Direct() && !decision.ProbeDirect) || !known {
@@ -721,6 +797,10 @@ func (b *WinDivertBackend) forward(tuple Tuple, f *captureFlow, d *divertDLL) {
 				event = "direct_reply"
 			}
 			b.evidence.RecordBytes(f.identity, tuple, event, route, uint64(len(payload)))
+			if f.game != nil && f.decision.GameUDP != nil {
+				f.decision.GameUDP.Reply(f.game, len(payload), time.Now())
+				b.evidence.RecordGameUDP(f.identity, tuple, f.decision.GameUDP.Evidence(f.game))
+			}
 			b.mu.Unlock()
 			b.RX.Add(uint64(len(payload)))
 		}
@@ -816,6 +896,10 @@ func (b *WinDivertBackend) forward(tuple Tuple, f *captureFlow, d *divertDLL) {
 				b.evidence.RecordPolicy(f.identity, tuple, policy, why)
 			}
 			b.evidence.RecordBytes(f.identity, tuple, event, route, uint64(len(payload)))
+			if f.game != nil && f.decision.GameUDP != nil {
+				f.decision.GameUDP.Outgoing(f.game, len(payload), time.Now())
+				b.evidence.RecordGameUDP(f.identity, tuple, f.decision.GameUDP.Evidence(f.game))
+			}
 			b.TX.Add(uint64(len(payload)))
 		}
 	}

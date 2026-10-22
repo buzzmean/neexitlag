@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"github.com/buzzmean/neexitlag/core/flowpolicy"
+	"github.com/buzzmean/neexitlag/core/gameudp"
 	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"github.com/buzzmean/neexitlag/core/profiles"
 	"github.com/buzzmean/neexitlag/core/routing"
@@ -35,6 +36,8 @@ type CaptureStatus struct {
 	Capabilities Capabilities `json:"capabilities"`
 }
 type Decision struct {
+	GameUDP *gameudp.Engine
+ GameRelayID string
 	// Native browser planning runs only in the bounded deferred worker, never
 	// under the packet-loop lock. Existing streams keep their original decision.
 	NewConnectionsOnly bool
