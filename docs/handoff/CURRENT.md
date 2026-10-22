@@ -2144,3 +2144,12 @@ Bare name без пути не может быть перехвачен скри
 ослабить protected association, в том числе ambiguous shared-IP; BLOCK остаётся
 приоритетным. Для обычных сайтов явные правила сохраняются. Targeted race PASS.
 Startup helper запушен 5c8f3be; Telegram шаг — 49ecb96. Общие проверки идут.
+
+## 22.10.2026 — unknown origin: кэш только по IP
+
+Отдельный фикс после ревью: пустое имя не допускается в доменный timeout cache.
+Иначе ошибки разных unknown IP могли бы обучить общий пустой домен и снова
+превратить браузер в full-relay. Opaque DIRECT OPEN имеет собственный bounded
+1300ms admission и relay retry только после ошибки и до app payload; owner errors
+не запускают retry/learning. Первый ответ/таймаут opaque отслеживается отдельно,
+ошибка хранится только сеть/профиль/IP/порт 2 мин. Regression race count=3 PASS.

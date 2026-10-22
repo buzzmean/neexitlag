@@ -534,8 +534,10 @@ func (c *Controller) openNativeBrowser(ctx context.Context, p profiles.Profile, 
 		evidence = c.browser.domains.evidence(current.network, t.Destination.Addr(), d.OuterSNI, time.Now())
 		q.Host = evidence.Domain
 		plan = c.nativeOpaquePlan(current.profile, t, current.network, evidence)
-		if steered, ok := c.steerTimedOutOrigin(plan, current, q, time.Now()); ok && q.Host != "" {
-			plan = steered
+		if q.Host != "" {
+			if steered, ok := c.steerTimedOutOrigin(plan, current, q, time.Now()); ok {
+				plan = steered
+			}
 		}
 		// Metadata may select a stricter relay route; it never enables DIRECT+ on
 		// hidden SNI and never replaces an ordinary destination from a DNS hint.
@@ -573,9 +575,10 @@ func (c *Controller) openNativeBrowser(ctx context.Context, p profiles.Profile, 
 	}
 	var conn net.Conn
 	if err == nil {
-		conn, plan, err = c.browserOpenPlan(ctx, q, plan)
-		if opaque && plan.Policy.Source == "direct_open_retry" {
-			c.browser.domains.failedDirect(current.network, p.ID, t.Destination, time.Now())
+		if opaque {
+			conn, plan, err = c.openOpaqueBrowserPlan(ctx, current, q, plan, c.browserOpen)
+		} else {
+			conn, plan, err = c.browserOpenPlan(ctx, q, plan)
 		}
 	}
 	n.opened(record, plan, err)
@@ -586,12 +589,9 @@ func (c *Controller) openNativeBrowser(ctx context.Context, p profiles.Profile, 
 		d.BlockOnFailure = true
 		return nil, d, err
 	} // No generic native fallback after a planned failure.
-	if current.network != "" && directTimeoutEligible(q, plan) {
+	if current.network != "" && nativeFirstReplyEligible(q, plan) {
 		conn = &nativeFirstReplyConn{Conn: conn, timeout: 2 * time.Second, stalled: func() {
-			c.recordBrowserStall(current, q, plan)
-			if opaque {
-				c.browser.domains.failedDirect(current.network, p.ID, t.Destination, time.Now())
-			}
+			c.recordNativeBrowserStall(current, q, plan, opaque)
 			n.mu.Lock()
 			r, ok := n.records[record]
 			if ok {
