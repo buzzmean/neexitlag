@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"net/netip"
 	"reflect"
 	"sort"
 	"sync"
@@ -55,25 +56,26 @@ type nativeBrowserProfileStatus struct {
 	FirstExchangeMS int64                `json:"enable_to_first_exchange_ms"`
 }
 type nativeBrowserRecord struct {
-	DomainEvidence *browserDomainEvidence     `json:"domain_evidence,omitempty"`
-	Origin         *browserproxy.OriginReport `json:"origin_attempts,omitempty"`
-	originReporter browserproxy.OriginReporter
-	TLS            *browserproxy.TLSWireEvidence `json:"tls_wire,omitempty"`
-	tlsWire        *browserproxy.TLSWireObserver
-	Ingress        string             `json:"ingress"`
-	ID             uint64             `json:"id"`
-	Owner          browserproxy.Owner `json:"owner"`
-	Started        time.Time          `json:"started"`
-	Domain         string             `json:"domain"`
-	Destination    string             `json:"destination"`
-	Upstream       string             `json:"upstream_destination"`
-	Policy         flowpolicy.Result  `json:"policy"`
-	Probe          string             `json:"origin_probe"`
-	Result         string             `json:"result"`
-	Failure        string             `json:"failure_reason,omitempty"`
-	Sent           uint64             `json:"sent_bytes"`
-	Received       uint64             `json:"received_bytes"`
-	Active         bool               `json:"active"`
+	OriginPreflight *browserproxy.DNSRecoveryResult `json:"origin_preflight,omitempty"`
+	DomainEvidence  *browserDomainEvidence          `json:"domain_evidence,omitempty"`
+	Origin          *browserproxy.OriginReport      `json:"origin_attempts,omitempty"`
+	originReporter  browserproxy.OriginReporter
+	TLS             *browserproxy.TLSWireEvidence `json:"tls_wire,omitempty"`
+	tlsWire         *browserproxy.TLSWireObserver
+	Ingress         string             `json:"ingress"`
+	ID              uint64             `json:"id"`
+	Owner           browserproxy.Owner `json:"owner"`
+	Started         time.Time          `json:"started"`
+	Domain          string             `json:"domain"`
+	Destination     string             `json:"destination"`
+	Upstream        string             `json:"upstream_destination"`
+	Policy          flowpolicy.Result  `json:"policy"`
+	Probe           string             `json:"origin_probe"`
+	Result          string             `json:"result"`
+	Failure         string             `json:"failure_reason,omitempty"`
+	Sent            uint64             `json:"sent_bytes"`
+	Received        uint64             `json:"received_bytes"`
+	Active          bool               `json:"active"`
 }
 type nativeBrowserSnapshot struct {
 	DomainCache        map[string]any               `json:"domain_cache"`
@@ -555,6 +557,19 @@ func (c *Controller) openNativeBrowser(ctx context.Context, p profiles.Profile, 
 		// Keep delegation/evidence bound to the original native tuple. No DNS/IP
 		// change may splice a configured local transform into a different flow.
 		plan.Destination = t.Destination
+	}
+	if err == nil && opaque && relayOriginEligible(q, plan) {
+		originalPlan := plan
+		plan = c.prepareHintedRelayOrigin(ctx, current, q, plan, func(probe context.Context, dst netip.AddrPort) (net.Conn, error) {
+			candidate := originalPlan
+			candidate.Destination = dst
+			return c.browserOpenUnobserved(probe, q, candidate)
+		})
+		n.mu.Lock()
+		r := n.records[record]
+		r.OriginPreflight = plan.DNSRecovery
+		n.records[record] = r
+		n.mu.Unlock()
 	}
 	var conn net.Conn
 	if err == nil {

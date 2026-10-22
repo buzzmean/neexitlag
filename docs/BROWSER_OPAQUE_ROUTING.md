@@ -44,3 +44,23 @@ VK/Google, YouTube/claude.ai/Telegram Web в новых вкладках и вы
 `& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube`.
 Сравнивать `domain_evidence`, route, origin_attempts и реальные страницы; rx>0 сам
 по себе не означает TLS/HTTP PASS. Windows/ISP и влияние ECH/DoH требуют ретеста.
+
+## Telegram и TLS/IP recovery
+
+Для Telegram/Anthropic/OpenAI с relay-first DNS/outer подсказкой native путь перед передачей
+браузерного ClientHello выбирает адрес через существующий ограниченный
+DNSRecovery: независимый DoH через authenticated relay, полноценный TLS с
+проверкой сертификата/SNI и HTTP GET. Два кандидата, единый бюджет до 2 с,
+2 параллельных recovery, singleflight, TTL DNS <=5 мин, negative cooldown 30 с.
+Постоянного IP-пина нет. Это может добавить bounded проверку первой загрузке;
+обычные/неизвестные сайты и YouTube CDN её не выполняют. Для YouTube сохраняется
+существующий origin health/retry без дополнительных предварительных GET. При отказе проверки исходный relay-only
+маршрут сохраняется, ошибка не является разрешением DIRECT.
+
+Проверочный TLS — отдельное соединение службы. Затем оригинальный ClientHello
+браузера передаётся выбранному адресу без изменений. Уже полученные от origin
+байты не стираются; retry после ANY origin byte запрещён, включая пятибайтовый
+неполный alert. `origin_preflight` показывает проверенный IP и TTL,
+`origin_attempts` — дальнейшие реальные попытки приложения. При отсутствии
+достоверного имени (несколько DNS имён/скрытый DoH без outer) адрес не перебирается
+по предположению о Telegram. Работоспособность Telegram на ISP требует ретеста.

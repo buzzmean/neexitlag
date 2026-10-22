@@ -346,3 +346,61 @@ func TestOriginPartialTLSHeaderNeverReplaysOrWaitsIndefinitely(t *testing.T) {
 		t.Fatal("partial reply timeout not quarantined")
 	}
 }
+
+func TestOriginRecoveryPreservesLargeFragmentedClientHelloByteForByte(t *testing.T) {
+	// Two TLS records hold one 2048-byte ClientHello. Only framing is relevant to
+	// replay safety; no HTTPS decryption or extension re-encoding is permitted.
+	handshake := make([]byte, 2052)
+	handshake[0] = 1
+	handshake[1] = 0
+	handshake[2] = 8
+	handshake[3] = 0
+	for i := 4; i < len(handshake); i++ {
+		handshake[i] = byte(i * 31)
+	}
+	flight := append([]byte{22, 3, 1, 4, 0}, handshake[:1024]...)
+	flight = append(flight, []byte{22, 3, 3, 4, 4}...)
+	flight = append(flight, handshake[1024:]...)
+	received := make(chan []byte, 2)
+	endpoint := func(reply bool) net.Conn {
+		a, b := net.Pipe()
+		go func() {
+			defer b.Close()
+			raw := make([]byte, len(flight))
+			if _, e := io.ReadFull(b, raw); e != nil {
+				return
+			}
+			received <- raw
+			if reply {
+				b.Write([]byte{22, 3, 3, 0, 4, 2, 0, 0, 0})
+			}
+		}()
+		return a
+	}
+	one := netip.MustParseAddrPort("8.8.8.8:443")
+	two := netip.MustParseAddrPort("8.8.4.4:443")
+	x := WatchRelayOrigin(endpoint(false), OriginConfig{Context: context.Background(), Health: NewOriginHealth(), Scope: "large-hello", Initial: one, Candidates: []netip.AddrPort{one, two}, Open: func(context.Context, netip.AddrPort) (net.Conn, error) { return endpoint(true), nil }})
+	defer x.Close()
+	x.SetDeadline(time.Now().Add(3 * time.Second))
+	for _, part := range [][]byte{flight[:300], flight[300:1400], flight[1400:]} {
+		if _, e := x.Write(part); e != nil {
+			t.Fatal(e)
+		}
+	}
+	if body, e := io.ReadAll(x); e != nil || len(body) != 9 {
+		t.Fatal(e, len(body))
+	}
+	for i := 0; i < 2; i++ {
+		select {
+		case got := <-received:
+			if !bytes.Equal(got, flight) {
+				t.Fatal("TLS stream changed during forwarding/retry")
+			}
+		case <-time.After(time.Second):
+			t.Fatal("missing initial/retried flight")
+		}
+	}
+	if report := x.(OriginReporter).OriginAttempts(); report.ReplayedBytes != uint64(len(flight)) || report.AddressAttempts != 2 {
+		t.Fatal(report)
+	}
+}

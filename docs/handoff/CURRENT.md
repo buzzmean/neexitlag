@@ -2118,3 +2118,13 @@ Read-only OS DNS cache (256 записей, реальный остаточны�
 Desktop/protected app policy, игры, PAC, TLS/mTLS и VPS не менялись.
 Проверки: Go race browserproxy/platform/service PASS; Windows amd64 cross-build PASS.
 Windows/ISP/DNS cmdlet runtime не проверены. Следом Telegram first-flight/preflight и PS helper.
+
+## 22.10.2026 — browser opaque, шаг 2 Telegram
+
+Шаг 1 запушен fbab84f. Для relay-first DNS/outer hint восстановлен вход в
+origin health; до передачи browser ClientHello — ограниченная независимая
+DoH+TLS/HTTP проверка IP, TTL/singleflight через существующий DNSRecovery.
+Пять уже полученных origin bytes не отбрасываются и TLS не переигрывается.
+Изолированная real TLS+GET регрессия .40 bad/.99 good: отдельный probe, затем
+два настоящих TLS/HTTP app соединения к .99, cache hit без повторной DNS,
+cert/SNI проверены; race count=3 PASS. VPS не выполнялся; ISP/Chrome runtime не проверен.

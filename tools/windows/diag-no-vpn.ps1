@@ -693,6 +693,7 @@ Step 'native_browser' {
  }
  foreach($r in @(Prop $native 'records' @())|Select-Object -First 32){
   $de=Prop $r 'domain_evidence';if($de){Say ('native domain evidence: source='+(Prop $de 'source')+' confidence='+(Prop $de 'confidence')+' outer='+(Prop $de 'outer_sni')+' candidates='+(@(Prop $de 'candidates' @()) -join ',')+' ambiguous='+(Prop $de 'ambiguous')+' restricted='+(Prop $de 'restricted'))}
+  $pre=Prop $r 'origin_preflight';if($pre){Say ('native origin preflight: chosen='+(Prop $pre 'destination')+' verified='+(Prop $pre 'verified')+' address_verified='+(Prop $pre 'address_verified')+' source='+(Prop $pre 'source')+' expires='+(Prop $pre 'expires')+' failure='+(Prop $pre 'failure'))}
   $owner=Prop $r 'owner';$policy=Prop $r 'policy'
   Say ("native ingress="+(Prop $r 'ingress' 'UNINSTRUMENTED')+" #"+(Prop $r 'id')+" pid="+(Prop $owner 'pid')+" birth="+(Prop $owner 'creation_time')+" domain="+(Prop $r 'domain')+" destination="+(Prop $r 'destination')+" route="+(Prop $policy 'action')+" relay="+(Prop $policy 'relay_id')+" source="+(Prop $policy 'source')+" result="+(Prop $r 'result')+" failure="+(Prop $r 'failure_reason')+" tx="+(Prop $r 'sent_bytes')+" rx="+(Prop $r 'received_bytes'))
  }

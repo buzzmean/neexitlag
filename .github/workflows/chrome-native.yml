@@ -41,6 +41,11 @@ jobs:
           if ($LASTEXITCODE) { throw "Native delegation lifecycle regression failed: $LASTEXITCODE" }
           go test -race -p 1 -v -count=1 -timeout 90s ./core/browserproxy ./services/client-service -run '^TestNativeOnly|^TestBrowserReservationCollision|^TestBrowserKnownGroups|^TestBrowserGroup|^TestBrowserCachedGroup|^TestSilentDirectOrigin|^TestFirstByte|^TestBrowserFirstByte'
           if ($LASTEXITCODE) { throw "Native ingress/local reservation regression failed: $LASTEXITCODE" }
+      - name: ECH DNS hints and cert-verified Telegram alternate IP regression
+        shell: pwsh
+        run: |
+          go test -race -p 1 -count=1 ./platform/windows ./services/client-service -run '^TestNativeDNS|^TestNativeOpaque|^TestOpaqueTelegram|^TestHintedOrigin|^TestDNSCache|^TestECHOuter'
+          if ($LASTEXITCODE) { throw "ECH/origin regression failed: $LASTEXITCODE" }
       - run: ./tools/windows/fetch-windivert.ps1
         shell: pwsh
       - name: Read-only initialization of Windows network providers
