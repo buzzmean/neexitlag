@@ -118,6 +118,7 @@ Valorant и сами FACEIT exe остаются compatibility-gated. CS2/VAC op
 FACEIT-матча по этим metadata невозможно, отдельной интеграции с матчами нет.
 Неизвестное состояние FACEIT применимо к CS2, не к PUBG. Другие игры не наследуют
 чужую compatibility policy. Это не обещание совместимости нового кода с BattlEye.
+SCM открывается только с CONNECT/QUERY_STATUS (не ALL_ACCESS), без start/stop/config.
 SCM/Toolhelp опрашиваются вне mutex из пути обработки пакетов; startup остаётся
 pending до первой проверки, результат старого scan после capture reset не принимается.
 Остальные пресеты кроме PUBG — opt-in, не compatibility PASS.

@@ -20,7 +20,7 @@
 
 | Работа | Файлы | Агент | Ветка | Статус |
 |---|---|---|---|---|
-| PUBG: scope античита/local-first/status (22.10.2026) | core/gameudp; platform/windows game UDP guard; services/client-service game_udp; desktop GameUdp; tests/docs | Codex | codex/work | В РАБОТЕ; FACEIT/Vanguard только применимые профили; без VPS/PR8 |
+| PUBG: scope античита/local-first/status (22.10.2026) | core/gameudp; platform/windows game UDP guard; services/client-service game_udp; desktop GameUdp; tests/docs | Codex | codex/work | СВОБОДНО: scope/local-first/GUI готовы; реальные Windows/PUBG матчи ждут владельца |
 | Пилот клуба: Setup/image/boot/status A–F (22.10.2026) | installer/*; tools/windows club/build/status; services/client-service club/activation/startup/settings IPC; desktop club/tray; tests/docs | Codex | codex/work | СВОБОДНО: A–F подготовлены/запушены; реальный Setup/2–3ПК freeze pilot ожидает владельца |
 | Browser opaque/ECH DIRECT и Telegram recovery (22.10.2026) | core browserproxy/domaininspect; platform/windows domain/DNS; services/client-service browser*; tools/windows browser startup/diag; tests/docs | Codex | codex/work | КОД/ЛОКАЛЬНЫЕ GATES ГОТОВЫ; область освобождена. fbab84f, 49ecb96, 5c8f3be, 885d836, 2804508. Windows/ISP и ECH+DoH/shared-IP ограничения — новый handoff ниже |
 | Общий игровой UDP обход A–H (22.10.2026) | core/gameudp/*; platform/windows UDP capture/reply/discovery/REFLECT/conflicts; services/client-service game_udp/controller/local_auto (additive conflict metadata); apps/desktop{,-core}/GameUdp и UI; tools/windows game UDP/diag; tests/workflows/docs | Codex | codex/work | КОД ГОТОВ; область освобождена. PUBG default-on; остальные opt-in. DIRECT → local → authenticated relay, новые tuples; античит gate. Local gates PASS; actual Windows/driver/BattlEye/3–5 матчей/RTT не проверены, CI steps=[] |
@@ -2376,3 +2376,30 @@ Close-VeliqGuiForUpdate закрывает только GUI для обновл�
 Go race3пакета/vet+Windows vet PASS; C#198/198, WPF cross-build0errors/4старыхCS8604;
 PS7 parser/StrictMode/read-only fixture PASS. Реальный WinDivert/SCM/BattlEye матч
 не выполнялся; CI PASS не заявлен. Дальше финальный full race/build gates.
+
+
+## 22.10.2026 (MSK) — PUBG: финальная передача
+
+Коммиты66332d9 (scope/packet mutex),a2f6dab (local-first),5a4f364(status/GUI/diag).
+Дополнительно SCM открыт только SC_MANAGER_CONNECT + SERVICE_QUERY_STATUS:
+старый mgr.Connect/OpenService просил ALL_ACCESS и мог получать ложный access
+failure у защищённого драйвера. Никакого start/stop/config античит-служб нет.
+После этой Windows-only правки повторены Windows build/vet/platform test EXE compile.
+Полный go test -race -p1 ./... PASS (без внешнейDB, gated Windows/PG cases могут
+быть SKIP); go vet./... PASS; Linux/Windows go build./... PASS; Windows platform/
+service vet + оба Windows test EXE compile PASS. Demo actual22.338s PASS.
+C#198/198 PASS; WPF cross-build4прежнихCS8604/0errors. PS7 parsing/StrictMode/game
+report/club fixtures PASS (native Windows ACL явно SKIP), Python installer7/7PASS.
+Реальный WinDivert/SCM process observation,FACEIT/BattlEye совместимость, загрузка
+3–5матчей, работа GUI наWindows не проверены. CI PASS не заявлен (billing).
+Не утверждаем исправление2610 до owner retest. Нет GeoIP/pin: неизвестный public
+PUBG endpoint local-first, confirmed exact DIRECT приоритетен, existing tuple pinned.
+
+Команды по одной — docs/GAME_UDP.md (последний раздел). Admin same-owner из клона:
+git pull; Close-VeliqGuiForUpdate; build-e2e; build-desktop; update-service;
+install-desktop; запуск установленногоVELIQ. Затем gameudp.status и diag-game-udp
+-DurationSeconds180 до следующего матча; не запускать одновременно winws/zapret.
+FACEIT/Vanguard службы не отключать. Ожидается PUBG ACTIVE/ready=true, initial_policy
+LOCAL_FIRST_UNCONFIRMED_ENDPOINT; WAITING_NEW_FLOW до трафика и24fake первых2packets,
+плюс реальные replies/relay counters. Game ACTIVE сам по себе не матч PASS.
+VPS/сертификаты/credentials/PR8/другие ветки не тронуты. Область освобождена.

@@ -38,14 +38,15 @@ func gameProcessGuard() (out GameUDPGuardStatus) {
 		out.Error = "GAME_PROCESS_LIST_INCOMPLETE"
 		return
 	}
-	m, err := mgr.Connect()
+	manager, err := windows.OpenSCManager(nil, nil, windows.SC_MANAGER_CONNECT)
 	if err != nil {
 		out.AntiCheatQueryError = "GAME_DRIVER_STATUS_UNAVAILABLE"
 		return
 	}
-	defer m.Disconnect()
+	defer windows.CloseServiceHandle(manager)
 	for _, name := range []string{"vgk", "vgc", "FACEIT", "FACEITService"} {
-		s, err := m.OpenService(name)
+		serviceName, _ := windows.UTF16PtrFromString(name)
+		handle, err := windows.OpenService(manager, serviceName, windows.SERVICE_QUERY_STATUS)
 		if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
 			continue
 		}
@@ -53,8 +54,9 @@ func gameProcessGuard() (out GameUDPGuardStatus) {
 			out.AntiCheatQueryError = "GAME_DRIVER_STATUS_UNAVAILABLE"
 			continue
 		}
-		st, err := s.Query()
-		s.Close()
+		service := &mgr.Service{Name: name, Handle: handle}
+		st, err := service.Query()
+		service.Close()
 		if err != nil {
 			out.AntiCheatQueryError = "GAME_DRIVER_STATUS_UNAVAILABLE"
 			continue
