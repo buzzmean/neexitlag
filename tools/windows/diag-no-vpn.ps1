@@ -43,7 +43,7 @@ function Json($Value){Scrub ($Value|ConvertTo-Json -Depth 12)}
 # loops below use their own variable names, never shadowing this one.
 function Step([string]$StepName,[scriptblock]$Body){try{& $Body}catch{Say ("[$StepName] ERROR: "+(Scrub $_.Exception.Message))}}
 function Prop($Object,[string]$PropName,$Default=$null){
- if($null -ne $Object -and $Object.PSObject.Properties.Name -contains $PropName){return $Object.$PropName};return $Default
+ if($null -ne $Object){$property=$Object.PSObject.Properties[$PropName];if($null -ne $property){return $property.Value}};return $Default
 }
 
 # Configured default and observed traffic are deliberately separate. AUTO is
@@ -287,7 +287,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-22.4 (opaque routing provenance, DNS TTL hints, native exchange required)'
+$ScriptVersion='2026-10-23.1 (browser DNS broker, Secure DNS relay, actual TLS failures, Google recovery)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -581,7 +581,30 @@ function Write-BrowserFirstByteEvidence($snapshot,[string]$lane) {
  }
 }
 
+function Write-BrowserDNSEvidence($native) {
+ $dns=Prop $native 'browser_dns'
+ if($null -eq $dns){Say 'browser DNS broker: UNINSTRUMENTED'}else{
+  Say ('browser DNS broker: scope='+(Prop $dns 'scope')+' queries='+(Prop $dns 'queries' 0)+' relay_https_doh='+(Prop $dns 'relay_doh' 0)+' original_resolver='+(Prop $dns 'system_dns' 0)+' failed='+(Prop $dns 'failed' 0)+' active='+(Prop $dns 'active' 0)+'/'+(Prop $dns 'max_active' 0))
+  Say ('browser Secure DNS: '+(Prop $dns 'secure_dns_policy')+'; encrypted_answers='+(Prop $dns 'encrypted_answers'))
+  foreach($r in @(Prop $dns 'records' @())|Select-Object -Last 16){
+   Say ('browser DNS query: profile='+(Prop $r 'profile_id')+' domain='+(Prop $r 'domain')+' qtype='+(Prop $r 'query_type')+' path='+(Prop $r 'path')+' result='+(Prop $r 'result')+' hinted_addresses='+(Prop $r 'addresses' 0))
+  }
+ }
+ $cache=Prop $native 'domain_cache'
+ Say ('browser DNS hints: active_addresses='+(Prop $cache 'browser_scoped_addresses' 0)+' omitted='+(Prop $cache 'browser_scoped_hints_omitted' 0)+' opaque_failed_endpoints='+(Prop $cache 'opaque_direct_failed_endpoints' 0)+' TLS_budget_ms='+(Prop $cache 'native_first_tls_reply_budget_ms' 'UNINSTRUMENTED')+' Google_failure_hits='+(Prop $cache 'google_failure_group_hits' 0))
+ foreach($h in @(Prop $cache 'browser_scoped_hints' @())|Select-Object -First 16){
+  Say ('browser DNS hint: network='+(Prop $h 'network')+' profile='+(Prop $h 'profile_id')+' address='+(Prop $h 'address')+' domain='+(Prop $h 'domain')+' expires='+(Prop $h 'expires'))
+ }
+ foreach($g in @(Prop $cache 'google_failure_groups' @())|Select-Object -First 16){
+  Say ('opaque Google recovery: network='+(Prop $g 'network')+' profile='+(Prop $g 'profile_id')+' state='+(Prop $g 'state')+' distinct_failures='+(Prop $g 'distinct_failed_addresses' 0)+' first_address='+(Prop $g 'first_address')+' until='+(Prop $g 'until')+' failure='+(Prop $g 'last_failure'))
+ }
+ $usage=Prop $native 'relay_usage'
+ Say ('browser relay admission: known_googlevideo='+(Prop $usage 'googlevideo_active_tunnels' 0)+' opaque_google='+(Prop $usage 'opaque_google_active_tunnels' 0)+' shared='+(Prop $usage 'googlevideo_shared_limit_active' 'UNINSTRUMENTED')+'/'+(Prop $usage 'googlevideo_tunnel_limit' 0)+' waiters='+(Prop $usage 'googlevideo_waiters' 0)+' admission_failures='+(Prop $usage 'googlevideo_admission_failures' 0))
+ Say 'DNS hints are not authenticated inner SNI. Transit DoH answers and svchost caller are not observed. Opaque Google is not a proven googlevideo hostname; no DNS53-to-relay, no page/video PASS inferred.'
+}
+
 function Write-NativeIngressEvidence($native) {
+ Write-BrowserDNSEvidence $native
  $dc=Prop $native 'domain_cache';if($dc){Say ('native DNS cache: checked='+(Prop $dc 'checked_at')+' error='+(Prop $dc 'last_error')+' addresses='+(Prop $dc 'addresses')+' source='+(Prop $dc 'source')+' unknown_policy='+(Prop $dc 'unknown_policy'))}
  Write-TlsWireEvidence $native 'native.actual_upstream'
  $ingress=Prop $native 'capture_ingress'
@@ -635,7 +658,7 @@ Step 'youtube' {
   $usage=Prop $snapshot 'relay_usage'
   if($usage -and -not $shownUsage){
    $shownUsage=$true
-   Say ("relay usage (shared, TCP payload excluding QUIC overhead/probes): googlevideo="+(Prop $usage 'googlevideo_active_tunnels')+"/"+(Prop $usage 'googlevideo_tunnel_limit')+" waiters="+(Prop $usage 'googlevideo_waiters' 0)+" admission_failures="+(Prop $usage 'googlevideo_admission_failures' 0)+" cap_events="+(Prop $usage 'googlevideo_limit_events')+" truncated="+(Prop $usage 'truncated')+" overflow_bytes="+(Prop $usage 'cardinality_overflow_bytes'))
+   Say ("relay usage (shared, TCP payload excluding QUIC overhead/probes): googlevideo="+(Prop $usage 'googlevideo_active_tunnels')+"/"+(Prop $usage 'googlevideo_tunnel_limit')+" opaque_google="+(Prop $usage 'opaque_google_active_tunnels' 0)+" shared="+(Prop $usage 'googlevideo_shared_limit_active' 'UNINSTRUMENTED')+" waiters="+(Prop $usage 'googlevideo_waiters' 0)+" admission_failures="+(Prop $usage 'googlevideo_admission_failures' 0)+" cap_events="+(Prop $usage 'googlevideo_limit_events')+" truncated="+(Prop $usage 'truncated')+" overflow_bytes="+(Prop $usage 'cardinality_overflow_bytes'))
    foreach($minute in @(Prop $usage 'minutes' @())){Say (" minute="+(Prop $minute 'minute_utc')+" profile="+(Prop $minute 'profile_id')+" domain="+(Prop $minute 'domain')+" tx="+(Prop $minute 'sent_bytes')+" rx="+(Prop $minute 'received_bytes'))}
   }
   $failures=Prop $snapshot 'failures'

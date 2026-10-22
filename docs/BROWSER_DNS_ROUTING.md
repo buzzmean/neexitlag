@@ -97,3 +97,18 @@ Opaque Google recovery делит прежние 8 admission slots с извес
 `googlevideo_shared_limit_active` — их общую загрузку. Ноль известного googlevideo
 не доказывает отсутствие видео в opaque relay. Реальная приёмка должна показать
 hostname evidence; без него результат по googlevideo — UNKNOWN, не PASS.
+
+## D. DIRECT для обычных сайтов и диагностика
+
+При известных DNS-подсказках VK/Яндекс остаются DIRECT. При неизвестном домене
+они также не наследуют Google failure group. Неизбранные процессы и игры,
+выключенная оптимизация и DNS чужого процесса не получают browser DNS handler.
+Поздний callback закрываемого flow не обучает кэш после выключения или смены сети.
+
+`diag-no-vpn.ps1 -Only browser,youtube`, версия 2026-10-23.1, отдельно показывает:
+`browser DNS broker`, пути `AUTHENTICATED_RELAY_DOH`/`SYSTEM_DNS`, типы запросов,
+количество выданных подсказок; до16 активных profile/network/IP/domain/expiry
+подсказок и число пропущенных строк; реальную причину/состояние Google failures;
+раздельные known-googlevideo/opaque-Google admissions и общий прежний предел8.
+Старый сервис/отсутствующие поля помечаются UNINSTRUMENTED. Вывод не содержит
+содержимого DNS/TLS, токенов или ключей. DNS/bytes не объявляются страницей PASS.

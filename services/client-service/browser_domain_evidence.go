@@ -177,6 +177,25 @@ func (x *browserDomainIndex) snapshot() map[string]any {
 	now := time.Now()
 	groups := []map[string]any{}
 	activeFailures := 0
+	hints := []map[string]any{}
+	activeOwned, omittedHints := 0, 0
+	for key, rows := range x.owned {
+		activeAddress := false
+		for _, row := range rows {
+			if !now.Before(row.expires) {
+				continue
+			}
+			activeAddress = true
+			if len(hints) >= 16 {
+				omittedHints++
+				continue
+			}
+			hints = append(hints, map[string]any{"network": key.network, "profile_id": key.profile, "address": key.address.String(), "domain": row.name, "expires": row.expires})
+		}
+		if activeAddress {
+			activeOwned++
+		}
+	}
 	for _, until := range x.failed {
 		if now.Before(until) {
 			activeFailures++
@@ -198,7 +217,7 @@ func (x *browserDomainIndex) snapshot() map[string]any {
 		}
 		groups = append(groups, map[string]any{"network": key.network, "profile_id": key.profile, "family": "GOOGLE_SERVICE_NETWORKS_NOT_DOMAIN_IDENTITY", "state": state, "distinct_failed_addresses": v.distinct, "first_address": v.first.String(), "until": v.until, "last_failure": v.reason})
 	}
-	return map[string]any{"source": "BROWSER_DNS_RESPONSE_PROFILE_TTL + WINDOWS_SYSTEM_DNS_CACHE; transit DoH encrypted", "opaque_direct_failed_endpoints": activeFailures, "google_failure_groups": groups, "google_failure_group_hits": x.googleHits, "google_group_maximum": 64, "google_group_ttl_seconds": 120, "native_first_tls_reply_budget_ms": 1200, "checked_at": x.checked, "last_error": x.errorCode, "browser_scoped_addresses": len(x.owned), "addresses": len(x.entries), "maximum_rows": 256, "maximum_ttl_seconds": 300, "refresh_seconds": 10, "unknown_policy": "DIRECT_DEFAULT; hidden protected domain cannot be guaranteed"}
+	return map[string]any{"source": "BROWSER_DNS_RESPONSE_PROFILE_TTL + WINDOWS_SYSTEM_DNS_CACHE; transit DoH encrypted", "opaque_direct_failed_endpoints": activeFailures, "google_failure_groups": groups, "google_failure_group_hits": x.googleHits, "google_group_maximum": 64, "google_group_ttl_seconds": 120, "native_first_tls_reply_budget_ms": 1200, "checked_at": x.checked, "last_error": x.errorCode, "browser_scoped_addresses": activeOwned, "browser_scoped_hints": hints, "browser_scoped_hints_omitted": omittedHints, "addresses": len(x.entries), "maximum_rows": 256, "maximum_ttl_seconds": 300, "refresh_seconds": 10, "unknown_policy": "DIRECT_DEFAULT; hidden protected domain cannot be guaranteed"}
 }
 func (c *Controller) watchBrowserDomainCache() {
 	for {

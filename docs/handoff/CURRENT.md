@@ -2438,3 +2438,14 @@ Targeted race3пакета PASS; дополнительные TLS timer/polling/
 fixtures заменены с пустого ServerHello на структурно полный; no-byte replay и
 no-replay-after-any-origin-byte assertions сохранены. Реальный Windows/ISP не проверен.
 Далее D/E, область занята.
+
+## 23.10.2026 — browser ordinary DIRECT/diagnostics D
+
+C запушен cf0fe52, ветка codex/work. D: combined fixtures Chrome/Edge DNS hints +
+Google failures => VK/Яндекс DIRECT; protected RELAY_REQUIRED; отключение/другая
+сеть не обучают failure cache; игры/чужие DNS не перехватываются. DNS snapshot
+показывает только activeTTL,16hint rows + omitted; diag2026-10-23.1 показывает
+DNS paths/TTL, failure reasons и known/opaque Google shared8. Исправлен optional
+Prop для пустого PSCustomObject под StrictMode. Targeted Go race и PS7 fixture
+PASS; native Windows/PS5.1/ISP не выполнены. Полный race повторяется перед E.
+Далее E, область занята.

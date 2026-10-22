@@ -1,10 +1,10 @@
-$ErrorActionPreference='Stop'
+﻿$ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 $path=Join-Path $PSScriptRoot '..\..\tools\windows\diag-no-vpn.ps1'
 $tokens=$null;$errors=$null
 $ast=[System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw ($errors|Out-String)}
-foreach($name in @('Prop','Write-TlsWireEvidence','Write-BrowserPathEvidence','Write-NativeIngressEvidence','Write-NativeFirewallEvidence','Write-BrowserFirstByteEvidence')){
+foreach($name in @('Prop','Write-BrowserDNSEvidence','Write-TlsWireEvidence','Write-BrowserPathEvidence','Write-NativeIngressEvidence','Write-NativeFirewallEvidence','Write-BrowserFirstByteEvidence')){
  $fn=$ast.Find({param($a)$a -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $a.Name -eq $name},$true)
  if(!$fn){throw "Missing function $name"};Invoke-Expression $fn.Extent.Text
 }
@@ -90,3 +90,19 @@ Write-TlsWireEvidence ([pscustomobject]@{records=@([pscustomobject]@{domain='web
 $text=$script:lines -join "`n"
 Check ($text -match 'addresses_tried=2 selected=149.154.167.99:443 negative_skips=1 dns=RELAY_DOH' -and $text -match 'ORIGIN_EOF_NO_BYTES' -and $text -notmatch 'NEVER_LOG') 'Scoped per-IP attempt evidence or redaction missing'
 Write-Host 'PASS per-IP attempts/selected address without arbitrary properties'
+
+$script:lines=@()
+Write-BrowserDNSEvidence ([pscustomobject]@{
+ browser_dns=[pscustomobject]@{scope='ATTRIBUTED_NATIVE_BROWSER';queries=3;relay_doh=2;system_dns=1;secure_dns_policy='KNOWN_DOH_AUTHENTICATED_RELAY';encrypted_answers='NOT_OBSERVED';records=@([pscustomobject]@{profile_id='chrome';domain='youtube.com';query_type=1;path='AUTHENTICATED_RELAY_DOH';result='DNS_RESPONSE';addresses=2;secret='NEVER_LOG'})}
+ domain_cache=[pscustomobject]@{browser_scoped_addresses=2;browser_scoped_hints_omitted=9;native_first_tls_reply_budget_ms=1200;browser_scoped_hints=@([pscustomobject]@{network='n';profile_id='chrome';address='87.240.137.208';domain='vk.ru';expires='2026-10-23T00:01:00Z';secret='NEVER_LOG'});google_failure_groups=@([pscustomobject]@{network='n';profile_id='chrome';state='RELAY_FIRST';distinct_failed_addresses=2;last_failure='DIRECT_TLS_EARLY_EOF_OR_RESET';secret='NEVER_LOG'})}
+ relay_usage=[pscustomobject]@{googlevideo_active_tunnels=6;opaque_google_active_tunnels=2;googlevideo_shared_limit_active=8;googlevideo_tunnel_limit=8}
+ secret='NEVER_LOG'
+})
+$text=$script:lines -join "`n"
+Check ($text -match 'relay_https_doh=2 original_resolver=1' -and $text -match 'domain=youtube.com.*AUTHENTICATED_RELAY_DOH') 'DNS path/counters missing'
+Check ($text -match 'address=87.240.137.208 domain=vk.ru expires=' -and $text -match 'omitted=9') 'TTL hints/bounded omission missing'
+Check ($text -match 'distinct_failures=2.*DIRECT_TLS_EARLY_EOF_OR_RESET' -and $text -match 'known_googlevideo=6 opaque_google=2 shared=8/8') 'Real failure family/shared admission missing'
+Check ($text -notmatch 'NEVER_LOG' -and $text -match 'no page/video PASS inferred') 'Secret or fabricated DNS/page proof'
+$script:lines=@();Write-BrowserDNSEvidence ([pscustomobject]@{})
+Check (($script:lines -join "`n") -match 'browser DNS broker: UNINSTRUMENTED') 'Legacy DNS snapshot not handled safely'
+Write-Host 'PASS DNS broker/scoped TTLs/real TLS failure groups/shared eight admissions, legacy snapshots and safe fixed fields under StrictMode'
