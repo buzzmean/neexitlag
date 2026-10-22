@@ -15,10 +15,11 @@ public partial class MainWindow
                 // Idempotent enable repairs an owned Edge guard/listener after service restart.
                 if (!forOptimize && nativeBrowserRetry.TryGetValue(p.Id, out var at) && at > DateTimeOffset.UtcNow) continue;
                 // Native ingress never waits for browser policy or PAC uptake.
-                nativeBrowserRetry[p.Id] = DateTimeOffset.UtcNow.AddSeconds(30);
+                nativeBrowserRetry[p.Id] = DateTimeOffset.UtcNow.AddSeconds(2);
                 var phase="browser.native.enable";
                 try {
                     await model.EnableNativeBrowserAsync(p, lifetime.Token);
+                    nativeBrowserRetry[p.Id]=DateTimeOffset.UtcNow.AddSeconds(30);
                     phase="browser.native.recovery";
                     // Restore existing owner-scoped recovery only; never create PAC
                     // or a new browser profile, and never launch/quit a browser.
@@ -32,7 +33,6 @@ public partial class MainWindow
                 catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { throw; }
                 catch (Exception error)
                 {
-                    model.RecordGuiFailure(error, phase);
                     model.ReportBrowserPreparationFailure(error,phase);
                 }
             }

@@ -39,7 +39,7 @@ public partial class MainWindow {
  }
  async Task EnableOptimizationAsync(){
   await model.EnsureStartupBrowserProfilesAsync(BrowserDiscovery.Installed(),lifetime.Token);
-  await BrowserOptimizationSequence.RunAsync(()=>model.OptimizeAsync(true,lifetime.Token),()=>model.Optimizing,()=>model.Snapshot?.Settings.Automatic==true,EnsureSilentBrowserLanesAsync,()=>PrepareNativeBrowsersAsync());
+  await BrowserOptimizationSequence.RunAsync(()=>model.OptimizeAsync(true,lifetime.Token),()=>model.Optimizing,()=>model.Snapshot?.Settings.Automatic==true,()=>Task.CompletedTask,()=>PrepareNativeBrowsersAsync());
  }
  async Task EnableOptimizationCoreAsync()=>await EnableOptimizationAsync();
  async Task<bool> ActivateChromeSites(ApplicationRow row){

@@ -15,12 +15,12 @@ public sealed partial class DesktopViewModel {
  }
  public void ReportBrowserPreparationFailure(Exception error,string phase){
   RecordGuiFailure(error,phase);
-  browserIssueNotice=Optimizing?"Подготавливаем маршруты браузера. Повторная проверка выполняется автоматически.":"Оптимизация выключена. Браузеры используют прямую сеть.";
+  browserIssueNotice=Optimizing?"Браузер пока не готов. VELIQ повторит подготовку автоматически.":"Оптимизация выключена. Браузеры используют прямую сеть.";
   Notice=browserIssueNotice;
  }
  public void ClearBrowserPreparationIssue(){if(browserIssueNotice is not null&&Notice==browserIssueNotice)Notice="";browserIssueNotice=null;}
  void ApplyDisabledBrowserDisplay(){
-  if(Optimizing)return;
+  if(Optimizing){if(Snapshot?.Connected!=true||Snapshot?.Backend.Ready!=true)ApplyNativeBrowserReadiness(new());return;}
   ApplyNativeBrowserReadiness(new());
   if(Applications.Any(a=>BrowserCatalog.IsChrome(a.Profile))){const string direct="Chrome: прямая сеть (оптимизация выключена)";if(ChromePolicyState!=direct){ChromePolicyState=direct;Changed(nameof(ChromePolicyState));}}
   if(Applications.Any(a=>BrowserCatalog.IsEdge(a.Profile))){const string direct="Edge: прямая сеть (оптимизация выключена)";if(EdgeState!=direct){EdgeState=direct;Changed(nameof(EdgeState));}}

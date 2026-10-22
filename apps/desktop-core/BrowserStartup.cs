@@ -18,15 +18,15 @@ public sealed partial class DesktopViewModel
           + ". Регистрация не подтверждает PAC или доступность сайтов.";
 
     public static bool CanAdoptDefaultBrowser(Profile p) =>
-        p.Mode is "DIRECT" or "AUTO" && string.IsNullOrEmpty(p.LocalStrategyId) &&
-        !(p.PolicyData is {} d && (d.TryGetValue("browser_auto_disabled", out var off) && off.ValueKind==System.Text.Json.JsonValueKind.True
-         || d.TryGetValue("rules",out var rules) && rules.ValueKind==System.Text.Json.JsonValueKind.Array && rules.GetArrayLength()>0
-         || d.TryGetValue("app_preset",out var preset) && preset.ValueKind==System.Text.Json.JsonValueKind.String && preset.GetString() is not (null or "" or "edge-sites" or "edge-sites-pending"))) && !NativeBrowser(p);
+        !NativeBrowser(p) && !(p.PolicyData is {} offData && offData.TryGetValue("browser_auto_disabled",out var off) && off.ValueKind==System.Text.Json.JsonValueKind.True) &&
+        (p.Mode=="AUTO" || p.Mode=="DIRECT" && string.IsNullOrEmpty(p.LocalStrategyId) &&
+          !(p.PolicyData is {} d && (d.TryGetValue("rules",out var rules) && rules.ValueKind==System.Text.Json.JsonValueKind.Array && rules.GetArrayLength()>0
+            || d.TryGetValue("app_preset",out var preset) && preset.ValueKind==System.Text.Json.JsonValueKind.String && preset.GetString() is not (null or "" or "edge-sites" or "edge-sites-pending"))));
     public static Profile NativeAutoProfile(Profile original) {
-        var p=original.Copy();p.Mode="AUTO";p.RelayId=null;p.PolicyData??=new();
+        var p=original.Copy();p.Mode="AUTO";p.PolicyData??=new();
         p.PolicyData["browser_transport"]=System.Text.Json.JsonSerializer.SerializeToElement("native");
         p.PolicyData["browser_auto_disabled"]=System.Text.Json.JsonSerializer.SerializeToElement(false);
-        if(BrowserCatalog.IsEdge(p))p.PolicyData["app_preset"]=System.Text.Json.JsonSerializer.SerializeToElement("edge-sites");
+        if(BrowserCatalog.IsEdge(p) && (!p.PolicyData.TryGetValue("app_preset",out var preset)||preset.ValueKind!=System.Text.Json.JsonValueKind.String||preset.GetString() is "" or "edge-sites-pending"))p.PolicyData["app_preset"]=System.Text.Json.JsonSerializer.SerializeToElement("edge-sites");
         return p;
     }
     // Track Chrome created on startup for quiet PAC preparation on Optimize.
@@ -94,7 +94,7 @@ public sealed partial class DesktopViewModel
                         : error is ServiceException ipc ? "IPC_" + ipc.Failure.ToString().ToUpperInvariant()
                         : "BROWSER_PROFILE_REGISTRATION_FAILED";
                     rows.Add(new(browser, "FAILED", "", "", found.ExePath, code));
-                    RecordGuiFailure(error, "browser.startup." + browser);
+                    ReportBrowserPreparationFailure(error, "browser.startup." + browser);
                 }
             }
             BrowserStartup = new(started, DateTimeOffset.UtcNow, watch.ElapsedMilliseconds, rows.ToArray());

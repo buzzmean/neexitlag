@@ -2007,3 +2007,7 @@ B 3d11370. Native readiness state/reason/configured_profiles/guard отделе�
 ### Браузеры D: выключение native и совместимость cached PAC
 
 C 6a4c07f. OFF/Exit/host stop для fresh native не требует proxy или registry uptake; Classify новых TCP/UDP возвращает DIRECT, AUTO намерение сохраняется. Переход из native в пользовательский DIRECT использует ReconfigureNewConnections, а не reset established TCP; явный opt-out сохранён. Старый cached PAC DIRECT/idle/SCM recovery guard остаётся из 227160d. Core/service/host targeted race PASS, C# browser disable/startup/readiness проверены перед commit; настоящий SCM/Chrome/ISP не выполнялся. VPS/PR8 не изменены.
+
+### Браузеры E: автоматический UX без технических PAC кнопок
+
+D 6b20bcd. Обычный AUTO/Optimize использует native; PAC/Origin-probe moved в collapsed advanced diagnostics, legacy путь сохранён опционально. Нет фонового silent PAC prepare. Legacy AUTO сохраняет strategy/rules/custom preset/relay ID при adoption; DIRECT opt-out не сбрасывается. Startup rejection показывает нейтральный статус, safe IPC code остаётся в журнале; retry2s, ready сбрасывается при connected/capture loss. C#183/183 PASS; WPF0errors/4 прежних warnings PASS. Реальный Windows UI/Chrome157 не выполнялся.

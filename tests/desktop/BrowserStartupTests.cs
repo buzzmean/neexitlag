@@ -72,8 +72,8 @@ public sealed class BrowserStartupTests
         service.Inner.State.Profiles = installed.Select(b => new Profile { Id = b.Id, Executables = [b.ExePath], Mode = mode, RelayId = "VPS-01", LocalStrategyId = "baseline", PolicyData = new() { ["app_preset"] = System.Text.Json.JsonSerializer.SerializeToElement("custom") } }).ToArray();
         var vm = new DesktopViewModel(service);
         await vm.RefreshAsync(); await vm.EnsureStartupBrowserProfilesAsync(installed);
-        Assert.DoesNotContain(service.Inner.Calls, c => c.Method == "profile.set");
-        Assert.All(vm.BrowserStartup!.Browsers, r => Assert.Equal("EXISTING", r.State));
+        Assert.Equal(mode=="AUTO"?2:0,service.Inner.Calls.Count(c=>c.Method=="profile.set"));
+        Assert.All(vm.BrowserStartup!.Browsers, r => Assert.Equal(mode=="AUTO"?"AUTO_CONFIGURED":"EXISTING", r.State));
         Assert.All(service.Inner.State.Profiles, p => { Assert.Equal(mode, p.Mode); Assert.Equal("baseline", p.LocalStrategyId); Assert.Equal("custom", p.PolicyData!["app_preset"].GetString()); Assert.False(vm.StartupChromeNeedsActivation(p)); });
     });
 
@@ -85,6 +85,7 @@ public sealed class BrowserStartupTests
         Assert.True(vm.Available); Assert.Single(vm.Applications);
         var failed = vm.BrowserStartup!.Browsers.Single(b => b.Browser == "edge");
         Assert.Equal("FAILED", failed.State); Assert.Equal("IPC_REJECTED", failed.Code);
+        Assert.Contains("выключена",vm.Notice);Assert.DoesNotContain("secret",vm.Notice);
         Assert.DoesNotContain("do-not-persist", System.Text.Json.JsonSerializer.Serialize(vm.BrowserStartup));
         service.RejectEdge = false; await vm.EnsureStartupBrowserProfilesAsync(installed);
         Assert.Equal(2, vm.Applications.Count); Assert.Equal(2, service.Inner.Calls.Count(c => c.Method == "profile.set"));
