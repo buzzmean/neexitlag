@@ -193,3 +193,47 @@ func TestRelayTransportFailureIsNotLearnedAsGameServerHealth(t *testing.T) {
 		t.Fatal("transport error learned as game network health")
 	}
 }
+func TestHealthyOtherGameEndpointCannotHoldBlockedEndpointDirect(t *testing.T) {
+	e := NewLadder(nil)
+	e.Configure(app, true)
+	e.SetReason("")
+	at := time.Unix(1000, 0)
+	good := ladderFlow(t, e, at, 50000)
+	sustain(e, good, at)
+	key := good.key
+	key.Source = netip.MustParseAddrPort("192.0.2.1:50001")
+	key.Destination = netip.MustParseAddrPort("18.157.29.51:7923")
+	bad, err := e.Open(key, at.Add(4*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 4; i <= 11; i++ {
+		now := at.Add(time.Duration(i) * time.Second)
+		e.Outgoing(good, 50, now)
+		e.Reply(good, 50, now)
+		e.Outgoing(bad, 50, now)
+		e.Tick(now)
+	}
+	next, err := e.Open(key, at.Add(12*time.Second))
+	if err != nil || e.Evidence(next).Stage != Local {
+		t.Fatal("unrelated responder held failed server DIRECT", err, e.Snapshot())
+	}
+	stillGood, err := e.Open(good.key, at.Add(12*time.Second))
+	if err != nil || e.Evidence(stillGood).Stage != Direct {
+		t.Fatal("working game endpoint inherited unnecessary workaround", err, e.Snapshot())
+	}
+}
+func TestHealthyEndpointChurnDoesNotEvictFailureLadder(t *testing.T) {
+	e := NewLadder(nil)
+	at := time.Unix(1000, 0)
+	network := strings.Repeat("a", 64)
+	key := learnKey(network, app)
+	e.putLearning(key, Learning{Network: network, Application: app, Stage: Local, Expires: at.Add(10 * time.Minute)}, at)
+	for i := 0; i < 50; i++ {
+		dst := netip.AddrPortFrom(netip.AddrFrom4([4]byte{18, 157, 1, byte(i + 1)}), 7766).String()
+		e.putLearning(endpointKey(network, app, dst), Learning{Endpoint: dst, Network: network, Application: app, Stage: Direct, Confirmed: true, Expires: at.Add(LearnTTL)}, at)
+	}
+	if len(e.learning) > MaxNetworks || e.learning[key].Stage != Local {
+		t.Fatal("QoS cache churn erased blocked path learning")
+	}
+}

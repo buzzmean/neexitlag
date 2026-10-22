@@ -171,6 +171,9 @@ public sealed partial class DesktopViewModel : Observable
             try { ApplyBrowser(await client.Call<BrowserTransportSnapshot>("browser.status", cancellationToken: ct)); }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch (Exception error) { ApplyBrowser(new()); ReportAuxiliaryFailure(error,"ipc.browser"); }
+            try { await RefreshGamesAsync(ct); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception error) { ReportAuxiliaryFailure(error,"ipc.gameudp"); }
             Error = "";
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { }

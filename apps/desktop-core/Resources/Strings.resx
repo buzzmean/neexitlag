@@ -1,5 +1,8 @@
 <?xml version='1.0' encoding='utf-8'?>
 <root>
+ <data name="GameUdpEnable" xml:space="preserve"><value>Игровой UDP: включить</value></data>
+ <data name="GameUdpTitle" xml:space="preserve"><value>Игровой UDP-обход</value></data>
+ <data name="GameUdpHint" xml:space="preserve"><value>Только выбранная игра и новые IPv4 UDP-потоки ≥1024. PUBG включён по умолчанию. Совместимость античитов ещё проверяется; Vanguard/FACEIT заблокированы.</value></data>
   <data name="RelayWarningTitle" xml:space="preserve">
     <value>Направить приложение через релей?</value>
   </data>

@@ -292,7 +292,7 @@ func (c *Controller) classifyGameUDP(id wp.ProcessIdentity, t wp.Tuple) (wp.Deci
 	if !gameudp.Eligible(id.Path, id.Path, t.Protocol, t.Destination) {
 		return wp.Decision{}, false
 	}
-	p, ok := c.Profiles.Match(id)
+	p, ok := c.matchApplication(id)
 	if !ok || !gameProfileSafe(p) {
 		return wp.Decision{}, false
 	}

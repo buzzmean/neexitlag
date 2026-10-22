@@ -18,6 +18,7 @@ public sealed class FakeService : IServiceClient
             "processes" => Array.Empty<ProcessIdentity>(),
             "capture.diagnostics" => new CaptureEvidence(),
             "browser.status" => new BrowserTransportSnapshot(),
+            "gameudp.status" => new GameUdpStatus(),
             "profile.set" or "profile.delete" => State.Profiles,
             "settings.set" => payload!,
             "quality.diagnostics" => new DropDiagnostics(),

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/netip"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -237,4 +238,26 @@ func TestGameEvidenceDoesNotRegressAcrossConcurrentPublishers(t *testing.T) {
 	if ledger.Snapshot(id.PID).Flows[0].GameUDP.Replies != 1 {
 		t.Fatal("external reader mutated ledger")
 	}
+}
+
+func TestGameGuardPollingAndCaptureRestartDoNotReplaceMutex(t *testing.T) {
+	g := &gameGuardState{}
+	var wg sync.WaitGroup
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func(mode int) {
+			defer wg.Done()
+			for n := 0; n < 100; n++ {
+				switch mode {
+				case 0:
+					g.reset()
+				case 1:
+					g.snapshot()
+				case 2:
+					g.event(reflectRecord{key: reflectKey{2, 7, 0}, flags: 5, priority: gameReplyPriority}, 8, 7)
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
 }

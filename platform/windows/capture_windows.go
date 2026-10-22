@@ -180,7 +180,7 @@ func (b *WinDivertBackend) Start(parent context.Context, classify Classifier) (r
 	// Optional game-only observation. Failure suspends priming, never the
 	// ordinary networking/capture backend. Open REFLECT before the final sniff
 	// handle: its own priority marker fences the replayed initial handle list.
-	b.gameGuard = gameGuardState{}
+	b.gameGuard.reset()
 	reflectHandle, reflectErr := dll.openHandle("true", 4, 1|4)
 	var replyHandle uintptr
 	eval, evalErr := dll.dll.FindProc("WinDivertHelperEvalFilter")

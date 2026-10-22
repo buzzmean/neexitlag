@@ -90,3 +90,17 @@ func (g *gameGuardState) snapshot() GameUDPGuardStatus {
 	}
 	return s
 }
+
+// The service polls guard status even while capture restarts. Never replace a
+// struct containing a live mutex; reset its fields under the persistent lock.
+func (g *gameGuardState) reset() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.ready = false
+	g.error = ""
+	g.foreign = map[reflectKey]*reflectRecord{}
+	g.processAt = time.Time{}
+	g.processForeign = ""
+	g.processAnti = ""
+	g.processError = ""
+}

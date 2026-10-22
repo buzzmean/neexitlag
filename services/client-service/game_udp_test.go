@@ -163,3 +163,33 @@ func TestGameStatusRemainsWithinIPCFrameWithLongPathsAndAllCaches(t *testing.T) 
 		t.Fatal("silent cache truncation")
 	}
 }
+func TestGameFeatureCannotPreemptProtectedHelperGroup(t *testing.T) {
+	c, id := gameController(t)
+	id.Path = `C:\Games\helper.exe`
+	id.PID++
+	p := profiles.Profile{ID: "custom-helper", Name: "selected", Executables: []string{id.Path}, Mode: profiles.Direct, Custom: true}
+	if err := c.Profiles.Upsert(p); err != nil {
+		t.Fatal(err)
+	}
+	var protected profiles.Profile
+	for _, v := range c.Profiles.List() {
+		if v.ID == "chatgpt-desktop" {
+			protected = v
+			break
+		}
+	}
+	protected.Identity.Helpers = append(protected.Identity.Helpers, "helper.exe")
+	if err := c.Profiles.Upsert(protected); err != nil {
+		t.Fatal(err)
+	}
+	e := gameudp.NewLadder(c.games.budget)
+	e.Configure(id.Path, true)
+	e.SetReason("")
+	c.games.items[p.ID] = &gameEntry{ProfileID: p.ID, Path: id.Path, Enabled: true, Engine: e}
+	// A binding previously verified by the existing ancestry mechanism.
+	c.groupBindings[id.PID] = groupBinding{identity: id, profile: protected.ID}
+	d := c.Classify(id, policyTuple("udp", 7766))
+	if d.GameUDP != nil || d.Route.RelayID != "VPS-01" || !d.BlockOnFailure {
+		t.Fatal("game opt-in preempted protected helper ancestry", d)
+	}
+}

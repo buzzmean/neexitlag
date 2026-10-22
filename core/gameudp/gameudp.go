@@ -142,6 +142,7 @@ type Flow struct {
 	last        time.Time
 }
 type Learning struct {
+	Endpoint    string    `json:"endpoint,omitempty"`
 	Stage       string    `json:"stage,omitempty"`
 	Exhausted   bool      `json:"exhausted,omitempty"`
 	Network     string    `json:"network"`
@@ -200,9 +201,10 @@ func (e *Engine) SetReason(reason string) {
 	}
 	e.reason = reason
 }
-func (e *Engine) Application() string { e.mu.Lock(); defer e.mu.Unlock(); return e.application }
-func (e *Engine) Enabled() bool       { e.mu.Lock(); defer e.mu.Unlock(); return e.enabled }
-func learnKey(n, a string) string     { return n + "\x00" + Canonical(a) }
+func (e *Engine) Application() string   { e.mu.Lock(); defer e.mu.Unlock(); return e.application }
+func (e *Engine) Enabled() bool         { e.mu.Lock(); defer e.mu.Unlock(); return e.enabled }
+func endpointKey(n, a, d string) string { return learnKey(n, a) + "\x00" + d }
+func learnKey(n, a string) string       { return n + "\x00" + Canonical(a) }
 func (e *Engine) Open(k Key, now time.Time) (*Flow, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -214,6 +216,11 @@ func (e *Engine) Open(k Key, now time.Time) (*Flow, error) {
 		return nil, errors.New("GAME_UDP_FLOW_CAPACITY")
 	}
 	cache := e.learning[learnKey(k.Network, k.Application)]
+	if e.ladder {
+		if direct := e.learning[endpointKey(k.Network, k.Application, k.Destination.String())]; direct.Confirmed && direct.Stage == Direct && now.Before(direct.Expires) {
+			cache = direct
+		}
+	}
 	index := 0
 	stage := Local
 	if e.ladder {
@@ -385,7 +392,12 @@ func (e *Engine) health(f *Flow, now time.Time) {
 				index = i
 			}
 		}
-		e.putLearning(key, Learning{Stage: f.e.Stage, Network: f.key.Network, Application: f.key.Application, Index: index, Confirmed: true, Expires: now.Add(LearnTTL)}, now)
+		endpoint := ""
+		if e.ladder && f.e.Stage == Direct {
+			endpoint = f.key.Destination.String()
+			key = endpointKey(f.key.Network, f.key.Application, endpoint)
+		}
+		e.putLearning(key, Learning{Endpoint: endpoint, Stage: f.e.Stage, Network: f.key.Network, Application: f.key.Application, Index: index, Confirmed: true, Expires: now.Add(LearnTTL)}, now)
 		return
 	}
 	if f.learned {
@@ -414,6 +426,12 @@ func (e *Engine) health(f *Flow, now time.Time) {
 			index = i
 		}
 	}
+	// A successful unrelated endpoint must neither hold a broken endpoint
+	// DIRECT nor force its own healthy game traffic through relay.
+	if e.ladder && f.e.Stage == Direct {
+		delete(e.learning, endpointKey(f.key.Network, f.key.Application, f.key.Destination.String()))
+		e.revision++
+	}
 	// Parallel failures of the same candidate advance only once. A losing trial
 	// cannot overwrite a different sustained winner or drain all alternatives.
 	if now.Before(old.Expires) && (old.Index != index || e.ladder && old.Stage != f.e.Stage) {
@@ -421,7 +439,7 @@ func (e *Engine) health(f *Flow, now time.Time) {
 	}
 	if old.Confirmed {
 		for _, peer := range e.flows {
-			if peer != f && peer.learned && !peer.failed && peer.degradedAt.IsZero() && learnKey(peer.key.Network, peer.key.Application) == key && now.Sub(peer.e.LastReply) < 2*time.Second && now.Sub(peer.e.LastOutgoing) < 2*time.Second {
+			if peer != f && peer.key.Destination == f.key.Destination && peer.learned && !peer.failed && peer.degradedAt.IsZero() && learnKey(peer.key.Network, peer.key.Application) == key && now.Sub(peer.e.LastReply) < 2*time.Second && now.Sub(peer.e.LastOutgoing) < 2*time.Second {
 				f.e.Reason = "FLOW_FAILED_NETWORK_WINNER_STILL_RESPONDING"
 				return
 			}
@@ -458,10 +476,17 @@ func (e *Engine) putLearning(key string, v Learning, now time.Time) {
 	if _, ok := e.learning[key]; !ok && len(e.learning) >= MaxNetworks {
 		oldest := ""
 		var at time.Time
-		for k, v := range e.learning {
-			if oldest == "" || v.Expires.Before(at) {
-				oldest, at = k, v.Expires
+		endpointVictim := false
+		for k, entry := range e.learning {
+			endpoint := entry.Endpoint != ""
+			if oldest == "" || (endpoint && !endpointVictim) || (endpoint == endpointVictim && entry.Expires.Before(at)) {
+				oldest, at, endpointVictim = k, entry.Expires, endpoint
 			}
+		}
+		// Healthy QoS endpoints must not evict the bounded per-network failure
+		// ladder. Evict a healthy endpoint first; no unbounded cache growth.
+		if v.Endpoint != "" && !endpointVictim {
+			return
 		}
 		delete(e.learning, oldest)
 	}
@@ -493,7 +518,9 @@ func (e *Engine) Snapshot() Snapshot {
 		out.Learning = append(out.Learning, l)
 	}
 	sort.Slice(out.Flows, func(i, j int) bool { return out.Flows[i].ID > out.Flows[j].ID })
-	sort.Slice(out.Learning, func(i, j int) bool { return out.Learning[i].Network < out.Learning[j].Network })
+	sort.Slice(out.Learning, func(i, j int) bool {
+		return out.Learning[i].Network+out.Learning[i].Endpoint < out.Learning[j].Network+out.Learning[j].Endpoint
+	})
 	return out
 }
 func (e *Engine) Revision() uint64 { e.mu.Lock(); defer e.mu.Unlock(); return e.revision }
@@ -504,13 +531,23 @@ func (e *Engine) Restore(all []Learning, now time.Time) error {
 		return errors.New("GAME_UDP_LEARNING_CAPACITY")
 	}
 	for _, l := range all {
+		if l.Endpoint != "" {
+			dst, err := netip.ParseAddrPort(l.Endpoint)
+			if err != nil || !Eligible(l.Application, l.Application, "udp", dst) || l.Stage != Direct || !l.Confirmed {
+				return errors.New("GAME_UDP_LEARNING_INVALID")
+			}
+		}
 		if len(l.Network) != 64 || len(l.Application) > 2048 || l.Index < 0 || l.Index >= len(Variants()) || l.Tried < 0 || l.Tried > len(Variants())+2 || (l.Stage != "" && l.Stage != Direct && l.Stage != Local && l.Stage != Relay) || l.Expires.After(now.Add(LearnTTL)) {
 			return errors.New("GAME_UDP_LEARNING_INVALID")
 		}
 	}
 	for _, l := range all {
 		if now.Before(l.Expires) {
-			e.learning[learnKey(l.Network, l.Application)] = l
+			key := learnKey(l.Network, l.Application)
+			if l.Endpoint != "" {
+				key = endpointKey(l.Network, l.Application, l.Endpoint)
+			}
+			e.learning[key] = l
 		}
 	}
 	return nil
