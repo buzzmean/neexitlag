@@ -1,4 +1,4 @@
-# Administrative preparation once per image, not on each guest PC.
+﻿# Administrative preparation once per image, not on each guest PC.
 [CmdletBinding()]
 param([Parameter(Mandatory=$true)][string]$Path)
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest

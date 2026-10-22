@@ -27,4 +27,9 @@ func TestClubStorageRemainsDirectEvenWithApplicationRelayProfile(t *testing.T) {
 	if d := c.Classify(id, tuple); d.Route.Direct() {
 		t.Fatal("public peer incorrectly exempted", d)
 	}
+	tuple.Source = netip.MustParseAddrPort("192.168.88.10:3260")
+	tuple.Destination = netip.MustParseAddrPort("8.8.8.8:443")
+	if d := c.Classify(id, tuple); d.Route.Direct() {
+		t.Fatal("client binding source port 3260 bypassed policy", d)
+	}
 }

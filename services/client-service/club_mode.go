@@ -44,10 +44,25 @@ func (c *Controller) ConfigureClub(m Manifest) error {
 			for _, exe := range p.Executables {
 				if strings.EqualFold(exe, file) {
 					exists = true
+					// Explicit administrator opt-out survives. Legacy DIRECT/pending
+					// is NOT an opt-out and must not reproduce the fresh AUTO cycle.
+					if !p.BrowserAutoDisabled {
+						p.Mode = profiles.Auto
+						p.BrowserTransport = "native"
+						if name == "msedge.exe" {
+							p.AppPreset = "edge-sites"
+						}
+						prepareAuto(&p)
+						if err = c.Profiles.Upsert(p); err != nil {
+							return err
+						}
+						c.mu.Lock()
+						c.localProfiles[p.ID] = p
+						c.mu.Unlock()
+					}
 				}
 			}
 		}
-		// Preserve an existing administrator configuration, including explicit opt-out.
 		if exists {
 			continue
 		}
@@ -73,6 +88,9 @@ func (c *Controller) ConfigureClub(m Manifest) error {
 		return err
 	}
 	c.syncPolicies()
+	if m.ProbeTokenFile == "" {
+		m.ProbeTokenFile = filepath.Join(filepath.Dir(m.DeviceIdentityFile), "probe.token")
+	}
 	c.clubConfig.Store(&clubConfiguration{manifest: m})
 	c.clubMode.Store(true)
 	return nil

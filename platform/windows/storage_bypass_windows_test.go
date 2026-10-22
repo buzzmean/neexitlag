@@ -45,6 +45,8 @@ func TestPrivateISCSIExcludedByActualWinDivertFilterEvaluator(t *testing.T) {
 		{"192.168.88.252:3260", "192.168.88.10:50000", false, false},
 		{"192.168.88.10:50000", "8.8.8.8:443", true, true},
 		{"192.168.88.10:50000", "8.8.8.8:3260", true, true},
+		{"192.168.88.10:3260", "8.8.8.8:443", true, true},
+		{"8.8.8.8:443", "192.168.88.10:3260", false, true},
 	}
 	for _, tt := range cases {
 		packet := tcpPacket(t, Tuple{Protocol: "tcp", Source: netip.MustParseAddrPort(tt.src), Destination: netip.MustParseAddrPort(tt.dst)})

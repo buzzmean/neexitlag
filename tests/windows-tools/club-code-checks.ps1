@@ -16,7 +16,7 @@ function Write-ClubJson {param($Path,$Value);if($script:failWrite){throw 'inject
 Invoke-ClubCodeReplacement -Directory ([IO.Path]::GetTempPath()) -Record $a
 if(!$script:running -or $script:starts -ne 1 -or $script:writes -ne 1){throw 'live code rotation order'}
 Invoke-ClubCodeReplacement -Directory ([IO.Path]::GetTempPath()) -Record $b -Image
-if($script:running -or $script:starts -ne 1 -or $script:writes -ne 2){throw 'sealed image started enrollment'}
+if(!$script:running -or $script:starts -ne 1 -or $script:writes -ne 2){throw 'offline edit touched administrator PC service'}
 $script:running=$true;$script:failWrite=$true;$errorCode=''
 try{Invoke-ClubCodeReplacement -Directory ([IO.Path]::GetTempPath()) -Record $a}catch{$errorCode=$_.Exception.Message}
 if(!$script:running -or $errorCode -notlike 'CLUB_CODE_REPLACEMENT_FAILED*'){throw 'write failure did not restore existing service'}

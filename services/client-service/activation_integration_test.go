@@ -110,6 +110,8 @@ func TestActivationHTTPSCSRPrivateKeyFreezeAndLostResponse(t *testing.T) {
 	var previousID string
 	var lastManifest Manifest
 	var lastRecord activationRecord
+	// A sealed image has the SAME staged request ID on every freeze boot.
+	requestID, _ := security.NewID()
 	for i := 0; i < 5; i++ {
 		dir := t.TempDir()
 		caPath := filepath.Join(dir, "ca.pem")
@@ -117,7 +119,6 @@ func TestActivationHTTPSCSRPrivateKeyFreezeAndLostResponse(t *testing.T) {
 			t.Fatal(e)
 		}
 		m := Manifest{ControlPlaneURL: server.URL, CAFile: caPath, ActivationCAFingerprint: freshpc.Fingerprint(ca), StateDirectory: filepath.Join(dir, "state"), DeviceIdentityFile: filepath.Join(dir, "identity.json"), DeviceCertificate: filepath.Join(dir, "device.pem"), TrustFile: filepath.Join(dir, "trust.json"), ProbeTokenFile: filepath.Join(dir, "probe.token")}
-		requestID, _ := security.NewID()
 		record := activationRecord{Code: raw, RequestID: requestID, Pending: true}
 		start := time.Now()
 		if i == 0 {

@@ -2269,3 +2269,18 @@ boot marker/private pending keys. Freeze: менять sealed base/offline origi
 Изменение локального overlay потеряется после freeze; базовый файл тоже обновить.
 PS7 parser/pending-record/mock rotation/image-stop/write-failure restoration PASS.
 Реальная Windows ACL/SCM/code replacement и production revoke не выполнялись.
+
+## 22.10.2026 — клубный пилот: уточнения после проверки границ
+
+Offline -Image code replacement не вызывает SCM административного ПК; legacy
+DIRECT browser без explicit BrowserAutoDisabled переводится в AUTO native (иначе
+старый fresh/pending цикл возвращается). Явный admin opt-out сохранён. Club probe
+берёт стандартный probe.token при изначально пустом ActivationOnly manifest.
+Storage exclusion ограничен направлением: local source port3260 НЕ позволяет
+обойти protected policy к публичному443; official DLL evaluator имеет эти cases.
+HTTP CSR freeze fixture теперь повторяет один staged request ID из общего image
+между пятью загрузками, свежие keys/один slot/revoke сохраняются. PG race PASS.
+Go targeted race/Windows test EXE cross-compile и PS7 mocks PASS.
+Полный race первый раз: demo route selection 25с timeout, повтор count3 имел1fail;
+baseline0ea5284 count3 PASS за66с. Полный повтор race -p1 затем PASS без правки
+самого demo/таймаутов; это наблюдаемая timing-нестабильность, не скрываем её.

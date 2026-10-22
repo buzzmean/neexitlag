@@ -13,6 +13,8 @@ function New-ClubPendingRecord([string]$Code){
  return @{code=$Code;request_id=[Guid]::NewGuid().ToString('N');pending=$true}
 }
 function Invoke-ClubCodeReplacement([string]$Directory,$Record,[switch]$Image){
+ # Offline image edits must NEVER touch the admin PC SCM.
+ if($Image){Write-ClubJson (Join-Path $Directory 'activation-code.json.pending') $Record;return}
  $service=Get-Service neexitlag -ErrorAction SilentlyContinue
  if(!$Image -and !$service){throw 'CLUB_SERVICE_NOT_FOUND'}
  $wasRunning=$service -and $service.Status -ne 'Stopped'

@@ -3,7 +3,8 @@ package windowsplatform
 import "fmt"
 
 func IsPrivateISCSI(t Tuple) bool {
-	return t.Protocol == "tcp" && (t.Destination.Port() == 3260 && t.Destination.Addr().IsPrivate() || t.Source.Port() == 3260 && t.Source.Addr().IsPrivate())
+	// Classifier tuples are canonical outbound tuples, never a reversed reply.
+	return t.Protocol == "tcp" && t.Destination.Port() == 3260 && t.Destination.Addr().IsPrivate()
 }
 func privateIPv4Filter(field string) string {
 	return fmt.Sprintf("((%s >= 10.0.0.0 and %s <= 10.255.255.255) or (%s >= 172.16.0.0 and %s <= 172.31.255.255) or (%s >= 192.168.0.0 and %s <= 192.168.255.255))", field, field, field, field, field, field)
@@ -16,5 +17,5 @@ func nativeTCPNetworkFilter(port uint16, loopbackFixture bool) string {
 	if loopbackFixture {
 		base = "ip and tcp and !impostor"
 	}
-	return base + " and not ((tcp.DstPort == 3260 and " + privateIPv4Filter("ip.DstAddr") + ") or (tcp.SrcPort == 3260 and " + privateIPv4Filter("ip.SrcAddr") + "))"
+	return base + " and not ((outbound and tcp.DstPort == 3260 and " + privateIPv4Filter("ip.DstAddr") + ") or (inbound and tcp.SrcPort == 3260 and " + privateIPv4Filter("ip.SrcAddr") + "))"
 }
