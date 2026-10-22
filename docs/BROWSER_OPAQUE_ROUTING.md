@@ -18,6 +18,9 @@ OPAQUE_AUTHENTICATED_RELAY_ONLY. GREASE и настоящий ECH нельзя �
   и ограничен 300 с; снимок каждые 10 с, запрос до 3 с, вне packet worker.
   Только текущая сеть; при ошибке снимок очищается. Один IP → несколько имён:
   имя не выбирается наугад; protected association ограничивает общий IP relay-only.
+  Известный protected outer конкретного потока может выбрать одноимённый DNS
+  кандидат среди нескольких aliases только для relay/recovery, без DIRECT.
+  Он по-прежнему обозначается как outer hint, а не inner SNI.
   CNAME без A/AAAA, HTTPS/SVCB и приватный DoH-кэш браузера не раскрывают нам inner SNI.
 - Без имени/ассоциации: DIRECT к исходному IP. TCP OPEN failure вызывает bounded
   relay retry до отправки app payload; отсутствие первого ответа после отправки

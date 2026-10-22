@@ -20,7 +20,7 @@
 
 | Работа | Файлы | Агент | Ветка | Статус |
 |---|---|---|---|---|
-| Browser opaque/ECH DIRECT и Telegram recovery (22.10.2026) | core browserproxy/domaininspect; platform/windows domain/DNS; services/client-service browser*; tools/windows browser startup/diag; tests/docs | Codex | codex/work | В РАБОТЕ; VPS/PR8 не трогать |
+| Browser opaque/ECH DIRECT и Telegram recovery (22.10.2026) | core browserproxy/domaininspect; platform/windows domain/DNS; services/client-service browser*; tools/windows browser startup/diag; tests/docs | Codex | codex/work | КОД/ЛОКАЛЬНЫЕ GATES ГОТОВЫ; область освобождена. fbab84f, 49ecb96, 5c8f3be, 885d836, 2804508. Windows/ISP и ECH+DoH/shared-IP ограничения — новый handoff ниже |
 | Общий игровой UDP обход A–H (22.10.2026) | core/gameudp/*; platform/windows UDP capture/reply/discovery/REFLECT/conflicts; services/client-service game_udp/controller/local_auto (additive conflict metadata); apps/desktop{,-core}/GameUdp и UI; tools/windows game UDP/diag; tests/workflows/docs | Codex | codex/work | КОД ГОТОВ; область освобождена. PUBG default-on; остальные opt-in. DIRECT → local → authenticated relay, новые tuples; античит gate. Local gates PASS; actual Windows/driver/BattlEye/3–5 матчей/RTT не проверены, CI steps=[] |
 | Native Chrome/Edge: нулевой ingress d3aad37 (22.10.2026) | platform/windows capture/process/TCP/UDP и tests; services/client-service browser/status; desktop readiness; tools/windows диагностика/приёмка; workflows; docs | Codex | codex/work | КОД И ДИАГНОСТИКА ГОТОВЫ, область освобождена; подтверждён unit dual-stack bug; Windows gate не выполнен, A/C/F не приняты |
 | Браузеры fresh/hot-attach A–G (22.10.2026) | services/client-service/browser*, edge*, ipc; platform/windows TCP/UDP domain capture и browser discovery; desktop Browser*/Edge*/Chrome* и UI; tests; tools/windows acceptance; docs/ | Codex | codex/work | ЗАВЕРШЕНО В КОДЕ A–G; область освобождена. Native/PAC circle, startup/readiness/UI/disable/acceptance; Go race/vet/build, C#187 и WPF PASS; actual Windows/Chrome157/SCM/ISP не выполнены. VPS/PR8 не тронуты |
@@ -2153,3 +2153,47 @@ Startup helper запушен 5c8f3be; Telegram шаг — 49ecb96. Общие �
 1300ms admission и relay retry только после ошибки и до app payload; owner errors
 не запускают retry/learning. Первый ответ/таймаут opaque отслеживается отдельно,
 ошибка хранится только сеть/профиль/IP/порт 2 мин. Regression race count=3 PASS.
+
+## 22.10.2026 — итог opaque/DNS/Telegram/startup
+
+Коммиты: fbab84f (DIRECT default и DNS hints), 49ecb96 (preflight IP до browser TLS),
+5c8f3be (startup helper), 885d836 (protected hint поверх IP DIRECT rule),
+2804508 (unknown failures только сеть/профиль/IP/порт, не пустой домен).
+Область освобождена; рабочее дерево чистое до этой записи.
+
+Финальные проверки на коде 2804508 + уточнение protected outer/DNS aliases: `go test -race -p 1 ./...`, `go vet ./...`,
+`go build ./...`, Windows amd64 `go build ./...`, Windows platform/service vet,
+compile platform+service Windows test EXE — PASS. PS7 parser + StrictMode fixtures
+startup/disable/path/TLS evidence — PASS; реальный PS5.1/Windows SCM/Chrome/Edge/ISP
+в этой среде не запускались. C#/WPF код не менялся и повторно не собирался.
+Дополнительно: race count=3/5 TLS cert+GET, large fragmented ClientHello exact bytes,
+no replay after first origin byte, DNS TTL/network/profile/ambiguity/owner-error gates.
+Chrome/Verify CI на 2804508: failure ДО шагов, все четыре jobs steps=[] (GitHub API);
+https://github.com/buzzmean/neexitlag/actions/runs/39808274015
+https://github.com/buzzmean/neexitlag/actions/runs/39808273984
+CI PASS не заявлен; native Windows runtime не исполнялся.
+
+Решение/ограничение: требуемый владельцем opaque DIRECT default не может дать
+строгий no-leak для полностью скрытого protected ECH+DoH inner на неизвестном/общем
+IP. DNS hints НЕ объявлены доказанным inner SNI; распознанные protected связи
+fail-closed, unknown_policy сообщает ограничение. Нельзя считать это релизной
+гарантией скрытого protected no-leak. Подробности docs/BROWSER_OPAQUE_ROUTING.md.
+VPS/сертификаты/credentials/PR8 не трогались; relay deployment не требуется.
+
+ПК: из корня клона `git pull --ff-only origin codex/work`; закрыть только GUI VELIQ,
+браузеры оставить открытыми; `& .\tools\windows\build-e2e.ps1`, при обновлении GUI
+`& .\tools\windows\build-desktop.ps1`; elevated SAME OWNER SID
+`& .\tools\windows\update-service.ps1`; обычный owner
+`& .\tools\windows\install-desktop.ps1`, запустить VELIQ ярлыком.
+Новые вкладки VK/Google/YouTube/claude.ai/Telegram;
+`& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube`.
+Только при проверке неизменных PID: до VELIQ `& .\tools\windows\test-browser-startup.ps1 -Phase baseline`,
+затем новые вкладки и `& .\tools\windows\test-browser-startup.ps1 -Phase ready`.
+Существующие HTTP/2/TCP не переносятся. Реальные страницы/провайдер и отсутствие
+SSL_PROTOCOL_ERROR требуют нового короткого owner retest; Internet PASS не заявляем.
+
+Дополнительная регрессия финального коммита: несколько Telegram DNS aliases на
+одном IP не скрывают flow-specific protected outer. Он может выбрать matching
+кандидат только для relay/recovery, не DIRECT; DNS ambiguity остаётся в evidence,
+inner SNI не объявляется известным. Без outer конкретное имя не угадывается.
+Targeted race count=3 и повторные полные gates PASS.

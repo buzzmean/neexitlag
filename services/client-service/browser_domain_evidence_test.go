@@ -109,3 +109,18 @@ func TestProtectedOpaqueAssociationCannotBeDowngradedByDirectIPRule(t *testing.T
 		t.Fatal("BLOCK weakened", plan)
 	}
 }
+
+func TestProtectedOuterRestoresRecoveryWithSeveralDNSAliasesOnOneIP(t *testing.T) {
+	now := time.Now()
+	ip := netip.MustParseAddr("149.154.167.40")
+	var index browserDomainIndex
+	index.replace("net", []wp.DNSCacheEntry{{Name: "web.telegram.org", Address: ip.String(), TTL: 30}, {Name: "kws2.web.telegram.org", Address: ip.String(), TTL: 30}}, nil, now)
+	e := index.evidence("net", ip, "web.telegram.org", now)
+	if !e.Ambiguous || !e.Restricted || e.Domain != "web.telegram.org" || e.Source != "ECH_PROTECTED_OUTER_HINT" {
+		t.Fatal("outer-specific recovery lost to shared DNS aliases", e)
+	}
+	e = index.evidence("net", ip, "cloudflare-ech.com", now)
+	if e.Domain != "" || !e.Restricted {
+		t.Fatal("ambiguous IP guessed inner domain", e)
+	}
+}

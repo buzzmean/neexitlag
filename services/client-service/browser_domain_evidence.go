@@ -101,7 +101,7 @@ func (x *browserDomainIndex) evidence(network string, destination netip.Addr, ou
 	// In GREASE flows this also restores TLS-first-flight IP health/recovery.
 	if browserproxy.ValidPublicDNSName(outer) && restrictiveBrowserDomain(outer) {
 		out.Restricted = true
-		if !out.Ambiguous && (out.Domain == "" || out.Domain == outer) {
+		if len(out.Candidates) == 0 || seen[outer] {
 			out.Domain = outer
 			out.Source = "ECH_PROTECTED_OUTER_HINT"
 			out.Confidence = "outer SNI only; inner ECH not proven"
