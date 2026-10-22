@@ -2038,3 +2038,7 @@ Read-only test-browser-startup.ps1: baseline обоих уже открытых 
 ### Нулевой ingress d3aad37 — D
 
 GUI больше не выдаёт armed capture за готовый браузер: нужны native bidirectional counters для каждого AUTO/native профиля. Общий browser_policy health использует тот же факт, а не PAC readiness. Go focused race PASS; C#187/187 PASS. Настоящий Chrome/WinDivert ещё не выполнен; продолжается аудит A–C/F.
+
+### Нулевой ingress d3aad37 — E
+
+Приёмка disabled/exit/stopped теперь явно сообщает, что ready не прошёл, вместо побочного BASELINE_REQUIRED. Proof ready сохраняется только после успешной проверки каждого браузера и PID/birth. PS7 fixture/parser PASS; PS5.1/реальный ПК не выполнены.

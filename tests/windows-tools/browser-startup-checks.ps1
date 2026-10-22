@@ -23,3 +23,7 @@ foreach($name in @('test-browser-startup.ps1','browser-startup-evidence.ps1','in
  Assert ($errors.Count -eq 0) ('PS parser failure '+$name)
 }
 Write-Output 'PASS browser startup evidence, both lanes, no PAC inference, one-way/missing/DIRECT rejection and parser; no installation/VPS/browser access'
+
+$script=Get-Content -Raw (Join-Path $repo 'tools\windows\test-browser-startup.ps1')
+Assert ($script.Contains('BROWSER_READY_NOT_CONFIRMED:')) 'missing explanatory ready prerequisite'
+Assert ($script.IndexOf('BROWSER_READY_NOT_CONFIRMED:') -lt $script.IndexOf("-Stage `$Phase")) 'ready prerequisite must precede disabled/exit delegation'

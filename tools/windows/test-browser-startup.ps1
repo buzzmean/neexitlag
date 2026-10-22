@@ -21,7 +21,7 @@ if($Phase -eq 'baseline'){
  Write-Output 'BASELINE_SAVED; Chrome/Edge stay open; launch VELIQ and open new tabs; no browser commands or policy reload.'
  return
 }
-if(!(Test-Path -LiteralPath $file)){throw 'BASELINE_REQUIRED'}
+if(!(Test-Path -LiteralPath $file)){throw 'BROWSER_BASELINE_MISSING: сначала выполните test-browser-startup.ps1 -Phase baseline при открытых Chrome и Edge; браузеры не закрывать.'}
 $before=Get-Content -Raw -LiteralPath $file|ConvertFrom-Json
 function Assert-BrowserStartupIdentity {
  foreach($browser in @($before.browsers)){
@@ -31,6 +31,9 @@ function Assert-BrowserStartupIdentity {
 }
 Assert-BrowserStartupIdentity
 if($Phase -ne 'ready'){
+ $disableBaseline=Join-Path $repo 'bin\diagnostics\browser-disable-baseline.json'
+ $confirmed=Get-BrowserEvidenceField $before 'native_ready_confirmed' $false
+ if(!$confirmed -or !(Test-Path -LiteralPath $disableBaseline)){throw 'BROWSER_READY_NOT_CONFIRMED: фаза ready ещё не прошла; это не новый отказ выключения. Сначала откройте новые вкладки в работающих браузерах и выполните test-browser-startup.ps1 -Phase ready. См. browser.native.status и capture.diagnostics.'}
  & (Join-Path $PSScriptRoot 'check-browser-disable.ps1') -Stage $Phase
  return
 }
@@ -51,5 +54,7 @@ Assert-BrowserStartupIdentity
 if($null -eq $proof -or !$proof.ready -or $code -ne 'READY'){throw ('BROWSER_STARTUP_NOT_CONFIRMED code='+$code+'; inspect GUI diagnostics; no page PASS claimed')}
 $proof.rows|Format-Table -AutoSize
 & (Join-Path $PSScriptRoot 'check-browser-disable.ps1') -Stage baseline
+$before|Add-Member -NotePropertyName native_ready_confirmed -NotePropertyValue $true -Force
+$before|ConvertTo-Json -Depth 5|Set-Content -LiteralPath $file -Encoding UTF8
 Write-Output 'NATIVE_ONLY_OBSERVED for each existing browser; PID/birth unchanged; NATIVE_TRANSPORT_ONLY_NOT_PAGE_PASS.'
 Write-Output 'Observe YouTube/Telegram Web/claude.ai in new tabs. HTTP/TLS/page success cannot be inferred from encrypted bytes. Do not reload policy or restart browsers.'
