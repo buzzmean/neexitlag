@@ -8,8 +8,6 @@ import (
 	"unsafe"
 )
 
-const gameUDPReplyFilter = "inbound and ip and udp and udp.SrcPort >= 1024 and !loopback and !impostor"
-
 func (b *WinDivertBackend) GameUDPGuardStatus() GameUDPGuardStatus {
 	s := b.gameGuard.snapshot()
 	p := b.gameProcessStatus()

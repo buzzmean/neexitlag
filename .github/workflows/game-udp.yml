@@ -26,6 +26,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: {go-version: '1.25.x'}
+      - name: Compile all filters with pinned WinDivert before Windows tests
+        shell: powershell
+        run: |
+          New-Item bin -ItemType Directory -Force|Out-Null
+          & go test ./platform/windows -run '^TestServiceWinDivertFilterInventory$'
+          if($LASTEXITCODE){throw 'FILTER_INVENTORY_FAILED'}
+          & go test -c -o bin/filter-tests.exe ./platform/windows
+          if($LASTEXITCODE){throw 'FILTER_TEST_BUILD_FAILED'}
+          & ./tools/windows/test-windivert-filters.ps1 -TestExecutable (Join-Path $PWD 'bin/filter-tests.exe')
       - run: go test -race -p 1 -timeout 120s ./core/gameudp ./platform/windows ./services/client-service -run 'Game|PUBG|Reflect'
       - run: go vet ./core/gameudp ./platform/windows ./services/client-service
       - run: go build ./...

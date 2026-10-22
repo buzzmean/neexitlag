@@ -95,6 +95,9 @@ func (d *divertDLL) openHandle(filter string, layer uintptr, flags uintptr) (uin
 	return d.openHandlePriority(filter, layer, flags, 0)
 }
 func (d *divertDLL) openHandlePriority(filter string, layer uintptr, flags uintptr, priority int16) (uintptr, error) {
+	if err := compileDivertFilter(d.compile, filter, layer); err != nil {
+		return 0, err
+	}
 	s, e := windows.BytePtrFromString(filter)
 	if e != nil {
 		return 0, e
@@ -129,7 +132,7 @@ func (b *WinDivertBackend) Start(parent context.Context, classify Classifier) (r
 		b.mu.Unlock()
 		return e
 	}
-	flow, e := dll.openHandle("outbound and !loopback and (udp or tcp)", 2, 1|4)
+	flow, e := dll.openHandle(captureFlowFilter, 2, 1|4)
 	if e != nil {
 		dll.dll.Release()
 		return e
@@ -181,7 +184,7 @@ func (b *WinDivertBackend) Start(parent context.Context, classify Classifier) (r
 	// ordinary networking/capture backend. Open REFLECT before the final sniff
 	// handle: its own priority marker fences the replayed initial handle list.
 	b.gameGuard.reset()
-	reflectHandle, reflectErr := dll.openHandle("true", 4, 1|4)
+	reflectHandle, reflectErr := dll.openHandle(captureReflectFilter, 4, 1|4)
 	var replyHandle uintptr
 	eval, evalErr := dll.dll.FindProc("WinDivertHelperEvalFilter")
 	if reflectErr == nil && evalErr == nil {

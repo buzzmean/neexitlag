@@ -21,8 +21,8 @@ type DriverFiles struct {
 	DriverSHA256 string `json:"driver_sha256"`
 }
 type divertDLL struct {
-	dll                                                             *windows.DLL
-	open, recv, send, close, shutdown, checksum, getParam, setParam *windows.Proc
+	dll                                                                      *windows.DLL
+	open, recv, send, close, shutdown, checksum, getParam, setParam, compile *windows.Proc
 }
 
 func hashFile(path, want string) error {
@@ -100,7 +100,7 @@ func loadDivert(f DriverFiles) (*divertDLL, error) {
 	slots := []struct {
 		name string
 		proc **windows.Proc
-	}{{"WinDivertOpen", &d.open}, {"WinDivertRecv", &d.recv}, {"WinDivertSend", &d.send}, {"WinDivertClose", &d.close}, {"WinDivertShutdown", &d.shutdown}, {"WinDivertHelperCalcChecksums", &d.checksum}, {"WinDivertGetParam", &d.getParam}, {"WinDivertSetParam", &d.setParam}}
+	}{{"WinDivertHelperCompileFilter", &d.compile}, {"WinDivertOpen", &d.open}, {"WinDivertRecv", &d.recv}, {"WinDivertSend", &d.send}, {"WinDivertClose", &d.close}, {"WinDivertShutdown", &d.shutdown}, {"WinDivertHelperCalcChecksums", &d.checksum}, {"WinDivertGetParam", &d.getParam}, {"WinDivertSetParam", &d.setParam}}
 	for _, s := range slots {
 		p, e := dll.FindProc(s.name)
 		if e != nil {

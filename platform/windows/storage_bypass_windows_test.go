@@ -3,11 +3,7 @@
 package windowsplatform
 
 import (
-	"crypto/sha256"
-	"fmt"
 	"net/netip"
-	"os"
-	"path/filepath"
 	"testing"
 	"unsafe"
 
@@ -15,25 +11,16 @@ import (
 )
 
 func TestPrivateISCSIExcludedByActualWinDivertFilterEvaluator(t *testing.T) {
-	dir := os.Getenv("NEEXITLAG_TEST_DRIVER_DIR")
-	if dir == "" {
-		t.Skip("pinned WinDivert DLL required; no filter match proof")
-	}
-	path := filepath.Join(dir, "WinDivert.dll")
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if fmt.Sprintf("%x", sha256.Sum256(raw)) != "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2" {
-		t.Fatal("unapproved fixture DLL")
-	}
-	dll, err := windows.LoadDLL(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer dll.Release()
+	dll := loadPinnedFilterDLL(t)
 	eval, err := dll.FindProc("WinDivertHelperEvalFilter")
 	if err != nil {
+		t.Fatal(err)
+	}
+	compile, err := dll.FindProc("WinDivertHelperCompileFilter")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := compileDivertFilter(compile, nativeTCPNetworkFilter(50165, false), 0); err != nil {
 		t.Fatal(err)
 	}
 	filter, _ := windows.BytePtrFromString(nativeTCPNetworkFilter(50165, false))
@@ -42,6 +29,30 @@ func TestPrivateISCSIExcludedByActualWinDivertFilterEvaluator(t *testing.T) {
 		out, match bool
 	}{
 		{"192.168.88.10:50000", "192.168.88.252:3260", true, false},
+		{"192.168.88.10:50000", "10.0.0.0:3260", true, false},
+		{"10.0.0.0:3260", "192.168.88.10:50000", false, false},
+		{"192.168.88.10:50000", "10.255.255.255:3260", true, false},
+		{"10.255.255.255:3260", "192.168.88.10:50000", false, false},
+		{"192.168.88.10:50000", "9.255.255.255:3260", true, true},
+		{"9.255.255.255:3260", "192.168.88.10:50000", false, true},
+		{"192.168.88.10:50000", "11.0.0.0:3260", true, true},
+		{"11.0.0.0:3260", "192.168.88.10:50000", false, true},
+		{"192.168.88.10:50000", "172.16.0.0:3260", true, false},
+		{"172.16.0.0:3260", "192.168.88.10:50000", false, false},
+		{"192.168.88.10:50000", "172.31.255.255:3260", true, false},
+		{"172.31.255.255:3260", "192.168.88.10:50000", false, false},
+		{"192.168.88.10:50000", "172.15.255.255:3260", true, true},
+		{"172.15.255.255:3260", "192.168.88.10:50000", false, true},
+		{"192.168.88.10:50000", "172.32.0.0:3260", true, true},
+		{"172.32.0.0:3260", "192.168.88.10:50000", false, true},
+		{"192.168.88.10:50000", "192.168.0.0:3260", true, false},
+		{"192.168.0.0:3260", "192.168.88.10:50000", false, false},
+		{"192.168.88.10:50000", "192.168.255.255:3260", true, false},
+		{"192.168.255.255:3260", "192.168.88.10:50000", false, false},
+		{"192.168.88.10:50000", "192.167.255.255:3260", true, true},
+		{"192.167.255.255:3260", "192.168.88.10:50000", false, true},
+		{"192.168.88.10:50000", "192.169.0.0:3260", true, true},
+		{"192.169.0.0:3260", "192.168.88.10:50000", false, true},
 		{"192.168.88.252:3260", "192.168.88.10:50000", false, false},
 		{"192.168.88.10:50000", "8.8.8.8:443", true, true},
 		{"192.168.88.10:50000", "8.8.8.8:3260", true, true},

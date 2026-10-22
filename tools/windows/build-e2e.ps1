@@ -1,5 +1,6 @@
 [CmdletBinding()]
-param([string]$Output=(Join-Path $PSScriptRoot '..\..\bin\windows-e2e'))
+param([string]$Output=(Join-Path $PSScriptRoot '..\..\bin\windows-e2e'),
+ [string]$DriverDirectory=(Join-Path $PSScriptRoot '..\..\.e2e\windivert'))
 $ErrorActionPreference='Stop'
 $root=(Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 New-Item -ItemType Directory -Force $Output|Out-Null
@@ -8,6 +9,11 @@ Push-Location $root
 $oldOS=$env:GOOS;$oldArch=$env:GOARCH;$oldCGO=$env:CGO_ENABLED
 try {
  $env:GOOS='windows';$env:GOARCH='amd64';$env:CGO_ENABLED='0'
+ & go test ./platform/windows -run '^TestServiceWinDivertFilterInventory$'
+ if($LASTEXITCODE){throw 'WinDivert filter inventory check failed'}
+ & go test -c -o (Join-Path $Output 'capture-acceptance.exe') ./platform/windows
+ if($LASTEXITCODE){throw 'Native capture acceptance build failed'}
+ & (Join-Path $PSScriptRoot 'test-windivert-filters.ps1') -TestExecutable (Join-Path $Output 'capture-acceptance.exe') -DriverDirectory $DriverDirectory
  $targets=@{
   'neexitlag-service.exe'='./services/client-service/cmd/service';'test-game.exe'='./tools/windows-test-client';
   'tcp-selected.exe'='./tools/tcp-test-client';'enroll.exe'='./tools/enroll';'vps-provision.exe'='./tools/vps-provision'
@@ -17,8 +23,7 @@ try {
  if($LASTEXITCODE){throw 'Lease acceptance build failed'}
  & go test -c -o (Join-Path $Output 'browser-recovery-acceptance.exe') ./services/client-service/cmd/service
  if($LASTEXITCODE){throw 'Chrome recovery acceptance build failed'}
- & go test -c -o (Join-Path $Output 'capture-acceptance.exe') ./platform/windows
- if($LASTEXITCODE){throw 'Native capture acceptance build failed'}
+
  Copy-Item (Join-Path $Output 'tcp-selected.exe') (Join-Path $Output 'tcp-control.exe')
  Copy-Item (Join-Path $Output 'tcp-selected.exe') (Join-Path $Output 'tcp-plus.exe')
  $scripts=Join-Path $Output 'tools\windows';New-Item -ItemType Directory -Force $scripts|Out-Null;Copy-Item (Join-Path $PSScriptRoot '*.ps1') $scripts

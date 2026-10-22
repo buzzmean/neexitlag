@@ -80,6 +80,16 @@ jobs:
         shell: pwsh
       - uses: actions/setup-go@v5
         with: {go-version: '1.25.x'}
+      - name: Compile every service filter with pinned WinDivert DLL (no driver access)
+        shell: powershell
+        run: |
+          New-Item bin -ItemType Directory -Force|Out-Null
+          & go test ./platform/windows -run '^TestServiceWinDivertFilterInventory$'
+          if($LASTEXITCODE){throw 'FILTER_INVENTORY_FAILED'}
+          & go test -c -o bin/filter-tests.exe ./platform/windows
+          if($LASTEXITCODE){throw 'FILTER_TEST_BUILD_FAILED'}
+          & ./tools/windows/test-windivert-filters.ps1 -TestExecutable (Join-Path $PWD 'bin/filter-tests.exe')
+          & ./tests/windows-tools/windivert-filter-checks.ps1
       - uses: actions/setup-dotnet@v4
         with: {dotnet-version: '8.0.x'}
       - run: dotnet run --project tests/desktop-native/NeExitLag.Desktop.NativeTests.csproj --configuration Release
@@ -164,7 +174,7 @@ jobs:
       - name: Passive observer metadata fixtures (no observation)
         shell: powershell
         run: ./tests/windows-tools/exitlag-observation-checks.ps1
-      - run: ./tools/windows/fetch-windivert.ps1
+      - run: if (!(Test-Path '.e2e/windivert')) { & ./tools/windows/fetch-windivert.ps1 }
         shell: pwsh
       - name: Read-only initialization of Windows network providers
         run: ./tests/windows-tools/network-provider-warmup.ps1
