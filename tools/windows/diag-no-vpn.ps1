@@ -585,7 +585,7 @@ function Write-NativeIngressEvidence($native) {
  Write-TlsWireEvidence $native 'native.actual_upstream'
  $ingress=Prop $native 'capture_ingress'
  if($null -eq $ingress){Say 'capture ingress: UNINSTRUMENTED (update service required)'}else{
-  Say ('capture ingress: scope='+(Prop $ingress 'scope')+' tcp_packets='+(Prop $ingress 'tcp_packets' 0)+' udp443='+(Prop $ingress 'udp_443_packets' 0)+' ipv6='+(Prop $ingress 'ipv6_packets' 0)+' socket_events='+(Prop $ingress 'socket_events' 0)+' unknown_tcp_owner='+(Prop $ingress 'unknown_tcp_owner' 0)+' samples_lost='+(Prop $ingress 'lost' 0))
+  Say ('capture ingress: scope='+(Prop $ingress 'scope')+' tcp_packets='+(Prop $ingress 'tcp_packets' 0)+' udp443='+(Prop $ingress 'udp_443_packets' 0)+' ipv6='+(Prop $ingress 'ipv6_packets' 0)+' native_syn='+(Prop $ingress 'native_deferred_syn' 0)+' reflection_accepts='+(Prop $ingress 'reflected_accepts' 0)+' socket_events='+(Prop $ingress 'socket_events' 0)+' unknown_tcp_owner='+(Prop $ingress 'unknown_tcp_owner' 0)+' samples_lost='+(Prop $ingress 'lost' 0))
   foreach($key in @('tcp_filter','udp_filter','socket_filter','ipv6_filter')){Say ($key+'='+(Prop $ingress $key 'UNAVAILABLE'))}
   foreach($sample in @(Prop $ingress 'records' @())){
    Say ('capture attribution: stage='+(Prop $sample 'stage')+' pid='+(Prop $sample 'pid' 0)+' birth='+(Prop $sample 'creation_time' 0)+' exe='+(Prop $sample 'exe')+' protocol='+(Prop $sample 'protocol')+' destination='+(Prop $sample 'destination')+' owner='+(Prop $sample 'owner_lookup')+' profile='+(Prop $sample 'profile_id' 'NONE')+' decision='+(Prop $sample 'decision')+' policy='+(Prop $sample 'policy_source')+' error='+(Prop $sample 'error' 'NONE'))
@@ -604,7 +604,7 @@ function Write-NativeIngressEvidence($native) {
    Say ('ingress '+$path+': profile='+(Prop $browserProfile 'profile_id')+' accepted='+(Prop $m 'accepted' 0)+' opened='+(Prop $m 'opened' 0)+' failed='+(Prop $m 'failed' 0)+' exchanges='+(Prop $m 'bidirectional_exchanges' 0)+' active='+(Prop $m 'active' 0)+' tx='+(Prop $m 'sent_bytes' 0)+' rx='+(Prop $m 'received_bytes' 0)+' first_open='+(Prop $m 'first_opened_at' 'NOT_OBSERVED')+' first_exchange='+(Prop $m 'first_exchange_at' 'NOT_OBSERVED')+' enable_to_first_open_ms='+(Prop $m 'enable_to_first_open_ms' -1)+' enable_to_first_exchange_ms='+(Prop $m 'enable_to_first_exchange_ms' -1))
   }
  }
- Say 'PAC_NATIVE_UPSTREAM is not native-only. Native new TCP does not require policy refresh. Active opaque TLS/QUIC is relay-only; process capture is not an independent kernel crash guard. No policy changed by diagnostics.'
+ Say 'PAC_NATIVE_UPSTREAM is not native-only. Native new TCP does not require policy refresh. Opaque TLS is relay-only; native UDP443 is rejected to TCP; process capture is not an independent kernel crash guard. No policy changed by diagnostics.'
 }
 function Write-NativeFirewallEvidence($firewall) {
  $state=Prop $firewall 'state' 'UNKNOWN'
@@ -700,7 +700,7 @@ Step 'native_browser' {
  foreach($o in @(Prop $usage 'active_origins' @())){Say ("relay active: "+(Json $o))}
  $refresh=Join-Path $env:LOCALAPPDATA 'NeExitLag\browser-native-policy-refresh.txt'
  if(Test-Path $refresh){Say ('Historical refresh request (not live evidence): '+(Get-Content $refresh -TotalCount 1))}
- Say 'Native mode does not require PAC. Registry/refresh/tunnel bytes are NOT live-policy/site PASS. Existing HTTP/2 may be reused on reload; no connection egress migration. Opaque ECH uses RELAY only; domain cannot be inferred.'
+ Say 'Native mode does not require PAC. Registry/refresh/tunnel bytes are NOT live-policy/site PASS. Existing HTTP/2 may be reused on reload; no connection egress migration. Opaque ECH uses RELAY only; native QUIC is rejected to TCP; domain cannot be inferred.'
 }
 Section 'Existing browser processes and startup profile registration (no browser restart)'
 Step 'startup_profiles' {

@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 [CmdletBinding()]
 param([Parameter(Mandatory=$true)][ValidateSet('baseline','ready','disabled','exit','stopped')][string]$Phase,[ValidateRange(1,60)][int]$WaitSeconds=20)
 Set-StrictMode -Version Latest

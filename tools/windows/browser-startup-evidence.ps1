@@ -15,10 +15,11 @@ function Test-BrowserNativeStartupEvidence($Profiles,$Native,[string[]]$Executab
   if($timings.Count -ne 1){$code='NATIVE_PROFILE_NOT_OBSERVED';continue}
   $m=Get-BrowserEvidenceField $timings[0] 'native_only'
   $exchanges=[long](Get-BrowserEvidenceField $m 'bidirectional_exchanges' 0)
+  $accepted=[long](Get-BrowserEvidenceField $m 'accepted' 0);$opened=[long](Get-BrowserEvidenceField $m 'opened' 0)
   $tx=[long](Get-BrowserEvidenceField $m 'sent_bytes' 0);$rx=[long](Get-BrowserEvidenceField $m 'received_bytes' 0)
   $ms=[long](Get-BrowserEvidenceField $m 'enable_to_first_exchange_ms' -1)
-  if($exchanges -le 0 -or $tx -le 0 -or $rx -le 0 -or $ms -lt 0){$code='NATIVE_ONLY_EXCHANGE_NOT_OBSERVED'}
-  $rows+=([pscustomobject]@{profile_id=$id;native_exchanges=$exchanges;tx=$tx;rx=$rx;enable_to_first_exchange_ms=$ms})
+  if($accepted -le 0 -or $opened -le 0 -or $exchanges -le 0 -or $tx -le 0 -or $rx -le 0 -or $ms -lt 0){$code='NATIVE_ONLY_EXCHANGE_NOT_OBSERVED'}
+  $rows+=([pscustomobject]@{profile_id=$id;native_accepted=$accepted;native_opened=$opened;native_exchanges=$exchanges;tx=$tx;rx=$rx;enable_to_first_exchange_ms=$ms})
  }
  if($Executables.Count -eq 0){$code='RUNNING_BROWSER_REQUIRED'}
  [pscustomobject]@{ready=($code -eq 'READY');code=$code;scope='NATIVE_TRANSPORT_ONLY_NOT_PAGE_PASS';rows=$rows}

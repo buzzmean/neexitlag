@@ -341,7 +341,11 @@ func (t *tcpRedirect) processPacket(p []byte, a [80]byte, classify Classifier) {
 		self = false
 	}
 	if flags&0x12 == 2 {
-		t.b.ingress.record("TCP_SYN_CLASSIFY", id, tuple, decision, ingressDecision(id, decision, true, self), ownerSource, ownerCode)
+		outcome := ingressDecision(id, decision, true, self)
+		if outcome == "NATIVE_DEFERRED_SYN" {
+			t.b.ingress.nativeSYN.Add(1)
+		}
+		t.b.ingress.record("TCP_SYN_CLASSIFY", id, tuple, decision, outcome, ownerSource, ownerCode)
 	}
 	mode := "direct"
 	if !self && (t.b.hotFrozen(decision) || flags&0x12 != 0x02 && needsHotAttach(decision)) {
@@ -542,6 +546,7 @@ func (t *tcpRedirect) accept() {
 			c.Close()
 			continue
 		}
+		t.b.ingress.accepted.Add(1)
 		t.b.ingress.record("TCP_REFLECTION_ACCEPT", e.identity, e.tuple, e.decision, "LOCAL_TCP_ACCEPTED", "EXACT_REFLECTION_MAPPING", "")
 		e.local = c
 		if e.decision.Deferred {

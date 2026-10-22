@@ -11,18 +11,20 @@ import (
 // Transport counters cover this backend lifetime, independently of Engine flows
 // and the bounded application ledger. No payload or command line is retained.
 type CaptureIngressSnapshot struct {
-	Scope           string                 `json:"scope"`
-	TCPFilter       string                 `json:"tcp_filter"`
-	UDPFilter       string                 `json:"udp_filter"`
-	SocketFilter    string                 `json:"socket_filter"`
-	IPv6Filter      string                 `json:"ipv6_filter"`
-	TCPPackets      uint64                 `json:"tcp_packets"`
-	UDP443Packets   uint64                 `json:"udp_443_packets"`
-	IPv6Packets     uint64                 `json:"ipv6_packets"`
-	SocketEvents    uint64                 `json:"socket_events"`
-	UnknownTCPOwner uint64                 `json:"unknown_tcp_owner"`
-	Records         []CaptureIngressRecord `json:"records"`
-	Lost            uint64                 `json:"lost"`
+	Scope             string                 `json:"scope"`
+	TCPFilter         string                 `json:"tcp_filter"`
+	UDPFilter         string                 `json:"udp_filter"`
+	SocketFilter      string                 `json:"socket_filter"`
+	IPv6Filter        string                 `json:"ipv6_filter"`
+	NativeDeferredSYN uint64                 `json:"native_deferred_syn"`
+	ReflectedAccepts  uint64                 `json:"reflected_accepts"`
+	TCPPackets        uint64                 `json:"tcp_packets"`
+	UDP443Packets     uint64                 `json:"udp_443_packets"`
+	IPv6Packets       uint64                 `json:"ipv6_packets"`
+	SocketEvents      uint64                 `json:"socket_events"`
+	UnknownTCPOwner   uint64                 `json:"unknown_tcp_owner"`
+	Records           []CaptureIngressRecord `json:"records"`
+	Lost              uint64                 `json:"lost"`
 }
 type CaptureIngressRecord struct {
 	At           time.Time `json:"at"`
@@ -41,6 +43,7 @@ type CaptureIngressRecord struct {
 }
 type captureIngress struct {
 	tcp, udp443, ipv6, socket, unknown atomic.Uint64
+	nativeSYN, accepted                atomic.Uint64
 	mu                                 sync.Mutex
 	records                            []CaptureIngressRecord
 	lost                               uint64
@@ -102,7 +105,7 @@ func (l *captureIngress) record(stage string, id ProcessIdentity, t Tuple, d Dec
 func (l *captureIngress) snapshot(pid uint32) CaptureIngressSnapshot {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	out := CaptureIngressSnapshot{Scope: "BACKEND_LIFETIME; totals global; records bounded metadata", TCPFilter: l.tcpFilter, UDPFilter: captureUDPFilter, SocketFilter: captureSocketFilter, IPv6Filter: captureIPv6Filter, TCPPackets: l.tcp.Load(), UDP443Packets: l.udp443.Load(), IPv6Packets: l.ipv6.Load(), SocketEvents: l.socket.Load(), UnknownTCPOwner: l.unknown.Load(), Records: []CaptureIngressRecord{}, Lost: l.lost}
+	out := CaptureIngressSnapshot{Scope: "BACKEND_LIFETIME; totals global; records bounded metadata", TCPFilter: l.tcpFilter, UDPFilter: captureUDPFilter, SocketFilter: captureSocketFilter, IPv6Filter: captureIPv6Filter, NativeDeferredSYN: l.nativeSYN.Load(), ReflectedAccepts: l.accepted.Load(), TCPPackets: l.tcp.Load(), UDP443Packets: l.udp443.Load(), IPv6Packets: l.ipv6.Load(), SocketEvents: l.socket.Load(), UnknownTCPOwner: l.unknown.Load(), Records: []CaptureIngressRecord{}, Lost: l.lost}
 	for _, r := range l.records {
 		if pid == 0 || r.PID == pid {
 			out.Records = append(out.Records, r)

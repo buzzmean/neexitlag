@@ -26,11 +26,13 @@ func TestCaptureIngressShowsOwnerProfileAndNativeBoundary(t *testing.T) {
 	}
 	l := &captureIngress{}
 	l.tcp.Add(10)
+	l.nativeSYN.Add(1)
+	l.accepted.Add(1)
 	for i := 0; i < 30; i++ {
 		l.record("TCP_SYN_CLASSIFY", id, testTuple(), d, "DOMAIN_DEFERRED_SYN", "TCP_OWNER_TABLE", "")
 	}
 	snap := l.snapshot(42)
-	if snap.TCPPackets != 10 || len(snap.Records) != 24 || snap.Lost != 6 {
+	if snap.NativeDeferredSYN != 1 || snap.ReflectedAccepts != 1 || snap.TCPPackets != 10 || len(snap.Records) != 24 || snap.Lost != 6 {
 		t.Fatal(snap)
 	}
 	r := snap.Records[0]

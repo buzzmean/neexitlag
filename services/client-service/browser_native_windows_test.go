@@ -41,6 +41,10 @@ func TestWindowsNativeBrowserStartsBeforeControllerWithoutPAC(t *testing.T) {
 	if os.Getenv("NEEXITLAG_TEST_NATIVE_BROWSER") != "1" {
 		t.Skip("disposable native Windows browser fixture only")
 	}
+	runNativeBrowserHotAttachFixture(t, false)
+}
+
+func runNativeBrowserHotAttachFixture(t *testing.T, driver bool) {
 	for _, edge := range []bool{false, true} {
 		t.Run(map[bool]string{false: "Chrome", true: "Edge"}[edge], func(t *testing.T) {
 			vendor, name, exe := "Google", "Chrome", "chrome.exe"
@@ -149,7 +153,12 @@ func TestWindowsNativeBrowserStartsBeforeControllerWithoutPAC(t *testing.T) {
 				}
 			}()
 			// This real browser is already alive before New/activation/capture configuration.
-			visit := startNativeFixtureBrowser(t, executable, port)
+			browserAddress := "127.0.0.1"
+			if driver {
+				ingress.Close()
+				browserAddress = "192.0.2.254"
+			}
+			visit := startNativeFixtureBrowser(t, executable, port, browserAddress)
 			visit("before-controller", "127.0.0.1")
 			c := New(context.Background())
 			t.Cleanup(c.Close)
@@ -163,8 +172,27 @@ func TestWindowsNativeBrowserStartsBeforeControllerWithoutPAC(t *testing.T) {
 			b := &nativeBackendFixture{}
 			b.ready = true
 			c.Backend = b
+			if driver {
+				raw, e := os.ReadFile(filepath.Join(os.Getenv("NEEXITLAG_TEST_DRIVER_DIR"), "pins.json"))
+				if e != nil {
+					t.Fatal(e)
+				}
+				var files wp.DriverFiles
+				if e = json.Unmarshal(raw, &files); e != nil {
+					t.Fatal(e)
+				}
+				files.Directory = os.Getenv("NEEXITLAG_TEST_DRIVER_DIR")
+				real := wp.NewWinDivert(files, c.Engine)
+				c.Backend = real
+				if e = real.Start(c.ctx, c.Classify); e != nil {
+					t.Fatal("actual WinDivert Start", e)
+				}
+				t.Cleanup(func() { real.Stop() })
+			}
+			c.mu.Lock()
 			c.enabled = true
 			c.settings.Automatic = true
+			c.mu.Unlock()
 			c.browser.readiness.enforced.Store(true)
 			st, ct, e := labcert.Pair()
 			if e != nil {
@@ -197,15 +225,32 @@ func TestWindowsNativeBrowserStartsBeforeControllerWithoutPAC(t *testing.T) {
 				t.Fatal(e)
 			}
 			current.Store(c)
+			if driver {
+				t.Cleanup(func() {
+					status := c.nativeSnapshot()
+					if t.Failed() {
+						raw, _ := json.Marshal(status)
+						t.Log("actual driver native status", string(raw))
+					}
+				})
+			}
 			visit("native-active", "127.0.0.3")
 			snap := c.nativeSnapshot()
-			if snap.NativeOnly.Exchanges == 0 || snap.PACUpstream.Accepted != 0 {
+			if snap.NativeOnly.Accepted == 0 || snap.NativeOnly.Opened == 0 || snap.NativeOnly.Exchanges == 0 || snap.PACUpstream.Accepted != 0 {
 				t.Fatal("missing native-only or PAC contaminated", snap.NativeOnly, snap.PACUpstream)
 			}
+			controlled := 0
 			for _, record := range snap.Records {
+				if driver && record.Domain != "native-browser.test" {
+					continue
+				} // unrelated browser bootstrap is outside this controlled trial
+				controlled++
 				if record.Policy.Action != flowpolicy.RelayRequired || record.Policy.RelayID != "VPS-01" {
 					t.Fatal("route leak", record.Policy)
 				}
+			}
+			if controlled == 0 || snap.Truncated || snap.Lost != 0 {
+				t.Fatal("incomplete native route proof", controlled, snap.Truncated, snap.Lost)
 			}
 			if c.browser.server != nil || c.browser.edge != nil && c.browser.edge.server != nil {
 				t.Fatal("fresh native opened PAC listener")
@@ -221,15 +266,29 @@ func TestWindowsNativeBrowserStartsBeforeControllerWithoutPAC(t *testing.T) {
 			}
 			current.Store(nil)
 			visit("host-stopped", "127.0.0.1")
-			t.Log("PASS controlled browser HTTP, no PAC, same PID/birth, authenticated relay source then DIRECT after OFF; packet reflection seam, NOT driver/SCM/ISP proof")
+			if driver {
+				if snap.CaptureIngress == nil || snap.CaptureIngress.TCPPackets == 0 {
+					t.Fatal("no actual NETWORK captures")
+				}
+				if snap.CaptureIngress.NativeDeferredSYN == 0 || snap.CaptureIngress.ReflectedAccepts == 0 {
+					t.Fatal("driver/owner/profile/reflection boundary missing", snap.CaptureIngress)
+				}
+				t.Logf("ACTUAL_DRIVER_NATIVE_ONLY_OBSERVED accepted=%d opened=%d exchanges=%d; same browser PID/birth; actual WinDivert NETWORK/SOCKET/owner/profile, authenticated relay and HTTP body; NOT Internet/SCM proof", snap.NativeOnly.Accepted, snap.NativeOnly.Opened, snap.NativeOnly.Exchanges)
+			} else {
+				t.Log("PASS controlled browser HTTP, no PAC, same PID/birth, authenticated relay source then DIRECT after OFF; packet reflection seam, NOT driver/SCM/ISP proof")
+			}
 		})
 	}
 }
 
-func startNativeFixtureBrowser(t *testing.T, executable string, port int) func(string, string) {
+func startNativeFixtureBrowser(t *testing.T, executable string, port int, addresses ...string) func(string, string) {
 	t.Helper()
 	dir := t.TempDir()
-	cmd := exec.Command(executable, "--headless=new", "--no-first-run", "--no-default-browser-check", "--disable-background-networking", "--remote-debugging-port=0", "--remote-allow-origins=http://localhost", "--host-resolver-rules=MAP native-browser.test 127.0.0.1", "--user-data-dir="+dir, "about:blank")
+	address := "127.0.0.1"
+	if len(addresses) > 0 {
+		address = addresses[0]
+	}
+	cmd := exec.Command(executable, "--headless=new", "--no-first-run", "--no-default-browser-check", "--disable-background-networking", "--remote-debugging-port=0", "--remote-allow-origins=http://localhost", "--host-resolver-rules=MAP native-browser.test "+address, "--user-data-dir="+dir, "about:blank")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -310,7 +369,13 @@ func startNativeFixtureBrowser(t *testing.T, executable string, port int) func(s
 	visit := func(stage, source string) {
 		t.Helper()
 		path := "/" + stage
-		raw := call("Page.navigate", map[string]any{"url": fmt.Sprintf("http://native-browser.test:%d%s", port, path)})
+		url := fmt.Sprintf("http://native-browser.test:%d%s", port, path)
+		// The TEST-NET route exists only while the driver reflects it. Baseline/OFF
+		// test the same live browser against the actual local origin, with no proxy.
+		if address == "192.0.2.254" && stage != "native-active" {
+			url = fmt.Sprintf("http://127.0.0.2:%d%s", port, path)
+		}
+		raw := call("Page.navigate", map[string]any{"url": url})
 		var nav struct {
 			Error string `json:"errorText"`
 		}

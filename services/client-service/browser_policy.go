@@ -79,7 +79,7 @@ func (c *Controller) browserFlow(p profiles.Profile, id wp.ProcessIdentity, t wp
 	}
 	// Opaque is never classified from a DNS/IP guess or a request on another
 	// connection. Safe transport pending richer origin evidence is authenticated
-	// relay, including IPv6/QUIC which cannot use IPv4 ClientHello interception.
+	// relay. Native QUIC is rejected above; IPv6 remains guarded as unsupported.
 	if domain == "" {
 		return required("domain unavailable: opaque browser transport; no DIRECT authorization")
 	}

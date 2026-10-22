@@ -8,6 +8,9 @@ on:
       - 'internal/browserfixture/**'
       - 'platform/windows/browser*'
       - 'platform/windows/tcp_capture_windows.go'
+      - 'platform/windows/*owner*'
+      - 'platform/windows/socket*'
+      - 'platform/windows/capture*'
       - 'services/client-service/browser*'
   pull_request:
     paths:
@@ -17,6 +20,9 @@ on:
       - 'internal/browserfixture/**'
       - 'platform/windows/browser*'
       - 'platform/windows/tcp_capture_windows.go'
+      - 'platform/windows/*owner*'
+      - 'platform/windows/socket*'
+      - 'platform/windows/capture*'
       - 'services/client-service/browser*'
 permissions:
   contents: read
@@ -54,3 +60,22 @@ jobs:
         with:
           name: chrome-native-evidence
           path: chrome-native.log
+
+  browser-native-driver:
+    runs-on: windows-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version: '1.25.x'}
+      - name: Fetch pinned signed WinDivert (disposable VM only)
+        shell: pwsh
+        run: ./tools/windows/fetch-windivert.ps1
+      - name: Actual driver Chrome and Edge hot attach without PAC
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:NEEXITLAG_TEST_DRIVER_DIR=(Resolve-Path .e2e/windivert).Path
+          $env:NEEXITLAG_TEST_NATIVE_BROWSER_DRIVER='1'
+          go test -v -count=1 -timeout 180s ./services/client-service -run '^TestWindowsNativeBrowserDriverHotAttach$'
+          if ($LASTEXITCODE) { throw "Actual driver/browser hot-attach failed: $LASTEXITCODE" }
