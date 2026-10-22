@@ -533,8 +533,15 @@ func (c *Controller) openNativeBrowser(ctx context.Context, p profiles.Profile, 
 	opaque := q.Host == ""
 	evidence := browserDomainEvidence{Source: "CLIENTHELLO_SNI_OR_HTTP_HOST", Domain: q.Host, Confidence: "observed on this connection", Candidates: []string{}}
 	plan := browserproxy.Plan{Enabled: true, Network: current.network, Destination: t.Destination, Policy: d.Policy}
+	secureDNS := browserproxy.KnownDoHEndpoint(q.Host, t.Destination)
 	if opaque {
 		evidence = c.browser.domains.profileEvidence(current.network, p.ID, t.Destination.Addr(), d.OuterSNI, time.Now())
+		if browserproxy.KnownDoHEndpoint(evidence.Domain, t.Destination) {
+			secureDNS = true
+			evidence.Restricted = true
+			evidence.Source = "KNOWN_DOH_RESOLVER"
+			evidence.Confidence = "dedicated resolver address or hostname; encrypted question not observed"
+		}
 		q.Host = evidence.Domain
 		plan = c.nativeOpaquePlan(current.profile, t, current.network, evidence)
 		if q.Host != "" {
@@ -547,6 +554,8 @@ func (c *Controller) openNativeBrowser(ctx context.Context, p profiles.Profile, 
 		if plan.Policy.Action == flowpolicy.DirectPlus {
 			plan.Policy = flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailOpen, Source: "browser_opaque_direct_default", Reason: "hidden SNI cannot authorize a local transform"}
 		}
+	} else if secureDNS {
+		plan.Probe = "KNOWN_DOH_AUTHENTICATED_RELAY"
 	} else {
 		plan, err = c.browserPlan(ctx, q)
 	}
@@ -563,7 +572,7 @@ func (c *Controller) openNativeBrowser(ctx context.Context, p profiles.Profile, 
 		// change may splice a configured local transform into a different flow.
 		plan.Destination = t.Destination
 	}
-	if err == nil && opaque && relayOriginEligible(q, plan) {
+	if err == nil && !secureDNS && opaque && relayOriginEligible(q, plan) {
 		originalPlan := plan
 		plan = c.prepareHintedRelayOrigin(ctx, current, q, plan, func(probe context.Context, dst netip.AddrPort) (net.Conn, error) {
 			candidate := originalPlan
@@ -578,7 +587,9 @@ func (c *Controller) openNativeBrowser(ctx context.Context, p profiles.Profile, 
 	}
 	var conn net.Conn
 	if err == nil {
-		if opaque {
+		if secureDNS {
+			conn, err = c.browserOpen(ctx, q, plan)
+		} else if opaque {
 			conn, plan, err = c.openOpaqueBrowserPlan(ctx, current, q, plan, c.browserOpen)
 		} else {
 			conn, plan, err = c.browserOpenPlan(ctx, q, plan)

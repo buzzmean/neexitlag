@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/buzzmean/neexitlag/core/browserproxy"
 	"github.com/buzzmean/neexitlag/core/flowpolicy"
 	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"github.com/buzzmean/neexitlag/core/profiles"
@@ -76,6 +77,14 @@ func (c *Controller) browserFlow(p profiles.Profile, id wp.ProcessIdentity, t wp
 	// existing policy. The backend returns a bounded ICMP error to prompt TCP.
 	if nativeBrowserProfile(p) && t.Protocol == "udp" && t.Destination.Port() == 443 {
 		return flowpolicy.Result{Action: flowpolicy.Block, Fallback: flowpolicy.FailBlock, Source: "browser_native_quic_tcp_fallback", Reason: "selected native browser HTTP/3 requires TCP origin routing; no UDP DIRECT bypass"}
+	}
+	if nativeBrowserProfile(p) && t.Protocol == "tcp" && browserproxy.KnownDoHEndpoint(domain, t.Destination) {
+		if r, ok := flowpolicy.Evaluate(p.Rules, flowpolicy.Input{Protocol: t.Protocol, Destination: t.Destination, Domain: domain, Network: network}); ok && r.Action == flowpolicy.Block {
+			return r
+		}
+		r := required("known browser Secure DNS endpoint: authenticated relay, TLS unchanged; encrypted DNS answers not inspected")
+		r.Source = "browser_secure_dns_relay"
+		return r
 	}
 	// Native opaque default follows the owner availability contract. The deferred
 	// opener may restrict it from TTL-bound DNS/outer metadata before any payload.

@@ -194,6 +194,10 @@ func (c *Controller) watchBrowserDomainCache() {
 }
 func (c *Controller) nativeOpaquePlan(p profiles.Profile, t wp.Tuple, network string, e browserDomainEvidence) browserproxy.Plan {
 	policy := c.browserFlow(p, wp.ProcessIdentity{}, t, e.Domain, network)
+	secureDNS := browserproxy.KnownDoHEndpoint(e.Domain, t.Destination)
+	if secureDNS {
+		e.Restricted = true
+	}
 	// Explicit BLOCK remains authoritative. An ordinary DIRECT rule cannot
 	// override a known protected association, even on an ambiguous shared IP.
 	if r, ok := flowpolicy.Evaluate(p.Rules, flowpolicy.Input{Protocol: t.Protocol, Destination: t.Destination, Domain: e.Domain, Network: network}); ok {
@@ -210,6 +214,10 @@ func (c *Controller) nativeOpaquePlan(p profiles.Profile, t wp.Tuple, network st
 			relay = policy.RelayID
 		}
 		policy = flowpolicy.Result{Action: flowpolicy.RelayRequired, RelayID: relay, Fallback: flowpolicy.Required, Source: "browser_opaque_evidence", Reason: "protected DNS/outer association or observed DIRECT failure; authenticated relay only"}
+	}
+	if secureDNS && policy.Action != flowpolicy.Block {
+		policy.Source = "browser_secure_dns_relay"
+		policy.Reason = "known resolver endpoint, no DIRECT Secure DNS bypass"
 	}
 	return browserproxy.Plan{Enabled: true, Network: network, Destination: t.Destination, Policy: policy, Probe: e.Source}
 }

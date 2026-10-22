@@ -55,7 +55,7 @@ func (s *browserDNSRuntime) record(p, host string, typ uint16, path, result stri
 func (s *browserDNSRuntime) snapshot() map[string]any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return map[string]any{"scope": "ATTRIBUTED_NATIVE_BROWSER_IPV4_UDP_TCP_53; Windows DNS service queries remain system-owned", "queries": s.queries, "relay_doh": s.relay, "system_dns": s.system, "failed": s.failed, "active": len(s.slots), "max_active": cap(s.slots), "records": append([]browserDNSRecord{}, s.records...)}
+	return map[string]any{"scope": "ATTRIBUTED_NATIVE_BROWSER_IPV4_UDP_TCP_53; Windows DNS service queries remain system-owned", "secure_dns_policy": "KNOWN_DOH_AUTHENTICATED_RELAY; no forced automatic fallback", "encrypted_answers": "NOT_OBSERVED; no TLS interception", "queries": s.queries, "relay_doh": s.relay, "system_dns": s.system, "failed": s.failed, "active": len(s.slots), "max_active": cap(s.slots), "records": append([]browserDNSRecord{}, s.records...)}
 }
 
 func (c *Controller) browserDNSDecision(p profiles.Profile, id wp.ProcessIdentity, t wp.Tuple, d wp.Decision, network string) wp.Decision {

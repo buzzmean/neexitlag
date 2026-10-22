@@ -45,3 +45,25 @@ plaintext fallback, ordinary DNS и disabled/unselected без перехват�
 Windows packetWriter fixture проверяет построение ответа и отказ при saturation.
 Все фильтры дополнительно проверены настоящим pinned DLL под Wine. Это не
 проверка WinDivert kernel на Windows и не Internet/YouTube PASS.
+
+## B. Secure DNS браузера
+
+Выбран безопасный резерв B: **известные DoH endpoints — RELAY_REQUIRED**, без
+DIRECT fallback, без намеренных RST и без подмены DNS-провайдера пользователя.
+Тихо и надёжно определить automatic/secure-only режим работающего браузера
+по зашифрованному сокету нельзя. Блокировка DoH не гарантирует откат на DNS/53
+и способна сломать secure-only. Поэтому откат браузера НЕ объявляется доказанным.
+DNS/53, если браузер его использует, обслуживается этапом A; существующие TCP
+DoH не мигрируют. Новые известные DoH идут через relay в том же браузере.
+
+Список — адреса/имена провайдеров из Chromium `net/dns/public/doh_provider_entry.cc`,
+снимок 23.10.2026, SHA256 `cd0c73995ebe946154fb44ddbff4237bab378ac8329d52e5561f74b45ee689bf`,
+и стандартные Cloudflare/NextDNS aliases. Только точные IP и hostname, TCP/443;
+не весь CDN/ASN. IPv6 остаётся под существующим selected-browser IPv6 guard,
+IPv6 relay support не заявляется. Чужие приложения и выключенная оптимизация
+сохраняют обычный путь. Explicit BLOCK сохраняется; DIRECT правило не разрешает
+обход этого известного resolver endpoint.
+
+Custom DoH на неизвестном shared IP с ECH нельзя надёжно узнать без расшифровки
+или настройки браузера. Ответы транзитного DoH не читаются, их TTL/имена не
+выдумываются. Это ограничение явно остаётся; C наблюдает реальные DIRECT failures.

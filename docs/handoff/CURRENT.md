@@ -2418,3 +2418,7 @@ VPS/сертификаты/credentials/PR8/другие ветки не трон
 ## 23.10.2026 — browser DNS A
 
 A: IPv4 DNS/53 только атрибутированных native Chrome/Edge перехватывается в UDP/TCP. Защищённые имена — HTTPS DoH через существующий authenticated relay, остальные — wire exchange исходному резолверу. Raw DNS/53 в relay не отправляется. Системный svchost DNS не присваивается браузеру; чужие приложения не затрагиваются. Бюджет 2с, 16 workers/streams, ответы UDP 512..1232 с TC→TCP, 8KiB TCP, TTL/CNAME/ID validation и browser/network hints (1024 адреса). Pending B/C/D/E. Go targeted race/vet и Windows build PASS; настоящий DLL compiler/evaluator 70 случаев + Windows packetWriter worker/capacity fixture под Wine PASS, не Windows driver/ISP PASS. Область ещё занята.
+
+## 23.10.2026 — browser Secure DNS B
+
+B: известные DoH endpoints из Chromium snapshot (точные IP/hostname, TCP443) selected native browsers всегда RELAY_REQUIRED; explicit BLOCK, остальные приложения/disabled DIRECT сохранены. IPv6 guard без ослабления. Не ломаем strict Secure DNS преднамеренными RST: выбран разрешённый резерв B, транзитный DoH через relay. Automatic→DNS53 fallback НЕ принуждается и не заявлен доказанным; неизвестный custom DoH+ECH/shared IP не определяется без MITM. Содержимое/TTL encrypted DoH НЕ наблюдается. No-restart/no-settings path; Go targeted race/vet/Windows build PASS, native Windows/ISP ещё не проверены. Далее C–E, область занята.
