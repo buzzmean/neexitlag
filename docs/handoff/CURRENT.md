@@ -20,6 +20,7 @@
 
 | Работа | Файлы | Агент | Ветка | Статус |
 |---|---|---|---|---|
+| PUBG: scope античита/local-first/status (22.10.2026) | core/gameudp; platform/windows game UDP guard; services/client-service game_udp; desktop GameUdp; tests/docs | Codex | codex/work | В РАБОТЕ; FACEIT/Vanguard только применимые профили; без VPS/PR8 |
 | Пилот клуба: Setup/image/boot/status A–F (22.10.2026) | installer/*; tools/windows club/build/status; services/client-service club/activation/startup/settings IPC; desktop club/tray; tests/docs | Codex | codex/work | СВОБОДНО: A–F подготовлены/запушены; реальный Setup/2–3ПК freeze pilot ожидает владельца |
 | Browser opaque/ECH DIRECT и Telegram recovery (22.10.2026) | core browserproxy/domaininspect; platform/windows domain/DNS; services/client-service browser*; tools/windows browser startup/diag; tests/docs | Codex | codex/work | КОД/ЛОКАЛЬНЫЕ GATES ГОТОВЫ; область освобождена. fbab84f, 49ecb96, 5c8f3be, 885d836, 2804508. Windows/ISP и ECH+DoH/shared-IP ограничения — новый handoff ниже |
 | Общий игровой UDP обход A–H (22.10.2026) | core/gameudp/*; platform/windows UDP capture/reply/discovery/REFLECT/conflicts; services/client-service game_udp/controller/local_auto (additive conflict metadata); apps/desktop{,-core}/GameUdp и UI; tools/windows game UDP/diag; tests/workflows/docs | Codex | codex/work | КОД ГОТОВ; область освобождена. PUBG default-on; остальные opt-in. DIRECT → local → authenticated relay, новые tuples; античит gate. Local gates PASS; actual Windows/driver/BattlEye/3–5 матчей/RTT не проверены, CI steps=[] |
