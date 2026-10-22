@@ -2034,3 +2034,7 @@ Read-only test-browser-startup.ps1: baseline обоих уже открытых 
 Последняя G-сверка: browser.status/edge.status без proxy теперь сообщают NATIVE_NEW_TCP / NATIVE_READY_NEW_CONNECTIONS отдельно от listening/policy_ready=false; NOT_PREPARED PAC не выдаётся за native failure. Safe native cause сохраняется в GUI journal без exception payload. Regression cases проверены; новые C#187/187.
 
 Финальная гонка OFF: browser.native.enable проверяет service enabled под сериализацией activationMu; запоздалый native prepare после OFF возвращает NATIVE_OPTIMIZATION_DISABLED и не стартует capture. Auto-start rejection показывается нейтрально с safe specific cause в журнале; generic red error не используется. C#187/187 и WPF/native fixture compile0errors/4 прежнихwarnings PASS. Один полный race при параллельной WPF-сборке получил demo_test.go:81 context deadline25s; пороги/код demo не менялись. Два изолированных race повтора PASS (20.39с/21.40с), затем полный последовательный race ./... PASS. Причина одиночного wall-clock превышения не доказана; результат не скрыт и не объявлен сетевым регрессом. Final vet/Linux/Windows/native test compile PASS.
+
+### Нулевой ingress d3aad37 — D
+
+GUI больше не выдаёт armed capture за готовый браузер: нужны native bidirectional counters для каждого AUTO/native профиля. Общий browser_policy health использует тот же факт, а не PAC readiness. Go focused race PASS; C#187/187 PASS. Настоящий Chrome/WinDivert ещё не выполнен; продолжается аудит A–C/F.

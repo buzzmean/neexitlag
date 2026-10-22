@@ -22,8 +22,15 @@ public sealed class NativeBrowserTiming
     public ulong Opened { get; set; }
     public ulong Accepted { get; set; }
     public ulong Failed { get; set; }
+    public NativeIngressProof NativeOnly { get; set; } = new();
     public long EnableToFirstOpenMs { get; set; } = -1;
     public long EnableToFirstExchangeMs { get; set; } = -1;
+}
+public sealed class NativeIngressProof
+{
+    public ulong BidirectionalExchanges { get; set; }
+    public ulong SentBytes { get; set; }
+    public ulong ReceivedBytes { get; set; }
 }
 public sealed class NativeBrowserRecord
 {
@@ -47,8 +54,11 @@ public sealed partial class DesktopViewModel
 {
     public string BrowserReadinessText {get;private set;}="Подготавливаем браузер…";
     public void ApplyNativeBrowserReadiness(NativeBrowserStatus status){
-        var next=!Optimizing?"Браузеры используют обычную сеть.":status.CaptureReady&&status.State=="READY_NEW_CONNECTIONS"
-          ?"Браузеры готовы: новые соединения используют VELIQ."
+        var configured = Applications.Where(a => NativeBrowser(a.Profile) && a.Profile.Mode == "AUTO").Select(a => a.Profile.Id).ToArray();
+        var observed = configured.Length > 0 && configured.All(id => status.Profiles.Any(p => p.ProfileId == id
+            && p.NativeOnly.BidirectionalExchanges > 0 && p.NativeOnly.SentBytes > 0 && p.NativeOnly.ReceivedBytes > 0));
+        var next=!Optimizing?"Браузеры используют обычную сеть.":status.CaptureReady&&status.Optimizing&&status.State=="READY_NEW_CONNECTIONS"&&observed
+          ?"Браузеры: обмен через VELIQ подтверждён."
           :"Подготавливаем браузер…";
         if(BrowserReadinessText!=next){BrowserReadinessText=next;Changed(nameof(BrowserReadinessText));}
     }

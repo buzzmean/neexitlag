@@ -460,3 +460,25 @@ func TestBrowserReservationCollisionIsLocalAndDoesNotPoisonNetworkCache(t *testi
 		t.Fatal("local collision polluted route cache")
 	}
 }
+
+func TestNativeBrowserHealthRequiresActualExchangeInsteadOfArmedCapture(t *testing.T) {
+	c, p, _ := nativeEdgeFixture(t)
+	c.enabled = true
+	if _, err := edgeCall(c, "browser.native.enable", map[string]string{"profile_id": p.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if h := c.browserPolicyHealth(); h.EdgeReady {
+		t.Fatal("armed capture fabricated browser readiness", h)
+	}
+	n := &c.browser.native
+	n.mu.Lock()
+	v := n.profiles[p.ID]
+	v.PACUpstream.Exchanges = 1
+	v.PACUpstream.Sent = 10
+	v.PACUpstream.Received = 10
+	n.profiles[p.ID] = v
+	n.mu.Unlock()
+	if h := c.browserPolicyHealth(); h.EdgeReady {
+		t.Fatal("PAC exchange fabricated native readiness", h)
+	}
+}

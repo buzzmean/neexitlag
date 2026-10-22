@@ -314,6 +314,25 @@ func (c *Controller) browserPolicyHealth() BrowserPolicyHealth {
 			v.EdgeConfigured = v.EdgeConfigured || edgeProfile(profile)
 		}
 	}
+	// Native health comes from actual native exchanges, never PAC listener state.
+	for _, profile := range c.Profiles.List() {
+		if !nativeBrowserProfile(profile) {
+			continue
+		}
+		c.browser.native.mu.Lock()
+		m := c.browser.native.profiles[profile.ID].NativeOnly
+		c.browser.native.mu.Unlock()
+		ready := c.nativeBackendReady() && m.Exchanges > 0 && m.Sent > 0 && m.Received > 0
+		reason := "NATIVE_CAPTURE_ARMED_EXCHANGE_NOT_OBSERVED"
+		if ready {
+			reason = "NATIVE_ONLY_OBSERVED"
+		}
+		if edgeProfile(profile) {
+			v.EdgeReady, v.EdgeReason = ready, reason
+		} else {
+			v.ChromeReady, v.ChromeReason = ready, reason
+		}
+	}
 	if reason := c.browserPolicyBaseReason(); reason != "" {
 		v.Reason = reason
 		v.ChromeReady = false
