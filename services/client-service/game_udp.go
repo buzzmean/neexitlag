@@ -225,8 +225,6 @@ func (c *Controller) updateGamesGate() {
 		reason = "NETWORK_FINGERPRINT_PENDING"
 	case len(n.VPN) > 0:
 		reason = "EXTERNAL_VPN_ACTIVE"
-	case guard.DriverAntiCheat != "":
-		reason = "DRIVER_ANTICHEAT_COMPATIBILITY_UNVERIFIED"
 	case guard.Error != "":
 		reason = guard.Error
 	case !guard.Ready:
@@ -238,6 +236,9 @@ func (c *Controller) updateGamesGate() {
 	defer c.games.mu.Unlock()
 	for _, g := range c.games.items {
 		r := reason
+		if r == "" {
+			r = gameAntiCheatReason(g.Path, guard)
+		}
 		p, ok := c.Profiles.Match(wp.ProcessIdentity{PID: 1, CreationTime: 1, Path: g.Path})
 		if !ok || p.ID != g.ProfileID || !gameProfileSafe(p) {
 			r = "GAME_PROFILE_OVERRIDDEN_OR_REMOVED"
@@ -427,8 +428,7 @@ func (c *Controller) handleGameUDP(_ context.Context, method string, raw json.Ra
 		g.Engine.Configure(g.Path, false)
 		c.games.items[p.ID] = g
 	}
-	base := strings.ToLower(strings.ReplaceAll(g.Path, `\`, "/"))
-	if *q.Enabled && (strings.Contains(base, "valorant") || strings.Contains(base, "faceit") || c.gameGuard().DriverAntiCheat != "") {
+	if *q.Enabled && gameAntiCheatReason(g.Path, c.gameGuard()) != "" {
 		c.games.mu.Unlock()
 		return nil, errors.New("GAME_UDP_ANTICHEAT_COMPATIBILITY_UNVERIFIED")
 	}

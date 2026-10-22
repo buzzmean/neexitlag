@@ -2328,3 +2328,20 @@ Native Windows temp-tree fixture проверяет owners/protected ACL/no gues
 на Linux этот участок явно SKIP, PS7 parser/остальные fixtures и Python7/7 PASS.
 Это не расширение прав на ProgramData/IPC и не замена Windows admin boundary.
 Новые поправки только installer/PS/docs, Go/C# код после последних PASS не менялся.
+
+## 23.10.2026 (MSK) — PUBG: область античит-проверки
+
+Причина e5e0127: updateGamesGate и gameudp.set глобально запрещали все игры при
+DriverAntiCheat!=empty. Теперь PUBG/BattlEye и остальные непричастные профили не
+наследуют FACEIT/Vanguard; loaded/stopped/active client различаются. Установка
+сервиса со StartType=System при Stopped не означает activity. CS2 opt-in: loaded
+FACEIT driver без client/service допускается, active FACEIT driver+client/service
+оставляет compatibility gate. Сам факт матча FACEIT из этих metadata не доказываем;
+точная интеграция с матчами отсутствует. Valorant/FACEIT exe остаются gated.
+Anti-cheat SCM-query failure отдельно от реального WinDivert conflict check;
+PUBG не блокируется из-за недоступного чужого драйвера. REFLECT/process-list/capture/
+network/VPN guards сохранены. Toolhelp/SCM query вынесен из packet-path mutex,
+startup pending и защита от stale result после reset покрыты race tests.
+Go race core/gameudp+platform/windows+client-service PASS; Windows platform test
+EXE cross-compile PASS. Windows SCM/настоящие FACEIT/BattlEye/матчи не запускались.
+VPS/сертификаты/PR8 не менялись. Дальше PUBG local-first и GUI/diag.

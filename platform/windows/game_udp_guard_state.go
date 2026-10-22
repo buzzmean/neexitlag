@@ -22,12 +22,12 @@ type reflectRecord struct {
 	matched  bool
 }
 type gameGuardState struct {
-	mu                                        sync.Mutex
-	processAt                                 time.Time
-	processForeign, processAnti, processError string
-	ready                                     bool
-	error                                     string
-	foreign                                   map[reflectKey]*reflectRecord
+	mu                 sync.Mutex
+	processAt          time.Time
+	processObservation GameUDPGuardStatus
+	ready              bool
+	error              string
+	foreign            map[reflectKey]*reflectRecord
 }
 
 func decodeGameReflect(a [80]byte, p []byte) (reflectRecord, byte, error) {
@@ -100,7 +100,30 @@ func (g *gameGuardState) reset() {
 	g.error = ""
 	g.foreign = map[reflectKey]*reflectRecord{}
 	g.processAt = time.Time{}
-	g.processForeign = ""
-	g.processAnti = ""
-	g.processError = ""
+	g.processObservation = GameUDPGuardStatus{}
+}
+
+// Toolhelp/SCM queries must never hold the packet-path guard lock. Concurrent
+// readers use the last completed observation; startup remains pending. A scan
+// begun before reset cannot publish into a new capture generation.
+func (g *gameGuardState) processSnapshot(now time.Time, scan func() GameUDPGuardStatus) GameUDPGuardStatus {
+	g.mu.Lock()
+	if now.Sub(g.processAt) < time.Second {
+		s := g.processObservation
+		g.mu.Unlock()
+		return s
+	}
+	first := g.processAt.IsZero()
+	g.processAt = now
+	if first {
+		g.processObservation.Error = "GAME_PROCESS_CHECK_PENDING"
+	}
+	g.mu.Unlock()
+	observation := scan()
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.processAt.Equal(now) {
+		g.processObservation = observation
+	}
+	return g.processObservation
 }

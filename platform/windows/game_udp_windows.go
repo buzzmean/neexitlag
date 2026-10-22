@@ -15,6 +15,11 @@ func (b *WinDivertBackend) GameUDPGuardStatus() GameUDPGuardStatus {
 	p := b.gameProcessStatus()
 	s.Conflict = s.Conflict || p.Conflict
 	s.DriverAntiCheat = p.DriverAntiCheat
+	s.VanguardDriverRunning = p.VanguardDriverRunning
+	s.VanguardClientRunning = p.VanguardClientRunning
+	s.FaceitDriverRunning = p.FaceitDriverRunning
+	s.FaceitClientRunning = p.FaceitClientRunning
+	s.AntiCheatQueryError = p.AntiCheatQueryError
 	if p.Error != "" {
 		s.Error = p.Error
 		s.Ready = false
