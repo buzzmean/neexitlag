@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -188,6 +189,10 @@ func rootState() (string, *x509.Certificate, ed25519.PrivateKey, ed25519.Private
 	}
 	return string(caRaw), ca, cak, signer, trust, store, nil
 }
+func ownedHeartbeat(j journal, current cp.FleetRelayState) bool {
+	h := sha256.Sum256([]byte(j.Heartbeat))
+	return bytes.Equal(current.HeartbeatHash, h[:]) || bytes.Equal(current.HeartbeatHash, j.Before.HeartbeatHash)
+}
 func run() error {
 	var q request
 	d := json.NewDecoder(io.LimitReader(os.Stdin, 32769))
@@ -258,7 +263,18 @@ func run() error {
 	case "inspect":
 		return json.NewEncoder(os.Stdout).Encode(map[string]any{"relay": current.Node, "exists": current.Exists, "phase": j.Phase, "journal": path, "heartbeat_healthy": current.Healthy, "heartbeat_at": current.HeartbeatAt, "heartbeat_fresh": current.HeartbeatAt != nil && time.Since(*current.HeartbeatAt) < 60*time.Second})
 	case "prepare":
+		if current.Exists && current.Node.Address != q.Address {
+			return errors.New("PRIMARY_ADDRESS_CHANGE_REQUIRES_NEW_AUDIENCE")
+		}
 		if readErr == nil && j.Phase != "rolled_back" {
+			if !current.Exists && !j.Before.Exists && j.Phase == "prepared" {
+				pending := cp.FleetRelayState{Exists: true, Node: optimizer.RelayCandidate{ID: q.ID, Address: q.Address, City: q.Name, Load: 1}}
+				if e = store.ChangeFleetRelay(ctx, q.ID, "", pending, "vps-1", signer, trust, nil); e != nil {
+					return e
+				}
+				current = pending
+			}
+
 			h := sha256.Sum256([]byte(j.Heartbeat))
 			if j.Phase == "committed" && (!current.Exists || current.Node.Address != q.Address || string(current.HeartbeatHash) != string(h[:])) {
 				return errors.New("COMMITTED_REGISTRY_CHANGED_REVIEW_REQUIRED")
@@ -292,6 +308,9 @@ func run() error {
 	case "commit":
 		if readErr != nil || j.Phase == "rolled_back" {
 			return errors.New("PREPARE_REQUIRED")
+		}
+		if !current.Exists || !ownedHeartbeat(j, current) {
+			return errors.New("RELAY_REGISTRY_OWNERSHIP_CHANGED")
 		}
 		h := sha256.Sum256([]byte(j.Heartbeat))
 		next := cp.FleetRelayState{Exists: true, Node: optimizer.RelayCandidate{ID: q.ID, Address: q.Address, City: q.Name}, HeartbeatHash: h[:]}
@@ -335,6 +354,9 @@ func run() error {
 		}
 		expected := ""
 		if current.Exists {
+			if !ownedHeartbeat(j, current) {
+				return errors.New("RELAY_REGISTRY_OWNERSHIP_CHANGED")
+			}
 			expected = current.Node.Address
 		}
 		if current.Exists && expected != q.Address && expected != j.Before.Node.Address {

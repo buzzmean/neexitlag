@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	cp "github.com/buzzmean/neexitlag/services/control-plane"
 	"math/big"
 	"net"
 	"net/netip"
@@ -54,5 +55,17 @@ func TestFleetArgumentsAndCertificateBounds(t *testing.T) {
 	}
 	if _, e := addressIP("146.0.77.98:4433"); e != nil {
 		t.Fatal(e)
+	}
+}
+
+func TestRegistryRollbackNeverOverwritesForeignHeartbeatRotation(t *testing.T) {
+	j := journal{Heartbeat: "private-fixture"}
+	current := cp.FleetRelayState{HeartbeatHash: []byte("another-admin-rotation")}
+	if ownedHeartbeat(j, current) {
+		t.Fatal("foreign rotation accepted")
+	}
+	current.HeartbeatHash = nil
+	if !ownedHeartbeat(j, current) {
+		t.Fatal("owned reservation rejected")
 	}
 }
