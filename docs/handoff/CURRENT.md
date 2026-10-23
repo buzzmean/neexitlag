@@ -2659,3 +2659,6 @@ VPS deployment НЕ нужен; следующее действие владел
 & .\tools\windows\relay-status.ps1
 ```
 При провале journal path печатается безопасно; содержимое journal не присылать (private heartbeat/undo). Для возврата registry: та же add-relay команда с `-Rollback`. CA/client identities/activation/коды/PR8 не менялись. P0 код готов, remote acceptance владельца ещё нужен; далее YouTube LOCAL-first.
+
+### YouTube LOCAL-first A — аудит (23.10.2026)
+Предыдущий relay-first79dfaaa8/ad3c69ce/432899d3 скрывал подтверждённые DIRECT/SNI stalls и отсутствие browser verified baseline, но bypass локально не проверял. Browser-scoped LOCAL требовал manual selected preset/baseline и потому не включался на fresh native. Реально есть TCP fake(old-sequence+TTL)/multisplit/disorder и QUIC→TCP; полного Flowseal/autottl/md5sig/fakeQUIC нет. Новый owner request разрешает bounded browser-only автоматическую лестницу. Подробности/границы повторов — docs/YOUTUBE_LOCAL_FIRST.md. Установленный TLS после origin bytes не мигрирует; бесшовный midstream retry без MITM невозможен и не обещается.
