@@ -1,4 +1,4 @@
-# Read-only user-mode DLL test. Never opens WinDivert or starts a driver.
+﻿# Read-only user-mode DLL test. Never opens WinDivert or starts a driver.
 [CmdletBinding()]
 param(
  [string]$TestExecutable=(Join-Path $PSScriptRoot '..\..\bin\windows-e2e\capture-acceptance.exe'),
@@ -18,7 +18,9 @@ try{
  $env:NEEXITLAG_REQUIRE_FILTER_COMPILER='1'
  $required=@('TestServiceFiltersCompileWithActualWinDivert','TestWinDivertCompilerRejectsLegacyGroupedNot','TestWinDivertCompilerReportsComplexityLimits','TestPrivateISCSIExcludedByActualWinDivertFilterEvaluator')
  $pattern='^(' + ($required -join '|') + ')$'
- $lines=@(& $TestExecutable -test.run $pattern -test.v -test.timeout 60s)
+ # PS5.1 parses bare -test.run as -test followed by .run. Native dotted
+ # flags MUST be quoted; keep values separate (regex has no spaces).
+ $lines=@(& $TestExecutable '-test.run' $pattern '-test.v' '-test.timeout' '60s')
  $code=$LASTEXITCODE
  foreach($line in $lines){Write-Host $line}
  if($code){throw ('WINDIVERT_FILTER_COMPILATION_FAILED exit='+$code+'; service build must not be installed')}

@@ -2494,3 +2494,13 @@ GUI; status READY; test-browser-dns -DurationSeconds90 + новые YouTube/VK �
 play/seek; diag-no-vpn -Only browser,youtube; startup ready/disabled/exit и новые
 VK вкладки. Всё по одной команде в docs/BROWSER_DNS_ROUTING.md. Browser/Internet PASS
 пока не заявлен. Все A–E закончены, файловая область освобождена.
+
+## 23.10.2026 — YouTube starvation: исправление сборки
+
+PS5.1: native -test.run/-test.v/-test.timeout теперь quoted literal arguments.
+build-e2e перед любыми проверками удаляет только известные generated Windows/Linux
+бинарники, при любой последующей ошибке удаляет частичную новую сборку. Config/
+identity/installed-like directories защищены; неизвестные файлы не удаляются.
+PS7 isolated early/late failure + installed sentinel/AST argument fixture PASS.
+Настоящий PS5.1 повторяется владельцем/CI; работа на VPS не выполнялась.
+Далее A/B/C/D, область занята.

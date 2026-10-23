@@ -1,10 +1,29 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param([string]$Output=(Join-Path $PSScriptRoot '..\..\bin\windows-e2e'),
  [string]$DriverDirectory=(Join-Path $PSScriptRoot '..\..\.e2e\windivert'))
 $ErrorActionPreference='Stop'
 $root=(Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 New-Item -ItemType Directory -Force $Output|Out-Null
 $Output=(Resolve-Path $Output).Path
+# Only known generated payloads; preserve every config/identity/token and installed copy.
+if((Get-Item -LiteralPath $Output).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'BUILD_OUTPUT_REPARSE_POINT_REFUSED'}
+if((Test-Path -LiteralPath (Join-Path $Output 'service.json')) -or (Test-Path -LiteralPath (Join-Path $Output 'identity.json'))){throw 'BUILD_OUTPUT_LOOKS_INSTALLED; use a separate build directory'}
+function Remove-E2EGeneratedBinaries {
+ foreach($name in @('neexitlag-service.exe','capture-acceptance.exe','lease-acceptance.exe','browser-recovery-acceptance.exe','test-game.exe','control-client.exe','udp-plus.exe','tcp-selected.exe','tcp-control.exe','tcp-plus.exe','enroll.exe','vps-provision.exe')){
+  $path=Join-Path $Output $name
+  if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path -Force -ErrorAction Stop}
+ }
+ $linuxDir=Join-Path $Output 'linux'
+ if(Test-Path -LiteralPath $linuxDir){
+  if((Get-Item -LiteralPath $linuxDir).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'BUILD_LINUX_OUTPUT_REPARSE_POINT_REFUSED'}
+  foreach($name in @('relay','control-plane','remote-echo','probe-client','web-test-target')){
+   $path=Join-Path $linuxDir $name
+   if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path -Force -ErrorAction Stop}
+  }
+ }
+}
+# A failed compiler gate must never leave yesterday's service available to update-service.
+Remove-E2EGeneratedBinaries
 Push-Location $root
 $oldOS=$env:GOOS;$oldArch=$env:GOARCH;$oldCGO=$env:CGO_ENABLED
 try {
@@ -36,4 +55,8 @@ try {
  $env:GOOS='linux'
  foreach($entry in @(@('relay','./services/relay/cmd/relay'),@('control-plane','./services/control-plane/cmd/control-plane'),@('remote-echo','./tools/remote-echo'),@('probe-client','./tools/windows-test-client'),@('web-test-target','./tools/web-test-target'))){& go build -trimpath -o (Join-Path $linux $entry[0]) $entry[1];if($LASTEXITCODE){throw "Linux build failed: $($entry[0])"}}
  Write-Host "Windows test binaries and Linux deployment binaries ready in $Output"
+} catch {
+ # Also remove partial NEW binaries if a later test/Linux build/copy failed.
+ Remove-E2EGeneratedBinaries
+ throw
 } finally {$env:GOOS=$oldOS;$env:GOARCH=$oldArch;$env:CGO_ENABLED=$oldCGO;Pop-Location}
