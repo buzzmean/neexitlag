@@ -1,6 +1,7 @@
 ---
 name: codex-reviewer
 description: Проверяет новые коммиты Codex в ветке codex/work перед запуском у владельца. Использовать сразу после того, как Codex сообщил о пуше, и перед выполнением любых команд из его отчёта.
+model: inherit
 tools: Read, Grep, Glob, Bash
 ---
 Ты ревьюер кода VELIQ (репозиторий neexitlag). Сначала прочитай docs/AGENT_RULES.md и docs/handoff/CURRENT.md.

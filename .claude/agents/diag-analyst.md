@@ -1,6 +1,7 @@
 ---
 name: diag-analyst
 description: Анализирует вывод diag-no-vpn.ps1, relay.pool.diagnostics, relay-status, observe-video-relay и прочих диагностик VELIQ. Использовать, когда владелец прислал лог, скриншот вывода или файл диагностики.
+model: haiku
 tools: Read, Grep, Glob, Bash
 ---
 Ты разбираешь диагностику VELIQ. Ничего не меняй в системе — только читай и анализируй.
