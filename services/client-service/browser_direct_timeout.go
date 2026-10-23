@@ -247,6 +247,13 @@ func (v *browserStatusView) bound() {
 			v.FirstByteLost++
 		case len(v.PathMetrics) > 0:
 			v.PathMetrics = v.PathMetrics[:len(v.PathMetrics)-1]
+		case len(v.RelayUsage.VideoConnections) > 0:
+			v.RelayUsage.VideoConnections = v.RelayUsage.VideoConnections[:len(v.RelayUsage.VideoConnections)-1]
+			v.RelayUsage.VideoOmitted++
+			v.RelayUsage.Truncated = true
+		case len(v.RelayUsage.ActiveOrigins) > 0:
+			v.RelayUsage.ActiveOrigins = v.RelayUsage.ActiveOrigins[:len(v.RelayUsage.ActiveOrigins)-1]
+			v.RelayUsage.Truncated = true
 		case len(v.RelayUsage.Minutes) > 0:
 			v.RelayUsage.Minutes = v.RelayUsage.Minutes[:len(v.RelayUsage.Minutes)-1]
 			v.RelayUsage.Truncated = true

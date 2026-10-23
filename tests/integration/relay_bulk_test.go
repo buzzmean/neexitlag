@@ -16,7 +16,7 @@ import (
 	"github.com/quic-go/quic-go"
 )
 
-// A bounded, lossless UDP delay bridge: packets are scheduled independently,
+// A bounded UDP delay bridge without intentional packet drops: packets are scheduled independently,
 // not serialized by one sleep per packet. It exercises real encrypted QUIC and
 // the real relay TCP copy loop; no Internet/WinDivert/player performance claim.
 func delayedRelay(t *testing.T, target string, delay time.Duration) string {
@@ -168,6 +168,25 @@ func TestRelayBulkReceiveWindowsAt60msRTT(t *testing.T) {
 			}()
 		}
 	}()
+	// Direct loopback is an integrity/overhead reference, not a WAN baseline.
+	direct, e := net.DialTimeout("tcp4", origin.Addr().String(), time.Second)
+	if e != nil {
+		t.Fatal(e)
+	}
+	direct.SetDeadline(time.Now().Add(10 * time.Second))
+	started := time.Now()
+	if _, e = direct.Write([]byte{1}); e != nil {
+		direct.Close()
+		t.Fatal(e)
+	}
+	h := sha256.New()
+	n, e := io.Copy(h, direct)
+	direct.Close()
+	if e != nil || n != int64(len(payload)) || !bytes.Equal(h.Sum(nil), want[:]) {
+		t.Fatal("direct bulk mismatch", n, e)
+	}
+	t.Logf("direct LOOPBACK (no WAN delay) Mbps=%.2f", float64(n)*8/time.Since(started).Seconds()/1e6)
+
 	for _, mode := range []string{"legacy", "client_download"} {
 		t.Run(mode, func(t *testing.T) {
 			r, _, tls := setup(t, 30*time.Second)

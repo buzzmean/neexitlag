@@ -1,8 +1,10 @@
 package clientservice
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
+	"strings"
 	"testing"
 	"time"
 )
@@ -80,5 +82,38 @@ func TestVideoPerformanceMeterActualIOAndClose(t *testing.T) {
 	v := u.snapshot().VideoConnections[0]
 	if v.Received != 5 || v.Sent != 3 || v.FirstByteMS < 0 || v.Closed.IsZero() {
 		t.Fatal(v)
+	}
+}
+
+func TestVideoPerformanceKeepsLongLivedVideoVisibleOverClosedPreconnects(t *testing.T) {
+	u := &browserRelayUsage{}
+	now := time.Now()
+	active := u.beginVideo(videoPerformance{Started: now})
+	for i := 0; i < 50; i++ {
+		id := u.beginVideo(videoPerformance{Started: now})
+		u.videoClosed(id, false)
+	}
+	rows := u.snapshot().VideoConnections
+	if len(rows) != 24 || rows[0].ID != active || !rows[0].Closed.IsZero() {
+		t.Fatal("active video hidden by closed preconnects", rows)
+	}
+}
+
+func TestVideoPerformanceCannotOverflowPACStatusIPC(t *testing.T) {
+	v := browserStatusView{}
+	profile := strings.Repeat("p", 128)
+	domain := strings.Repeat("a", 250) + ".io"
+	now := time.Now()
+	for i := 0; i < 24; i++ {
+		v.RelayUsage.VideoConnections = append(v.RelayUsage.VideoConnections, videoPerformance{ID: uint64(i), Profile: profile, Domain: domain, Destination: "173.194.151.68:443", Ingress: "NATIVE_TCP", Started: now, Opened: now, FirstRead: now, LastRead: now, FirstWrite: now})
+	}
+	for i := 0; i < 64; i++ {
+		v.RelayUsage.ActiveOrigins = append(v.RelayUsage.ActiveOrigins, relayActiveOrigin{Profile: profile, Domain: domain, Active: 1})
+		v.RelayUsage.Minutes = append(v.RelayUsage.Minutes, relayMinute{Profile: profile, Domain: domain, Minute: now})
+	}
+	v.bound()
+	raw, e := json.Marshal(v)
+	if e != nil || len(raw) >= 57000 || !v.Truncated || v.RelayUsage.VideoOmitted == 0 {
+		t.Fatal("unbounded combined PAC status", len(raw), e, v.RelayUsage.VideoOmitted)
 	}
 }

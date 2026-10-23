@@ -4,7 +4,7 @@ $path=Join-Path $PSScriptRoot '..\..\tools\windows\diag-no-vpn.ps1'
 $tokens=$null;$errors=$null
 $ast=[System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw ($errors|Out-String)}
-foreach($name in @('Prop','Write-BrowserDNSEvidence','Write-TlsWireEvidence','Write-BrowserPathEvidence','Write-NativeIngressEvidence','Write-NativeFirewallEvidence','Write-BrowserFirstByteEvidence')){
+foreach($name in @('Prop','Write-BrowserDNSEvidence','Write-RelayOpenPerformance','Write-TlsWireEvidence','Write-BrowserPathEvidence','Write-NativeIngressEvidence','Write-NativeFirewallEvidence','Write-BrowserFirstByteEvidence')){
  $fn=$ast.Find({param($a)$a -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $a.Name -eq $name},$true)
  if(!$fn){throw "Missing function $name"};Invoke-Expression $fn.Extent.Text
 }
@@ -171,3 +171,28 @@ Check ($text -match 'video connection: id=7.*admission_ms=20.*relay_open_ms=60.*
 $script:lines=@();Write-BrowserDNSEvidence ([pscustomobject]@{})
 Check (($script:lines -join "`n") -match 'video performance: UNINSTRUMENTED') 'Old service forged video performance'
 Write-Host 'PASS video per-connection timing/rates fixed-field diagnostics and old-service UNINSTRUMENTED'
+
+$script:lines=@();Write-RelayOpenPerformance ([pscustomobject]@{active_sessions=1;waiting_opens=0;recent_opens=@([pscustomobject]@{session_id=3;duration_ms=65;acquire_ms=2;stream_open_ms=63;session_age_ms=10000;detail='SECRET_NOT_PROJECTED'})})
+$text=$script:lines -join "`n"
+Check ($text -match 'total_ms=65 acquire_ms=2 stream_origin_open_ms=63 session_age_ms=10000' -and $text -notmatch 'SECRET_NOT_PROJECTED') 'Pool open timing projection missing/unsafe'
+$script:lines=@();Write-RelayOpenPerformance ([pscustomobject]@{recent_opens=@([pscustomobject]@{duration_ms=1})})
+Check (($script:lines -join "`n") -match 'acquire_ms=UNINSTRUMENTED') 'Legacy pool fabricated phase timing'
+Write-Host 'PASS pool/session OPEN phase projection, old schema UNINSTRUMENTED, no raw errors'
+
+$observer=Join-Path $PSScriptRoot '..\..\tools\windows\observe-video-relay.ps1'
+$t=$null;$e=$null;$a=[Management.Automation.Language.Parser]::ParseFile((Resolve-Path $observer),[ref]$t,[ref]$e)
+Check ($e.Count -eq 0) 'Video observer parser failed'
+foreach($name in @('VideoField','VideoInterval')){$f=$a.Find({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name},$true);Invoke-Expression $f.Extent.Text}
+$now=[datetime]::UtcNow;$sample=[pscustomobject]@{received_bytes=2000000;secret='NEVER_LOG'}
+Check ((VideoInterval $null $sample $now).state -eq 'BASELINE') 'Old video bytes counted as a fresh rate'
+$v=VideoInterval ([pscustomobject]@{at=$now.AddSeconds(-2);bytes=1000000}) $sample $now
+Check ($v.state -eq 'MEASURED' -and $v.mbps -eq 4) 'Video interval rate wrong'
+Check ((VideoInterval ([pscustomobject]@{at=$now.AddSeconds(-1);bytes=3000000}) $sample $now).state -eq 'COUNTER_RESET') 'Reset produced fake throughput'
+$commands=@($a.FindAll({param($n)$n -is [Management.Automation.Language.CommandAst]},$true)|ForEach-Object{$_.GetCommandName()})
+Check (!($commands|Where-Object{$_ -match '^(ssh|scp|Start-Process|Stop-Process|Restart-Service|Stop-Service|Start-Service|Set-ItemProperty)$'})) 'Observer mutates browser/service/VPS'
+Check ((Get-Content -LiteralPath $observer -Raw) -notmatch "Invoke-ServiceIPC '(?!browser.native.status)") 'Observer calls a mutating IPC'
+Write-Host 'PASS read-only 120s video observer, real interval deltas, baseline/reset rejection and bounded schema'
+
+$script:lines=@();Write-BrowserDNSEvidence ([pscustomobject]@{relay_usage=[pscustomobject]@{video_connections=@();video_performance_scope='TLS_WIRE'}})
+Check (($script:lines -join "`n") -match 'video performance scope=TLS_WIRE' -and ($script:lines -join "`n") -notmatch 'video performance: UNINSTRUMENTED' -and ($script:lines -join "`n") -notmatch 'video connection:') 'Empty new service ledger confused with missing instrumentation'
+Write-Host 'PASS empty video ledger before opening a video is instrumented, not an old-service failure'

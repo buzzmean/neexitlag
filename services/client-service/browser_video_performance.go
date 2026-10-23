@@ -150,7 +150,12 @@ func (u *browserRelayUsage) videoSnapshot(now time.Time) []videoPerformance {
 		}
 		rows = append(rows, v)
 	}
-	sort.Slice(rows, func(i, j int) bool { return rows[i].ID > rows[j].ID })
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].Closed.IsZero() != rows[j].Closed.IsZero() {
+			return rows[i].Closed.IsZero()
+		}
+		return rows[i].ID > rows[j].ID
+	})
 	if len(rows) > 24 {
 		rows = rows[:24]
 	}

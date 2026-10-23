@@ -226,14 +226,15 @@ func (c *Controller) openBrowser(ctx context.Context, q browserproxy.Request, pl
 		var ok bool
 		release, ok = c.relayUsage().acquireVideoContext(ctx, opaqueGoogle)
 		if !ok {
-			c.relayUsage().videoOpened(videoID, time.Now(), time.Now(), errVideoRelayCapacity)
+			admissionErr := errVideoRelayCapacity
 			if ctx.Err() != nil {
-				return nil, ctx.Err()
+				admissionErr = ctx.Err()
+			} else if opaqueGoogle {
+				admissionErr = errOpaqueGoogleCapacity
 			}
-			if opaqueGoogle {
-				return nil, errOpaqueGoogleCapacity
-			}
-			return nil, errVideoRelayCapacity
+			failedAt := time.Now()
+			c.relayUsage().videoOpened(videoID, failedAt, failedAt, admissionErr)
+			return nil, admissionErr
 		}
 	}
 	admitted := time.Now()

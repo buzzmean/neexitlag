@@ -1,5 +1,16 @@
 # CURRENT — состояние проекта (обновляется в конце каждой сессии)
 
+Последний итог Codex 23.10.2026: relay video performance — код и измерения готовы.
+506b20f: bounded per-video TTFB/wait/open/rate; f107204: client QUIC receive
+initial256KiB/1MiB, max2MiB/8MiB, server defaults unchanged и OPEN phases.
+Контрольный local mTLS relay60ms RTT: одиночный23.4→55.0Mbit/s;4stream65.6→68.1.
+Это не причина всей минуты2fps и не Windows/ISP/1080p PASS. VPS deployment не нужен.
+Финальный полный Go race PASS, Linux/Windows vet/build PASS, PS7 fixtures и9Windows
+EXE unit под Wine PASS; повторные demo timeout также воспроизведены на1bb001f,
+фикстура не ослаблялась. Observer120s/обновление — docs/YOUTUBE_RELAY_PERFORMANCE.md.
+VPS/credentials/сертификаты/PR8 не тронуты. Область освобождена; ждём короткий
+замер playback/CSV владельца без закрытия браузеров.
+
 Последний итог Codex 23.10.2026: YouTube starvation305e2fd исправлен в codex/work.
 Build1c06fb5, A03eba78, Bbf936f2, C4f38988, D — этот коммит. Dedicated video12/other4,
 ordinary Google DIRECT hints/capacity fallback before payload, protected unchanged,
@@ -31,7 +42,7 @@ VPS/credentials/certificates/PR8 не тронуты, deployment VPS не тре
 
 | Работа | Файлы | Агент | Ветка | Статус |
 |---|---|---|---|---|
-| YouTube relay скорость/TTFB (23.10.2026) | services/client-service browser meter/native/transport; core/transport; services/relay; platform/windows TCP forwarding (аудит); tools/windows diag; tests/docs | Codex | codex/work | В РАБОТЕ: измерения и воспроизводимые bottlenecks; VPS не менять |
+| YouTube relay скорость/TTFB (23.10.2026) | services/client-service browser meter/native/transport; core/transport; services/relay; platform/windows TCP forwarding (аудит); tools/windows diag/observe-video; tests/verify workflow/docs | Codex | codex/work | ОСВОБОЖДЕНО: client receive credit/OPEN phases/per-video metrics/observer готовы; Windows/ISP playback не подтверждён |
 | YouTube admission/ordinary Google/build PS5.1 A–D (23.10.2026) | services/client-service browser policy/admission/meter; core/browserproxy Plan/errors; tools/windows build/filter/diag/acceptance; tests/docs | Codex | codex/work | ОСВОБОЖДЕНО: build/A/B/C/D запушены; локальные проверки PASS; ждёт Windows/ISP 2мин video retest |
 | Browser DNS/DoH и opaque recovery A–E (23.10.2026) | core/browserproxy DNS/первые байты; platform/windows DNS/capture/domain; services/client-service browser*; tests/diag/docs | Codex | codex/work | ОСВОБОЖДЕНО: A–E реализованы/запушены; ждёт реальной Windows/ISP приёмки; svchost/custom DoH ограничения задокументированы |
 | Срочно: компиляция фильтров WinDivert/iSCSI (22.10.2026) | platform/windows capture/loader/storage/filter tests; tools/windows build/filter check; Windows CI; docs | Codex | codex/work | СВОБОДНО: grouped NOT исправлен; все фильтры обязательны к проверке DLL; actual Windows capture ждёт владельца |
@@ -2605,3 +2616,16 @@ CPU/metrics/ss — docs/YOUTUBE_RELAY_ADMISSION.md. Отдельные12video/4o
 ## 23.10.2026: YouTube relay performance, шаг 2
 
 Подтверждён локальный downstream flow-control bottleneck: старый client receive max256KiB/1MiB на real relay при60msRTT ограничивал bulk. Только client advertise: initial256KiB/1MiB, max2MiB/8MiB (auto-tune, pool8 = максимум64MiB stream credit). Server defaults/stream limits/auth/lease unchanged, текущий VPS совместим. Pool recent OPEN теперь разделяет acquire (включая fresh-ticket/session setup) и stream+origin TCP ACK; возраст сессии показывает reuse. Real mTLS relay bulk SHA2561/4 streams, same ticket-authenticated pool bulk/reuse, security budget unit — targeted race PASS. Эмпирическая полная причина 2fps/ISP ещё не установлена; Windows playback не проверен.
+
+## 23.10.2026: YouTube relay performance, шаг 3
+
+Добавлены pool-phase diag и read-only120s observer CSV с delta rate/TTFB/wait/open (baseline/reset честные, без browser/service/VPS mutations), PS7 main-loop+AST fixtures. Живые видеотуннели приоритетнее закрытых preconnect; PAC/native IPC budget с явным omitted. Полный race повторён после кода; финальные vet/build/Windows EXE проверки и CI состояние — итог ниже. Документ docs/YOUTUBE_RELAY_PERFORMANCE.md содержит аудит buffers/pool/session reuse, измеренные результаты/ограничения и точные owner команды.
+
+### Итог проверок performance (23.10.2026)
+
+- Последний полный `GOMAXPROCS=2 go test -race -p 1 ./...` exit0; перед ним два поздних полного FAIL в demo deadline25s. Targeted new tests и полный затронутый service race PASS. Demo на новом коде отдельно3/3 PASS; на чистом1bb001f1/3 deadline FAIL (diagnostics HTTP),2/3 PASS. Это не безусловно стабильный suite, production failover/test deadline не изменялись.
+- Финальные Linux vet/build и Windows vet/cross-build exit0. Девять pure Windows service EXE tests под Wine10 PASS; не Windows kernel/WinDivert/PS5.1/ISP/player PASS. C#/WPF не затронуты и не пересобирались.
+- PS7 browser-path и observer main-loop/CSV/StrictMode с изолированным fake IPC PASS; empty initial video ledger поддержан. PS5.1 предусмотрен Verify, локально недоступен. YAML parse PASS.
+- GitHub Verify f107204 https://github.com/buzzmean/neexitlag/actions/runs/39985233531: core/windows failure с steps=[]; раньше владелец подтвердил billing gate, новую annotation не прочли. Никакого CI PASS.
+- Журнал решений: downstream credit увеличен только на клиенте после real relay lab; лимиты admission/pool/сервер/авторизация не менять. TCP/TLS streams не переиспользуются между независимыми соединениями; shared QUIC session уже reuse. Нужны измерения данных на ПК для полного объяснения minute-long buffering; 2–3с/1080p/36PC не обещать.
+- Владельцу: client update/hash check/без browser restart — docs/YOUTUBE_RELAY_PERFORMANCE.md, затем `& .\tools\windows\observe-video-relay.ps1 -DurationSeconds 120` во время нового1080p video и `& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube`. VPS обновлять не нужно; агент VPS не запускал.
