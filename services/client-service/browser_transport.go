@@ -217,11 +217,16 @@ func (c *Controller) openBrowser(ctx context.Context, q browserproxy.Request, pl
 		return backend.OpenBrowserLocalTCP(ctx, browserIdentity(q), q.Source, plan.Destination, d)
 	}
 	release := func() {}
+	var videoID uint64
+	if observe && d.Route.RelayID != "" && isVideo(q) {
+		videoID = c.relayUsage().beginVideo(videoPerformance{Profile: current.profile.ID, Domain: q.Host, Destination: plan.Destination.String(), Ingress: q.Ingress, Started: time.Now()})
+	}
 	opaqueGoogle := otherGoogleWebAdmission(q, plan) && (q.Host == "" || browserAuto(current.profile))
 	if observe && d.Route.RelayID != "" && (isVideo(q) || opaqueGoogle) {
 		var ok bool
 		release, ok = c.relayUsage().acquireVideoContext(ctx, opaqueGoogle)
 		if !ok {
+			c.relayUsage().videoOpened(videoID, time.Now(), time.Now(), errVideoRelayCapacity)
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
@@ -231,7 +236,11 @@ func (c *Controller) openBrowser(ctx context.Context, q browserproxy.Request, pl
 			return nil, errVideoRelayCapacity
 		}
 	}
+	admitted := time.Now()
 	conn, err := c.Engine.OpenTCP(ctx, d.Flow)
+	if videoID != 0 {
+		c.relayUsage().videoOpened(videoID, admitted, time.Now(), err)
+	}
 	err = browserFlowOpenError(err)
 	if err != nil {
 		release()
@@ -243,7 +252,7 @@ func (c *Controller) openBrowser(ctx context.Context, q browserproxy.Request, pl
 		}
 		closeCount := usage.openedTunnel(current.profile.ID, domain, time.Now())
 		videoRelease := release
-		meter := &relayMeterConn{Conn: conn, usage: usage, profile: current.profile.ID, domain: domain, release: func() { videoRelease(); closeCount() }}
+		meter := &relayMeterConn{Conn: conn, videoID: videoID, usage: usage, profile: current.profile.ID, domain: domain, release: func() { videoRelease(); closeCount() }}
 		if isVideo(q) || opaqueGoogle {
 			idle := browserVideoIdle
 			if opaqueGoogle {

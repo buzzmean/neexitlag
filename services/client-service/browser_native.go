@@ -210,6 +210,10 @@ func (c *Controller) nativeSnapshot() nativeBrowserSnapshot {
 		switch {
 		case len(s.Records) > 0:
 			s.Records = s.Records[:len(s.Records)-1]
+		case len(s.RelayUsage.VideoConnections) > 0:
+			s.RelayUsage.VideoConnections = s.RelayUsage.VideoConnections[:len(s.RelayUsage.VideoConnections)-1]
+			s.RelayUsage.VideoOmitted++
+			s.RelayUsage.Truncated = true
 		case len(s.RelayUsage.Minutes) > 0:
 			s.RelayUsage.Minutes = s.RelayUsage.Minutes[:len(s.RelayUsage.Minutes)-1]
 			s.RelayUsage.Truncated = true

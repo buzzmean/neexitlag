@@ -34,21 +34,24 @@ type relayMinute struct {
 	Received uint64    `json:"received_bytes"`
 }
 type relayUsageSnapshot struct {
-	OpaqueGoogleActive      int    `json:"opaque_google_active_tunnels"`
-	OpaqueGoogleLimit       int    `json:"opaque_google_tunnel_limit"`
-	OpaqueGoogleWaiting     int    `json:"opaque_google_waiters"`
-	OpaqueGoogleFailures    uint64 `json:"opaque_google_admission_failures"`
-	OpaqueGoogleCanceled    uint64 `json:"opaque_google_admission_canceled"`
-	VideoCanceled           uint64 `json:"googlevideo_admission_canceled"`
-	VideoIdleClosed         uint64 `json:"googlevideo_idle_closed"`
-	OpaqueIdleClosed        uint64 `json:"opaque_google_idle_closed"`
-	VideoWaited             uint64 `json:"googlevideo_waited"`
-	VideoWaitTotalMS        int64  `json:"googlevideo_wait_total_ms"`
-	VideoWaitMaxMS          int64  `json:"googlevideo_wait_max_ms"`
-	CapacityDirectFallbacks uint64 `json:"ordinary_capacity_direct_fallbacks"`
-	AdmissionScope          string `json:"admission_scope"`
-	TotalGoogleActive       int    `json:"google_admission_total_active"`
-	SharedVideoActive       int    `json:"googlevideo_shared_limit_active"`
+	VideoConnections        []videoPerformance `json:"video_connections"`
+	VideoOmitted            uint64             `json:"video_connections_omitted"`
+	VideoScope              string             `json:"video_performance_scope"`
+	OpaqueGoogleActive      int                `json:"opaque_google_active_tunnels"`
+	OpaqueGoogleLimit       int                `json:"opaque_google_tunnel_limit"`
+	OpaqueGoogleWaiting     int                `json:"opaque_google_waiters"`
+	OpaqueGoogleFailures    uint64             `json:"opaque_google_admission_failures"`
+	OpaqueGoogleCanceled    uint64             `json:"opaque_google_admission_canceled"`
+	VideoCanceled           uint64             `json:"googlevideo_admission_canceled"`
+	VideoIdleClosed         uint64             `json:"googlevideo_idle_closed"`
+	OpaqueIdleClosed        uint64             `json:"opaque_google_idle_closed"`
+	VideoWaited             uint64             `json:"googlevideo_waited"`
+	VideoWaitTotalMS        int64              `json:"googlevideo_wait_total_ms"`
+	VideoWaitMaxMS          int64              `json:"googlevideo_wait_max_ms"`
+	CapacityDirectFallbacks uint64             `json:"ordinary_capacity_direct_fallbacks"`
+	AdmissionScope          string             `json:"admission_scope"`
+	TotalGoogleActive       int                `json:"google_admission_total_active"`
+	SharedVideoActive       int                `json:"googlevideo_shared_limit_active"`
 
 	Active          int                 `json:"active_tcp_tunnels"`
 	Opened          uint64              `json:"tcp_tunnels_opened"`
@@ -65,6 +68,8 @@ type relayUsageSnapshot struct {
 	Minutes         []relayMinute       `json:"minutes"`
 }
 type browserRelayUsage struct {
+	videos                  map[uint64]videoPerformance
+	videoNext, videoLost    uint64
 	activeOrigins           map[[2]string]int
 	active                  int
 	opened, overflowTunnels uint64
@@ -142,11 +147,15 @@ func (c *Controller) relayUsage() *browserRelayUsage {
 	return c.browser.usage
 }
 func (u *browserRelayUsage) account(profile, domain string, tx, rx uint64, at time.Time) {
+	u.accountIO(profile, domain, tx, rx, at, 0)
+}
+func (u *browserRelayUsage) accountIO(profile, domain string, tx, rx uint64, at time.Time, videoID uint64) {
 	if tx+rx == 0 {
 		return
 	}
 	u.mu.Lock()
 	defer u.mu.Unlock()
+	u.videoIO(videoID, tx, rx, at)
 	for k := range u.minutes {
 		if at.Sub(k.minute) > relayUsageRetention {
 			delete(u.minutes, k)
@@ -171,6 +180,9 @@ func (u *browserRelayUsage) snapshot() relayUsageSnapshot {
 	defer u.mu.Unlock()
 	v, o := u.videoAdmission, u.opaqueAdmission
 	s := relayUsageSnapshot{VideoActive: v.active, OpaqueGoogleActive: o.active, SharedVideoActive: v.active, TotalGoogleActive: v.active + o.active, VideoLimit: videoRelayLimit, OpaqueGoogleLimit: opaqueGoogleRelayLimit, VideoLimitHits: v.hits, VideoWaiting: v.waiting, OpaqueGoogleWaiting: o.waiting, VideoTimeouts: v.failures, OpaqueGoogleFailures: o.failures, VideoCanceled: v.canceled, OpaqueGoogleCanceled: o.canceled, VideoIdleClosed: v.idleClosed, OpaqueIdleClosed: o.idleClosed, VideoWaited: v.waited, VideoWaitTotalMS: v.waitTotal.Milliseconds(), VideoWaitMaxMS: v.waitMax.Milliseconds(), CapacityDirectFallbacks: u.capacityDirectFallbacks, AdmissionScope: "DEDICATED_GOOGLEVIDEO_12_PLUS_OTHER_GOOGLE_4; shared_limit_active is legacy video-only", OverflowBytes: u.overflow, Minutes: []relayMinute{}}
+	s.VideoConnections = u.videoSnapshot(time.Now())
+	s.VideoOmitted = u.videoLost + uint64(len(u.videos)-len(s.VideoConnections))
+	s.VideoScope = "upstream wire bytes (TLS included); start=admission before relay OPEN; average includes idle, receive span includes inter-read gaps; NOT segment/FPS/page proof"
 	s.Active = u.active
 	s.Opened = u.opened
 	s.OverflowTunnels = u.overflowTunnels
@@ -212,7 +224,7 @@ func (u *browserRelayUsage) snapshot() relayUsageSnapshot {
 		s.Minutes = s.Minutes[:64]
 		s.Truncated = true
 	}
-	s.Truncated = s.Truncated || u.overflow > 0 || u.overflowTunnels > 0
+	s.Truncated = s.Truncated || s.VideoOmitted > 0 || u.overflow > 0 || u.overflowTunnels > 0
 	return s
 }
 

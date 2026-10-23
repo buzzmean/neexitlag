@@ -2597,3 +2597,7 @@ test-browser-dns -DurationSeconds120 -RequireGoogleDirect, играть виде
 CPU/metrics/ss — docs/YOUTUBE_RELAY_ADMISSION.md. Отдельные12video/4other +32waiting
 и20/10сidle — стартовый расчёт, не измерение ёмкости1vCPU/VPS. Полевая приёмка
 остаётся открытой, файловая область освобождена.
+
+## 23.10.2026: YouTube relay performance, шаг 1
+
+Добавлены bounded per-video wire TTFB/admission/OPEN/rates/gaps, 128 записей/24 в snapshot с omitted; native/PAC реальный upstream, не HTTP/FPS proof. Старые схемы UNINSTRUMENTED, без payload/URL/секретов. Targeted service Go race и PS7 browser-path fixtures PASS. Owner подтвердил 1bb001f: видео играет, admission failures=0, старт/рывки остаются. Полное расследование/транспортные проверки продолжаются; production не запускался.

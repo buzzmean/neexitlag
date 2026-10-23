@@ -164,3 +164,10 @@ Write-Host 'PASS fresh delta on pinned HTTP2, no old bytes/reset inference; inde
 $video.domain='r1.googlevideo.com';$video.policy.action='RELAY_REQUIRED';$google.domain='www.google.com';$google.owner.profile_id='edge'
 Check ((Get-BrowserDNSTransportVerdict @((Get-BrowserDNSTransportObservation $video),(Get-BrowserDNSTransportObservation $vk),(Get-BrowserDNSTransportObservation $google)) -RequireGoogleDirect) -eq 'SAME_BROWSER_PROFILE_ROUTES_NOT_OBSERVED') 'Cross-browser traffic fabricated one Chrome profile routes'
 Write-Host 'PASS required routes must share one browser profile; cross-browser mixing is not proof'
+
+$script:lines=@();Write-BrowserDNSEvidence ([pscustomobject]@{relay_usage=[pscustomobject]@{video_performance_scope='TLS_WIRE_NOT_FPS';video_connections_omitted=2;video_connections=@([pscustomobject]@{id=7;profile_id='chrome';domain='r.googlevideo.com';admission_ms=20;relay_open_ms=60;first_byte_ms=150;average_receive_mbps=12;receive_span_mbps=20;secret='NEVER_LOG'})}})
+$text=$script:lines -join "`n"
+Check ($text -match 'video connection: id=7.*admission_ms=20.*relay_open_ms=60.*first_byte_ms=150.*average_rx_mbps=12' -and $text -match 'omitted=2' -and $text -notmatch 'NEVER_LOG') 'Video latency/speed fixed projection unsafe or missing'
+$script:lines=@();Write-BrowserDNSEvidence ([pscustomobject]@{})
+Check (($script:lines -join "`n") -match 'video performance: UNINSTRUMENTED') 'Old service forged video performance'
+Write-Host 'PASS video per-connection timing/rates fixed-field diagnostics and old-service UNINSTRUMENTED'

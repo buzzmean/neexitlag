@@ -14,6 +14,7 @@ const browserRelayFirstIOIdle = 3 * time.Second
 type relayMeterConn struct {
 	net.Conn
 	usage           *browserRelayUsage
+	videoID         uint64
 	profile, domain string
 	release         func()
 	once            sync.Once
@@ -80,7 +81,7 @@ func (c *relayMeterConn) Read(p []byte) (int, error) {
 	} // scheduled local idle close, not relay transport failure
 	if n > 0 {
 		c.activity()
-		c.usage.account(c.profile, c.domain, 0, uint64(n), time.Now())
+		c.usage.accountIO(c.profile, c.domain, 0, uint64(n), time.Now(), c.videoID)
 	}
 	return n, e
 }
@@ -88,7 +89,7 @@ func (c *relayMeterConn) Write(p []byte) (int, error) {
 	n, e := c.Conn.Write(p)
 	if n > 0 {
 		c.activity()
-		c.usage.account(c.profile, c.domain, uint64(n), 0, time.Now())
+		c.usage.accountIO(c.profile, c.domain, uint64(n), 0, time.Now(), c.videoID)
 	}
 	return n, e
 }
@@ -100,7 +101,9 @@ func (c *relayMeterConn) Close() error {
 		if c.timer != nil {
 			c.timer.Stop()
 		}
+		idle := c.idleExpired
 		c.mu.Unlock()
+		c.usage.videoClosed(c.videoID, idle)
 		err = c.Conn.Close()
 		c.release()
 	})
