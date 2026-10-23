@@ -112,7 +112,9 @@ func (c *Controller) ConnectRemote(ctx context.Context, m Manifest) error {
 	done := make(chan struct{})
 	c.remoteDone = done
 	var workers sync.WaitGroup
-	workers.Add(2)
+	workers.Add(3)
+	c.wg.Add(1)
+	go func() { defer c.wg.Done(); defer workers.Done(); c.catalog.run(remoteCtx, cp, keys, m.StateDirectory) }()
 	renewer.fetch = cp.RenewCertificate
 	c.wg.Add(1)
 	go func() { defer c.wg.Done(); defer workers.Done(); renewer.run(remoteCtx) }()

@@ -290,7 +290,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-23.4 (YouTube DIRECT/LOCAL/RELAY ladder, strategy and bytes)'
+$ScriptVersion='2026-10-24.1 (signed local catalog and actual primary relay status)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -623,6 +623,13 @@ function Write-RelayOpenPerformance($pool) {
  Say 'acquire includes pool wait/new mTLS+ticket session; stream_origin_open includes OPEN wire round trip and VPS TCP connect, not separate origin TLS. Existing QUIC sessions are reused; application TCP/TLS streams are never pooled across browser sockets.'
 }
 
+function Write-LocalCatalogEvidence($catalog) {
+ if($null -eq $catalog){Say 'local catalog: UNINSTRUMENTED';return}
+ Say ('local catalog: source='+(Prop $catalog 'source')+' version='+(Prop $catalog 'version' 0)+' schema='+(Prop $catalog 'schema')+' rules='+(Prop $catalog 'rules' 0)+' unsupported='+(Prop $catalog 'unsupported' 0)+' available_plans='+@(Prop $catalog 'plans' @()).Count+' checked='+(Prop $catalog 'last_check')+' error='+(Prop $catalog 'error' '')+' activation='+(Prop $catalog 'activation'))
+ foreach($plan in @(Prop $catalog 'plans' @()) | Select-Object -First 48){Say (' catalog plan='+(Prop $plan 'ID')+' source='+(Prop $plan 'source')+' rule='+(Prop $plan 'rule')+' adaptation='+(Prop $plan 'adaptation'))}
+ Say 'Catalog availability/signature is NOT local bypass confirmation; unsupported modes are never executed.'
+}
+
 function Write-YouTubeLocalEvidence($ladder) {
  if($null -eq $ladder){Say 'YouTube local ladder: UNINSTRUMENTED (service update required)';return}
  Say ('YouTube local ladder: cache_entries='+(Prop $ladder 'cache_entries' 0)+' recent_records_omitted='+(Prop $ladder 'records_omitted' 0)+' cache_entries_omitted='+(Prop $ladder 'cache_entries_omitted' 0)+' contract='+(Prop $ladder 'replay_contract' 'UNKNOWN'))
@@ -675,6 +682,9 @@ function Write-NativeFirewallEvidence($firewall) {
 }
 
 if((Want 'browser') -or ($Only -contains 'youtube')){
+Step 'local_catalog' {
+ try{Write-LocalCatalogEvidence (Invoke-IPC 'local.catalog')}catch{Say 'local catalog: UNINSTRUMENTED_OR_UNAVAILABLE'}
+}
 Step 'relay_primary_mapping' {
  try{
   $mapping=Invoke-IPC 'relay.primary.status'

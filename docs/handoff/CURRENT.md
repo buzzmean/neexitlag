@@ -1,5 +1,23 @@
 # CURRENT — состояние проекта (обновляется в конце каждой сессии)
 
+Текущая работа Codex (24.10.2026 MSK): экономия VPS, очередь1–7.
+Владелец подтвердил P0 Hostkey/1080p relay на27f2a8f; LOCAL video НЕ подтверждён.
+Пункт1 исправлен и PUSHED: b213fa5 (IPC),c84f7c1 (общий manifest),3799f75
+(tracked checkout/Python/diag вне repo). Главный принцип в AGENT_RULES: aa10a2f.
+Пункт2: каталог119rules/22general/4MIT sources,13unique собственных TCP plans,
+seqovl и signed data delivery готовы локально (de8e5d7,08a9eb5 + этот commit).
+Это НЕ полный winws,81rules explicit unsupported и новые планы ещё не в AUTO.
+Пункты3–7 НЕ выполнены. Никакой экономии YouTube на ISP этим этапом не заявлено.
+PUSH пункта2 BLOCKED: remote20d8bd8 меняет толькоCLAUDE.md; normal push rejected.
+Запрошено разрешение обычного merge, без rebase/force. Ждём также решения CDN:
+строгая background>64KiB либо ограниченный real LOCAL trial с post-hello риском.
+Последний полный Go race/vet/Linux+Windows build/Windows vet PASS,100Python и
+PostgreSQL17 tests PASS, PS7 fixtures PASS, pinned DLL70filters/iSCSI30/checksums
+13plans подWine PASS. Был единичный полныйdemo25s timeout; current и baseline27f
+изолированно оба3/3 PASS; причина не доказана, тест не менялся.
+Native Windows/PS5.1/kernel/ISP/LOCAL1080p не проверены. Production/CA/activation/
+коды/credentials/PR8 не запускались и не менялись агентом. Блокер и команды ниже.
+
 Последний итог Codex 23.10.2026: очередь P0 Hostkey → YouTube LOCAL-first завершена
 в коде, codex/work. P0 safe audience/provider `e9cf0b5`, root retry/CAS `7b3168c`;
 YouTube packet `be4dc64`, ladder `b86588e`, diag `64ab653`, CDN/hint fix `3a2f39c`.
@@ -61,7 +79,7 @@ VPS/credentials/certificates/PR8 не тронуты, deployment VPS не тре
 
 | Работа | Файлы | Агент | Ветка | Статус |
 |---|---|---|---|---|
-| Экономия VPS / LOCAL каталог и автоподбор 1–7 (23.10.2026) | docs/AGENT_RULES и handoff; services/client-service controller/IPC/browser/local/relay; core localstrategy/browserproxy/controlclient/security/flowpolicy; platform/windows local packet code/tests; tools relay-client/windows/catalog; services/control-plane/relay metrics/config; tests/workflows/docs | Codex | codex/work | ЗАНЯТО: 1a → 1b → 1c отдельными коммитами, затем каталог/подгруппы/club learning/учёт/минимальный failover; production не запускать |
+| Экономия VPS / LOCAL каталог и автоподбор 1–7 (23.10.2026) | docs/AGENT_RULES и handoff; services/client-service controller/IPC/browser/local/relay; core localstrategy/browserproxy/controlclient/security/flowpolicy; platform/windows local packet code/tests; tools relay-client/windows/catalog; services/control-plane/relay metrics/config; tests/workflows/docs | Codex | codex/work | ПАУЗА перед push2/пунктом3: 1a–1c pushed; каталог/packet/signed data сохранены локально; ждём разрешение merge20d8bd8 и CDN tradeoff; область зарезервирована до синхронизации, production не запускать |
 | Multi-relay/Hostkey P0 (23.10.2026) | новые deploy/vps relay fleet scripts; tools/windows/add-relay-vps, relay-status, relay-speed; core/optimizer/controlclient; services/control-plane relay registry; services/client-service remote/relay selection (не TTFB файлы); tests; docs | Codex | codex/work | ОСВОБОЖДЕНО: P0 подготовлен/запушен с unique VPS-PRIMARY audience; реальный deployment только владелец; A–E следующая очередь, не выполнены |
 | YouTube LOCAL-first A–G (23.10.2026) | services/client-service browser transport/local ladder/meter; core/localstrategy; platform/windows local TCP audit/tests; tools/windows diag; tests; docs | Codex | codex/work | ОСВОБОЖДЕНО: audit/packet/ladder/cache/diag готовы; local gates PASS, native Windows/ISP/1080p не проверены; existing TLS pinned |
 | YouTube relay скорость/TTFB (23.10.2026) | services/client-service browser meter/native/transport; core/transport; services/relay; platform/windows TCP forwarding (аудит); tools/windows diag/observe-video; tests/verify workflow/docs | Codex | codex/work | ОСВОБОЖДЕНО: client receive credit/OPEN phases/per-video metrics/observer готовы; Windows/ISP playback не подтверждён |
@@ -2836,3 +2854,73 @@ legacy ceiling5 прежний. Теперь119rules →38compatible/13unique ow
 unsupported. Core race PASS, повтор actual pinned DLL70filters/iSCSI30/checksums
 PASS подWine. Это не Windows/ISP proof. Push пока заблокирован remote20d8bd8;
 запрошено разрешение обычного merge, не rebase/force.
+
+### 2 — signed data delivery / совместимость (24.10.2026 MSK)
+core/localcatalog: отдельная подпись local-catalog, версия/TTL48h limit, persistent
+anti-rollback/equivocation cache. CP GET public signed data / admin PUT atomic data
+file (-local-catalog-file); без файла PUT503. Config wire не расширялся, лимиты
+64KiB catalog и1MiB revocations не менялись. Ни SQL/migrations/enroll/revoke, ни CA
+не затронуты. Старый production CP ещё404; клиент использует bundled data,
+poll раз в час не блокирует routing/GUI. Около49KiB/check/~47MiB/day40PC; это
+metadata, фактическая экономия video пока0/не доказана. local.catalog +diag.1
+показывают available plans, не LOCAL PASS. Club read-only эти/relay diagnostics
+разрешены; settings/optimize и прочие mutations по-прежнему закрыты для guest IPC.
+Signed/tamper/expiry/domain/rollback/disk/atomic admin tests, oldCP404 клиентский
+путь, dispatcher235literals/57methods, PS7 fixed-fields fixtures PASS. Полный
+isolated PostgreSQL17 CP race PASS10.806s, service full race PASS13.617s после
+seqovl. После seqovl полный повтор Go race/vet/Linux+Windows builds/Windows vet PASS. Один
+предшествующий полный прогон упал в demo25s route timeout; изолированные current
+и baseline27f2a8f оба3/3 PASS. Причину единичного timeout не доказали, тест не менялся.
+Пункты3–7 ещё не реализованы. Пока не разрешён merge remote20d8bd8, новая работа
+сохранена локально, push de8e5d7/08a9eb5 отклонён без force. Нужен ответ владельца
+на merge и на CDN real-flow vs strict-background verification; без ответа
+для переработки пункта3 сохраняется требование >64KiB; старый foreground/provisional
+код ещё не переписан. Не объявляем этот этап исправлением LOCAL video выбора.
+
+Точный аудит к пункту3: local cache key cacheHost→DirectTimeoutHost сводит accounts,
+www и googlevideo к одному youtube.com. Старый transfer probe body32769B не может
+проверить >64KiB; short403/provisional не является success. После полного sweep
+Retry=Until прекращает выбор до TTL, затем порядок сбрасывается. Эти три места
+нужно переработать вместе с отдельными subgroup keys; пока НЕ исправлены.
+
+### Передача на блокере публикации (24.10.2026 MSK)
+Следующий шаг — только после ответа о merge: fetch/review, обычный merge конкретного
+20d8bd8 (только CLAUDE.md), повтор обязательных checks при merge, push codex/work.
+Не force/rebase, не трогать ветку Claude или PR8. Новое чужое изменение перед
+push сначала проверить; конфликт не решать без владельца. Все source changes
+пункта2 сохранены коммитами, незакоммиченных секретов/diag нет.
+
+После публикации каталог доступен для инспекции, но 3–7 ещё предстоит реализовать.
+Первая задача3 — новый subgroup key отдельно от DirectTimeoutHost, transfer probe
+>64KiB вместо32769B, непрекращающийся bounded backoff, ranking и подключение13plans.
+Текущая старая foreground/provisional логика ещё НЕ изменена. Не считать этот
+checkpoint приёмкой LOCAL и не просить владельца заново deploy VPS/коды/CA.
+Общий network learning4, общий browser ladder/data blocklist5, daily/monthly
+budget6 и hysteresis7 пока отсутствуют. relay.primary.status даёт session payload,
+НЕ месячный расход Hostkey. Полный приёмочный блок для3–7 пока неприменим.
+
+**Команды владельцу, только обновление/проверка клиента, без VPS**. Корень repo,
+PowerShell администратора под SID владельца, Chrome/Edge не закрывать. До merge
+это ставит только уже опубликованные1a–1c (remote20d8bd8), не LOCAL каталог2. После
+merge проверять фактический HEAD. GUI VELIQ закрывается штатным helper, браузеры нет.
+C# не менялся: повторная GUI-сборка не нужна, установка/activation не повторяются.
+
+```powershell
+git switch codex/work
+git pull --ff-only origin codex/work
+git rev-parse HEAD
+$m=Get-Content -Raw "$env:ProgramData\neexitlag\service.json" | ConvertFrom-Json
+& .\tools\windows\build-e2e.ps1 -DriverDirectory $m.driver.directory
+& .\tools\windows\Close-VeliqGuiForUpdate.ps1
+& .\tools\windows\update-service.ps1
+. .\tools\windows\common.ps1
+Invoke-ServiceIPC 'relay.primary.status' | ConvertTo-Json -Depth 8
+# Только после публикации пункта2; до неё метод local.catalog ещё отсутствует:
+Invoke-ServiceIPC 'local.catalog' | ConvertTo-Json -Depth 7
+& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube
+```
+
+При будущей приёмке3–7: уже открытые Chrome/Edge, YouTube1080p2мин/перемотка,
+Discord/Instagram/X/TelegramWeb/rutracker/VK/Яндекс. Требовать реальные LOCAL/RELAY
+bytes и >64KiB health, не только страницы/ACK; monthly VPS budget пока не реализован,
+команды выдумывать нельзя. Интернет/новую стабильность без owner ISP не объявлять.

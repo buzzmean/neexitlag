@@ -18,6 +18,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 )
 
 type Settings struct {
+	LocalCatalogFile     string
 	EnrollmentProbeToken string
 	AdminToken           string
 	KeyID                string
@@ -36,6 +38,7 @@ type Settings struct {
 	ServerCertificate    *x509.Certificate
 }
 type API struct {
+	localCatalogMu                            sync.Mutex
 	Store                                     *Store
 	Settings                                  Settings
 	Requests, Errors, AuthFailures, Telemetry atomic.Uint64
@@ -102,6 +105,7 @@ func (a *API) Handler() http.Handler {
 	m.HandleFunc("/api/v1/codes", a.codes)
 	m.HandleFunc("/api/v1/codes/", a.codes)
 	m.HandleFunc("GET /api/v1/config", a.config)
+	m.HandleFunc("/api/v1/local/catalog", a.localCatalog)
 	m.HandleFunc("GET /api/v1/version", func(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, map[string]string{"version": "0.3.0-dev", "ipc_version": "1"})
 	})
