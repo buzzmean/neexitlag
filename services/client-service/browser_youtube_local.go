@@ -26,6 +26,7 @@ var youtubeOrder = []string{"fake5x2-disorder", "fake8x2-disorder", "fake5", "fa
 type youtubeKey struct {
 	Network, Profile, Domain string
 	Port                     uint16
+	HintOnly                 bool
 }
 type youtubeLearn struct {
 	Stage, Strategy string
@@ -55,6 +56,7 @@ type youtubeRecord struct {
 	Updated                time.Time `json:"updated_at"`
 }
 type youtubeCacheView struct {
+	HintOnly                                          bool
 	Network, Profile, Domain, Stage, Strategy, Reason string
 	Port                                              uint16
 	Until, Retry                                      time.Time
@@ -93,7 +95,7 @@ func (c *Controller) youtubeLocalAllowed(network string) bool {
 	return network != "" && n != nil && n.Fingerprint == network && n.Error == "" && time.Since(n.ObservedAt) < 45*time.Second && len(n.VPN) == 0 && len(n.Conflicts) == 0 && !n.ConflictsObservedAt.IsZero() && time.Since(n.ConflictsObservedAt) < 3*time.Minute
 }
 func youtubeScope(cur profilesResult, q browserproxy.Request) youtubeKey {
-	return youtubeKey{cur.network, cur.profile.ID, cacheHost(q.Host), q.Port}
+	return youtubeKey{Network: cur.network, Profile: cur.profile.ID, Domain: cacheHost(q.Host), Port: q.Port, HintOnly: q.HintOnly}
 }
 func (r *youtubeRuntime) choose(k youtubeKey, now time.Time) (string, string) {
 	r.mu.Lock()
@@ -167,7 +169,7 @@ func (r *youtubeRuntime) snapshot() youtubeSnapshot {
 	s := youtubeSnapshot{RecordsOmitted: r.seq - uint64(len(r.records)), CacheEntries: len(r.cache), Cache: []youtubeCacheView{}, Stages: []youtubeStage{}, Records: []youtubeRecord{}, Replays: "complete ClientHello only before ANY origin byte; established TLS pinned; transport health is not HTTP/playback PASS"}
 	for k, v := range r.cache {
 		if len(s.Cache) < 24 {
-			s.Cache = append(s.Cache, youtubeCacheView{k.Network, k.Profile, k.Domain, v.Stage, v.Strategy, v.Reason, k.Port, v.Until, v.Retry, v.Tried})
+			s.Cache = append(s.Cache, youtubeCacheView{k.HintOnly, k.Network, k.Profile, k.Domain, v.Stage, v.Strategy, v.Reason, k.Port, v.Until, v.Retry, v.Tried})
 		}
 	}
 	for _, v := range r.stats {
@@ -224,6 +226,11 @@ func (c *Controller) youtubeEngine(cur profilesResult, q browserproxy.Request, p
 		}
 	}
 	raw := cur.network + cur.profile.ID + q.Owner.Exe + q.Host + p.Destination.String() + candidate
+	if q.HintOnly {
+		raw += "|EXACT_IP_HINT_ABSOLUTE_SPLIT"
+	} else {
+		raw += "|OBSERVED_OR_CONNECT_NAME"
+	}
 	sum := sha256.Sum256([]byte(raw))
 	id := "yt-" + hex.EncodeToString(sum[:12])
 	r := c.browser.youtube
@@ -660,10 +667,20 @@ func (c *Controller) youtubeBackgroundRecheck(cur profilesResult, q browserproxy
 			trial, stop := context.WithTimeout(ctx, budget)
 			result := browserproxy.ProbeOriginDetailed(trial, q.Host, q.Port, true, c.BrowserProbeRoots, func(work context.Context) (net.Conn, error) { return c.browserOpenUnobserved(work, probeQ, candidate) })
 			stop()
-			if result.Failure == "" && result.Status >= 200 && result.Status < 400 && result.Bytes > 0 && (stage != "LOCAL" || c.browserTransform(probeQ, candidate)) {
-				c.browser.youtube.confirmed(key, stage, strategy, time.Now())
-				return
+			if youtubeProbeReachable(result) && (stage != "LOCAL" || c.browserTransform(probeQ, candidate)) {
+				// Root GET on a video CDN commonly returns 403/404/405. This
+				// permits a short LOCAL trial, never a claimed media success.
+				// A small DIRECT response must not displace confirmed LOCAL.
+				if stage == "LOCAL" {
+					c.browser.youtube.provisional(key, strategy, time.Now())
+					return
+				}
+				if result.Status < 400 && result.Bytes >= 32*1024 {
+					c.browser.youtube.provisionalStage(key, "DIRECT", "", time.Now())
+					return
+				}
 			}
+
 			if stage == "LOCAL" {
 				c.browser.youtube.failed(key, stage, strategy, "BACKGROUND_TLS_HTTP_GET_FAILED", time.Now())
 			}
@@ -681,4 +698,27 @@ func (m *youtubeMeter) Close() error {
 	}
 	m.r.mu.Unlock()
 	return err
+}
+
+func youtubeProbeReachable(r browserproxy.ProbeResult) bool {
+	emptyRoot := r.Failure == "CONNECTION_FAILED" && r.Detail == "EMPTY_BODY" && (r.Status == 403 || r.Status == 404 || r.Status == 405)
+	return r.TLSVersion >= 0x0303 && r.Status >= 200 && r.Status < 500 && r.Status != 451 && r.Bytes > 0 && (r.Failure == "" || emptyRoot)
+}
+func (r *youtubeRuntime) provisional(k youtubeKey, strategy string, now time.Time) {
+	r.provisionalStage(k, "LOCAL", strategy, now)
+}
+func (r *youtubeRuntime) provisionalStage(k youtubeKey, stage, strategy string, now time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	v, ok := r.cache[k]
+	if k.Network == "" || !ok {
+		return
+	}
+	v.Stage = stage
+	v.Strategy = strategy
+	v.Confirmed = false
+	v.Until = now.Add(time.Minute)
+	v.Retry = v.Until
+	v.Reason = "VERIFIED_TLS_HTTP_GET_TRIAL_NOT_MEDIA_CONFIRMATION"
+	r.cache[k] = v
 }

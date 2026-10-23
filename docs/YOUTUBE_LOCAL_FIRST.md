@@ -47,13 +47,17 @@ cooldown. DIRECT/LOCAL connect budget650ms; ожидание первого TLS 
 RELAY шаг сохраняет существующие per-IP recovery, video12 admission и fail-closed.
 Флаг старого relay-first предпочтения не запрещает последнюю ступень fallback.
 
-Кэш: network fingerprint + profile + CDN/domain family + port, TTL10min,
+Кэш: network fingerprint + profile + CDN/domain family + port + режим SNI/hint-only, TTL10min,
 максимум256 entries. LOCAL подтверждается не TCP ACK/ServerHello: нужны фактический
 committed transform, ServerHello, >=64KiB входящих и >=250ms наблюдения. Это только
 sustained TLS transport, не HTTP/page/playback PASS. На cache hit новая сессия
 сразу использует выученную ступень. Independent probes раз в минуту: real verified
 TLS+bounded HTTP GET, без credentials/cookies, отдельный source tuple, shared
-четыре browser probe slots; foreground не ждёт. После конечной лестницы кандидатов
+четыре browser probe slots; foreground не ждёт. Verified TLS + GET с CDN root
+403/404/405 разрешает лишь минутную пробу LOCAL, а не media success: длительный
+кэш требует подтверждения реальным потоком. Engine и learning для видимого
+SNI/CONNECT и exact-IP ECH/DNS hints разделены, чтобы не заимствовать несовместимую
+стратегию. После конечной лестницы кандидатов
 — cooldown до TTL. Неподготовленный/conflicting/VPN backend пропускает LOCAL с
 явным reason, не выдавая отправку обычных пакетов за desync.
 

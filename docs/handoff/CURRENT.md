@@ -2683,3 +2683,11 @@ Native/PAC сообщают фактическую текущую pre-ServerHell
 ### YouTube LOCAL-first F — bounded диагностика и команды (23.10.2026)
 diag-no-vpn2026-10-23.4: youtube-media DIRECT/LOCAL/RELAY, candidate/transform confirmation, TX/RX, scoped cache/recheck/transition reasons, explicit omitted recent records. Отдельно primary/standby authenticated identity и реальный TCP peer из P0 provider; старый VPS-01 pool не выдаётся за Hostkey pool. PS5.1/pwsh workflow gates и safe/StrictMode fixtures добавлены. `NOT_CONFIRMED` не равен доказанному NO_TRANSFORM при утраченном ledger.
 P0 add-relay one-command проверяет active identity/owner, до SSH собирает клиент с настоящим pinned filter compiler; после remote proof/commit обновляет только существующую службу, ждёт connected+optimizing+backend.ready+signed primary. GUI закрывается same-owner pipe только если мешает его legacy recovery helper; браузеры/игры не закрываются. relay-status показывает реальные1s payload deltas и peer endpoint, не только подписанный план. Native PS5.1/Hostkey execution ещё не проверены.
+
+### YouTube LOCAL-first — финальная проверка фоновой пробы (23.10.2026)
+CDN root403/404/405 после verified TLS+GET допускает только минутную LOCAL trial,
+не подтверждённый media cache. Длительный TTL требует реального transformed
+ServerHello/64KiB/250ms. Иначе alternate candidate оставался на relay даже при
+рабочем LOCAL TLS. Разделены engine/cache keys для visible SNI и hint-only:
+совпадение host/IP не должно подменять exact-IP absolute split SNI-scoped engine.
+Регрессии этих двух случаев race×3 PASS; повторный полный Go race/vet, Linux/Windows build и Windows vet PASS. PS7/StrictMode YouTube/browser diagnostics fixtures PASS; native Windows/PS5.1/ISP не проверены.

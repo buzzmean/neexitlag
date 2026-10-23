@@ -29,7 +29,7 @@ import (
 func TestYouTubeLocalCacheScopeTTLAndBoundedRecheck(t *testing.T) {
 	r := newYoutubeRuntime()
 	now := time.Now()
-	k := youtubeKey{"net", "chrome", "googlevideo.com", 443}
+	k := youtubeKey{"net", "chrome", "googlevideo.com", 443, false}
 	if stage, _ := r.choose(k, now); stage != "DIRECT" {
 		t.Fatal(stage)
 	}
@@ -55,7 +55,7 @@ func TestYouTubeLocalCacheScopeTTLAndBoundedRecheck(t *testing.T) {
 	if stage, strategy := r.choose(k, now); stage != "LOCAL" || strategy != youtubeOrder[1] {
 		t.Fatal(stage, strategy)
 	}
-	for _, other := range []youtubeKey{{"other", "chrome", "googlevideo.com", 443}, {"net", "edge", "googlevideo.com", 443}, {"net", "chrome", "youtube.com", 443}, {"net", "chrome", "googlevideo.com", 8443}} {
+	for _, other := range []youtubeKey{{"other", "chrome", "googlevideo.com", 443, false}, {"net", "edge", "googlevideo.com", 443, false}, {"net", "chrome", "youtube.com", 443, false}, {"net", "chrome", "googlevideo.com", 8443, false}, {"net", "chrome", "googlevideo.com", 443, true}} {
 		if stage, _ := r.choose(other, now); stage != "DIRECT" {
 			t.Fatal("borrowed result", other)
 		}
@@ -80,6 +80,16 @@ func TestYouTubeAutomaticLocalEngineExactScopeAndHintsAreNotTrustedSNI(t *testin
 	if e == nil || id == "" {
 		t.Fatal("automatic engine absent")
 	}
+	q.HintOnly = false
+	visibleID, _ := c.youtubeEngine(cur, q, p, youtubeOrder[0])
+	if visibleID == id {
+		t.Fatal("ECH/IP hint reused an SNI-scoped engine")
+	}
+	q.HintOnly = true
+	if youtubeScope(cur, q) == youtubeScope(cur, browserproxy.Request{Host: q.Host, Port: q.Port}) {
+		t.Fatal("hint-only and observed-SNI route learning merged")
+	}
+
 	m := localstrategy.Metadata{Application: q.Owner.Exe, Domain: "unrelated-ech-outer.example", Protocol: "tcp", Destination: p.Destination, StrategyID: id}
 	if !e.Match(m) {
 		t.Fatal("exact DNS-associated tuple not eligible")
@@ -128,7 +138,7 @@ func TestYouTubeFailedOpenLadderUsesLocalBeforeRelayIndependentOfPreference(t *t
 
 func TestYouTubeACKHelloAndUntransformedTrafficCannotLearnLocalSuccess(t *testing.T) {
 	r := newYoutubeRuntime()
-	key := youtubeKey{"net", "chrome", "googlevideo.com", 443}
+	key := youtubeKey{"net", "chrome", "googlevideo.com", 443, false}
 	r.stats["LOCAL:fake5"] = youtubeStage{Stage: "LOCAL", Strategy: "fake5"}
 	r.records[1] = youtubeRecord{ID: 1, Stage: "LOCAL"}
 	m := &youtubeMeter{r: r, id: 1, label: "LOCAL:fake5", key: key, stage: "LOCAL", strategy: "fake5", started: time.Now().Add(-time.Second), transform: func() bool { return false }}
@@ -155,7 +165,7 @@ func TestYouTubeACKHelloAndUntransformedTrafficCannotLearnLocalSuccess(t *testin
 }
 func TestYouTubeSixteenKBGapIsHintForNextFlowAndDoesNotCloseOrReplay(t *testing.T) {
 	r := newYoutubeRuntime()
-	key := youtubeKey{"net", "chrome", "googlevideo.com", 443}
+	key := youtubeKey{"net", "chrome", "googlevideo.com", 443, false}
 	r.records[1] = youtubeRecord{ID: 1}
 	m := &youtubeMeter{r: r, id: 1, key: key, stage: "LOCAL", strategy: youtubeOrder[0], tx: 2000, rx: 20 * 1024, lastReply: time.Now().Add(-5 * time.Second)}
 	m.progressGap(time.Now())
@@ -314,4 +324,31 @@ func TestYouTubePreservesVerifiedConfiguredBaselineAsFirstLocalStrategy(t *testi
 		t.Fatal(actual, err)
 	}
 	conn.Close()
+}
+
+func TestYouTubeCDNRootGET404PermitsOnlyProvisionalLocalTrial(t *testing.T) {
+	for _, status := range []int{200, 204, 403, 404, 405} {
+		result := browserproxy.ProbeResult{Status: status, TLSVersion: 0x0304, Bytes: 1400, Phase: "ORIGIN_RESPONSE"}
+		if status == 404 {
+			result.Failure = "CONNECTION_FAILED"
+			result.Detail = "EMPTY_BODY"
+		}
+		if !youtubeProbeReachable(result) {
+			t.Fatal("valid verified CDN root response rejected", status)
+		}
+	}
+	for _, result := range []browserproxy.ProbeResult{{Status: 200, Bytes: 2000}, {Status: 404, TLSVersion: 0x0304, Bytes: 2000, Failure: "TLS_CERTIFICATE_ERROR"}, {Status: 404, TLSVersion: 0x0304, Bytes: 2000, Failure: "CONNECTION_FAILED", Detail: "PEER_CLOSED"}, {Status: 451, TLSVersion: 0x0304, Bytes: 2000}} {
+		if youtubeProbeReachable(result) {
+			t.Fatal("unverified/failed response allowed trial", result)
+		}
+	}
+	r := newYoutubeRuntime()
+	key := youtubeKey{"net", "chrome", "googlevideo.com", 443, false}
+	now := time.Now()
+	r.failed(key, "LOCAL", youtubeOrder[0], "silent", now)
+	r.provisional(key, youtubeOrder[1], now)
+	v := r.cache[key]
+	if v.Stage != "LOCAL" || v.Confirmed || v.Until.Sub(now) != time.Minute {
+		t.Fatal("HTTP root promoted to confirmed media", v)
+	}
 }
