@@ -1,6 +1,7 @@
 package localstrategy
 
 import (
+	"bytes"
 	"encoding/binary"
 	"testing"
 	"time"
@@ -84,7 +85,7 @@ func TestCatalogPacketsPreserveTLSAndCannotEnterSequenceSpace(t *testing.T) {
 					}
 				}
 			}
-			assertStream(t, r, data, 1000)
+			assertCatalogReceiver(t, r, data, 1000, plan.Actions)
 			if again := e.Process(inputs[0], st, m); again.Modified {
 				t.Fatal("cutoff did not stop")
 			}
@@ -126,5 +127,63 @@ func TestCatalogScopeBudgetAutottlAndOwnTemplate(t *testing.T) {
 	start, size, ok := tlsSNI(h)
 	if !ok || string(h[start:start+size]) != "www.google.com" {
 		t.Fatal("invalid own fake framing")
+	}
+}
+
+// Model the TCP receiver's duplicate-prefix trim explicitly. Standalone fakes
+// must STILL be wholly old; only a declared seqovl real fragment may cross RCV.NXT.
+func assertCatalogReceiver(t *testing.T, r Result, original []byte, base uint32, actions []Action) {
+	t.Helper()
+	got := make([]byte, len(original))
+	seen := make([]bool, len(original))
+	overlap := 0
+	for _, a := range actions {
+		if a.SequenceOverlap != 0 {
+			overlap = int(a.SequenceOverlap)
+		}
+	}
+	observed := 0
+	for i, q := range r.Packets {
+		header := 20 + int(q[32]>>4)*4
+		payload := q[header:]
+		offset := int(int32(binary.BigEndian.Uint32(q[24:]) - base))
+		if uint64(i) < r.FakePackets {
+			if offset >= 0 || offset+len(payload) >= 0 {
+				t.Fatal("standalone fake may enter application stream")
+			}
+			continue
+		}
+		if offset < 0 {
+			if overlap == 0 || offset != -overlap || len(payload) <= overlap {
+				t.Fatal("undeclared or incomplete sequence overlap")
+			}
+			if _, _, ok := tlsSNI(payload[:overlap]); !ok {
+				t.Fatal("overlap prefix not a complete own fake")
+			}
+			payload = payload[overlap:]
+			offset = 0
+			observed++
+		}
+		if offset < 0 || offset+len(payload) > len(original) {
+			t.Fatal("real output outside application stream")
+		}
+		for j, v := range payload {
+			if seen[offset+j] && got[offset+j] != v {
+				t.Fatal("conflicting real bytes")
+			}
+			seen[offset+j] = true
+			got[offset+j] = v
+		}
+	}
+	if overlap != 0 && observed != 1 {
+		t.Fatal("missing bounded first-fragment overlap")
+	}
+	for _, v := range seen {
+		if !v {
+			t.Fatal("application stream hole")
+		}
+	}
+	if !bytes.Equal(got, original) {
+		t.Fatal("application TLS bytes changed")
 	}
 }

@@ -101,7 +101,8 @@ func catalogFake(p []byte, s *State, a Action) []byte {
 }
 
 // Own TLS1.3-shaped model, no upstream binary/template or client session data.
-func ownCatalogHello(host string) []byte {
+func ownCatalogHello(host string) []byte { return ownCatalogHelloSize(host, 1250) }
+func ownCatalogHelloSize(host string, total int) []byte {
 	body := make([]byte, 0, 1300)
 	body = append(body, 3, 3)
 	random := make([]byte, 64)
@@ -130,7 +131,7 @@ func ownCatalogHello(host string) []byte {
 	share := append([]byte{0, 36, 0, 29, 0, 32}, public...)
 	add(51, share)
 	add(16, []byte{0, 12, 2, 'h', '2', 8, 'h', 't', 't', 'p', '/', '1', '.', '1'})
-	padding := 1250 - (5 + 4 + len(body) + 2 + len(ext) + 4)
+	padding := total - (5 + 4 + len(body) + 2 + len(ext) + 4)
 	if padding < 0 {
 		return nil
 	}
@@ -212,4 +213,34 @@ func splitPayload(p, payload []byte, cuts []int) [][]byte {
 		out = append(out, q)
 	}
 	return out
+}
+
+// A real first fragment carries an old prefix followed by the unchanged stream.
+// An RFC TCP receiver trims the duplicate prefix; no future sequence is forged.
+func applySequenceOverlap(packets [][]byte, s *State, n uint16) bool {
+	base := s.synSequence + 1
+	for i, p := range packets {
+		if binary.BigEndian.Uint32(p[24:]) != base {
+			continue
+		}
+		data, ok := packetPayload(p, "tcp")
+		if !ok {
+			return false
+		}
+		header := len(p) - len(data)
+		prefix := ownCatalogHelloSize("www.google.com", int(n))
+		if prefix == nil || header+len(prefix)+len(data) > 1500 {
+			return false
+		}
+		q := make([]byte, header+len(prefix)+len(data))
+		copy(q, p[:header])
+		copy(q[header:], prefix)
+		copy(q[header+len(prefix):], data)
+		binary.BigEndian.PutUint32(q[24:], base-uint32(n))
+		binary.BigEndian.PutUint16(q[2:], uint16(len(q)))
+		checksumTransport(q)
+		packets[i] = q
+		return true
+	}
+	return false
 }

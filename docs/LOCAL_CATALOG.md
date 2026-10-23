@@ -17,16 +17,18 @@ commit176f56dc3f11ce5915c26abcdde903f93d835b64. Всего119 параметри
 
 ## Что исполняется собственным движком
 
-Компиляция данных даёт6 уникальных TCP-планов из17 совместимых rules. Остальные102
+После добавления seqovl компиляция даёт13 уникальных TCP-планов из38 совместимых rules. Остальные81
 rules явно unsupported, в том числе HTTP/QUIC и не реализованные SYN-data,
-fakedsplit/hostfakesplit/seqovl. Нельзя называть их рабочими, запускать внешнюю
+fakedsplit/hostfakesplit. Нельзя называть их рабочими, запускать внешнюю
 программу или молча заменять другим методом. Каталог сохраняет их для аудита.
 
 Новые собственные возможности: TLS1.3-shaped1250B fake с Google/Yandex SNI,
 случайными полями, mixed split markers 1/midsld/sni/sniext и disorder, repeats1–16,
-old-sequence badseq, timestamp/MD5-option fooling и bounded autottl по TTL точного
+old-sequence badseq, split-seqovl256–1024 с собственным старым TLS-префиксом,
+timestamp/MD5-option fooling и bounded autottl по TTL точного
 SYN/ACK. Fake независимо от TTL/options всегда целиком в OLD sequence space;
-никакой его байт не может попасть в TLS stream origin. Original stream/ACK/window/
+никакой его байт не может попасть в TLS stream origin. TCP receiver отбрасывает ровно объявленный seqovl prefix; standalone fake всё ещё
+целиком старый. Original stream/ACK/window/
 options сохраняются, IP/TCP checksum пересчитываются. Нет MITM/подмены сертификатов.
 Это независимая адаптация параметров, не побитовая копия поведения winws.
 

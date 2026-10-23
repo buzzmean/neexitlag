@@ -123,6 +123,15 @@ func chainStream(st *State, c *compiled) Result {
 			out.PacketOrigins = append(out.PacketOrigins, index)
 		}
 	}
+	for _, a := range actions {
+		if a.SequenceOverlap != 0 {
+			if !applySequenceOverlap(out.Packets, st, a.SequenceOverlap) {
+				return Result{}
+			}
+			changed = true
+		}
+	}
+
 	if reverse {
 		for i := range out.ModifiedOrigins {
 			out.ModifiedOrigins[i] = true

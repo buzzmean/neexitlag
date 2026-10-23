@@ -134,7 +134,7 @@ func (r CatalogRule) actions() ([]Action, string) {
 		}
 		return vs[len(vs)-1]
 	}
-	for _, k := range []string{"dpi-desync-split-seqovl", "dpi-desync-hostfakesplit-mod", "dpi-desync-fakedsplit-pattern", "dpi-desync-badseq-increment"} {
+	for _, k := range []string{"dpi-desync-hostfakesplit-mod", "dpi-desync-fakedsplit-pattern", "dpi-desync-badseq-increment"} {
 		if get(k) != "" {
 			return nil, "UNSUPPORTED_PARAMETER_" + k
 		}
@@ -168,7 +168,15 @@ func (r CatalogRule) actions() ([]Action, string) {
 		if positions == "" {
 			positions = "1,midsld"
 		}
-		out = append(out, Action{Kind: "tcp-multisplit", Markers: strings.Split(positions, ",")})
+		split := Action{Kind: "tcp-multisplit", Markers: strings.Split(positions, ",")}
+		if value := get("dpi-desync-split-seqovl"); value != "" {
+			n, err := strconv.ParseUint(value, 10, 16)
+			if err != nil || n < 256 || n > 1024 {
+				return nil, "UNSUPPORTED_SEQOVL_SIZE"
+			}
+			split.SequenceOverlap = uint16(n)
+		}
+		out = append(out, split)
 		if strings.Contains(mode, "disorder") {
 			out = append(out, Action{Kind: "tcp-disorder"})
 		}

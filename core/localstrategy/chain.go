@@ -11,6 +11,7 @@ import (
 // Actions are a finite packet plan, not a scripting language. At most two old-sequence fakes,
 // one segmentation and one reversal. Legacy <=5; explicit browser-catalog <=20.
 type Action struct {
+	SequenceOverlap uint16 `json:"seq_overlap,omitempty"`
 	// Catalog-only options. Legacy DIRECT+ retains its original five-packet ceiling.
 	Markers   []string `json:"markers,omitempty"`
 	FakeModel string   `json:"fake_model,omitempty"`
@@ -40,7 +41,7 @@ func validateChain(p Profile) error {
 	for i, a := range p.Actions {
 		switch a.Kind {
 		case "fake-tls":
-			if fake || i != 0 || a.TTL < 2 || a.TTL > 16 || a.Repeats > maxRepeats || len(a.Positions) > 0 || len(a.Markers) > 0 || a.Anchor != "" {
+			if fake || i != 0 || a.TTL < 2 || a.TTL > 16 || a.Repeats > maxRepeats || len(a.Positions) > 0 || len(a.Markers) > 0 || a.Anchor != "" || a.SequenceOverlap != 0 {
 				return errors.New("fake TLS requires explicit TTL 2..16 and first position")
 			}
 
@@ -67,7 +68,7 @@ func validateChain(p Profile) error {
 					return errors.New("unknown marker")
 				}
 			}
-			if a.FakeModel != "" || a.Fooling != "" || a.AutoTTL {
+			if a.FakeModel != "" || a.Fooling != "" || a.AutoTTL || a.SequenceOverlap > 1024 || a.SequenceOverlap != 0 && !catalog {
 				return errors.New("fake options on split")
 			}
 			last := uint16(0)
@@ -79,7 +80,7 @@ func validateChain(p Profile) error {
 			}
 			split = true
 		case "tcp-disorder":
-			if a.Repeats != 0 || !split || reverse || i != len(p.Actions)-1 || len(a.Positions) > 0 || a.TTL != 0 || a.Anchor != "" || len(a.Markers) > 0 || a.FakeModel != "" || a.Fooling != "" || a.AutoTTL {
+			if a.Repeats != 0 || !split || reverse || i != len(p.Actions)-1 || len(a.Positions) > 0 || a.TTL != 0 || a.Anchor != "" || len(a.Markers) > 0 || a.FakeModel != "" || a.Fooling != "" || a.AutoTTL || a.SequenceOverlap != 0 {
 				return errors.New("disorder requires prior split")
 			}
 			reverse = true
@@ -111,6 +112,9 @@ func ChainLabel(actions []Action) string {
 		label := a.Kind
 		if a.Kind == "fake-tls" && a.Repeats > 1 {
 			label += " x" + strconv.Itoa(int(a.Repeats))
+		}
+		if a.SequenceOverlap != 0 {
+			label += " seqovl=" + strconv.Itoa(int(a.SequenceOverlap))
 		}
 		parts = append(parts, label)
 	}
@@ -305,6 +309,14 @@ func chainPackets(p []byte, st *State, c *compiled) Result {
 		checksumTransport(q)
 		real = [][]byte{q}
 	}
+	for _, a := range c.Actions {
+		if a.SequenceOverlap != 0 {
+			if !applySequenceOverlap(real, st, a.SequenceOverlap) {
+				return Result{}
+			}
+		}
+	}
+
 	if fake != nil {
 		st.fakeSent = true
 		copies := make([][]byte, repeats)

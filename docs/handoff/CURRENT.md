@@ -2826,3 +2826,13 @@ Go core/platform race PASS; pinned DLL filters70/iSCSI30/checksums PASS underWin
 Нужен ответ владельца: реальный bounded LOCAL trial с риском post-hello error либо
 строгий RELAY до подходящего фонового URL. Пока зависимое поведение не меняется.
 Signed CP update/shared stats/подгруппы/budget/failover ещё НЕ выполнены.
+
+### 2 — seqovl расширение (24.10.2026 MSK)
+Добавлен browser-only bounded split-seqovl256–1024: собственный полный TLS prefix
+перед первым настоящим сегментом, только в старом sequence range. Receiver model
+проверяет trim ровно объявленного prefix и сохранение всех application bytes;
+старые standalone-fake security tests не ослаблены. MTU<=1500/cutoff1/budget20,
+legacy ceiling5 прежний. Теперь119rules →38compatible/13unique own plans,81explicit
+unsupported. Core race PASS, повтор actual pinned DLL70filters/iSCSI30/checksums
+PASS подWine. Это не Windows/ISP proof. Push пока заблокирован remote20d8bd8;
+запрошено разрешение обычного merge, не rebase/force.
