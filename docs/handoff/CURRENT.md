@@ -2648,3 +2648,14 @@ VPS deployment НЕ нужен; следующее действие владел
 
 ### Решение владельца 23.10.2026: порядок P0 → YouTube LOCAL-first → multi-relay A–E
 Сначала только подготовка переноса логического VPS-01 на146.0.77.98 с сохранением CA/кодов/клиентских сертификатов. Затем LOCAL-first для youtube-media. Остальная multi-relay архитектура отложена. Агент production не запускает. Предыдущая TTFB задача завершена и её область освобождена; новый YouTube запрос явно разрешает browser_transport/diag интеграцию.
+
+### P0 Hostkey — подготовка переноса (23.10.2026)
+Новые root-only relay fleet helper/RPC, `add-relay-vps.ps1 -PromotePrimary`, signed-cache `relay-status.ps1`; docs/RELAY_HOSTKEY_P0.md. Без client reinstall смена существующего VPS-01 в signed registry, poll30s, existing TCP pinned. Сохранён будущий seed CP без его restart; новый server-key только на Hostkey, CSR подписывается существующим CA; local health → PC authenticated QUIC/mTLS /3 + UDP echo + verified HTTPS GET → publication → fresh heartbeat. Atomic DB CAS/publish/rollback без security restore; независимые10min timer/boot recovery; owned credential checks/idempotent retry, hash/CRLF normalization.
+Проверено локально: relay-admin/client Go race; PostgreSQL17 isolated atomic publication/CAS/nonce preservation/DB-error rollback PASS;8 Python RPC/fault tests PASS; targeted vet и Windows tools build PASS; PS7 AST/PS5.1 subset PASS. Настоящие PS5.1/SSH/systemd/UFW/Hostkey/40ПК НЕ ПРОВЕРЕНЫ. Production агентом не выполнялся. Старый relay остаётся для явного rollback, автоматический standby/балансировка — A–E после LOCAL-first. Legacy cache показывает назначенный endpoint, но actual endpoints старых TCP не инструментированы — не выдавать за миграцию всех потоков.
+Команды владельцу (из репозитория, тот же пользователь; это явные production actions только владельца):
+```powershell
+& .\tools\windows\add-relay-vps.ps1 -Host 146.0.77.98 -Name hostkey-ams -PromotePrimary -Inspect
+& .\tools\windows\add-relay-vps.ps1 -Host 146.0.77.98 -Name hostkey-ams -PromotePrimary
+& .\tools\windows\relay-status.ps1
+```
+При провале journal path печатается безопасно; содержимое journal не присылать (private heartbeat/undo). Для возврата registry: та же add-relay команда с `-Rollback`. CA/client identities/activation/коды/PR8 не менялись. P0 код готов, remote acceptance владельца ещё нужен; далее YouTube LOCAL-first.
