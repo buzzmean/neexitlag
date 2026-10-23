@@ -42,7 +42,8 @@ VPS/credentials/certificates/PR8 не тронуты, deployment VPS не тре
 
 | Работа | Файлы | Агент | Ветка | Статус |
 |---|---|---|---|---|
-| Multi-relay/Hostkey P0–E (23.10.2026) | новые deploy/vps relay fleet scripts; tools/windows/add-relay-vps, relay-status, relay-speed; core/optimizer/controlclient; services/control-plane relay registry; services/client-service remote/relay selection (не TTFB файлы); tests; docs | Codex | codex/work | В РАБОТЕ: P0 перенос VPS-01/аудит/пул серверов; production только владелец |
+| Multi-relay/Hostkey P0 (23.10.2026) | новые deploy/vps relay fleet scripts; tools/windows/add-relay-vps, relay-status, relay-speed; core/optimizer/controlclient; services/control-plane relay registry; services/client-service remote/relay selection (не TTFB файлы); tests; docs | Codex | codex/work | В РАБОТЕ: только P0 перенос VPS-01; A–E отложены до YouTube LOCAL-first; production только владелец |
+| YouTube LOCAL-first A–G (23.10.2026) | services/client-service browser transport/local ladder/meter; core/localstrategy; platform/windows local TCP audit/tests; tools/windows diag; tests; docs | Codex | codex/work | ЗАНЯТО: после P0 Hostkey; DIRECT → LOCAL → RELAY, existing TCP не переезжает; реальные техники и границы replay требуют аудита |
 | YouTube relay скорость/TTFB (23.10.2026) | services/client-service browser meter/native/transport; core/transport; services/relay; platform/windows TCP forwarding (аудит); tools/windows diag/observe-video; tests/verify workflow/docs | Codex | codex/work | ОСВОБОЖДЕНО: client receive credit/OPEN phases/per-video metrics/observer готовы; Windows/ISP playback не подтверждён |
 | YouTube admission/ordinary Google/build PS5.1 A–D (23.10.2026) | services/client-service browser policy/admission/meter; core/browserproxy Plan/errors; tools/windows build/filter/diag/acceptance; tests/docs | Codex | codex/work | ОСВОБОЖДЕНО: build/A/B/C/D запушены; локальные проверки PASS; ждёт Windows/ISP 2мин video retest |
 | Browser DNS/DoH и opaque recovery A–E (23.10.2026) | core/browserproxy DNS/первые байты; platform/windows DNS/capture/domain; services/client-service browser*; tests/diag/docs | Codex | codex/work | ОСВОБОЖДЕНО: A–E реализованы/запушены; ждёт реальной Windows/ISP приёмки; svchost/custom DoH ограничения задокументированы |
@@ -2644,3 +2645,6 @@ CI `b44aeb8`: Verify https://github.com/buzzmean/neexitlag/actions/runs/39988493
 Этот заключительный handoff-коммит меняет только документ, код тот же b44aeb8.
 VPS deployment НЕ нужен; следующее действие владельца — обновить только клиент
 по docs/YOUTUBE_RELAY_PERFORMANCE.md и записать120s CSV на уже открытом браузере.
+
+### Решение владельца 23.10.2026: порядок P0 → YouTube LOCAL-first → multi-relay A–E
+Сначала только подготовка переноса логического VPS-01 на146.0.77.98 с сохранением CA/кодов/клиентских сертификатов. Затем LOCAL-first для youtube-media. Остальная multi-relay архитектура отложена. Агент production не запускает. Предыдущая TTFB задача завершена и её область освобождена; новый YouTube запрос явно разрешает browser_transport/diag интеграцию.
