@@ -287,7 +287,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-23.1 (browser DNS broker, Secure DNS relay, actual TLS failures, Google recovery)'
+$ScriptVersion='2026-10-23.2 (dedicated video admission, ordinary Google DIRECT, capacity fallback, idle cleanup)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -562,7 +562,7 @@ function Write-BrowserFirstByteEvidence($snapshot,[string]$lane) {
   $causes=Prop $metric 'no_reply_reasons'
   $parts=@();$classified=[long]0
   # Fixed vocabulary only; never dump arbitrary properties/errors or infer preconnect PASS.
-  foreach($reason in @('CLIENT_CLOSED_BEFORE_REQUEST','CLIENT_CLOSED_BEFORE_REPLY','CLIENT_INPUT_ERROR','CLIENT_DELIVERY_ERROR','TIMEOUT','UPSTREAM_EOF','UPSTREAM_EOF_WITHOUT_REQUEST','UPSTREAM_ERROR','ORIGIN_DNS_FAILED','GOOGLEVIDEO_ADMISSION','SERVICE_STOP','LOCAL_CANCELLED_OR_CLOSED','POLICY_OR_PLAN_FAILED','UNCLASSIFIED')){
+  foreach($reason in @('CLIENT_CLOSED_BEFORE_REQUEST','CLIENT_CLOSED_BEFORE_REPLY','CLIENT_INPUT_ERROR','CLIENT_DELIVERY_ERROR','TIMEOUT','UPSTREAM_EOF','UPSTREAM_EOF_WITHOUT_REQUEST','UPSTREAM_ERROR','ORIGIN_DNS_FAILED','GOOGLEVIDEO_ADMISSION','OPAQUE_GOOGLE_ADMISSION','SERVICE_STOP','LOCAL_CANCELLED_OR_CLOSED','POLICY_OR_PLAN_FAILED','UNCLASSIFIED')){
    $reasonProperty=if($null -ne $causes){$causes.PSObject.Properties[$reason]}else{$null}
    $count=if($null -ne $reasonProperty){[long]$reasonProperty.Value}else{[long]0}
    if($count -gt 0){$parts+=@($reason+'='+$count);$classified+=$count}
@@ -599,7 +599,9 @@ function Write-BrowserDNSEvidence($native) {
   Say ('opaque Google recovery: network='+(Prop $g 'network')+' profile='+(Prop $g 'profile_id')+' state='+(Prop $g 'state')+' distinct_failures='+(Prop $g 'distinct_failed_addresses' 0)+' first_address='+(Prop $g 'first_address')+' until='+(Prop $g 'until')+' failure='+(Prop $g 'last_failure'))
  }
  $usage=Prop $native 'relay_usage'
- Say ('browser relay admission: known_googlevideo='+(Prop $usage 'googlevideo_active_tunnels' 0)+' opaque_google='+(Prop $usage 'opaque_google_active_tunnels' 0)+' shared='+(Prop $usage 'googlevideo_shared_limit_active' 'UNINSTRUMENTED')+'/'+(Prop $usage 'googlevideo_tunnel_limit' 0)+' waiters='+(Prop $usage 'googlevideo_waiters' 0)+' admission_failures='+(Prop $usage 'googlevideo_admission_failures' 0))
+ Say ('browser relay admission: scope='+(Prop $usage 'admission_scope' 'LEGACY_SHARED_GOOGLE_VIDEO')+' known_googlevideo='+(Prop $usage 'googlevideo_active_tunnels' 0)+'/'+(Prop $usage 'googlevideo_tunnel_limit' 0)+' opaque_google='+(Prop $usage 'opaque_google_active_tunnels' 0)+'/'+(Prop $usage 'opaque_google_tunnel_limit' 'UNKNOWN')+' total='+(Prop $usage 'google_admission_total_active' (Prop $usage 'googlevideo_shared_limit_active' 'UNKNOWN'))+' video_waiters='+(Prop $usage 'googlevideo_waiters' 0)+' opaque_waiters='+(Prop $usage 'opaque_google_waiters' 'UNINSTRUMENTED'))
+ Say ('browser video admission: failures='+(Prop $usage 'googlevideo_admission_failures' 0)+' canceled='+(Prop $usage 'googlevideo_admission_canceled' 'UNINSTRUMENTED')+' waited='+(Prop $usage 'googlevideo_waited' 'UNINSTRUMENTED')+' wait_total_ms='+(Prop $usage 'googlevideo_wait_total_ms' 'UNINSTRUMENTED')+' wait_max_ms='+(Prop $usage 'googlevideo_wait_max_ms' 'UNINSTRUMENTED')+' idle_closed='+(Prop $usage 'googlevideo_idle_closed' 'UNINSTRUMENTED'))
+ Say ('browser other Google admission: failures='+(Prop $usage 'opaque_google_admission_failures' 'UNINSTRUMENTED')+' canceled='+(Prop $usage 'opaque_google_admission_canceled' 'UNINSTRUMENTED')+' idle_closed='+(Prop $usage 'opaque_google_idle_closed' 'UNINSTRUMENTED')+' ordinary_direct_fallback_attempts='+(Prop $usage 'ordinary_capacity_direct_fallbacks' 'UNINSTRUMENTED')+' (ordinary fallback is a NEW DIRECT plan before payload, never hidden RELAY_REQUIRED bytes)')
  Say 'DNS hints are not authenticated inner SNI. Transit DoH answers and svchost caller are not observed. Opaque Google is not a proven googlevideo hostname; no DNS53-to-relay, no page/video PASS inferred.'
 }
 
@@ -658,7 +660,7 @@ Step 'youtube' {
   $usage=Prop $snapshot 'relay_usage'
   if($usage -and -not $shownUsage){
    $shownUsage=$true
-   Say ("relay usage (shared, TCP payload excluding QUIC overhead/probes): googlevideo="+(Prop $usage 'googlevideo_active_tunnels')+"/"+(Prop $usage 'googlevideo_tunnel_limit')+" opaque_google="+(Prop $usage 'opaque_google_active_tunnels' 0)+" shared="+(Prop $usage 'googlevideo_shared_limit_active' 'UNINSTRUMENTED')+" waiters="+(Prop $usage 'googlevideo_waiters' 0)+" admission_failures="+(Prop $usage 'googlevideo_admission_failures' 0)+" cap_events="+(Prop $usage 'googlevideo_limit_events')+" truncated="+(Prop $usage 'truncated')+" overflow_bytes="+(Prop $usage 'cardinality_overflow_bytes'))
+   Say ("relay usage (TCP payload excluding QUIC overhead/probes): googlevideo="+(Prop $usage 'googlevideo_active_tunnels')+"/"+(Prop $usage 'googlevideo_tunnel_limit')+" opaque_google="+(Prop $usage 'opaque_google_active_tunnels' 0)+" admission_scope="+(Prop $usage 'admission_scope' 'LEGACY_SHARED')+" total_google="+(Prop $usage 'google_admission_total_active' (Prop $usage 'googlevideo_shared_limit_active' 'UNINSTRUMENTED'))+" waiters="+(Prop $usage 'googlevideo_waiters' 0)+" admission_failures="+(Prop $usage 'googlevideo_admission_failures' 0)+" cap_events="+(Prop $usage 'googlevideo_limit_events')+" truncated="+(Prop $usage 'truncated')+" overflow_bytes="+(Prop $usage 'cardinality_overflow_bytes'))
    foreach($minute in @(Prop $usage 'minutes' @())){Say (" minute="+(Prop $minute 'minute_utc')+" profile="+(Prop $minute 'profile_id')+" domain="+(Prop $minute 'domain')+" tx="+(Prop $minute 'sent_bytes')+" rx="+(Prop $minute 'received_bytes'))}
   }
   $failures=Prop $snapshot 'failures'

@@ -2529,3 +2529,15 @@ Go race core/service PASS; player-like controlled16flows при opaque4 и др�
 admission/idle/fallback regressions x3 PASS, это не YouTube/player Internet PASS.
 Исправление meter nil accounting в zero-value fixture покрыто. Общие race/vet/build
 проверки идут; native Windows/ISP ещё не выполнялись. Далее C/D, область занята.
+
+## 23.10.2026 — YouTube starvation C
+
+Bbf936f2: dedicated video12/other4 и capacity DIRECT перед payload (обычные AUTO,
+не protected). C: diag2026-10-23.2 показывает scope, оба пула, оба waiters, failure
+vs cancel, idle cleanup, ожидание и attempts обычного DIRECT fallback. Старое
+shared поле помечено compatibility video-only; отдельная сумма16 ясна. C# не менялся.
+docs/YOUTUBE_RELAY_ADMISSION.md: расчёт bounded budget, оговорка про отсутствие
+реальных player/36PC измерений; read-only SSH top/systemctl/metrics9090/ss команды
+владельцу. Ни одна команда на VPS агентом не выполнялась. PS7 StrictMode/old-service
+snapshot/safe fields fixture PASS; PS5.1 native проверки ещё не запускались.
+Далее D, область занята.

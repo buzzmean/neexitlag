@@ -95,17 +95,17 @@ $script:lines=@()
 Write-BrowserDNSEvidence ([pscustomobject]@{
  browser_dns=[pscustomobject]@{scope='ATTRIBUTED_NATIVE_BROWSER';queries=3;relay_doh=2;system_dns=1;secure_dns_policy='KNOWN_DOH_AUTHENTICATED_RELAY';encrypted_answers='NOT_OBSERVED';records=@([pscustomobject]@{profile_id='chrome';domain='youtube.com';query_type=1;path='AUTHENTICATED_RELAY_DOH';result='DNS_RESPONSE';addresses=2;secret='NEVER_LOG'})}
  domain_cache=[pscustomobject]@{browser_scoped_addresses=2;browser_scoped_hints_omitted=9;native_first_tls_reply_budget_ms=1200;browser_scoped_hints=@([pscustomobject]@{network='n';profile_id='chrome';address='87.240.137.208';domain='vk.ru';expires='2026-10-23T00:01:00Z';secret='NEVER_LOG'});google_failure_groups=@([pscustomobject]@{network='n';profile_id='chrome';state='RELAY_FIRST';distinct_failed_addresses=2;last_failure='DIRECT_TLS_EARLY_EOF_OR_RESET';secret='NEVER_LOG'})}
- relay_usage=[pscustomobject]@{googlevideo_active_tunnels=6;opaque_google_active_tunnels=2;googlevideo_shared_limit_active=8;googlevideo_tunnel_limit=8}
+ relay_usage=[pscustomobject]@{admission_scope='DEDICATED_GOOGLEVIDEO_12_PLUS_OTHER_GOOGLE_4';googlevideo_active_tunnels=6;opaque_google_active_tunnels=2;googlevideo_shared_limit_active=6;googlevideo_tunnel_limit=12;opaque_google_tunnel_limit=4;google_admission_total_active=8;googlevideo_admission_canceled=3;ordinary_capacity_direct_fallbacks=2}
  secret='NEVER_LOG'
 })
 $text=$script:lines -join "`n"
 Check ($text -match 'relay_https_doh=2 original_resolver=1' -and $text -match 'domain=youtube.com.*AUTHENTICATED_RELAY_DOH') 'DNS path/counters missing'
 Check ($text -match 'address=87.240.137.208 domain=vk.ru expires=' -and $text -match 'omitted=9') 'TTL hints/bounded omission missing'
-Check ($text -match 'distinct_failures=2.*DIRECT_TLS_EARLY_EOF_OR_RESET' -and $text -match 'known_googlevideo=6 opaque_google=2 shared=8/8') 'Real failure family/shared admission missing'
+Check ($text -match 'distinct_failures=2.*DIRECT_TLS_EARLY_EOF_OR_RESET' -and $text -match 'known_googlevideo=6/12 opaque_google=2/4 total=8') 'Real failure family/dedicated admission missing'
 Check ($text -notmatch 'NEVER_LOG' -and $text -match 'no page/video PASS inferred') 'Secret or fabricated DNS/page proof'
 $script:lines=@();Write-BrowserDNSEvidence ([pscustomobject]@{})
 Check (($script:lines -join "`n") -match 'browser DNS broker: UNINSTRUMENTED') 'Legacy DNS snapshot not handled safely'
-Write-Host 'PASS DNS broker/scoped TTLs/real TLS failure groups/shared eight admissions, legacy snapshots and safe fixed fields under StrictMode'
+Write-Host 'PASS DNS broker/scoped TTLs/real TLS failure groups/dedicated twelve/four admissions, legacy snapshots and safe fixed fields under StrictMode'
 
 . (Join-Path $PSScriptRoot '..\..\tools\windows\browser-dns-evidence.ps1')
 $video=[pscustomobject]@{id=1;owner=[pscustomobject]@{profile_id='chrome'};domain='r1.googlevideo.com';destination='173.194.180.1:443';ingress='NATIVE_TCP';sent_bytes=2000;received_bytes=10000;tls_wire=[pscustomobject]@{origin=[pscustomobject]@{server_hello_complete=$true}};policy=[pscustomobject]@{action='RELAY_REQUIRED';relay_id='VPS-01'};secret='NEVER_LOG'}
