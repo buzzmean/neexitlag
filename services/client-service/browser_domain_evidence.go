@@ -14,12 +14,13 @@ import (
 )
 
 type browserDomainEvidence struct {
-	Source     string   `json:"source"`
-	Domain     string   `json:"domain,omitempty"`
-	Outer      string   `json:"outer_sni,omitempty"`
-	Candidates []string `json:"candidates"`
-	Restricted bool     `json:"restricted"`
-	Ambiguous  bool     `json:"ambiguous"`
+	YoutubeOnly bool     `json:"youtube_only_hint_set,omitempty"`
+	Source      string   `json:"source"`
+	Domain      string   `json:"domain,omitempty"`
+	Outer       string   `json:"outer_sni,omitempty"`
+	Candidates  []string `json:"candidates"`
+	Restricted  bool     `json:"restricted"`
+	Ambiguous   bool     `json:"ambiguous"`
 	// DNS/outer metadata is a routing hint, never authenticated inner SNI.
 	Confidence string `json:"confidence"`
 }
@@ -145,6 +146,15 @@ func (x *browserDomainIndex) profileEvidence(network, profile string, destinatio
 		out.Domain = outer
 		out.Source = "ECH_ORDINARY_GOOGLE_OUTER_HINT"
 		out.Confidence = "ordinary outer SNI hint; inner ECH NOT proven"
+	}
+	out.YoutubeOnly = len(out.Candidates) > 0
+	for _, host := range out.Candidates {
+		if !youtubeRelayDomain(host) {
+			out.YoutubeOnly = false
+		}
+	}
+	if browserproxy.ValidPublicDNSName(outer) && restrictiveBrowserDomain(outer) && !youtubeRelayDomain(outer) {
+		out.YoutubeOnly = false
 	}
 	if len(out.Candidates) > 8 {
 		out.Candidates = out.Candidates[:8]

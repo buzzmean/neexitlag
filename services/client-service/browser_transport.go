@@ -25,6 +25,7 @@ import (
 )
 
 type browserRuntime struct {
+	youtube   *youtubeRuntime
 	dnsWire   *browserDNSRuntime
 	domains   browserDomainIndex
 	readiness browserPolicyReadiness
@@ -52,7 +53,7 @@ type browserRuntime struct {
 }
 
 func newBrowserRuntime() *browserRuntime {
-	return &browserRuntime{dnsWire: newBrowserDNSRuntime(), origins: browserproxy.NewOriginHealth(), dns: browserproxy.NewDNSRecovery(), learned: flowpolicy.NewBrowserLearning(), probes: make(chan struct{}, 4), local: map[string]*localstrategy.LocalStrategyEngine{}, plans: map[flowpolicy.LearnKey]chan struct{}{}, directTimeouts: flowpolicy.NewDirectTimeoutCache()}
+	return &browserRuntime{youtube: newYoutubeRuntime(), dnsWire: newBrowserDNSRuntime(), origins: browserproxy.NewOriginHealth(), dns: browserproxy.NewDNSRecovery(), learned: flowpolicy.NewBrowserLearning(), probes: make(chan struct{}, 4), local: map[string]*localstrategy.LocalStrategyEngine{}, plans: map[flowpolicy.LearnKey]chan struct{}{}, directTimeouts: flowpolicy.NewDirectTimeoutCache()}
 }
 func (c *Controller) browserOwner(ctx context.Context, source, local netip.AddrPort) (browserproxy.Owner, error) {
 	id, err := wp.LookupTCPPeer(source, local)
@@ -155,6 +156,9 @@ func (c *Controller) browserScopedLocal(p profiles.Profile, host, network string
 	return key, engine
 }
 func (c *Controller) browserLocal(strategy string) *localstrategy.LocalStrategyEngine {
+	if e := c.browser.youtube.engine(strategy); e != nil {
+		return e
+	}
 	for _, v := range c.Local.Config().User {
 		if v.ID == strategy && v.Enabled {
 			return c.Local
@@ -197,6 +201,7 @@ func (c *Controller) openBrowser(ctx context.Context, q browserproxy.Request, pl
 	}
 	d := applyFlowResult(current.profile, wp.Decision{}, plan.Policy, current.network, c.browserLocal(plan.Policy.Strategy))
 	d.OriginDomain = q.Host
+	d.OriginHintOnly = q.HintOnly
 	d.Flow = routing.Flow{Protocol: "tcp", Source: q.Source, Destination: plan.Destination, PID: q.Owner.PID, ProcessPath: q.Owner.Exe, ApplicationID: q.Owner.Profile, Network: current.network, PinnedPolicy: d.Flow.PinnedPolicy}
 	if d.Block {
 		return nil, errors.New("browser route blocked")
@@ -205,7 +210,7 @@ func (c *Controller) openBrowser(ctx context.Context, q browserproxy.Request, pl
 		return c.openNativePAC(ctx, q, plan, d)
 	}
 	if d.Route.Local() {
-		if !c.browserLocalAllowed(current.network) {
+		if !c.browserLocalAllowed(current.network) && !(plan.Policy.Source == youtubeLadderSource && c.youtubeLocalAllowed(current.network)) {
 			return nil, errors.New("native local strategy unavailable on current network")
 		}
 		backend, ok := c.Backend.(interface {
@@ -284,7 +289,6 @@ func (c *Controller) browserTransform(q browserproxy.Request, plan browserproxy.
 	return ok && backend.BrowserTransformApplied(browserIdentity(q), q.Source, plan.Destination)
 }
 func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (browserproxy.Plan, error) {
-	started := time.Now()
 	current, err := c.browserProfile(q.Owner)
 	if err != nil {
 		return browserproxy.Plan{}, err
@@ -354,32 +358,19 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 		return plan, nil
 	}
 	if youtubeRelayDomain(q.Host) {
-		if directTimeoutEligible(q, plan) {
-			for _, candidate := range candidates {
-				if candidate.Addr().Is4() {
-					plan.DirectCandidates = append(plan.DirectCandidates, candidate)
-					if len(plan.DirectCandidates) == 2 {
-						break
-					}
-				}
-			}
-			plan.DirectDeadline = started.Add(browserDirectBudget)
-			if c.relayAllowedFor(q.Host) {
-				plan = stallRetryPlan(current, plan)
-				plan.Policy.Source = "youtube_relay_first"
-				plan.Probe = "YOUTUBE_RELAY_FIRST"
-				plan.Policy.Reason = "Explicit YouTube relay-first preference; no DIRECT dial"
-				return plan, nil
-			}
+		if plan.Policy.Source == "configured_baseline" && plan.Policy.Action == flowpolicy.DirectPlus {
+			return plan, nil
 		}
-		// YouTube is never probed (its DIRECT+ logic lives in browserFlow). With plain DIRECT
-		// as the policy it still benefits from the cache and the stall retry: otherwise a
-		// blocked YouTube would simply never work. DIRECT+ plans are left untouched.
-		if steered, ok := c.steerTimedOutOrigin(plan, current, q, time.Now()); ok {
-			return steered, nil
-		}
+		plan.Policy.Source = youtubeLadderSource
+		plan.Policy.Action = flowpolicy.Direct
+		plan.Policy.Strategy = ""
+		plan.Policy.RelayID = ""
+		plan.Policy.Fallback = flowpolicy.FailBlock
+		plan.Policy.Reason = "YouTube new TLS: DIRECT then scoped LOCAL, RELAY after local failure"
+		plan.Probe = "YOUTUBE_LOCAL_LADDER"
 		return plan, nil
 	}
+
 	if dest.Addr().IsPrivate() || dest.Addr().IsLoopback() || dest.Addr().IsLinkLocalUnicast() {
 		if c.BrowserResolver == nil {
 			plan.Probe = "PRIVATE_ORIGIN_NO_AUTOPROBE"

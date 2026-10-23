@@ -591,7 +591,30 @@ func (t *tcpRedirect) copy(e *tcpEntry, dst, src net.Conn, event string) {
 		if n > 0 {
 			written, werr := writeTCP(dst, buf[:n])
 			if written > 0 {
+				// Only the finite first-flight wrapper reports a changing
+				// upstream decision. This updates evidence, never reroutes TCP.
+				upstream := src
+				if event == "relay" {
+					upstream = dst
+				}
+				var policy flowpolicy.Result
+				known := false
+				if reporter, ok := upstream.(TCPPolicyReporter); ok {
+					policy, known = reporter.CurrentTCPPolicy()
+				}
 				t.state.mu.Lock()
+				if known && policy != e.decision.Policy {
+					e.decision.Policy = policy
+					switch policy.Action {
+					case flowpolicy.Direct:
+						e.decision.Route = routing.Route{}
+					case flowpolicy.DirectPlus:
+						e.decision.Route = routing.Route{Kind: routing.DirectPlusRoute}
+					case flowpolicy.RelayRequired:
+						e.decision.Route = routing.Route{RelayID: policy.RelayID}
+					}
+					t.b.evidence.RecordPolicy(e.identity, e.tuple, e.decision, "TLS_FIRST_FLIGHT_STAGE")
+				}
 				e.last = time.Now()
 				actualEvent := event
 				if e.decision.Route.Direct() {

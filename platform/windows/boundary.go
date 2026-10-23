@@ -35,7 +35,15 @@ type CaptureStatus struct {
 	Error        string       `json:"error,omitempty"`
 	Capabilities Capabilities `json:"capabilities"`
 }
+
+// TCPPolicyReporter is evidence from a finite pre-ServerHello opener. It never
+// authorizes a kernel reroute of an established application TLS stream.
+type TCPPolicyReporter interface {
+	CurrentTCPPolicy() (flowpolicy.Result, bool)
+}
+
 type Decision struct {
+	OriginHintOnly bool // Domain is routing metadata; do not treat it as authenticated SNI.
 	// Selected browser DNS only; no DNS/53 packet is relayed.
 	DNSExchange func(context.Context, []byte) ([]byte, error)
 

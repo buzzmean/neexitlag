@@ -56,6 +56,7 @@ type nativeBrowserProfileStatus struct {
 	FirstExchangeMS int64                `json:"enable_to_first_exchange_ms"`
 }
 type nativeBrowserRecord struct {
+	planReporter    browserproxy.PlanReporter
 	OriginPreflight *browserproxy.DNSRecoveryResult `json:"origin_preflight,omitempty"`
 	DomainEvidence  *browserDomainEvidence          `json:"domain_evidence,omitempty"`
 	Origin          *browserproxy.OriginReport      `json:"origin_attempts,omitempty"`
@@ -78,7 +79,8 @@ type nativeBrowserRecord struct {
 	Active          bool               `json:"active"`
 }
 type nativeBrowserSnapshot struct {
-	DNS map[string]any `json:"browser_dns"`
+	YoutubeLocal youtubeSnapshot `json:"youtube_local_ladder"`
+	DNS          map[string]any  `json:"browser_dns"`
 
 	DomainCache        map[string]any               `json:"domain_cache"`
 	CaptureIngress     *wp.CaptureIngressSnapshot   `json:"capture_ingress,omitempty"`
@@ -129,7 +131,7 @@ func (c *Controller) nativeBrowserActivation(enabled, wasEnabled bool, at time.T
 	}
 }
 func (c *Controller) nativeSnapshot() nativeBrowserSnapshot {
-	s := nativeBrowserSnapshot{NativeOnlyState: "NATIVE_ONLY_NOT_OBSERVED", NativeOnlyAutoMode: "AUTOMATIC_NATIVE_NEW_CONNECTIONS_NO_PAC_DEPENDENCY", Version: 1, Ready: c.nativeBackendReady(), ExistingTCP: "PINNED_UNTIL_CLOSED; reload may reuse HTTP/2", PageVerification: "NOT_OBSERVED; bidirectional bytes are not HTTPS/page PASS", Profiles: []nativeBrowserProfileStatus{}, Records: []nativeBrowserRecord{}}
+	s := nativeBrowserSnapshot{YoutubeLocal: c.browser.youtube.snapshot(), NativeOnlyState: "NATIVE_ONLY_NOT_OBSERVED", NativeOnlyAutoMode: "AUTOMATIC_NATIVE_NEW_CONNECTIONS_NO_PAC_DEPENDENCY", Version: 1, Ready: c.nativeBackendReady(), ExistingTCP: "PINNED_UNTIL_CLOSED; reload may reuse HTTP/2", PageVerification: "NOT_OBSERVED; bidirectional bytes are not HTTPS/page PASS", Profiles: []nativeBrowserProfileStatus{}, Records: []nativeBrowserRecord{}}
 	c.mu.Lock()
 	s.Enabled = c.enabled
 	c.mu.Unlock()
@@ -182,6 +184,12 @@ func (c *Controller) nativeSnapshot() nativeBrowserSnapshot {
 	}
 	sort.Slice(s.Profiles, func(i, j int) bool { return s.Profiles[i].Profile < s.Profiles[j].Profile })
 	for _, r := range n.records {
+		if r.planReporter != nil {
+			v := r.planReporter.CurrentPlan()
+			r.Policy = v.Policy
+			r.Probe = v.Probe
+			r.Upstream = v.Destination.String()
+		}
 		if r.originReporter != nil {
 			v := r.originReporter.OriginAttempts()
 			r.Origin = &v
@@ -535,6 +543,7 @@ func (c *Controller) openNativeBrowser(ctx context.Context, p profiles.Profile, 
 		return nil, d, err
 	}
 	opaque := q.Host == ""
+	q.HintOnly = opaque
 	evidence := browserDomainEvidence{Source: "CLIENTHELLO_SNI_OR_HTTP_HOST", Domain: q.Host, Confidence: "observed on this connection", Candidates: []string{}}
 	plan := browserproxy.Plan{Enabled: true, Network: current.network, Destination: t.Destination, Policy: d.Policy}
 	secureDNS := browserproxy.KnownDoHEndpoint(q.Host, t.Destination)
@@ -547,6 +556,10 @@ func (c *Controller) openNativeBrowser(ctx context.Context, p profiles.Profile, 
 			evidence.Confidence = "dedicated resolver address or hostname; encrypted question not observed"
 		}
 		q.Host = evidence.Domain
+		if q.Host == "" && evidence.YoutubeOnly && len(evidence.Candidates) > 0 {
+			q.Host = evidence.Candidates[0]
+		}
+		q.OriginAmbiguous = evidence.Ambiguous && !evidence.YoutubeOnly
 		plan = c.nativeOpaquePlan(current.profile, t, current.network, evidence)
 		if q.Host != "" {
 			if steered, ok := c.steerTimedOutOrigin(plan, current, q, time.Now()); ok {
@@ -576,7 +589,7 @@ func (c *Controller) openNativeBrowser(ctx context.Context, p profiles.Profile, 
 		// change may splice a configured local transform into a different flow.
 		plan.Destination = t.Destination
 	}
-	if err == nil && !secureDNS && opaque && relayOriginEligible(q, plan) {
+	if err == nil && !secureDNS && opaque && !youtubeLadderEligible(q, plan) && relayOriginEligible(q, plan) {
 		originalPlan := plan
 		plan = c.prepareHintedRelayOrigin(ctx, current, q, plan, func(probe context.Context, dst netip.AddrPort) (net.Conn, error) {
 			candidate := originalPlan
@@ -602,12 +615,13 @@ func (c *Controller) openNativeBrowser(ctx context.Context, p profiles.Profile, 
 	n.opened(record, plan, err)
 	d = applyFlowResult(p, d, plan.Policy, current.network, c.browserLocal(plan.Policy.Strategy))
 	d.OriginDomain = q.Host
+	d.OriginHintOnly = q.HintOnly
 	d.NewConnectionsOnly = true
 	if err != nil {
 		d.BlockOnFailure = true
 		return nil, d, err
 	} // No generic native fallback after a planned failure.
-	if current.network != "" && nativeFirstReplyEligible(q, plan) {
+	if current.network != "" && !plan.FirstFlightManaged && nativeFirstReplyEligible(q, plan) {
 		conn = &nativeFirstReplyConn{Conn: conn, timeout: 1200 * time.Millisecond, failed: func(failure string) {
 			if !c.recordNativeBrowserFailure(current, q, plan, opaque, failure, evidence) {
 				return
@@ -630,6 +644,9 @@ func newNativeBrowserConn(conn net.Conn, n *nativeBrowserRuntime, id uint64) *na
 	n.mu.Lock()
 	r := n.records[id]
 	r.tlsWire = wire
+	if reporter, ok := conn.(browserproxy.PlanReporter); ok {
+		r.planReporter = reporter
+	}
 	if reporter, ok := conn.(browserproxy.OriginReporter); ok {
 		r.originReporter = reporter
 	}
@@ -646,6 +663,12 @@ type nativeBrowserConn struct {
 	once    sync.Once
 }
 
+func (c *nativeBrowserConn) CurrentTCPPolicy() (flowpolicy.Result, bool) {
+	if r, ok := c.Conn.(wp.TCPPolicyReporter); ok {
+		return r.CurrentTCPPolicy()
+	}
+	return flowpolicy.Result{}, false
+}
 func (c *nativeBrowserConn) Read(p []byte) (int, error) {
 	n, e := c.Conn.Read(p)
 	if n > 0 {

@@ -43,12 +43,14 @@ type Owner struct {
 	Profile string `json:"profile_id"`
 }
 type Request struct {
-	Owner   Owner
-	Source  netip.AddrPort
-	Host    string
-	Port    uint16
-	Secure  bool
-	Ingress string // PAC_CONNECT, PAC_RECOVERY or NATIVE_TCP; never supplied by HTTP headers.
+	HintOnly        bool // Native DNS/outer metadata, never exact CONNECT/SNI authority.
+	OriginAmbiguous bool
+	Owner           Owner
+	Source          netip.AddrPort
+	Host            string
+	Port            uint16
+	Secure          bool
+	Ingress         string // PAC_CONNECT, PAC_RECOVERY or NATIVE_TCP; never supplied by HTTP headers.
 }
 type Trial struct {
 	Destination      string `json:"destination,omitempty"`
@@ -63,6 +65,7 @@ type Trial struct {
 	DurationMS       int64  `json:"duration_ms"`
 }
 type Plan struct {
+	FirstFlightManaged bool `json:"-"` // Route ladder owns bounded pre-ServerHello retries.
 	// Set only by native planner when no protected DNS/outer association exists.
 	OrdinaryCapacityDirect bool `json:"-"`
 
@@ -83,6 +86,7 @@ type Plan struct {
 	HTTPStatus          int                `json:"http_status,omitempty"`
 }
 type Record struct {
+	planReporter       PlanReporter
 	Origin             *OriginReport `json:"origin_attempts,omitempty"`
 	originReporter     OriginReporter
 	TLS                *TLSWireEvidence `json:"tls_wire,omitempty"`
@@ -249,6 +253,9 @@ func (s *Server) Snapshot() Snapshot {
 		out.FailureDetails = append(out.FailureDetails, f)
 	}
 	for _, r := range s.records {
+		if r.planReporter != nil {
+			r.Plan = r.planReporter.CurrentPlan()
+		}
 		if r.originReporter != nil {
 			v := r.originReporter.OriginAttempts()
 			r.Origin = &v
@@ -610,7 +617,7 @@ func (s *Server) handle(c net.Conn, acceptedAt time.Time) {
 	s.mu.Lock()
 	s.pathOpenedLocked(owner.Profile)
 	s.mu.Unlock()
-	if secure && port == 443 && plan.Enabled && plan.Policy.Action == flowpolicy.Direct && s.cfg.OnStall != nil {
+	if secure && port == 443 && plan.Enabled && plan.Policy.Action == flowpolicy.Direct && !plan.FirstFlightManaged && s.cfg.OnStall != nil {
 		upstream = s.watchDirect(lifetime, upstream, q, plan, id, 0)
 	}
 
@@ -623,6 +630,13 @@ func (s *Server) handle(c net.Conn, acceptedAt time.Time) {
 	c.SetDeadline(time.Time{})
 	upstream.SetDeadline(time.Time{})
 	closeEvidence := &tunnelCloseEvidence{ctx: s.ctx}
+	if reporter, ok := upstream.(PlanReporter); ok {
+		s.mu.Lock()
+		r := s.records[id]
+		r.planReporter = reporter
+		s.records[id] = r
+		s.mu.Unlock()
+	}
 	if reporter, ok := upstream.(OriginReporter); ok {
 		s.mu.Lock()
 		r := s.records[id]

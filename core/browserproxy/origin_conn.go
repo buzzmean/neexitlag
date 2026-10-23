@@ -35,6 +35,12 @@ type OriginReport struct {
 }
 type OriginReporter interface{ OriginAttempts() OriginReport }
 type OriginConfig struct {
+	// Optional finite first-flight route stepper. It is separate from IP recovery,
+	// uses its own health scope, and is never entered after ANY origin byte.
+	NextFlow  func(context.Context, string) (net.Conn, error)
+	OnFailure func(string)
+	Silence   time.Duration
+
 	Prior      []OriginAttempt
 	Skipped    int
 	Context    context.Context
@@ -89,6 +95,12 @@ func WatchRelayOrigin(conn net.Conn, cfg OriginConfig) net.Conn {
 		stop()
 	}
 	return x
+}
+func (x *originConn) silence() time.Duration {
+	if x.cfg.Silence > 0 {
+		return x.cfg.Silence
+	}
+	return OriginSilenceTimeout
 }
 func (x *originConn) OriginAttempts() OriginReport {
 	x.mu.Lock()
@@ -156,8 +168,8 @@ func (x *originConn) Read(p []byte) (int, error) {
 		}
 		if !responded {
 			wake := time.Now().Add(100 * time.Millisecond)
-			if !first.IsZero() && at.Add(OriginSilenceTimeout).Before(wake) {
-				wake = at.Add(OriginSilenceTimeout)
+			if !first.IsZero() && at.Add(x.silence()).Before(wake) {
+				wake = at.Add(x.silence())
 			}
 			if deadline.IsZero() || wake.Before(deadline) {
 				cur.SetReadDeadline(wake)
@@ -198,11 +210,11 @@ func (x *originConn) Read(p []byte) (int, error) {
 		if !deadline.IsZero() && !time.Now().Before(deadline) {
 			return 0, err
 		}
-		if errors.Is(err, os.ErrDeadlineExceeded) && (first.IsZero() || time.Since(at) < OriginSilenceTimeout) {
+		if errors.Is(err, os.ErrDeadlineExceeded) && (first.IsZero() || time.Since(at) < x.silence()) {
 			continue
 		}
 		if first.IsZero() && (errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)) {
-			timer := time.NewTimer(OriginSilenceTimeout)
+			timer := time.NewTimer(x.silence())
 			select {
 			case <-x.firstWrite:
 				timer.Stop()
@@ -216,7 +228,7 @@ func (x *originConn) Read(p []byte) (int, error) {
 				return 0, err
 			}
 		}
-		if first.IsZero() || !(errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, os.ErrDeadlineExceeded)) {
+		if first.IsZero() || !(errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, syscall.ECONNRESET) || errors.Is(err, os.ErrDeadlineExceeded)) {
 			return 0, err
 		}
 		reason := "ORIGIN_EOF_NO_BYTES"
@@ -259,6 +271,9 @@ func (x *originConn) fail(reason string) {
 	}
 	x.mu.Unlock()
 	x.cfg.Health.Failed(x.cfg.Scope, ip, time.Now())
+	if x.cfg.OnFailure != nil {
+		x.cfg.OnFailure(reason)
+	}
 }
 func (x *originConn) retry(expected net.Conn, reason string, fromRead bool) (retErr error) {
 	// A writer cannot replay while another reader has observed bytes but has not
@@ -330,6 +345,63 @@ func (x *originConn) retry(expected net.Conn, reason string, fromRead bool) (ret
 	old.Close() // free exact old Engine reservation; established traffic is not moved
 	ctx, stop := context.WithDeadline(x.cfg.Context, hard)
 	defer stop()
+	if x.cfg.NextFlow != nil {
+		next, err := x.cfg.NextFlow(ctx, reason)
+		if err != nil {
+			return err
+		}
+		x.mu.Lock()
+		if x.closed {
+			x.mu.Unlock()
+			next.Close()
+			return net.ErrClosed
+		}
+		x.cur = next
+		x.failed = false
+		deadline := x.writeDeadline
+		x.mu.Unlock()
+		if deadline.IsZero() || hard.Before(deadline) {
+			deadline = hard
+		}
+		next.SetWriteDeadline(deadline)
+		for len(flight) > 0 {
+			n, e := next.Write(flight)
+			if n < 0 || n > len(flight) {
+				next.Close()
+				return io.ErrShortWrite
+			}
+			flight = flight[n:]
+			if e != nil {
+				next.Close()
+				return e
+			}
+			if n == 0 {
+				next.Close()
+				return io.ErrShortWrite
+			}
+		}
+		x.mu.Lock()
+		x.replayed = next
+		x.attemptAt = time.Now()
+		half := x.halfClosed
+		x.report.State = "ROUTE_FIRST_FLIGHT_RETRY"
+		// The finite child owns all further retries. The parent must not race its
+		// own shorter silence deadline against that child's LOCAL/RELAY step.
+		x.responded = true
+		x.progressed = true
+		x.flight = nil
+		if x.timer != nil {
+			x.timer.Stop()
+		}
+		x.mu.Unlock()
+		x.notifyState()
+		if half {
+			if c, ok := next.(interface{ CloseWrite() error }); ok {
+				c.CloseWrite()
+			}
+		}
+		return nil
+	}
 	candidates := append([]netip.AddrPort(nil), x.cfg.Candidates...)
 	queried := false
 	for {
@@ -463,6 +535,9 @@ func (x *originConn) closeWithReason(reason string, beforeReply bool) error {
 	}
 	if quarantine {
 		x.cfg.Health.Failed(x.cfg.Scope, ip, time.Now())
+	}
+	if reason != "" && x.cfg.OnFailure != nil {
+		x.cfg.OnFailure(reason)
 	}
 	return cur.Close()
 }

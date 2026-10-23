@@ -13,7 +13,7 @@ type LocalTCPBuffer struct {
 }
 
 func localMetadata(d Decision, id ProcessIdentity, t Tuple) localstrategy.Metadata {
-	return localstrategy.Metadata{Domain: d.OriginDomain, TrustedOrigin: d.OriginDomain != "", StrategyID: d.LocalStrategyID, Application: id.Path, Protocol: t.Protocol, Destination: t.Destination}
+	return localstrategy.Metadata{Domain: d.OriginDomain, TrustedOrigin: d.OriginDomain != "" && !d.OriginHintOnly, StrategyID: d.LocalStrategyID, Application: id.Path, Protocol: t.Protocol, Destination: t.Destination}
 }
 func (b *LocalTCPBuffer) Flush(d Decision, st *localstrategy.State, id ProcessIdentity, t Tuple, now time.Time, reason string, l *EvidenceLedger) error {
 	if !b.hello.Pending() {
