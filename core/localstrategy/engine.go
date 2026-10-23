@@ -70,6 +70,7 @@ type State struct {
 	helloPackets                                   [][]byte
 	synSeen, handshakeConfirmed, fakeSent, udpSeen bool
 	serverSequence                                 uint32
+	serverTTL                                      uint8
 	synSequence                                    uint32
 	quicUntil                                      time.Time
 	quicDrops                                      uint32

@@ -1,0 +1,130 @@
+package localstrategy
+
+import (
+	"encoding/binary"
+	"testing"
+	"time"
+)
+
+func TestCatalogInventoryAllGeneralAndUnsupportedAreExplicit(t *testing.T) {
+	c := BundledCatalog()
+	if len(c.Files) != 22 || c.Release != "1.10.4" || len(c.Sources) != 4 {
+		t.Fatal("incomplete release inventory")
+	}
+	plans, caps := c.Compile()
+	if len(plans) < 4 || len(plans) > 48 || len(caps) != len(c.Rules) {
+		t.Fatal("catalog compile inventory", len(plans), len(caps))
+	}
+	unsupported := 0
+	highRepeats := false
+	for _, cap := range caps {
+		if !cap.Supported {
+			unsupported++
+			if cap.Reason == "" || cap.Plan != "" {
+				t.Fatal("unsupported mode silently executable")
+			}
+		}
+	}
+	for _, plan := range plans {
+		for _, a := range plan.Actions {
+			highRepeats = highRepeats || a.Repeats >= 11
+		}
+	}
+	if unsupported == 0 || !highRepeats {
+		t.Fatal("unsupported/Flowseal repeats evidence absent")
+	}
+	t.Logf("%d general files, %d rules, %d own executable plans, %d explicitly unsupported", len(c.Files), len(c.Rules), len(plans), unsupported)
+}
+func catalogTestEngine(t *testing.T, actions []Action) (*LocalStrategyEngine, Metadata, *State) {
+	t.Helper()
+	p := chainProfile(actions...)
+	p.Preset = "browser-catalog"
+	p.Application = "chrome.exe"
+	e := engine(t, p)
+	m := metadata()
+	m.Application = `C:\Chrome\chrome.exe`
+	st := &State{}
+	syn := packet(6, nil)
+	syn[33] = 2
+	binary.BigEndian.PutUint32(syn[24:], 999)
+	checksumTransport(syn)
+	e.Process(syn, st, m)
+	st.ConfirmHandshake(1000, 99)
+	return e, m, st
+}
+func TestCatalogPacketsPreserveTLSAndCannotEnterSequenceSpace(t *testing.T) {
+	plans, _ := BundledCatalog().Compile()
+	for _, plan := range plans {
+		t.Run(plan.ID, func(t *testing.T) {
+			e, m, st := catalogTestEngine(t, plan.Actions)
+			data := largeHello(1955)
+			inputs := parts(data, 2, 1000)
+			var buf HelloBuffer
+			var out *BufferedResult
+			for _, p := range inputs {
+				_, out = e.BufferTCP(p, st, &buf, m, time.Now())
+			}
+			if out == nil || !out.Result.Modified {
+				t.Fatal("catalog did not transform")
+			}
+			r := out.Result
+			if len(r.Packets) > 20*len(inputs) || r.FakePackets > 16 {
+				t.Fatal("catalog bound exceeded")
+			}
+			for i, q := range r.Packets {
+				checkPacket(t, q)
+				if len(q) > 1500 {
+					t.Fatal("MTU exceeded")
+				}
+				if uint64(i) < r.FakePackets {
+					header := 20 + int(q[32]>>4)*4
+					size := len(q) - header
+					if int32(binary.BigEndian.Uint32(q[24:])-1000)+int32(size) >= 0 {
+						t.Fatal("fake overlaps application sequence")
+					}
+				}
+			}
+			assertStream(t, r, data, 1000)
+			if again := e.Process(inputs[0], st, m); again.Modified {
+				t.Fatal("cutoff did not stop")
+			}
+		})
+	}
+}
+func TestCatalogScopeBudgetAutottlAndOwnTemplate(t *testing.T) {
+	for _, fooling := range []string{"badseq", "ts", "md5sig", "ts,md5sig"} {
+		actions := []Action{{Kind: "fake-tls", TTL: 16, Repeats: 11, FakeModel: "tls13-google", Fooling: fooling, AutoTTL: true}, {Kind: "tcp-multisplit", Markers: []string{"1", "midsld"}}, {Kind: "tcp-disorder"}}
+		e, m, st := catalogTestEngine(t, actions)
+		st.ObserveServerTTL(56)
+		r := e.Process(tlsInput(1000), st, m)
+		if r.FakePackets != 11 || r.FakeTTL != 7 || len(r.Packets) != 14 {
+			t.Fatal("missing own plan", fooling, r.FakePackets, r.FakeTTL, len(r.Packets))
+		}
+		for _, q := range r.Packets {
+			checkPacket(t, q)
+		}
+		p := chainProfile(actions...)
+		if validateChain(p) == nil {
+			t.Fatal("legacy five-packet ceiling weakened")
+		}
+		p.Preset = "browser-catalog"
+		p.Application = "TslGame.exe"
+		if validateChain(p) == nil {
+			t.Fatal("catalog escaped browser scope")
+		}
+		p.Application = "chrome.exe"
+		p.Cutoff = 2
+		if validateChain(p) == nil {
+			t.Fatal("catalog cutoff escaped")
+		}
+	}
+	h := ownCatalogHello("www.google.com")
+	h2 := ownCatalogHello("www.google.com")
+	if len(h) != 1250 || string(h) == string(h2) {
+		t.Fatal("own fake size/randomness")
+	}
+	start, size, ok := tlsSNI(h)
+	if !ok || string(h[start:start+size]) != "www.google.com" {
+		t.Fatal("invalid own fake framing")
+	}
+}

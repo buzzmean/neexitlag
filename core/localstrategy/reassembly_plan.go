@@ -42,15 +42,28 @@ func chainStream(st *State, c *compiled) Result {
 	for _, a := range actions {
 		switch a.Kind {
 		case "fake-tls":
-			fake = oldSequenceFake(first, st, a.TTL)
+			fake = catalogFake(first, st, a)
 			if fake == nil {
 				return Result{}
 			}
-			ttl = a.TTL
+			ttl = fake[8]
 			if a.Repeats > 0 {
 				repeats = int(a.Repeats)
 			}
 		case "tcp-multisplit":
+			if len(a.Markers) > 0 {
+				positions, ok := catalogCuts(a, st.logicalHello)
+				if !ok {
+					return Result{}
+				}
+				for _, pos := range positions {
+					if pos <= 0 || pos >= len(st.helloOffsets) {
+						return Result{}
+					}
+					cuts = append(cuts, st.helloOffsets[pos])
+				}
+				continue
+			}
 			start := 0
 			if a.Anchor == "sni" {
 				var ok bool

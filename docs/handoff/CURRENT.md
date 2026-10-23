@@ -2811,3 +2811,18 @@ arguments; prefix argv сохраняется. PS7 fixture (real temp Git repo, 
 tracked rejected, Store alias rejected, real Python) PASS; parser/browser StrictMode
 PASS, workflow YAML parsed. PS5.1 fixture добавлен в CI, локально native5.1 нет.
 VPS/owner PC не запускались; повторный deployment не требуется.
+
+### 2 — каталог/packet foundation (23.10.2026; ещё не полный пункт2)
+Flowseal1.10.4/176f56dc:22 general*.bat,119rules,4MIT sources. zapretgui MIT
+найдена docs/LICENSE, notices добавлены. Offline data importer не исполняет scripts.
+6own TCP plans/17rules компилируются;102 (в т.ч.QUIC/HTTP/SYNdata/fakedsplit/seqovl)
+явно unsupported, не выдаются за рабочие. Own TLS1.3 fake1250B, repeats<=16, mixed
+markers/multisplit/disorder, oldseq + TS/MD5, autottl по exact SYN/ACK. Ограниченный
+browser-catalog ceiling20/input/cutoff1; legacyDIRECT+ ceiling5 и game guards
+не менялись. Пока каталог не включён в AUTO, это foundation, не ISP PASS.
+Go core/platform race PASS; pinned DLL filters70/iSCSI30/checksums PASS underWine;
+2Python inventory tests PASS; native kernel/PS5.1/ISP не проверены.
+Пункт3 имеет вопрос: CDN root403/404 <64KB, Native не видит signed video URL.
+Нужен ответ владельца: реальный bounded LOCAL trial с риском post-hello error либо
+строгий RELAY до подходящего фонового URL. Пока зависимое поведение не меняется.
+Signed CP update/shared stats/подгруппы/budget/failover ещё НЕ выполнены.

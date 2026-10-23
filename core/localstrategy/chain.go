@@ -9,8 +9,13 @@ import (
 )
 
 // Actions are a finite packet plan, not a scripting language. At most two old-sequence fakes,
-// one segmentation and one reversal; at most five emitted packets per input.
+// one segmentation and one reversal. Legacy <=5; explicit browser-catalog <=20.
 type Action struct {
+	// Catalog-only options. Legacy DIRECT+ retains its original five-packet ceiling.
+	Markers   []string `json:"markers,omitempty"`
+	FakeModel string   `json:"fake_model,omitempty"`
+	Fooling   string   `json:"fooling,omitempty"`
+	AutoTTL   bool     `json:"auto_ttl,omitempty"`
 	Repeats   uint8    `json:"repeats,omitempty"` // TCP only: default1, maximum2; total output remains <=5.
 	Kind      string   `json:"kind"`
 	Positions []uint16 `json:"positions,omitempty"`
@@ -23,16 +28,47 @@ func validateChain(p Profile) error {
 		return errors.New("invalid TCP chain")
 	}
 	split, fake, reverse := false, false, false
+	catalog := p.Preset == "browser-catalog"
+	if catalog && !catalogProfile(p) {
+		return errors.New("catalog requires selected browser TCP80/443 and one ClientHello cutoff")
+	}
+	ceiling, maxRepeats := 5, uint8(2)
+	if catalog {
+		ceiling = 20
+		maxRepeats = 16
+	}
 	for i, a := range p.Actions {
 		switch a.Kind {
 		case "fake-tls":
-			if fake || i != 0 || a.TTL < 2 || a.TTL > 16 || a.Repeats > 2 || len(a.Positions) > 0 || a.Anchor != "" {
+			if fake || i != 0 || a.TTL < 2 || a.TTL > 16 || a.Repeats > maxRepeats || len(a.Positions) > 0 || len(a.Markers) > 0 || a.Anchor != "" {
 				return errors.New("fake TLS requires explicit TTL 2..16 and first position")
+			}
+
+			if (a.FakeModel != "" || a.Fooling != "" || a.AutoTTL) && !catalog {
+				return errors.New("catalog fake requires browser-catalog scope")
+			}
+			if a.FakeModel != "" && a.FakeModel != "tls13-google" && a.FakeModel != "tls13-yandex" {
+				return errors.New("unknown own fake model")
+			}
+			if a.Fooling != "" && a.Fooling != "badseq" && a.Fooling != "ts" && a.Fooling != "ts,md5sig" && a.Fooling != "md5sig" {
+				return errors.New("unknown fooling")
 			}
 			fake = true
 		case "tcp-multisplit":
-			if a.Repeats != 0 || split || reverse || a.TTL != 0 || len(a.Positions) < 1 || len(a.Positions) > 3 || (a.Anchor != "" && a.Anchor != "sni") {
+			if a.Repeats != 0 || split || reverse || a.TTL != 0 || len(a.Positions)+len(a.Markers) < 1 || len(a.Positions)+len(a.Markers) > 3 || (a.Anchor != "" && a.Anchor != "sni") {
 				return errors.New("invalid bounded split")
+			}
+
+			if len(a.Markers) > 0 && (!catalog || len(a.Positions) > 0 || a.Anchor != "") {
+				return errors.New("invalid catalog markers")
+			}
+			for _, marker := range a.Markers {
+				if marker != "1" && marker != "2" && marker != "midsld" && marker != "sni+1" && marker != "sniext+1" {
+					return errors.New("unknown marker")
+				}
+			}
+			if a.FakeModel != "" || a.Fooling != "" || a.AutoTTL {
+				return errors.New("fake options on split")
 			}
 			last := uint16(0)
 			for _, v := range a.Positions {
@@ -43,7 +79,7 @@ func validateChain(p Profile) error {
 			}
 			split = true
 		case "tcp-disorder":
-			if a.Repeats != 0 || !split || reverse || i != len(p.Actions)-1 || len(a.Positions) > 0 || a.TTL != 0 || a.Anchor != "" {
+			if a.Repeats != 0 || !split || reverse || i != len(p.Actions)-1 || len(a.Positions) > 0 || a.TTL != 0 || a.Anchor != "" || len(a.Markers) > 0 || a.FakeModel != "" || a.Fooling != "" || a.AutoTTL {
 				return errors.New("disorder requires prior split")
 			}
 			reverse = true
@@ -61,11 +97,11 @@ func validateChain(p Profile) error {
 			}
 		}
 		if a.Kind == "tcp-multisplit" {
-			outputs = len(a.Positions) + 1
+			outputs = len(a.Positions) + len(a.Markers) + 1
 		}
 	}
-	if outputs+fakes > 5 {
-		return errors.New("TCP chain output exceeds five packets")
+	if outputs+fakes > ceiling {
+		return errors.New("TCP chain output exceeds scoped packet ceiling")
 	}
 	return nil
 }
@@ -202,15 +238,26 @@ func chainPackets(p []byte, st *State, c *compiled) Result {
 	for _, a := range c.Actions {
 		switch a.Kind {
 		case "fake-tls":
-			fake = oldSequenceFake(p, st, a.TTL)
+			fake = catalogFake(p, st, a)
 			if fake == nil {
 				return Result{}
 			} // uncertain handshake => entire plan fail-open
-			ttl = a.TTL
+			ttl = fake[8]
 			if a.Repeats > 0 {
 				repeats = int(a.Repeats)
 			}
 		case "tcp-multisplit":
+			if len(a.Markers) > 0 {
+				cuts, ok := catalogCuts(a, payload)
+				if !ok {
+					return Result{}
+				}
+				real = splitPayload(p, payload, cuts)
+				if len(real) == 0 {
+					return Result{}
+				}
+				continue
+			}
 			offset := 0
 			if a.Anchor == "sni" {
 				var ok bool
