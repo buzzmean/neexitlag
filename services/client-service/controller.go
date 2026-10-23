@@ -651,7 +651,7 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		return c.handleBrowser(method, raw)
 	case "local.presets", "local.preset.apply", "local.get", "local.set", "local.metrics", "local.network", "local.record", "local.recommend", "local.compare":
 		return c.handleLocal(method, raw)
-	case "acceptance.readiness", "relay.pool.diagnostics", "quality.diagnostics":
+	case "acceptance.readiness", "relay.primary.status", "relay.pool.diagnostics", "quality.diagnostics":
 		return c.handleRelayDiagnostics(ctx, method, raw)
 	case "capture.changes.marker", "capture.changes", "capture.marker", "capture.diagnostics":
 		return c.handleCapture(ctx, method, raw)

@@ -2783,3 +2783,10 @@ RELAY: это корректная деградация, не локальный
 2 каталог/техники с provenance/license,3 bounded subgroup selection,4 signed club
 learning,5 general browser ladder/data blocklist,6budget,7primary/standby.
 Главный экономический принцип добавлен по прямому указанию владельца.
+
+### 1a — IPC primary dispatch (23.10.2026)
+Воспроизведён unsupported relay.primary.status: subhandler был, main switch нет.
+Добавлен route и read-only regression. Static AST inventory проверяет56 dispatched
+методов, subhandlers и234 literal calls из Windows PS/desktop; early club.status
+route распознаётся, guard-only cases не считаются dispatch. Race subset PASS.
+Hostkey повторно деплоить не нужно, достаточно client update. VPS не запускался.
