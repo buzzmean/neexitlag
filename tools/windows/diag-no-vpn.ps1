@@ -287,7 +287,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-23.3 (video connection TTFB, admission/open timing, receive rates)'
+$ScriptVersion='2026-10-23.4 (YouTube DIRECT/LOCAL/RELAY ladder, strategy and bytes)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -620,7 +620,23 @@ function Write-RelayOpenPerformance($pool) {
  Say 'acquire includes pool wait/new mTLS+ticket session; stream_origin_open includes OPEN wire round trip and VPS TCP connect, not separate origin TLS. Existing QUIC sessions are reused; application TCP/TLS streams are never pooled across browser sockets.'
 }
 
+function Write-YouTubeLocalEvidence($ladder) {
+ if($null -eq $ladder){Say 'YouTube local ladder: UNINSTRUMENTED (service update required)';return}
+ Say ('YouTube local ladder: cache_entries='+(Prop $ladder 'cache_entries' 0)+' recent_records_omitted='+(Prop $ladder 'records_omitted' 0)+' cache_entries_omitted='+(Prop $ladder 'cache_entries_omitted' 0)+' contract='+(Prop $ladder 'replay_contract' 'UNKNOWN'))
+ foreach($stage in @(Prop $ladder 'stages' @())){
+  Say (' youtube-media stage='+(Prop $stage 'stage')+' strategy='+(Prop $stage 'strategy' '-')+' connections='+(Prop $stage 'Connections' 0)+' tx='+(Prop $stage 'TX' 0)+' rx='+(Prop $stage 'RX' 0)+' failures='+(Prop $stage 'Failures' 0)+' transport_confirmed='+(Prop $stage 'Confirmed' 0))
+ }
+ foreach($entry in @(Prop $ladder 'cache' @())){
+  Say (' youtube cache: profile='+(Prop $entry 'Profile')+' domain='+(Prop $entry 'Domain')+' stage='+(Prop $entry 'Stage')+' strategy='+(Prop $entry 'Strategy')+' until='+(Prop $entry 'Until')+' recheck='+(Prop $entry 'Retry')+' reason='+(Prop $entry 'Reason'))
+ }
+ foreach($flow in @(Prop $ladder 'records' @())){
+  Say (' youtube step #'+(Prop $flow 'id')+' profile='+(Prop $flow 'profile')+' domain='+(Prop $flow 'domain')+' destination='+(Prop $flow 'destination')+' stage='+(Prop $flow 'stage')+' strategy='+(Prop $flow 'strategy' '-')+' tx='+(Prop $flow 'TX' 0)+' rx='+(Prop $flow 'RX' 0)+' server_hello='+(Prop $flow 'ServerHello' $false)+' committed_transform_confirmed='+$(if(Prop $flow 'TransformKnown' $false){if(Prop $flow 'Transform' $false){'YES'}else{'NOT_CONFIRMED'}}else{'UNKNOWN_NOT_QUERIED'})+' reason='+(Prop $flow 'reason'))
+ }
+ Say 'LOCAL bytes are real upstream bytes; transport_confirmed requires committed native transform and sustained TLS bytes, not playback PASS. DIRECT/LOCAL ClientHello traffic can precede a RELAY fallback. Existing TLS never moves after origin bytes.'
+}
+
 function Write-NativeIngressEvidence($native) {
+ Write-YouTubeLocalEvidence (Prop $native 'youtube_local_ladder')
  Write-BrowserDNSEvidence $native
  $dc=Prop $native 'domain_cache';if($dc){Say ('native DNS cache: checked='+(Prop $dc 'checked_at')+' error='+(Prop $dc 'last_error')+' addresses='+(Prop $dc 'addresses')+' source='+(Prop $dc 'source')+' unknown_policy='+(Prop $dc 'unknown_policy'))}
  Write-TlsWireEvidence $native 'native.actual_upstream'
@@ -655,11 +671,26 @@ function Write-NativeFirewallEvidence($firewall) {
  Say 'Firewall admission controls the local SYN/ACK handoff, not remote SNI/TLS or Engine reservation release. DIRECT_STALL after actual forwarded ClientHello is not proof of a missing local allow rule. LOCAL_FLOW_RESERVATION_IN_USE is local lifecycle, not relay transport health.'
 }
 
+if((Want 'browser') -or ($Only -contains 'youtube')){
+Step 'relay_primary_mapping' {
+ try{
+  $mapping=Invoke-IPC 'relay.primary.status'
+  Say ('relay mapping: local_policy=VPS-01 primary='+(Prop $mapping 'configured_primary')+' standby='+(Prop $mapping 'configured_standby')+' last_actual_authenticated_id='+(Prop $mapping 'last_opened_authenticated_relay' 'NONE')+' reason='+(Prop $mapping 'reason'))
+  foreach($row in @(Prop $mapping 'connections' @())){Say (' relay payload: authenticated_id='+(Prop $row 'authenticated_relay_id')+' tcp_peer='+(Prop $row 'observed_tcp_session_endpoint' 'UDP_PEER_NOT_EXPOSED')+' opens='+(Prop $row 'Opens' 0)+' active='+(Prop $row 'Active' 0)+' tx='+(Prop $row 'TX' 0)+' rx='+(Prop $row 'RX' 0))}
+  if(Prop $mapping 'configured_primary' ''){
+   Say 'authenticated pool=VPS-PRIMARY (physical Hostkey; logical VPS-01 policy provider may select standby for a new open)'
+   Write-RelayOpenPerformance (Invoke-IPC 'relay.pool.diagnostics' @{relay_id='VPS-PRIMARY'})
+  }
+ }catch{Say 'primary relay mapping: UNINSTRUMENTED_OR_UNAVAILABLE; legacy VPS-01 pool below does not prove Hostkey data usage'}
+}
+}
+
 if($Only -contains 'youtube'){
 Section 'YouTube: Chrome + Edge, address/domain cache and actual relay payload bytes per minute'
 Step 'youtube' {
+ try{Write-YouTubeLocalEvidence (Prop (Invoke-IPC 'browser.native.status') 'youtube_local_ladder')}catch{Say 'YouTube local ladder: STATUS_UNAVAILABLE'}
  $st=Invoke-IPC 'status'
- Say ("service build: "+(Prop $st 'build' '-')+"; optimizing: "+(Prop $st 'optimizing')+"; youtube_via_relay="+(Prop (Prop $st 'settings') 'youtube_via_relay' $false)+" (relay-first preference; fallback no longer needs this flag)")
+ Say ("service build: "+(Prop $st 'build' '-')+"; optimizing: "+(Prop $st 'optimizing')+"; youtube_via_relay="+(Prop (Prop $st 'settings') 'youtube_via_relay' $false)+" (legacy preference; automatic YouTube local ladder does not require it)")
  try{Write-RelayOpenPerformance (Invoke-IPC 'relay.pool.diagnostics' @{relay_id='VPS-01'})}catch{Say 'relay OPEN performance: UNAVAILABLE (older service/no current pool)'}
  $allRecords=@();$shownUsage=$false
  foreach($lane in @('browser','edge')){

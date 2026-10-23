@@ -58,13 +58,22 @@ if(!$Inspect -and !$Rollback){
  try {
  # Closing only the same owner's GUI through its existing activation pipe frees
  # legacy recovery helper handles. Never terminate Chrome/Edge/game processes.
- & (Join-Path $PSScriptRoot 'Close-VeliqGuiForUpdate.ps1')
+ $needsGuiClose=$false
+ $installedService=Join-Path (Split-Path -Parent $Manifest) 'neexitlag-service.exe'
+ foreach($helper in @(Get-CimInstance Win32_Process -Filter "Name='neexitlag-service.exe'")){
+  if([string]$helper.ExecutablePath -ieq $installedService -and [string]$helper.CommandLine -like '*--chrome-recovery*'){
+   $principal=Invoke-CimMethod -InputObject $helper -MethodName GetOwnerSid
+   if($principal.ReturnValue -eq 0 -and $principal.Sid -eq $sid){$needsGuiClose=$true}
+  }
+ }
+ if($needsGuiClose){& (Join-Path $PSScriptRoot 'Close-VeliqGuiForUpdate.ps1')}
  & (Join-Path $PSScriptRoot 'update-service.ps1') -InstallDirectory (Split-Path -Parent $Manifest)
  $until=[DateTime]::UtcNow.AddSeconds(60);$ready=$false
  while([DateTime]::UtcNow -lt $until){
   try{
    $state=Invoke-ServiceIPC 'relay.primary.status'
-   if($state.configured_primary -eq ($RelayHost+':4433')){$ready=$true;break}
+   $status=Invoke-ServiceIPC 'status'
+   if($state.configured_primary -eq ($RelayHost+':4433') -and $status.connected -and $status.optimizing -and $status.backend.ready){$ready=$true;break}
   }catch{ }
   Start-Sleep -Seconds 2
  }

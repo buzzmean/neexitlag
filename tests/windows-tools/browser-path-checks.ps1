@@ -4,7 +4,7 @@ $path=Join-Path $PSScriptRoot '..\..\tools\windows\diag-no-vpn.ps1'
 $tokens=$null;$errors=$null
 $ast=[System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw ($errors|Out-String)}
-foreach($name in @('Prop','Write-BrowserDNSEvidence','Write-RelayOpenPerformance','Write-TlsWireEvidence','Write-BrowserPathEvidence','Write-NativeIngressEvidence','Write-NativeFirewallEvidence','Write-BrowserFirstByteEvidence')){
+foreach($name in @('Prop','Write-YouTubeLocalEvidence','Write-BrowserDNSEvidence','Write-RelayOpenPerformance','Write-TlsWireEvidence','Write-BrowserPathEvidence','Write-NativeIngressEvidence','Write-NativeFirewallEvidence','Write-BrowserFirstByteEvidence')){
  $fn=$ast.Find({param($a)$a -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $a.Name -eq $name},$true)
  if(!$fn){throw "Missing function $name"};Invoke-Expression $fn.Extent.Text
 }

@@ -80,3 +80,39 @@ SAN, GET200/128KiB, DIRECT blackhole → LOCAL, повтор из cache) про�
 тесте задаётся backend seam: это не WinDivert injection/ISP proof. Также проверяются
 finite first-flight, TLS alert/early-data no replay, TTL/scope/cache/guard и packet
 checksum/old-sequence/output/cutoff. Windows/ISP2мин1080p ещё не проверены.
+
+## Обновление и короткая приёмка владельца
+
+Достаточно обновления клиента; для LOCAL-first deployment VPS не нужен. Из корня
+репозитория, PowerShell администратора под SID владельца. Браузеры оставьте открытыми.
+`Close-VeliqGuiForUpdate` закрывает только VELIQ (не браузеры), освобождая старые
+recovery helpers, если они есть. На обычном ПК GUI затем запускайте обычным ярлыком,
+на уже подтверждённом UAC-off ПК он остаётся full-admin как раньше. Служба после
+обновления сама поднимает AUTO; никаких PAC/restart диалогов этот код не добавляет.
+
+```powershell
+git switch codex/work
+git pull --ff-only origin codex/work
+$m=Get-Content -Raw "$env:ProgramData\neexitlag\service.json" | ConvertFrom-Json
+& .\tools\windows\build-e2e.ps1 -DriverDirectory $m.driver.directory
+& .\tools\windows\Close-VeliqGuiForUpdate.ps1
+& .\tools\windows\update-service.ps1
+# В уже открытом Chrome/Edge: новая вкладка YouTube, 1080p2мин, перемотать2–3раза.
+& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube
+```
+
+В `YouTube local ladder` сравнить `stage=LOCAL`/имя стратегии, committed transform,
+RX и `transport_confirmed`, а также `stage=RELAY` RX до/после. При работающем LOCAL
+**новый** video TLS payload через relay должен быть около0; CP/ticket/DNS DoH/echo
+трафик и старые pinned relay-сессии в это обещание не входят. Проверить VK/обычный
+Google DIRECT, OpenAI RELAY_REQUIRED, затем отключение оптимизации → обычный сайт.
+`diag-result.txt` не коммитить. Неподтверждённый transform не выдавать за «точно не
+применялся», если ledger потерян; `NOT_CONFIRMED` — отсутствие положительного proof.
+
+Новые release/native Windows CI могут не стартовать из-за известного account
+billing gate: `steps=[]` не является выполненными тестами. Доступная проверка
+pinned DLL под Wine — компиляция/CRC, не WinDivertOpen/kernel/ISP acceptance.
+
+P0 Hostkey отдельно готовит сервер и автоматически обновляет существующую службу
+на ПК запуска (без переустановки/новой identity): docs/RELAY_HOSTKEY_P0.md. Не
+запускайте эту remote mutation как обязательный шаг проверки LOCAL-first.
