@@ -2629,3 +2629,17 @@ CPU/metrics/ss — docs/YOUTUBE_RELAY_ADMISSION.md. Отдельные12video/4o
 - GitHub Verify f107204 https://github.com/buzzmean/neexitlag/actions/runs/39985233531: core/windows failure с steps=[]; раньше владелец подтвердил billing gate, новую annotation не прочли. Никакого CI PASS.
 - Журнал решений: downstream credit увеличен только на клиенте после real relay lab; лимиты admission/pool/сервер/авторизация не менять. TCP/TLS streams не переиспользуются между независимыми соединениями; shared QUIC session уже reuse. Нужны измерения данных на ПК для полного объяснения minute-long buffering; 2–3с/1080p/36PC не обещать.
 - Владельцу: client update/hash check/без browser restart — docs/YOUTUBE_RELAY_PERFORMANCE.md, затем `& .\tools\windows\observe-video-relay.ps1 -DurationSeconds 120` во время нового1080p video и `& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube`. VPS обновлять не нужно; агент VPS не запускал.
+
+### Опубликованный performance-код и CI
+
+Код/наблюдатель/инструкция запушены: `506b20f`, `f107204`, `b44aeb8`.
+Последний полный race exit0 (`video-last-race`), последние vet/build Linux/Windows exit0;
+PS7 empty-ledger и10s observer fake-IPC first2empty→8samples PASS. Предыдущие demo
+FAIL сохранены в рисках выше, базовый1bb001f воспроизводит общий deadline.
+CI `b44aeb8`: Verify https://github.com/buzzmean/neexitlag/actions/runs/39988493361
+(core/windows: failure,0steps), Chrome https://github.com/buzzmean/neexitlag/actions/runs/39988493370
+(driver/policy: failure,0steps), Edge https://github.com/buzzmean/neexitlag/actions/runs/39988493382
+(failure,0steps). Ни один из этих Windows jobs не исполнил код; не CI/Internet PASS.
+Этот заключительный handoff-коммит меняет только документ, код тот же b44aeb8.
+VPS deployment НЕ нужен; следующее действие владельца — обновить только клиент
+по docs/YOUTUBE_RELAY_PERFORMANCE.md и записать120s CSV на уже открытом браузере.
