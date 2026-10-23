@@ -218,6 +218,11 @@ func (u *browserRelayUsage) snapshot() relayUsageSnapshot {
 
 func isVideo(q browserproxy.Request) bool { return flowpolicy.DomainMatches(q.Host, "googlevideo.com") }
 
+// Do not impose web admission/idle budgets on mtalk/push and other TCP ports.
+func otherGoogleWebAdmission(q browserproxy.Request, p browserproxy.Plan) bool {
+	return q.Port == 443 && !isVideo(q) && !restrictiveBrowserDomain(q.Host) && (browserGoogleDestination(p.Destination) || ordinaryGoogleDomain(q.Host))
+}
+
 // Called while browser.mu is already held by status IPC.
 func (c *Controller) relayUsageLocked() relayUsageSnapshot {
 	if c.browser.usage == nil {

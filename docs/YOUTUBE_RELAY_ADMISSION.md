@@ -23,8 +23,12 @@ Chrome и Edge используют общий бюджет ПК, но **раз�
 запас соединений, не число сегментов и не подтверждённый оптимум плеера. Предел
 выбран консервативно; нужен двухминутный ретест, а не обещание Internet PASS.
 
-Максимум16Google relay-туннелей ПК, суммарная очередь32 — не384 бесконтрольных
-соединения. Глобальный QUIC pool8×48/probe reserve/lease/mTLS не меняется.
+Для двух ограничиваемых классов максимум16relay-туннелей ПК, очередь32.
+Это не общий предел ВСЕГО relay-трафика: protected control/API (YouTube API,
+ytimg/ggpht, OpenAI и др.) сохраняют отдельный существующий глобальный bounded
+QUIC transport8×48/probe reserve. Их нельзя вытеснять ordinary opaque-потоками.
+Ordinary otherGoogle budget относится к AUTO webTCP443, не mtalk/push5228 и не
+явному MANUAL browser profile. Lease/mTLS не меняются.
 До первого I/O idle3с; затем активность Read/Write продлевает срок. Idle closes
 освобождают permits ровно один раз и учитываются отдельно; Read возвращает EOF
 для scheduled local idle close, не generic relay session failure. Активный
@@ -42,8 +46,9 @@ protected DNS ambiguity, explicit RELAY_REQUIRED/BLOCK не могут так о
 
 ## Нагрузка VPS (C)
 
-VPS1vCPU/2GB: больший предел не увеличивает CPU/полосу сервера. На36ПК абсолютный
-предел только Google —576TCP streams, обычное воспроизведение использует меньше.
+VPS1vCPU/2GB: больший предел не увеличивает CPU/полосу сервера. На36ПК потолок этих двух
+классов —576TCP streams; protected API/прочие приложения добавляют свой трафик
+в рамках существующего transport cap. Обычное воспроизведение использует меньше.
 Например,8Мбит/с видео ×36 =288Мбит/с payload плюс QUIC/TLS overhead; это расчёт,
 не измеренная скорость. Одно ядро может стать пределом раньше порта1Гбит/с.
 Пилот: сначала1ПК, затем2–3, затем постепенно36; при постоянной загрузке ядра
@@ -100,3 +105,105 @@ google_admission_total_active показывает сумму, общего shar
 Google hints vs shared-IP SNI failures; защищённые/explicit правила не понижаются;
 ошибка OPEN до payload возвращает настоящий DIRECT plan обычному origin.
 Это не проверка YouTube/player/Windows kernel или нагрузки36клубныхПК.
+
+## D. Обновление и двухминутная приёмка владельца
+
+Из клона codex/work, PowerShell администратора под владельцем установки; Chrome и
+Edge оставить открытыми. GUI не менялся — build-desktop/install-desktop не нужны.
+
+```powershell
+git pull --ff-only origin codex/work
+```
+
+```powershell
+& .\tools\windows\test-browser-startup.ps1 -Phase baseline
+```
+
+Закрывается только старый GUI/recovery helper, не браузеры:
+
+```powershell
+& .\tools\windows\Close-VeliqGuiForUpdate.ps1
+```
+
+```powershell
+& .\tools\windows\build-e2e.ps1 -DriverDirectory "$env:ProgramData\neexitlag\driver"
+```
+
+Обязателен WINDIVERT_FILTERS_PASS, далее успешный конец build-e2e. PS5.1 dotted
+-test flags теперь quoted; old/partial generated binaries удаляются в начале и
+при ошибке. Если сборка не прошла, update-service не запускать. Установленная
+служба/identity/config во время сборки не удаляются.
+
+```powershell
+& .\tools\windows\update-service.ps1
+```
+
+```powershell
+(Get-FileHash .\bin\windows-e2e\neexitlag-service.exe).Hash -eq (Get-FileHash "$env:ProgramData\neexitlag\neexitlag-service.exe").Hash
+```
+
+Ожидается True. Запуск имеющегося GUI:
+
+```powershell
+Start-Process "$env:LOCALAPPDATA\Programs\VELIQ\VELIQ.exe"
+```
+
+```powershell
+. .\tools\windows\common.ps1
+```
+
+```powershell
+Invoke-ServiceIPC 'status' | Select-Object build,connected,optimizing,capture_active,connection_reason
+```
+
+Нужны новый build, True/True/True, READY. Не закрывать браузеры и не менять PAC.
+
+```powershell
+& .\tools\windows\test-browser-dns.ps1 -DurationSeconds 120 -RequireGoogleDirect
+```
+
+Пока идёт наблюдение120с: в уже открытом Chrome открыть YouTube, воспроизвести
+видео2мин и сделать несколько перемоток; также открыть vk.ru, google.com и
+chromewebstore.google.com. Не сбрасывать браузер/правила. Требуются:
+
+- Видео действительно играет без чёрного экрана/остановок (наблюдение владельца).
+- Известный googlevideo имеет native RELAY_REQUIRED/VPS-01, TLS ServerHello и
+  свежие payload bytes; VK и обычный Google имеют DIRECT.
+- VIDEO_ADMISSION failures_delta=0; dedicated_limit=12, other_google_limit=4,
+  scope=DEDICATED_GOOGLEVIDEO_12_PLUS_OTHER_GOOGLE_4.
+- Все три маршрута подтверждаются для одного Chrome profile, не смешением
+  записей разных браузеров.
+- Основные PID/birth Chrome/Edge и процесс службы не менялись. Старый HTTP/2 не
+  мигрирует: скрипт может учитывать свежий обмен уже существующего потока по delta.
+
+Скрипт НЕ управляет плеером и не читает страницу. Его положительный verdict —
+TRANSPORT_ROUTES_OBSERVED_PAGE_NOT_VERIFIED, не автоматический playback/Internet
+PASS. Старые cumulative bytes, opaque Google,5-byte alert, counter reset или
+legacy shared pool не дают ложного подтверждения. Bounded retained records/lost
+показаны; полный global no-leak proof по этой выборке не заявляется.
+
+```powershell
+& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube
+```
+
+После теста при необходимости обычная проверка отключения/выхода:
+
+```powershell
+& .\tools\windows\test-browser-startup.ps1 -Phase ready
+```
+
+Выключить оптимизацию в GUI, открыть новую vk.ru вкладку:
+
+```powershell
+& .\tools\windows\test-browser-startup.ps1 -Phase disabled
+```
+
+«Выход» из трея, снова новая vk.ru вкладка:
+
+```powershell
+& .\tools\windows\test-browser-startup.ps1 -Phase exit
+```
+
+Все ручные действия с браузером — только вкладки/плеер; без restart/policy reload.
+Клиентское обновление не требует VPS deployment. На настоящем Windows/PS5.1/ISP
+эти изменения агентом не проверены; итог приёмки должен дать владелец.

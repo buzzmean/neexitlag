@@ -251,3 +251,12 @@ YouTube aliases (youtubei.googleapis.com, yt3.googleusercontent.com и друг�
 relay только для того же (network, profile, IP:port, hash hint set), TTL2мин,
 максимум256ключей. Чужой SNI/hostname на sharedIP не наследует этот отказ. Existing
 TCP не меняется; известные origin timeout rules также сохраняются.
+
+## Актуальное исправление video starvation, 23.10.2026
+
+Shared8 выше — история305e2fd. Сейчас отдельные googlevideo12 и otherGoogle4;
+ordinary Google hints не наследуют чужой SNI-failure. Capacity ordinary AUTO
+fallback — реальный новый DIRECT plan до payload; protected/DoH/explicitRequired
+не ослаблены. Idle/cancel/failure метрики разделены. Расчёт, ограничения, команды
+обновления и read-only VPS-наблюдения — docs/YOUTUBE_RELAY_ADMISSION.md.
+Двухминутная проверка: test-browser-dns.ps1 -DurationSeconds120 -RequireGoogleDirect.

@@ -127,3 +127,40 @@ foreach($file in @('test-browser-dns.ps1','browser-dns-evidence.ps1')){
 }
 Check ((Get-BrowserDNSTransportVerdict @()) -ne 'TRANSPORT_ROUTES_OBSERVED_PAGE_NOT_VERIFIED') 'Empty evidence forged proof'
 Write-Host 'PASS named native transport observation, no opaque/PAC/alert/page inference, protected DIRECT detection and acceptance parser; no browser/VPS operations'
+
+$video.policy.action='RELAY_REQUIRED';$video.ingress='NATIVE_TCP';$video.domain='r1.googlevideo.com'
+$google=[pscustomobject]@{id=3;owner=[pscustomobject]@{profile_id='chrome'};domain='chromewebstore.google.com';ingress='NATIVE_TCP';sent_bytes=2000;received_bytes=5000;tls_wire=[pscustomobject]@{origin=[pscustomobject]@{server_hello_complete=$true}};policy=[pscustomobject]@{action='DIRECT'}}
+$rows=@((Get-BrowserDNSTransportObservation $video),(Get-BrowserDNSTransportObservation $vk))
+Check ((Get-BrowserDNSTransportVerdict $rows -RequireGoogleDirect) -eq 'GOOGLE_DIRECT_EXCHANGE_NOT_OBSERVED') 'Google DIRECT proof was not required'
+$rows+=@(Get-BrowserDNSTransportObservation $google)
+Check ((Get-BrowserDNSTransportVerdict $rows -RequireGoogleDirect) -eq 'TRANSPORT_ROUTES_OBSERVED_PAGE_NOT_VERIFIED') 'Named video relay + VK/Google DIRECT proof missing'
+foreach($alias in @('youtubei.googleapis.com','yt3.googleusercontent.com','wide-youtube.l.google.com')){
+ $google.domain=$alias
+ Check (Get-BrowserDNSTransportObservation $google).protected_direct ('YouTube alias incorrectly accepted as ordinary Google DIRECT '+$alias)
+}
+Write-Host 'PASS separate Google/WebStore DIRECT requirement and protected YouTube aliases; no page/playback inference'
+
+$google.domain='www.google.com'
+$o=Get-BrowserDNSDeltaObservation $google -InitialBytes @(2000,5000)
+Check (!$o.exchange -and $o.tx -eq 0 -and $o.rx -eq 0) 'Old cumulative bytes fabricated this-window evidence'
+$o=Get-BrowserDNSDeltaObservation $google -InitialBytes @(1000,4000)
+Check ($o.exchange -and $o.tx -eq 1000 -and $o.rx -eq 1000) 'Existing HTTP2 fresh exchange delta discarded'
+$reset=$false;try{Get-BrowserDNSDeltaObservation $google -InitialBytes @(3000,5000)|Out-Null}catch{$reset=$_.Exception.Message -eq 'NATIVE_FLOW_COUNTERS_RESET'}
+Check $reset 'Reset counters fabricated traffic'
+$google.domain='www.youtube.com'
+Check (!(Get-BrowserDNSDeltaObservation $google -InitialBytes @(2000,5000)).protected_direct) 'Pre-window DIRECT evidence falsely attributed to this test'
+$beforeAdmission=[pscustomobject]@{googlevideo_admission_failures=2}
+$afterAdmission=[pscustomobject]@{googlevideo_admission_failures=2;admission_scope='DEDICATED_VIDEO';googlevideo_admission_canceled=99}
+Check ((Get-BrowserDNSVideoAdmissionVerdict $beforeAdmission $afterAdmission -RequireDedicated) -eq 'VIDEO_ADMISSION_STABLE') 'Cancellation forged capacity failure'
+$afterAdmission.googlevideo_admission_failures=3
+Check ((Get-BrowserDNSVideoAdmissionVerdict $beforeAdmission $afterAdmission -RequireDedicated) -eq 'VIDEO_ADMISSION_FAILURES_INCREASED') 'Admission failures ignored'
+$afterAdmission.googlevideo_admission_failures=1
+Check ((Get-BrowserDNSVideoAdmissionVerdict $beforeAdmission $afterAdmission -RequireDedicated) -eq 'VIDEO_ADMISSION_COUNTERS_RESET') 'Restart/reset counters accepted'
+$afterAdmission.googlevideo_admission_failures=2;$afterAdmission.admission_scope='LEGACY_SHARED'
+Check ((Get-BrowserDNSVideoAdmissionVerdict $beforeAdmission $afterAdmission -RequireDedicated) -eq 'VIDEO_ADMISSION_OLD_SHARED_POOL') 'Old shared pool accepted'
+Check ((Get-BrowserDNSVideoAdmissionVerdict ([pscustomobject]@{}) $afterAdmission) -eq 'VIDEO_ADMISSION_COUNTERS_UNINSTRUMENTED') 'Missing metrics forged zero failures'
+Write-Host 'PASS fresh delta on pinned HTTP2, no old bytes/reset inference; independent stable video admission and cancellation/legacy/incomplete rejection'
+
+$video.domain='r1.googlevideo.com';$video.policy.action='RELAY_REQUIRED';$google.domain='www.google.com';$google.owner.profile_id='edge'
+Check ((Get-BrowserDNSTransportVerdict @((Get-BrowserDNSTransportObservation $video),(Get-BrowserDNSTransportObservation $vk),(Get-BrowserDNSTransportObservation $google)) -RequireGoogleDirect) -eq 'SAME_BROWSER_PROFILE_ROUTES_NOT_OBSERVED') 'Cross-browser traffic fabricated one Chrome profile routes'
+Write-Host 'PASS required routes must share one browser profile; cross-browser mixing is not proof'

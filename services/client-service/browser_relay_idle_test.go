@@ -1,8 +1,10 @@
 package clientservice
 
 import (
+	"github.com/buzzmean/neexitlag/core/browserproxy"
 	"io"
 	"net"
+	"net/netip"
 	"testing"
 	"time"
 )
@@ -138,5 +140,20 @@ func TestPlayerParallelRangesAndSeekWaitWhileOpaquePoolIsFull(t *testing.T) {
 	}
 	if s = u.snapshot(); s.TotalGoogleActive != 0 || s.VideoTimeouts != 0 || s.VideoWaited != 4 {
 		t.Fatal(s)
+	}
+}
+
+func TestGoogleWebAdmissionExcludesPushPortsAndKnownProtectedControl(t *testing.T) {
+	for _, port := range []uint16{80, 443, 5228} {
+		q := browserproxy.Request{Host: "mtalk.google.com", Port: port}
+		p := browserproxy.Plan{Destination: netip.AddrPortFrom(netip.MustParseAddr("64.233.162.188"), port)}
+		if got := otherGoogleWebAdmission(q, p); got != (port == 443) {
+			t.Fatal(port, got)
+		}
+	}
+	for _, host := range []string{"rr1.googlevideo.com", "youtubei.googleapis.com", "yt3.ggpht.com"} {
+		if otherGoogleWebAdmission(browserproxy.Request{Host: host, Port: 443}, browserproxy.Plan{Destination: netip.MustParseAddrPort("64.233.162.188:443")}) {
+			t.Fatal("protected control competes with opaque", host)
+		}
 	}
 }

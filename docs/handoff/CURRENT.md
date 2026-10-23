@@ -1,5 +1,14 @@
 # CURRENT — состояние проекта (обновляется в конце каждой сессии)
 
+Последний итог Codex 23.10.2026: YouTube starvation305e2fd исправлен в codex/work.
+Build1c06fb5, A03eba78, Bbf936f2, C4f38988, D — этот коммит. Dedicated video12/other4,
+ordinary Google DIRECT hints/capacity fallback before payload, protected unchanged,
+idle/queue/typed diagnostics. Полные local Go race/vet/build Linux/Windows PASS;
+PS7 fixtures и Windows EXE8cases/pinned DLL70variants под Wine PASS (не native
+Windows/PS5.1/player/36PC PASS). Команды — docs/YOUTUBE_RELAY_ADMISSION.md.
+VPS/credentials/certificates/PR8 не тронуты, deployment VPS не требуется.
+Файловая область освобождена; ждём двухминутную приёмку владельца без browser restart.
+
 Последний итог Codex 22.10.2026: срочный CAPTURE_START_FAILED e3dc65c — исправление в этом коммите. Причина: WinDivert 2.2.2 не поддерживает `not (...)`; настоящий pinned DLL сообщает parse error offset=117/length=574. De Morgan сохраняет private iSCSI kernel bypass без обхода protected TCP с локальным портом 3260. Все 7 service-фильтров компилируются до сборки EXE и каждого WinDivertOpen; обязательный Windows gate без SKIP, AST inventory, реальные DLL compiler/evaluator/limits regressions. DLL под Wine: 70 комбинаций + 30 iSCSI matches + negative/limits PASS; это не Windows kernel PASS. Финальный полный Go race/vet/build Linux/Windows и Windows vet, PS7 fixture/YAML/7 installer tests PASS. Первый race под параллельными сборками: DNS 1s и demo deadline FAIL; DNS отдельно x3 и полный спокойный повтор PASS, их код не менялся. Реальные Windows/WinDivertOpen/PUBG матчи ещё НЕ ПРОВЕРЕНЫ. Область освобождена; команды — docs/WINDIVERT_FILTER_VALIDATION.md. VPS/сертификаты/credentials/PR8 не тронуты.
 
 Последний итог Codex 22.10.2026: общий игровой UDP механизм готов в коде, `codex/work`. Коммиты `eb4c265`, `def5946`, `17b1c69`, `fd8f7b9`, `022ad01`, `4ea4645` (последний runtime). DIRECT → bounded local priming → authenticated RELAY только после предыдущих неудач; immutable новые tuples, healthy DIRECT endpoints отдельно, network epoch, PUBG default-on/остальные opt-in, Vanguard/FACEIT gate. Приманки собственные, без zapret/Flowseal. Реальные counters/GUI/инкрементальная приёмка и ограничения — docs/GAME_UDP.md. Финальный post-fix `go test -race -p 1 ./...`, vet, build Linux/Windows, Windows test EXE compile PASS; C#191/WPF0errors+4 прежних CS8604; PS7/StrictMode/YAML PASS. Windows runtime/WinDivert injection/BattlEye/матчи/RTT НЕ ПРОВЕРЕНЫ. Game UDP CI кода 4ea4645: https://github.com/buzzmean/neexitlag/actions/runs/39801168382 — linux/windows failure, steps=[]; не CI PASS. Ранее владельцем подтверждён billing gate; текущую annotation отдельно не читали. Область освобождена. VPS/credentials/сертификаты/PR8 не тронуты; ветки Claude/direct-plus-flowseal не менялись.
@@ -22,7 +31,7 @@
 
 | Работа | Файлы | Агент | Ветка | Статус |
 |---|---|---|---|---|
-| YouTube admission/ordinary Google/build PS5.1 A–D (23.10.2026) | services/client-service browser policy/admission/meter; core/browserproxy Plan/errors; tools/windows build/filter/diag/acceptance; tests/docs | Codex | codex/work | В РАБОТЕ: shared Google starvation, DIRECT hints, dedicated video admission и безопасная сборка |
+| YouTube admission/ordinary Google/build PS5.1 A–D (23.10.2026) | services/client-service browser policy/admission/meter; core/browserproxy Plan/errors; tools/windows build/filter/diag/acceptance; tests/docs | Codex | codex/work | ОСВОБОЖДЕНО: build/A/B/C/D запушены; локальные проверки PASS; ждёт Windows/ISP 2мин video retest |
 | Browser DNS/DoH и opaque recovery A–E (23.10.2026) | core/browserproxy DNS/первые байты; platform/windows DNS/capture/domain; services/client-service browser*; tests/diag/docs | Codex | codex/work | ОСВОБОЖДЕНО: A–E реализованы/запушены; ждёт реальной Windows/ISP приёмки; svchost/custom DoH ограничения задокументированы |
 | Срочно: компиляция фильтров WinDivert/iSCSI (22.10.2026) | platform/windows capture/loader/storage/filter tests; tools/windows build/filter check; Windows CI; docs | Codex | codex/work | СВОБОДНО: grouped NOT исправлен; все фильтры обязательны к проверке DLL; actual Windows capture ждёт владельца |
 | PUBG: scope античита/local-first/status (22.10.2026) | core/gameudp; platform/windows game UDP guard; services/client-service game_udp; desktop GameUdp; tests/docs | Codex | codex/work | СВОБОДНО: scope/local-first/GUI готовы; реальные Windows/PUBG матчи ждут владельца |
@@ -2541,3 +2550,49 @@ docs/YOUTUBE_RELAY_ADMISSION.md: расчёт bounded budget, оговорка �
 владельцу. Ни одна команда на VPS агентом не выполнялась. PS7 StrictMode/old-service
 snapshot/safe fields fixture PASS; PS5.1 native проверки ещё не запускались.
 Далее D, область занята.
+
+
+## 23.10.2026 — YouTube starvation D: итог и передача
+
+Коммиты: build1c06fb5, A03eba78, Bbf936f2, C4f38988; D — этот коммит.
+Причины: shared8занятopaque, ожидание2с не помогает при удерживаемых permits;
+local admission скрыт какopen_io_failed; exactIP/family failure путал SNI YouTube
+и обычныйGoogle. Native observed ordinary hints теперь DIRECT, при реальном
+собственном отказе scopedcache; YouTube aliases/knownDoH/ambiguity protected.
+Дополнение владельца ChromeWebStore: capacity обычного AUTO => фактический DIRECT
+plan до payload; protected/explicitRequired не откатываются. No established replay.
+
+D: test-browser-dns -DurationSeconds120 -RequireGoogleDirect требует named video
+relay + VK/ordinaryGoogle DIRECT, zero video failure delta, dedicated scope;
+неизменность main browser PID/birth и службы. Свежие bytes existingHTTP2 считаются
+по delta, старые cumulative/reset не дают proof. Три маршрута требуют один
+Chrome profile, не смесь разных браузеров. Canceled отдельно. Видео/перемотку
+наблюдает владелец: UI не управляется/не читается, page/playback PASS не выдуман.
+
+Итог: полный go test -race -p1 ./... PASS на финальном Go source; go vet./... PASS;
+Linux/Windows amd64 build PASS; Windows platform/service vet PASS; оба Windows test
+EXE compile PASS. Восемь Windows admission/idle/concurrency/scope unit cases под Wine PASS,
+не Windows kernel/driver/Chrome. Настоящий pinned DLL:70compile variants, private
+SAN evaluator/negative/limits и DNS worker fixture под Wine PASS; driver не открыт.
+PS7 build-cleanup/quotedflags/installed sentinel и browser-path/120sec acceptance
+projection/counter/delta/parser fixtures PASS. NativePS5.1/настоящийWindows и
+ISP/YouTube2мин/36PC нагрузка НЕ ПРОВЕРЕНЫ. D также ограничил otherGoogle admission/idle webTCP443, чтобы не трогать
+mtalk/push5228; known protected control/API остаётся вне ordinary4 и под
+существующим global bounded transport, не обещан общий cap16 на весь relay.
+Короткий .example fixture был заменён
+на валидное publicDNS имя, vendor-public-name check не ослаблен. C#не менялся.
+
+CI C4f38988: Verify39977101529, core/windows failure с steps=0; новый CIне исполнил
+код. Известный accountbilling gate ранее подтверждён владельцем, текущая аннотация
+отдельно не прочитана; CI PASS не заявлен. VPS/SSH/production/certificates/credentials/
+DB/PR8/другие ветки не тронуты, deployment VPS не требуется.
+
+Владельцу из клона admin sameSID: git pull; startup baseline с открытыми Chrome/Edge;
+Close-VeliqGuiForUpdate(толькоGUI); build-e2e с ProgramData driver (обязателен DLL
+PASS, старые bin удалены); update-service; SHA256True; запустить GUI; status READY;
+test-browser-dns -DurationSeconds120 -RequireGoogleDirect, играть видео/перемотать,
+открыть VK/Google/WebStore в старомChrome; diag-no-vpn -Only browser,youtube.
+Затем startup ready/disabled/exit и новыеVKвкладки. Команды по одной и read-only SSH
+CPU/metrics/ss — docs/YOUTUBE_RELAY_ADMISSION.md. Отдельные12video/4other +32waiting
+и20/10сidle — стартовый расчёт, не измерение ёмкости1vCPU/VPS. Полевая приёмка
+остаётся открытой, файловая область освобождена.
