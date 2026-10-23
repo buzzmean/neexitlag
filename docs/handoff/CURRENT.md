@@ -2504,3 +2504,13 @@ identity/installed-like directories защищены; неизвестные ф�
 PS7 isolated early/late failure + installed sentinel/AST argument fixture PASS.
 Настоящий PS5.1 повторяется владельцем/CI; работа на VPS не выполнялась.
 Далее A/B/C/D, область занята.
+
+## 23.10.2026 — YouTube starvation A
+
+Сборка исправлена 1c06fb5. A: ordinary Google DNS/outer hints не наследуют чужой
+Google-family/exactIP failure; несколько только ordinary hints также DIRECT.
+YouTube API/CDN aliases, protected ambiguity, DoH и explicit BLOCK не ослаблены.
+Реальный отказ DIRECT ordinary hint set имеет собственный network/profile/IP/
+hint-hash cache, TTL2мин/max256; unrelated SNI не отравляет ordinary origins.
+Targeted Go race и vet service PASS; native Windows/ISP ещё не проверены.
+Далее B/C/D, область занята.

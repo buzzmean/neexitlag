@@ -32,8 +32,9 @@ type browserDNSKey struct {
 	address          netip.Addr
 }
 type browserDomainIndex struct {
-	google     map[browserGoogleKey]browserGoogleFailure
-	googleHits uint64
+	ordinaryGoogleFailures map[browserOrdinaryGoogleKey]time.Time
+	google                 map[browserGoogleKey]browserGoogleFailure
+	googleHits             uint64
 
 	owned map[browserDNSKey][]browserDNSObservation
 
@@ -137,6 +138,13 @@ func (x *browserDomainIndex) profileEvidence(network, profile string, destinatio
 			out.Source = "ECH_PROTECTED_OUTER_HINT"
 			out.Confidence = "outer SNI only; inner ECH not proven"
 		}
+	}
+	// A normal Google outer name is a hint only. It must never override a
+	// protected DNS association, shared-IP ambiguity or a known DoH endpoint.
+	if out.Domain == "" && !out.Restricted && !out.Ambiguous && ordinaryGoogleDomain(outer) {
+		out.Domain = outer
+		out.Source = "ECH_ORDINARY_GOOGLE_OUTER_HINT"
+		out.Confidence = "ordinary outer SNI hint; inner ECH NOT proven"
 	}
 	if len(out.Candidates) > 8 {
 		out.Candidates = out.Candidates[:8]
@@ -251,8 +259,10 @@ func (c *Controller) nativeOpaquePlan(p profiles.Profile, t wp.Tuple, network st
 			policy = r
 		}
 	}
-	googleFailed := policy.Source != "rule" && c.browser.domains.googleRelay(network, p.ID, t.Destination, time.Now())
-	if policy.Action != flowpolicy.Block && (e.Restricted || googleFailed || policy.Source != "rule" && c.browser.domains.directFailed(network, p.ID, t.Destination, time.Now())) {
+	ordinaryHint := ordinaryGoogleEvidence(e) && !secureDNS
+	ordinaryFailed := ordinaryHint && policy.Source != "rule" && c.browser.domains.ordinaryGoogleFailed(network, p.ID, t.Destination, e, time.Now())
+	googleFailed := !ordinaryHint && policy.Source != "rule" && c.browser.domains.googleRelay(network, p.ID, t.Destination, time.Now())
+	if policy.Action != flowpolicy.Block && (e.Restricted || googleFailed || ordinaryFailed || !ordinaryHint && policy.Source != "rule" && c.browser.domains.directFailed(network, p.ID, t.Destination, time.Now())) {
 		relay := p.RelayID
 		if relay == "" {
 			relay = "VPS-01"
@@ -265,6 +275,14 @@ func (c *Controller) nativeOpaquePlan(p profiles.Profile, t wp.Tuple, network st
 	if googleFailed && policy.Action == flowpolicy.RelayRequired {
 		policy.Source = "browser_opaque_google_failure_cache"
 		policy.Reason = "two distinct Google TCP443 DIRECT failures on this network/profile; bounded relay-first, domain not inferred"
+	}
+	if ordinaryFailed && policy.Action == flowpolicy.RelayRequired {
+		policy.Source = "browser_ordinary_google_failure_cache"
+		policy.Reason = "actual DIRECT failure for this exact Google hint set/IP on this browser/network; bounded relay, no unrelated SNI failure"
+	}
+	if ordinaryHint && policy.Action == flowpolicy.Direct && policy.Source != "rule" {
+		policy.Source = "browser_ordinary_google_hint_direct"
+		policy.Reason = "ordinary Google DNS/outer hint: unrelated IP/family failures do not prove this origin blocked; domain-scoped failure recovery remains enabled"
 	}
 	if secureDNS && policy.Action != flowpolicy.Block {
 		policy.Source = "browser_secure_dns_relay"

@@ -236,3 +236,18 @@ Go unit/race fixtures и DLL parsing не доказывают реальный 
 поведение Secure DNS/ECH конкретной версии Chrome/Edge и доступность YouTube у
 провайдера. До приёмки владельца это остаётся **НЕ ПРОВЕРЕНО**. Не обещается полный
 контроль DNS Client Windows/custom DoH или распознавание любого hidden/shared origin.
+
+## 23.10.2026: исправление SNI-selective Google (A)
+
+Отказ YouTube на IP Google не доказывает отказ www.google.com на том же IP.
+Ordinary DNS/outer hints google.com/gstatic.com/googleapis.com/googleusercontent.com
+теперь сохраняют DIRECT, даже при чужом exact-IP/Google-family failure. Все
+YouTube aliases (youtubei.googleapis.com, yt3.googleusercontent.com и другие)
+исключены из ordinary; protected DNS association/DoH и BLOCK имеют приоритет.
+Несколько только ordinary Google DNS names также не вынуждают relay. Это всё
+ещё hint, не доказательство inner ECH имени.
+
+Если DIRECT действительно отказал у этого ordinary hint set/IP, learning включает
+relay только для того же (network, profile, IP:port, hash hint set), TTL2мин,
+максимум256ключей. Чужой SNI/hostname на sharedIP не наследует этот отказ. Existing
+TCP не меняется; известные origin timeout rules также сохраняются.

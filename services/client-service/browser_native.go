@@ -605,7 +605,7 @@ func (c *Controller) openNativeBrowser(ctx context.Context, p profiles.Profile, 
 	} // No generic native fallback after a planned failure.
 	if current.network != "" && nativeFirstReplyEligible(q, plan) {
 		conn = &nativeFirstReplyConn{Conn: conn, timeout: 1200 * time.Millisecond, failed: func(failure string) {
-			if !c.recordNativeBrowserFailure(current, q, plan, opaque, failure) {
+			if !c.recordNativeBrowserFailure(current, q, plan, opaque, failure, evidence) {
 				return
 			}
 			n.mu.Lock()

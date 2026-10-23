@@ -1,11 +1,14 @@
 package clientservice
 
 import (
+	"crypto/sha256"
 	"net/netip"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/buzzmean/neexitlag/core/browserproxy"
+	"github.com/buzzmean/neexitlag/core/flowpolicy"
 )
 
 // Conservative public Google service ranges, NOT an IP->YouTube identity map.
@@ -84,7 +87,7 @@ func (x *browserDomainIndex) googleRelay(network, profile string, dst netip.Addr
 	}
 	return active
 }
-func (c *Controller) recordNativeBrowserFailure(cur profilesResult, q browserproxy.Request, p browserproxy.Plan, opaque bool, reason string) bool {
+func (c *Controller) recordNativeBrowserFailure(cur profilesResult, q browserproxy.Request, p browserproxy.Plan, opaque bool, reason string, evidence ...browserDomainEvidence) bool {
 	c.mu.Lock()
 	enabled := c.enabled && c.settings.Automatic
 	c.mu.Unlock()
@@ -95,8 +98,79 @@ func (c *Controller) recordNativeBrowserFailure(cur profilesResult, q browserpro
 		return false
 	}
 	c.recordNativeBrowserStall(cur, q, p, opaque)
+	if len(evidence) > 0 {
+		c.browser.domains.recordOrdinaryGoogleFailure(cur.network, cur.profile.ID, p.Destination, evidence[0], time.Now())
+	}
 	if opaque {
 		c.browser.domains.googleFailed(cur.network, cur.profile.ID, p.Destination, reason, time.Now())
 	}
 	return true
+}
+
+// These are ordinary Google hints, not authorization for a hidden protected
+// domain. Any observed protected/shared association takes priority below.
+func ordinaryGoogleDomain(host string) bool {
+	if !browserproxy.ValidPublicDNSName(host) || restrictiveBrowserDomain(host) {
+		return false
+	}
+	for _, suffix := range []string{"google.com", "gstatic.com", "googleapis.com", "googleusercontent.com"} {
+		if flowpolicy.DomainMatches(host, suffix) {
+			return true
+		}
+	}
+	return false
+}
+func ordinaryGoogleEvidence(e browserDomainEvidence) bool {
+	if e.Restricted {
+		return false
+	}
+	if !e.Ambiguous && ordinaryGoogleDomain(e.Domain) {
+		return true
+	}
+	if len(e.Candidates) == 0 {
+		return false
+	}
+	for _, host := range e.Candidates {
+		if !ordinaryGoogleDomain(host) {
+			return false
+		}
+	}
+	return true
+}
+
+type browserOrdinaryGoogleKey struct {
+	network, profile string
+	destination      netip.AddrPort
+	hints            [32]byte
+}
+
+func ordinaryGoogleKey(network, profile string, dst netip.AddrPort, e browserDomainEvidence) browserOrdinaryGoogleKey {
+	hints := append([]string{strings.ToLower(e.Domain)}, e.Candidates...)
+	sort.Strings(hints)
+	return browserOrdinaryGoogleKey{network, profile, dst, sha256.Sum256([]byte(strings.Join(hints, "\x00")))}
+}
+func (x *browserDomainIndex) recordOrdinaryGoogleFailure(network, profile string, dst netip.AddrPort, e browserDomainEvidence, now time.Time) {
+	if network == "" || profile == "" || !ordinaryGoogleEvidence(e) {
+		return
+	}
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	if x.ordinaryGoogleFailures == nil {
+		x.ordinaryGoogleFailures = map[browserOrdinaryGoogleKey]time.Time{}
+	}
+	for k, until := range x.ordinaryGoogleFailures {
+		if !now.Before(until) {
+			delete(x.ordinaryGoogleFailures, k)
+		}
+	}
+	key := ordinaryGoogleKey(network, profile, dst, e)
+	if _, exists := x.ordinaryGoogleFailures[key]; !exists && len(x.ordinaryGoogleFailures) >= 256 {
+		return
+	}
+	x.ordinaryGoogleFailures[key] = now.Add(2 * time.Minute)
+}
+func (x *browserDomainIndex) ordinaryGoogleFailed(network, profile string, dst netip.AddrPort, e browserDomainEvidence, now time.Time) bool {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	return now.Before(x.ordinaryGoogleFailures[ordinaryGoogleKey(network, profile, dst, e)])
 }
