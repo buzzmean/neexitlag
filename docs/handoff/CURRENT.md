@@ -31,6 +31,7 @@ VPS/credentials/certificates/PR8 не тронуты, deployment VPS не тре
 
 | Работа | Файлы | Агент | Ветка | Статус |
 |---|---|---|---|---|
+| YouTube relay скорость/TTFB (23.10.2026) | services/client-service browser meter/native/transport; core/transport; services/relay; platform/windows TCP forwarding (аудит); tools/windows diag; tests/docs | Codex | codex/work | В РАБОТЕ: измерения и воспроизводимые bottlenecks; VPS не менять |
 | YouTube admission/ordinary Google/build PS5.1 A–D (23.10.2026) | services/client-service browser policy/admission/meter; core/browserproxy Plan/errors; tools/windows build/filter/diag/acceptance; tests/docs | Codex | codex/work | ОСВОБОЖДЕНО: build/A/B/C/D запушены; локальные проверки PASS; ждёт Windows/ISP 2мин video retest |
 | Browser DNS/DoH и opaque recovery A–E (23.10.2026) | core/browserproxy DNS/первые байты; platform/windows DNS/capture/domain; services/client-service browser*; tests/diag/docs | Codex | codex/work | ОСВОБОЖДЕНО: A–E реализованы/запушены; ждёт реальной Windows/ISP приёмки; svchost/custom DoH ограничения задокументированы |
 | Срочно: компиляция фильтров WinDivert/iSCSI (22.10.2026) | platform/windows capture/loader/storage/filter tests; tools/windows build/filter check; Windows CI; docs | Codex | codex/work | СВОБОДНО: grouped NOT исправлен; все фильтры обязательны к проверке DLL; actual Windows capture ждёт владельца |
