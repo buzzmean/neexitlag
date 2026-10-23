@@ -22,7 +22,7 @@
 
 | Работа | Файлы | Агент | Ветка | Статус |
 |---|---|---|---|---|
-| Browser DNS/DoH и opaque recovery A–E (23.10.2026) | core/browserproxy DNS/первые байты; platform/windows DNS/capture/domain; services/client-service browser*; tests/diag/docs | Codex | codex/work | В РАБОТЕ: YouTube DNS blockade, browser scoped DNS, DoH и bounded DIRECT failure learning |
+| Browser DNS/DoH и opaque recovery A–E (23.10.2026) | core/browserproxy DNS/первые байты; platform/windows DNS/capture/domain; services/client-service browser*; tests/diag/docs | Codex | codex/work | ОСВОБОЖДЕНО: A–E реализованы/запушены; ждёт реальной Windows/ISP приёмки; svchost/custom DoH ограничения задокументированы |
 | Срочно: компиляция фильтров WinDivert/iSCSI (22.10.2026) | platform/windows capture/loader/storage/filter tests; tools/windows build/filter check; Windows CI; docs | Codex | codex/work | СВОБОДНО: grouped NOT исправлен; все фильтры обязательны к проверке DLL; actual Windows capture ждёт владельца |
 | PUBG: scope античита/local-first/status (22.10.2026) | core/gameudp; platform/windows game UDP guard; services/client-service game_udp; desktop GameUdp; tests/docs | Codex | codex/work | СВОБОДНО: scope/local-first/GUI готовы; реальные Windows/PUBG матчи ждут владельца |
 | Пилот клуба: Setup/image/boot/status A–F (22.10.2026) | installer/*; tools/windows club/build/status; services/client-service club/activation/startup/settings IPC; desktop club/tray; tests/docs | Codex | codex/work | СВОБОДНО: A–F подготовлены/запушены; реальный Setup/2–3ПК freeze pilot ожидает владельца |
@@ -2449,3 +2449,47 @@ DNS paths/TTL, failure reasons и known/opaque Google shared8. Исправле�
 Prop для пустого PSCustomObject под StrictMode. Targeted Go race и PS7 fixture
 PASS; native Windows/PS5.1/ISP не выполнены. Полный race повторяется перед E.
 Далее E, область занята.
+
+
+## 23.10.2026 — browser DNS A–E: передача владельцу
+
+Коммиты: A06feff6, B9984a10, Ccf0fe52, D36a08a5; E — этот коммит.
+E: docs/BROWSER_DNS_ROUTING.md содержит update/read-only команды по одной.
+Новый test-browser-dns.ps1 наблюдает90с NEW native flows, фиксированные безопасные
+поля, max512наблюдений, неизменность основных Chrome/Edge PID/birth из startup
+baseline. Отдельно требует известный googlevideo RELAY_REQUIRED с ServerHello/bytes
+и VK DIRECT. Opaque/PAC/5-byte alert/empty snapshots не дают положительный verdict;
+страница/видео и полная no-leak proof не выдумываются, lost delta видна. Existing
+HTTP/2 reused => честно NOT_OBSERVED, не изменение существующего egress.
+
+Итог локальных проверок: полный go test -race -p1 ./... PASS; go vet -p1 ./... PASS;
+Linux и Windows amd64 go build -p1 ./... PASS; Windows platform/service vet PASS;
+оба Windows test EXE скомпилированы. Настоящий pinned WinDivert2.2.2 DLL под Wine:
+70compile variants + privateSAN evaluator + negative syntax/complexity + DNS
+UDP reply/bounded workers fixture PASS. Драйвер не открывался. PS7 StrictMode
+browser-path/DNS evidence/acceptance parser и browser-startup fixtures PASS.
+C# и WPF не изменялись. Native Windows/PS5.1/Chrome/ISP/video не выполнялись.
+Полный race был запущен до окончания правки новой D-test fixture и один раз
+остановился на её ошибке типов; после исправления весь suite повторён и PASS.
+
+CI D36a08a5: Verify39874687251 и GameUDP39874687440 завершились failure без шагов
+(steps=0 у Linux/Windows), не тестовый FAIL кода и не CI PASS. Известный account
+billing blocker ранее подтверждён владельцем; повторный актуальный текст аннотации
+не прочитан. Новых зависимостей проекта нет, WinDivert pins не менялись.
+VPS/сертификаты/credentials/DB/production config/PR8/другие ветки не тронуты.
+
+Ограничения: только attributable browser-owned IPv4 DNS53; Windows DNS Client
+svchost не перенаправляется глобально. Known transit DoH — relay (разрешённый
+fallbackB), без forced auto→plaintext, без наблюдения содержимого и TTL encrypted
+ответов. CustomDoH+ECH/sharedIP identity не гарантируется. Google group требует
+2реальных DIRECT failures/10с, TTL2мин, не доменная идентификация; known video и
+opaqueGoogle делят8слотов/32waiters/2с. Protected известные hints/домены fail-closed,
+DNS53 не relayed, только HTTPS443 DoH. Игры и ordinary VK/Яндекс DIRECT сохранены.
+
+Владельцу: открытые Chrome/Edge оставить; из клона admin sameSID git pull; startup
+-Phase baseline; Close-VeliqGuiForUpdate (толькоGUI); build-e2e с установленным
+ProgramData\neexitlag\driver; update-service; SHA256 True; запустить установленный
+GUI; status READY; test-browser-dns -DurationSeconds90 + новые YouTube/VK вкладки,
+play/seek; diag-no-vpn -Only browser,youtube; startup ready/disabled/exit и новые
+VK вкладки. Всё по одной команде в docs/BROWSER_DNS_ROUTING.md. Browser/Internet PASS
+пока не заявлен. Все A–E закончены, файловая область освобождена.

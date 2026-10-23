@@ -112,3 +112,127 @@ hostname evidence; без него результат по googlevideo — UNKNO
 раздельные known-googlevideo/opaque-Google admissions и общий прежний предел8.
 Старый сервис/отсутствующие поля помечаются UNINSTRUMENTED. Вывод не содержит
 содержимого DNS/TLS, токенов или ключей. DNS/bytes не объявляются страницей PASS.
+
+## E. Обновление и приёмка на ПК владельца
+
+Все команды ниже по одной, из своего клона `codex/work`, PowerShell
+администратора под тем же пользователем установки. Chrome/Edge оставлять открытыми.
+VPS, enroll, CA и сертификаты не обновлять. GUI-код не менялся, его пересборка и
+повторная установка для этого исправления не нужны.
+
+1. Получить клиент:
+
+```powershell
+git pull --ff-only origin codex/work
+```
+
+2. Зафиксировать уже открытые основные процессы Chrome/Edge (PID/birth/path,
+без командной строки или содержимого вкладок):
+
+```powershell
+& .\tools\windows\test-browser-startup.ps1 -Phase baseline
+```
+
+3. Закрыть только старый GUI/recovery helper для обновления:
+
+```powershell
+& .\tools\windows\Close-VeliqGuiForUpdate.ps1
+```
+
+4. Пересобрать службу и тесты; должен быть `WINDIVERT_FILTERS_PASS` от настоящего
+pinned DLL. Команда ничего не развёртывает на VPS:
+
+```powershell
+& .\tools\windows\build-e2e.ps1 -DriverDirectory "$env:ProgramData\neexitlag\driver"
+```
+
+5. Обновить установленную службу с сохранением identity/config/profiles:
+
+```powershell
+& .\tools\windows\update-service.ps1
+```
+
+6. Проверить копирование бинарника:
+
+```powershell
+(Get-FileHash .\bin\windows-e2e\neexitlag-service.exe).Hash -eq (Get-FileHash "$env:ProgramData\neexitlag\neexitlag-service.exe").Hash
+```
+
+Ожидается `True`. Запустить установленный GUI:
+
+```powershell
+Start-Process "$env:LOCALAPPDATA\Programs\VELIQ\VELIQ.exe"
+```
+
+7. Подключить read-only IPC:
+
+```powershell
+. .\tools\windows\common.ps1
+```
+
+```powershell
+Invoke-ServiceIPC 'status' | Select-Object build,connected,optimizing,capture_active,connection_reason
+```
+
+Нужны актуальный build, `True/True/True`, `READY`. Нажатия технических PAC-кнопок,
+policy reload или перезапуска браузеров не требуется.
+
+8. Запустить наблюдение; за эти90с в новых вкладках уже открытых Chrome/Edge
+открыть YouTube, проиграть и перемотать видео, открыть vk.ru:
+
+```powershell
+& .\tools\windows\test-browser-dns.ps1 -DurationSeconds 90
+```
+
+`TRANSPORT_ROUTES_OBSERVED_PAGE_NOT_VERIFIED` означает новые native flows с
+именем googlevideo, RELAY_REQUIRED/VPS-01 и ответом ServerHello/bytes, плюс VK
+DIRECT, при неизменных основных PID/birth. Это доказательство наблюдённых маршрутов,
+не автоматическая проверка страницы/видео и не полный аудит отсутствия утечек:
+ledger ограничен, retained_records_lost_delta выводится. Браузер может повторно
+использовать старый HTTP/2 stream; существующие TCP остаются PINNED_UNTIL_CLOSED.
+Если TLS скрыт и нет DNS hints, `GOOGLEVIDEO_HOSTNAME_EXCHANGE_NOT_OBSERVED` —
+честно неподтверждённое имя, а не выдуманный video PASS. Если исходные браузерные
+PID изменились, скрипт отказывает. `PROTECTED_DIRECT_OBSERVED` требует расследования.
+На фоне shared IP защищённая подсказка только ужесточает маршрут.
+
+9. Собрать подробности (файл диагностики не коммитить и секреты не присылать):
+
+```powershell
+& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube
+```
+
+Важны browser DNS paths/TTL, `DIRECT_TLS_*`, `opaque Google recovery`, known/opaque
+shared admissions и native routes. Диагностический скрипт также делает отдельные
+DNS/TLS/headless-контроли; они не доказывают работу уже открытых окон и могут не
+повторять их Secure DNS/ECH. Ноль DNS broker queries может означать svchost/DoH,
+не отсутствие DNS вообще. Known DoH relay не раскрывает имена DNS-ответов.
+
+10. После успешной проверки native в обоих браузерах сохранить штатный baseline
+для выключения/выхода:
+
+```powershell
+& .\tools\windows\test-browser-startup.ps1 -Phase ready
+```
+
+Выключить оптимизацию в GUI и открыть **новую** вкладку vk.ru без policy reload:
+
+```powershell
+& .\tools\windows\test-browser-startup.ps1 -Phase disabled
+```
+
+Затем «Выход» из трея и снова новая вкладка vk.ru:
+
+```powershell
+& .\tools\windows\test-browser-startup.ps1 -Phase exit
+```
+
+Структурные проверки не заменяют результат загрузки страницы у провайдера.
+Настройки DNS/PAC/службы приёмочный DNS-скрипт не меняет. Не закрывает браузеры,
+не чистит их профиль/кэш и не запускает команды на VPS.
+
+## Итог проверки разработки
+
+Go unit/race fixtures и DLL parsing не доказывают реальный Windows kernel capture,
+поведение Secure DNS/ECH конкретной версии Chrome/Edge и доступность YouTube у
+провайдера. До приёмки владельца это остаётся **НЕ ПРОВЕРЕНО**. Не обещается полный
+контроль DNS Client Windows/custom DoH или распознавание любого hidden/shared origin.

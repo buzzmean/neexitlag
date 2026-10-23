@@ -106,3 +106,24 @@ Check ($text -notmatch 'NEVER_LOG' -and $text -match 'no page/video PASS inferre
 $script:lines=@();Write-BrowserDNSEvidence ([pscustomobject]@{})
 Check (($script:lines -join "`n") -match 'browser DNS broker: UNINSTRUMENTED') 'Legacy DNS snapshot not handled safely'
 Write-Host 'PASS DNS broker/scoped TTLs/real TLS failure groups/shared eight admissions, legacy snapshots and safe fixed fields under StrictMode'
+
+. (Join-Path $PSScriptRoot '..\..\tools\windows\browser-dns-evidence.ps1')
+$video=[pscustomobject]@{id=1;owner=[pscustomobject]@{profile_id='chrome'};domain='r1.googlevideo.com';destination='173.194.180.1:443';ingress='NATIVE_TCP';sent_bytes=2000;received_bytes=10000;tls_wire=[pscustomobject]@{origin=[pscustomobject]@{server_hello_complete=$true}};policy=[pscustomobject]@{action='RELAY_REQUIRED';relay_id='VPS-01'};secret='NEVER_LOG'}
+$vk=[pscustomobject]@{id=2;owner=[pscustomobject]@{profile_id='chrome'};domain='vk.ru';ingress='NATIVE_TCP';sent_bytes=2000;received_bytes=5000;tls_wire=[pscustomobject]@{origin=[pscustomobject]@{server_hello_complete=$true}};policy=[pscustomobject]@{action='DIRECT'}}
+$rows=@((Get-BrowserDNSTransportObservation $video),(Get-BrowserDNSTransportObservation $vk))
+Check ((Get-BrowserDNSTransportVerdict $rows) -eq 'TRANSPORT_ROUTES_OBSERVED_PAGE_NOT_VERIFIED') 'Actual named relay/direct transport was hidden'
+Check (($rows|ConvertTo-Json -Depth 6) -notmatch 'NEVER_LOG') 'Observation leaked arbitrary fields'
+$video.domain='<opaque>'
+Check ((Get-BrowserDNSTransportVerdict @((Get-BrowserDNSTransportObservation $video),$rows[1])) -eq 'GOOGLEVIDEO_HOSTNAME_EXCHANGE_NOT_OBSERVED') 'Opaque bytes forged video hostname'
+$video.domain='r1.googlevideo.com';$video.received_bytes=5
+Check (!(Get-BrowserDNSTransportObservation $video).exchange) 'Five-byte alert forged successful exchange'
+$video.received_bytes=10000;$video.ingress='PAC_NATIVE_UPSTREAM'
+Check (!(Get-BrowserDNSTransportObservation $video).exchange) 'PAC upstream forged native-only ingress'
+$video.ingress='NATIVE_TCP';$video.policy.action='DIRECT'
+Check ((Get-BrowserDNSTransportVerdict @((Get-BrowserDNSTransportObservation $video))) -eq 'PROTECTED_DIRECT_OBSERVED') 'Known protected DIRECT missed'
+foreach($file in @('test-browser-dns.ps1','browser-dns-evidence.ps1')){
+ $t=$null;$e=$null;[void][Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot ('..\..\tools\windows\'+$file)),[ref]$t,[ref]$e)
+ Check ($e.Count -eq 0) ('DNS acceptance parser failed '+$file)
+}
+Check ((Get-BrowserDNSTransportVerdict @()) -ne 'TRANSPORT_ROUTES_OBSERVED_PAGE_NOT_VERIFIED') 'Empty evidence forged proof'
+Write-Host 'PASS named native transport observation, no opaque/PAC/alert/page inference, protected DIRECT detection and acceptance parser; no browser/VPS operations'
