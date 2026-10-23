@@ -77,6 +77,9 @@ type PoolSession struct {
 	EndReason      string        `json:"end_reason,omitempty"`
 }
 type PoolOpenEvent struct {
+	AcquireMS     float64   `json:"acquire_ms"`
+	StreamOpenMS  float64   `json:"stream_open_ms"`
+	SessionAgeMS  float64   `json:"session_age_ms"`
 	At            time.Time `json:"at"`
 	SessionID     uint64    `json:"session_id"`
 	Protocol      string    `json:"protocol"`
@@ -425,7 +428,7 @@ func (p *Pool) Warm(ctx context.Context) error {
 	}
 	return err
 }
-func (p *Pool) record(start time.Time, sid uint64, kind string, dst netip.AddrPort, err error) {
+func (p *Pool) record(start time.Time, sid uint64, kind string, dst netip.AddrPort, err error, acquire, stream time.Duration, age float64) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	ms := float64(time.Since(start)) / float64(time.Millisecond)
@@ -446,7 +449,7 @@ func (p *Pool) record(start time.Time, sid uint64, kind string, dst netip.AddrPo
 			detail = detail[:256]
 		}
 	}
-	event := PoolOpenEvent{time.Now().UTC(), sid, kind, dst.String(), ms, reason, detail}
+	event := PoolOpenEvent{At: time.Now().UTC(), SessionID: sid, Protocol: kind, Destination: dst.String(), DurationMS: ms, FailureReason: reason, Detail: detail, AcquireMS: float64(acquire) / float64(time.Millisecond), StreamOpenMS: float64(stream) / float64(time.Millisecond), SessionAgeMS: age}
 	if len(p.stats.RecentOpens) == 32 {
 		copy(p.stats.RecentOpens, p.stats.RecentOpens[1:])
 		p.stats.RecentOpens = p.stats.RecentOpens[:31]
@@ -458,19 +461,25 @@ func (p *Pool) open(ctx context.Context, dst netip.AddrPort, tcp, probe bool) (n
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	var sid uint64
+	var acquireTime, streamTime time.Duration
+	age := -1.0
 	var final error
 	kind := "udp"
 	if tcp {
 		kind = "tcp"
 	}
-	defer func() { p.record(start, sid, kind, dst, final) }()
+	defer func() { p.record(start, sid, kind, dst, final, acquireTime, streamTime, age) }()
 	for {
+		acquireStart := time.Now()
 		s, err := p.acquire(ctx, probe)
+		acquireTime += time.Since(acquireStart)
 		if err != nil {
 			final = &OpenError{FailureReason(err), err}
 			return nil, nil, final
 		}
 		sid = s.id
+		age = float64(time.Since(s.born)) / float64(time.Millisecond)
+		streamStart := time.Now()
 		var conn net.Conn
 		var dg *UDPFlow
 		if tcp {
@@ -478,6 +487,7 @@ func (p *Pool) open(ctx context.Context, dst netip.AddrPort, tcp, probe bool) (n
 		} else {
 			dg, err = s.client.OpenUDP(ctx, dst)
 		}
+		streamTime += time.Since(streamStart)
 		if err == nil {
 			if tcp {
 				return &pooledConn{Conn: conn, release: func() { p.release(s) }}, nil, nil

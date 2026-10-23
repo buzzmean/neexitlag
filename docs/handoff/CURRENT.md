@@ -2601,3 +2601,7 @@ CPU/metrics/ss — docs/YOUTUBE_RELAY_ADMISSION.md. Отдельные12video/4o
 ## 23.10.2026: YouTube relay performance, шаг 1
 
 Добавлены bounded per-video wire TTFB/admission/OPEN/rates/gaps, 128 записей/24 в snapshot с omitted; native/PAC реальный upstream, не HTTP/FPS proof. Старые схемы UNINSTRUMENTED, без payload/URL/секретов. Targeted service Go race и PS7 browser-path fixtures PASS. Owner подтвердил 1bb001f: видео играет, admission failures=0, старт/рывки остаются. Полное расследование/транспортные проверки продолжаются; production не запускался.
+
+## 23.10.2026: YouTube relay performance, шаг 2
+
+Подтверждён локальный downstream flow-control bottleneck: старый client receive max256KiB/1MiB на real relay при60msRTT ограничивал bulk. Только client advertise: initial256KiB/1MiB, max2MiB/8MiB (auto-tune, pool8 = максимум64MiB stream credit). Server defaults/stream limits/auth/lease unchanged, текущий VPS совместим. Pool recent OPEN теперь разделяет acquire (включая fresh-ticket/session setup) и stream+origin TCP ACK; возраст сессии показывает reuse. Real mTLS relay bulk SHA2561/4 streams, same ticket-authenticated pool bulk/reuse, security budget unit — targeted race PASS. Эмпирическая полная причина 2fps/ISP ещё не установлена; Windows playback не проверен.

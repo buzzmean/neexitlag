@@ -13,7 +13,7 @@ import (
 func DialWithTicket(ctx context.Context, addr string, t *tls.Config, ticket []byte) (*Client, error) {
 	cfg := t.Clone()
 	cfg.NextProtos = []string{protocol.LeaseALPN, protocol.TicketALPN}
-	conn, e := quic.DialAddr(ctx, addr, cfg, QUICConfig())
+	conn, e := quic.DialAddr(ctx, addr, cfg, ClientQUICConfig())
 	if e != nil {
 		return nil, e
 	}

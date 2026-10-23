@@ -51,7 +51,7 @@ type UDPFlow struct {
 }
 
 func Dial(ctx context.Context, addr string, t *tls.Config) (*Client, error) {
-	c, e := quic.DialAddr(ctx, addr, t, QUICConfig())
+	c, e := quic.DialAddr(ctx, addr, t, ClientQUICConfig())
 	if e != nil {
 		return nil, e
 	}
