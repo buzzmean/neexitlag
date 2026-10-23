@@ -1,5 +1,24 @@
 # CURRENT — состояние проекта (обновляется в конце каждой сессии)
 
+Последний итог Codex 23.10.2026: очередь P0 Hostkey → YouTube LOCAL-first завершена
+в коде, codex/work. P0 safe audience/provider `e9cf0b5`, root retry/CAS `7b3168c`;
+YouTube packet `be4dc64`, ladder `b86588e`, diag `64ab653`, CDN/hint fix `3a2f39c`.
+Старый relay/CP/activation/CA сохранены; production агентом НЕ запускался.
+Переход Hostkey требует однократного обновления службы на каждом legacy ПК/образе;
+одна owner-команда ставит relay и обновляет существующую службу ПК запуска.
+Лестница YouTube DIRECT → scoped LOCAL → authenticated RELAY; TLS не мигрирует
+после любого origin byte, midstream hint только для новых соединений.
+Финальные Go race/vet/Linux+Windows build+Windows vet PASS; PG17 security/CAS PASS;
+98Python PASS; PS7/StrictMode PASS; pinned WinDivert DLL70filters/iSCSI30cases/fake
+checksums под Wine PASS. Это НЕ native Windows/PS5.1/kernel/Hostkey/ISP/1080p PASS.
+CI `3a2f39c`: Verify40015935949, Chrome40015936148, Edge40015935881 — failure,
+все соответствующие jobs steps=[]; тесты там не исполнились. Ранее billing block
+подтверждён владельцем, новые annotations недоступны; artifact quota не объявляется
+причиной. C# не менялся, нового C#/WPF PASS не заявляем.
+Области освобождены; multi-relay A–E отложены, не реализованы. Точные команды и
+ограничения — заключительный раздел ниже и docs/YOUTUBE_LOCAL_FIRST.md,
+docs/RELAY_HOSTKEY_P0.md. PR8/main/Claude ветки, VPS/credentials/CA не тронуты.
+
 Последний итог Codex 23.10.2026: relay video performance — код и измерения готовы.
 506b20f: bounded per-video TTFB/wait/open/rate; f107204: client QUIC receive
 initial256KiB/1MiB, max2MiB/8MiB, server defaults unchanged и OPEN phases.
@@ -42,8 +61,8 @@ VPS/credentials/certificates/PR8 не тронуты, deployment VPS не тре
 
 | Работа | Файлы | Агент | Ветка | Статус |
 |---|---|---|---|---|
-| Multi-relay/Hostkey P0 (23.10.2026) | новые deploy/vps relay fleet scripts; tools/windows/add-relay-vps, relay-status, relay-speed; core/optimizer/controlclient; services/control-plane relay registry; services/client-service remote/relay selection (не TTFB файлы); tests; docs | Codex | codex/work | В РАБОТЕ: только P0 перенос VPS-01; A–E отложены до YouTube LOCAL-first; production только владелец |
-| YouTube LOCAL-first A–G (23.10.2026) | services/client-service browser transport/local ladder/meter; core/localstrategy; platform/windows local TCP audit/tests; tools/windows diag; tests; docs | Codex | codex/work | ЗАНЯТО: после P0 Hostkey; DIRECT → LOCAL → RELAY, existing TCP не переезжает; реальные техники и границы replay требуют аудита |
+| Multi-relay/Hostkey P0 (23.10.2026) | новые deploy/vps relay fleet scripts; tools/windows/add-relay-vps, relay-status, relay-speed; core/optimizer/controlclient; services/control-plane relay registry; services/client-service remote/relay selection (не TTFB файлы); tests; docs | Codex | codex/work | ОСВОБОЖДЕНО: P0 подготовлен/запушен с unique VPS-PRIMARY audience; реальный deployment только владелец; A–E следующая очередь, не выполнены |
+| YouTube LOCAL-first A–G (23.10.2026) | services/client-service browser transport/local ladder/meter; core/localstrategy; platform/windows local TCP audit/tests; tools/windows diag; tests; docs | Codex | codex/work | ОСВОБОЖДЕНО: audit/packet/ladder/cache/diag готовы; local gates PASS, native Windows/ISP/1080p не проверены; existing TLS pinned |
 | YouTube relay скорость/TTFB (23.10.2026) | services/client-service browser meter/native/transport; core/transport; services/relay; platform/windows TCP forwarding (аудит); tools/windows diag/observe-video; tests/verify workflow/docs | Codex | codex/work | ОСВОБОЖДЕНО: client receive credit/OPEN phases/per-video metrics/observer готовы; Windows/ISP playback не подтверждён |
 | YouTube admission/ordinary Google/build PS5.1 A–D (23.10.2026) | services/client-service browser policy/admission/meter; core/browserproxy Plan/errors; tools/windows build/filter/diag/acceptance; tests/docs | Codex | codex/work | ОСВОБОЖДЕНО: build/A/B/C/D запушены; локальные проверки PASS; ждёт Windows/ISP 2мин video retest |
 | Browser DNS/DoH и opaque recovery A–E (23.10.2026) | core/browserproxy DNS/первые байты; platform/windows DNS/capture/domain; services/client-service browser*; tests/diag/docs | Codex | codex/work | ОСВОБОЖДЕНО: A–E реализованы/запушены; ждёт реальной Windows/ISP приёмки; svchost/custom DoH ограничения задокументированы |
@@ -2691,3 +2710,63 @@ ServerHello/64KiB/250ms. Иначе alternate candidate оставался на 
 рабочем LOCAL TLS. Разделены engine/cache keys для visible SNI и hint-only:
 совпадение host/IP не должно подменять exact-IP absolute split SNI-scoped engine.
 Регрессии этих двух случаев race×3 PASS; повторный полный Go race/vet, Linux/Windows build и Windows vet PASS. PS7/StrictMode YouTube/browser diagnostics fixtures PASS; native Windows/PS5.1/ISP не проверены.
+
+### Итог P0 + YouTube LOCAL-first / решение и передача (23.10.2026)
+Безопасный путь P0 — отдельная relay audience и update существующей службы, а не
+подмена адреса двух replay caches за одним ID. Прямого fallback из RELAY_REQUIRED
+нет. Никакого скрытого автообновления остальных ПК, балансировки40ПК/Timeweb,
+per-relay video pools или throughput tool в P0 не заявлено; A–E остаются очередью.
+Новый leaf90d ещё без отдельного auto-renew; старый CP/activation/echo зависим
+от2.56.177.4 до12.11.2026. Hostkey3TB≈9.3Mbps среднего непрерывного трафика.
+YouTube LOCAL — собственные fake(old seq+TTL)+multisplit/disorder, два fake/ceiling5
+в отличие от полного winws general. QUIC→TCP разрешённый fallback сохранён.
+Перенос после ServerHello/16–20KiB freeze без MITM невозможен: старый сокет не
+переигрывается; последующие потоки учитывают failure/hint. 403/404 CDN root только
+provisional1min, не success; фактические transform+ServerHello+64KiB+250ms даютTTL10min.
+Portable verified TLS+GET128KiB fixture×3: cold~0.72–0.75s, warm~0.32–0.34s, relay0;
+transform seam mocked, реальную работу desync у провайдера это НЕ доказывает.
+
+Проверки финального исходного `3a2f39c`: полный `go test -race -p 1 ./...`,
+Linux/Windows vet/build PASS; focused YouTube race×3 PASS. До последней service-only
+поправки также полный isolated PostgreSQL17 control-plane race PASS13.032s,
+98deployment Python tests PASS3.617s, actual pinned DLL filter compiler70variants
+и private iSCSI evaluator30cases + repeated-fake checksum PASS (Wine, не kernel).
+PS7 YouTube/browser-path/StrictMode fixtures PASS после последней поправки.
+Windows filters, driver version/pins, game UDP/anti-cheat policy, TLS/mTLS/replay и
+production lease1800s не менялись. Секреты/diag-result/cs-diag/observe-result не коммитились.
+CI: https://github.com/buzzmean/neexitlag/actions/runs/40015935949
+и https://github.com/buzzmean/neexitlag/actions/runs/40015936148
+и https://github.com/buzzmean/neexitlag/actions/runs/40015935881 — steps=[]; НЕ CI PASS.
+
+**ТОЧНЫЕ команды владельцу**: корень репозитория, PowerShell5.1 администратора
+под SID владельца. Chrome/Edge оставить открытыми. Блок P0 изменяет VPS только
+при запуске владельцем; агент его не запускал. Сначала Inspect, затем deployment.
+P0 уже обновляет службу этим же исходным кодом на ПК запуска; следующий LOCAL-only
+блок нужен вместо P0, если сейчас требуется обновить только клиент без VPS.
+
+```powershell
+git switch codex/work
+git pull --ff-only origin codex/work
+# P0: сначала только read-only, затем одна команда production-переноса владельцем.
+& .\tools\windows\add-relay-vps.ps1 -Host 146.0.77.98 -Name hostkey-ams -PromotePrimary -Inspect
+& .\tools\windows\add-relay-vps.ps1 -Host 146.0.77.98 -Name hostkey-ams -PromotePrimary
+& .\tools\windows\relay-status.ps1
+# Альтернатива P0: обновить ТОЛЬКО клиент, без SSH/VPS (браузеры не закрываются).
+$m=Get-Content -Raw "$env:ProgramData\neexitlag\service.json" | ConvertFrom-Json
+& .\tools\windows\build-e2e.ps1 -DriverDirectory $m.driver.directory
+& .\tools\windows\Close-VeliqGuiForUpdate.ps1
+& .\tools\windows\update-service.ps1
+# Уже открытый Chrome/Edge: новая вкладка YouTube, 1080p2мин, перемотать2–3раза.
+# Проверить VK/google.com DIRECT, OpenAI RELAY_REQUIRED. Затем диагностика:
+& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube
+# Отключить оптимизацию в GUI: обычный сайт должен работать; браузер не закрывать.
+```
+
+Ожидаемый факт приёмки: youtube-media stage LOCAL с именем стратегии и реальным
+committed transform/transport confirmation, стабильное видео и почти0 НОВОГО
+YouTube TLS payload RELAY. Старые pinned relay connections, CP/tickets/DNS DoH/echo
+могут продолжать relay traffic. При неработающем LOCAL покажутся failure reason и
+RELAY: это корректная деградация, не локальный PASS. P0 actual endpoint/ticket ID
+смотреть в relay-status connections, configured_primary — только intent.
+Нативные Windows/PS5.1/WinDivertOpen/OpenSSH/systemd/Hostkey/reboot/freeze/ISP/player
+ещё не проверены; no dialogs/restart добавлением этого кода не требуются.
