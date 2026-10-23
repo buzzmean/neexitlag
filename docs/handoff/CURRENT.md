@@ -2790,3 +2790,13 @@ learning,5 general browser ladder/data blocklist,6budget,7primary/standby.
 методов, subhandlers и234 literal calls из Windows PS/desktop; early club.status
 route распознаётся, guard-only cases не считаются dispatch. Race subset PASS.
 Hostkey повторно деплоить не нужно, достаточно client update. VPS не запускался.
+
+### 1b — общий runtime manifest (23.10.2026)
+Manifest/strict Load/Normalize вынесены в internal/clientconfig; service alias
+и relay-client используют один код. ConfigureActivation/Club/ConnectRemote также
+нормализуют программно переданный manifest. Legacy missing probe_token_file →
+sibling probe.token; missing probe_target → host существующего CP:40000. Явные
+settings не меняются, файлы/identity не создаются, service.json не переписывается.
+Race tests defaults/idempotence/no-write/explicit-settings + tool no-enroll +
+activation/club/dispatcher subset PASS. Workaround service.relayproof.json больше
+не нужен; actual owner probe ещё не выполнен. VPS не запускался.

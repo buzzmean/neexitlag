@@ -15,8 +15,8 @@ import (
 	"github.com/buzzmean/neexitlag/core/optimizer"
 	"github.com/buzzmean/neexitlag/core/security"
 	"github.com/buzzmean/neexitlag/core/transport"
+	"github.com/buzzmean/neexitlag/internal/clientconfig"
 	"github.com/buzzmean/neexitlag/internal/e2eprobe"
-	windowsplatform "github.com/buzzmean/neexitlag/platform/windows"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -24,41 +24,11 @@ import (
 	"time"
 )
 
-type Manifest struct {
-	ClubImage               bool                        `json:"club_image,omitempty"`
-	ClubBrowserPaths        []string                    `json:"club_browser_paths,omitempty"`
-	ActivationCodeFile      string                      `json:"activation_code_file,omitempty"`
-	ActivationCAFingerprint string                      `json:"activation_ca_sha256,omitempty"`
-	ProbeTokenFile          string                      `json:"probe_token_file,omitempty"`
-	ControlPlaneCAFile      string                      `json:"control_plane_ca_file,omitempty"`
-	OwnerSID                string                      `json:"owner_sid"`
-	TokenFile               string                      `json:"token_file"`
-	StateDirectory          string                      `json:"state_directory"`
-	ControlPlaneURL         string                      `json:"control_plane_url"`
-	TrustFile               string                      `json:"trust_file"`
-	DeviceIdentityFile      string                      `json:"device_identity_file"`
-	DeviceCertificate       string                      `json:"device_certificate"`
-	CAFile                  string                      `json:"ca_file"`
-	ProbeTarget             string                      `json:"probe_target"`
-	TCPProbeTarget          string                      `json:"tcp_probe_target"`
-	Driver                  windowsplatform.DriverFiles `json:"driver"`
-}
+type Manifest = clientconfig.Manifest
 
-func LoadManifest(path string) (Manifest, error) {
-	var m Manifest
-	raw, e := os.ReadFile(path)
-	if e != nil {
-		return m, e
-	}
-	if e = security.Parse(raw, &m); e != nil {
-		return m, e
-	}
-	if !filepath.IsAbs(m.TokenFile) || !filepath.IsAbs(m.StateDirectory) {
-		return m, errors.New("absolute token and state paths required")
-	}
-	return m, nil
-}
+func LoadManifest(path string) (Manifest, error) { return clientconfig.Load(path) }
 func (c *Controller) ConnectRemote(ctx context.Context, m Manifest) error {
+	m = clientconfig.Normalize(m)
 	c.remoteMu.Lock()
 	defer c.remoteMu.Unlock()
 	raw, e := os.ReadFile(m.TrustFile)

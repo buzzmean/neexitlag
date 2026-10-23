@@ -27,32 +27,22 @@ import (
 	"github.com/buzzmean/neexitlag/core/controlclient"
 	"github.com/buzzmean/neexitlag/core/security"
 	"github.com/buzzmean/neexitlag/core/transport"
+	"github.com/buzzmean/neexitlag/internal/clientconfig"
 	"github.com/buzzmean/neexitlag/internal/e2eprobe"
 )
 
-type manifest struct {
-	StateDirectory  string `json:"state_directory"`
-	ControlPlaneURL string `json:"control_plane_url"`
-	CAFile          string `json:"ca_file"`
-	ControlCA       string `json:"control_plane_ca_file"`
-	Identity        string `json:"device_identity_file"`
-	Certificate     string `json:"device_certificate"`
-	Trust           string `json:"trust_file"`
-	ProbeTarget     string `json:"probe_target"`
-	ProbeToken      string `json:"probe_token_file"`
-}
+type manifest = clientconfig.Manifest
 
 func publicKeyMatches(leaf *x509.Certificate, key ed25519.PrivateKey) bool {
 	pub, ok := leaf.PublicKey.(ed25519.PublicKey)
 	return ok && pub.Equal(key.Public())
 }
 func connect(ctx context.Context, path, id, address string) (*transport.Client, manifest, error) {
-	var m manifest
-	raw, e := os.ReadFile(path)
-	if e != nil || json.Unmarshal(raw, &m) != nil {
+	m, e := clientconfig.Load(path)
+	if e != nil {
 		return nil, m, errors.New("INSTALLED_MANIFEST_REQUIRED")
 	}
-	b, e := os.ReadFile(m.Identity)
+	b, e := os.ReadFile(m.DeviceIdentityFile)
 	var identity security.Identity
 	if e != nil || security.Parse(b, &identity) != nil {
 		return nil, m, errors.New("EXISTING_IDENTITY_REQUIRED")
@@ -62,7 +52,7 @@ func connect(ctx context.Context, path, id, address string) (*transport.Client, 
 		return nil, m, errors.New("IDENTITY_FORMAT")
 	}
 	key := ed25519.NewKeyFromSeed(seed)
-	b, e = os.ReadFile(m.Certificate)
+	b, e = os.ReadFile(m.DeviceCertificate)
 	if e != nil {
 		return nil, m, errors.New("DEVICE_CERTIFICATE_REQUIRED")
 	}
@@ -79,7 +69,7 @@ func connect(ctx context.Context, path, id, address string) (*transport.Client, 
 	if e != nil || !roots.AppendCertsFromPEM(b) {
 		return nil, m, errors.New("CA_REQUIRED")
 	}
-	ca := m.ControlCA
+	ca := m.ControlPlaneCAFile
 	if ca == "" {
 		ca = m.CAFile
 	}
@@ -92,7 +82,7 @@ func connect(ctx context.Context, path, id, address string) (*transport.Client, 
 	if e != nil {
 		return nil, m, errors.New("SIGNED_DEVICE_PROOF_TICKET_FAILED")
 	}
-	raw, e = os.ReadFile(m.Trust)
+	raw, e := os.ReadFile(m.TrustFile)
 	var trust map[string]string
 	if e != nil || json.Unmarshal(raw, &trust) != nil {
 		return nil, m, errors.New("SIGNING_TRUST_REQUIRED")
@@ -125,7 +115,7 @@ func connect(ctx context.Context, path, id, address string) (*transport.Client, 
 }
 
 func probe(ctx context.Context, c *transport.Client, m manifest) error {
-	key, e := e2eprobe.Token(m.ProbeToken)
+	key, e := e2eprobe.Token(m.ProbeTokenFile)
 	if e != nil {
 		return errors.New("UDP_PROBE_TOKEN_UNAVAILABLE")
 	}
@@ -217,12 +207,11 @@ func run() error {
 }
 
 func cachedStatus(path string) error {
-	var m manifest
-	raw, e := os.ReadFile(path)
-	if e != nil || json.Unmarshal(raw, &m) != nil {
+	m, e := clientconfig.Load(path)
+	if e != nil {
 		return errors.New("INSTALLED_MANIFEST_REQUIRED")
 	}
-	raw, e = os.ReadFile(m.Trust)
+	raw, e := os.ReadFile(m.TrustFile)
 	var encoded map[string]string
 	if e != nil || json.Unmarshal(raw, &encoded) != nil {
 		return errors.New("SIGNING_TRUST_REQUIRED")

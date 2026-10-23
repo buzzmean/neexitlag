@@ -10,6 +10,7 @@ import (
 	"github.com/buzzmean/neexitlag/core/enrollment"
 	"github.com/buzzmean/neexitlag/core/freshpc"
 	"github.com/buzzmean/neexitlag/core/security"
+	"github.com/buzzmean/neexitlag/internal/clientconfig"
 	wp "github.com/buzzmean/neexitlag/platform/windows"
 	"os"
 	"path/filepath"
@@ -184,6 +185,7 @@ func validActivationIdentity(m Manifest) bool {
 // Called before IPC startup. Only installations with a stored code/missing
 // identity use this background manager; existing valid legacy installs do not.
 func (c *Controller) ConfigureActivation(m Manifest) bool {
+	m = clientconfig.Normalize(m)
 	c.browser.readiness.enforced.Store(true)
 	c.configureBrowserTransportCheck(m)
 	c.mu.Lock()
@@ -195,9 +197,6 @@ func (c *Controller) ConfigureActivation(m Manifest) bool {
 		c.activation.status.State = "UNAVAILABLE"
 		c.activation.networkBlocked.Store(true)
 		return false
-	}
-	if m.ProbeTokenFile == "" {
-		m.ProbeTokenFile = filepath.Join(filepath.Dir(m.DeviceIdentityFile), "probe.token")
 	}
 	c.activation.manifest = m
 	c.activation.configured = true

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/buzzmean/neexitlag/internal/clientconfig"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,7 @@ import (
 // Called before activation or public pipe startup. Internal controller operations
 // retain their normal path; the external pipe has a separate read-only gate.
 func (c *Controller) ConfigureClub(m Manifest) error {
+	m = clientconfig.Normalize(m)
 	if !m.ClubImage {
 		return nil
 	}
@@ -88,9 +90,6 @@ func (c *Controller) ConfigureClub(m Manifest) error {
 		return err
 	}
 	c.syncPolicies()
-	if m.ProbeTokenFile == "" {
-		m.ProbeTokenFile = filepath.Join(filepath.Dir(m.DeviceIdentityFile), "probe.token")
-	}
 	c.clubConfig.Store(&clubConfiguration{manifest: m})
 	c.clubMode.Store(true)
 	return nil
