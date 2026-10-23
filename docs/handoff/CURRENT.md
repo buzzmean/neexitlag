@@ -61,6 +61,7 @@ VPS/credentials/certificates/PR8 не тронуты, deployment VPS не тре
 
 | Работа | Файлы | Агент | Ветка | Статус |
 |---|---|---|---|---|
+| Экономия VPS / LOCAL каталог и автоподбор 1–7 (23.10.2026) | docs/AGENT_RULES и handoff; services/client-service controller/IPC/browser/local/relay; core localstrategy/browserproxy/controlclient/security/flowpolicy; platform/windows local packet code/tests; tools relay-client/windows/catalog; services/control-plane/relay metrics/config; tests/workflows/docs | Codex | codex/work | ЗАНЯТО: 1a → 1b → 1c отдельными коммитами, затем каталог/подгруппы/club learning/учёт/минимальный failover; production не запускать |
 | Multi-relay/Hostkey P0 (23.10.2026) | новые deploy/vps relay fleet scripts; tools/windows/add-relay-vps, relay-status, relay-speed; core/optimizer/controlclient; services/control-plane relay registry; services/client-service remote/relay selection (не TTFB файлы); tests; docs | Codex | codex/work | ОСВОБОЖДЕНО: P0 подготовлен/запушен с unique VPS-PRIMARY audience; реальный deployment только владелец; A–E следующая очередь, не выполнены |
 | YouTube LOCAL-first A–G (23.10.2026) | services/client-service browser transport/local ladder/meter; core/localstrategy; platform/windows local TCP audit/tests; tools/windows diag; tests; docs | Codex | codex/work | ОСВОБОЖДЕНО: audit/packet/ladder/cache/diag готовы; local gates PASS, native Windows/ISP/1080p не проверены; existing TLS pinned |
 | YouTube relay скорость/TTFB (23.10.2026) | services/client-service browser meter/native/transport; core/transport; services/relay; platform/windows TCP forwarding (аудит); tools/windows diag/observe-video; tests/verify workflow/docs | Codex | codex/work | ОСВОБОЖДЕНО: client receive credit/OPEN phases/per-video metrics/observer готовы; Windows/ISP playback не подтверждён |
@@ -2770,3 +2771,15 @@ RELAY: это корректная деградация, не локальный
 смотреть в relay-status connections, configured_primary — только intent.
 Нативные Windows/PS5.1/WinDivertOpen/OpenSSH/systemd/Hostkey/reboot/freeze/ISP/player
 ещё не проверены; no dialogs/restart добавлением этого кода не требуются.
+
+### Приёмка владельца и новая очередь LOCAL/catalog (23.10.2026)
+Владелец подтвердил27f2a8f: Hostkey VPS-PRIMARY работает, 221opens/~60ms,1080p
+идеально через relay. LOCAL fake5x2-disorder к accounts.youtube.com ORIGIN_SILENT;
+1 отказ ошибочно повлиял на youtube.com scope, relay22conn/~181MB за2мин.
+Это НЕ LOCAL PASS. Владельцем подтверждён локальный обход winws на этой сети.
+Временный owner workaround service.relayproof.json заполнял probe defaults;
+никакие identity/токены из него не копировать в handoff/git.
+Новая очередь1a IPC dispatch,1b общий manifest defaults,1c checkout/Python/output,
+2 каталог/техники с provenance/license,3 bounded subgroup selection,4 signed club
+learning,5 general browser ladder/data blocklist,6budget,7primary/standby.
+Главный экономический принцип добавлен по прямому указанию владельца.
