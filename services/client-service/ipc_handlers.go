@@ -31,6 +31,8 @@ func (c *Controller) handleRelayDiagnostics(ctx context.Context, method string, 
 			return nil, errors.New("configured relay ID required")
 		}
 		return c.acceptanceReadiness(ctx, query.RelayID), nil
+	case "relay.primary.status":
+		return c.relayPrimary.snapshot(), nil
 	case "relay.pool.diagnostics":
 		var query struct {
 			RelayID string `json:"relay_id"`

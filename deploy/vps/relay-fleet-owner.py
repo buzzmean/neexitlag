@@ -67,7 +67,7 @@ def main():
     if not ipaddress.IPv4Address(a.host).is_global or a.host=='2.56.177.4' or not re.fullmatch('[A-Za-z0-9_-]{1,64}',a.name) or not Path(a.key).is_file():raise RuntimeError('OWNER_ARGUMENTS_INVALID')
     root=Path(__file__).resolve().parents[2];binary=Path(a.bin)
     source=(root/'deploy/vps/relay-fleet-remote.py').read_bytes()
-    ident='VPS-01' if a.promote else a.name;address=a.host+':4433'
+    ident='VPS-PRIMARY' if a.promote else a.name;address=a.host+':4433'
     files={n:item(binary/n if n in ('relay','relay-admin') else root/'deploy/vps'/n)
            for n in ('relay','relay-admin','relay-install.sh','relay-start.sh','neexitlag-relay.service','update.sh','validate-env.py')}
     control=None;new=None;prepared=False;was_committed=False;step='SSH_PREFLIGHT'
@@ -76,6 +76,8 @@ def main():
         print(json.dumps({'stage':step,'control':control.call('preflight')}),flush=True)
         if a.inspect:
             print(json.dumps({'stage':'READ_ONLY_REGISTRY','state':control.call('inspect_standalone',id=ident,address=address,helper=files['relay-admin'])}));return 0
+        legacy=control.call('inspect_standalone',id='VPS-01',address='2.56.177.4:4433',helper=files['relay-admin'])
+        if not legacy.get('exists') or legacy['relay'].get('address')!='2.56.177.4:4433':raise RPCError('ORIGINAL_VPS01_NOT_AT_EXPECTED_STANDBY_REVIEW_REQUIRED')
         control.call('init',id=ident,address=address,files={'relay-admin':files['relay-admin']},source=base64.b64encode(source).decode())
         if a.rollback:
             print(json.dumps({'stage':'ROLLBACK','state':control.call('rollback')}));return 0
@@ -107,7 +109,7 @@ def main():
         step='FINALIZE';done=control.call('finalize')
         print(json.dumps({'pass':True,'stage':step,'relay_id':ident,'address':address,
                           'state':done,'clients':'new connections use published endpoint after signed config refresh; established TCP stays pinned',
-                          'legacy':'2.56.177.4:4433 retained; explicit rollback available; older pinned policies do not automatically use another relay ID'}),flush=True)
+                          'legacy':'2.56.177.4:4433 retained as VPS-01 with independent ticket audience; updated client chooses primary for new relay opens; existing streams stay pinned'}),flush=True)
         return 0
     except BaseException as e:
         rollback='NOT_REQUESTED';details=None

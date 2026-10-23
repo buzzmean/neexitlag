@@ -20,7 +20,18 @@ if(!(Test-Path -LiteralPath $SSHKey -PathType Leaf)){throw 'OWNER_SSH_PRIVATE_KE
 if(!$Rollback -and !$Inspect -and !(Test-Path -LiteralPath $Manifest -PathType Leaf)){throw 'ACTIVATED_OWNER_PC_MANIFEST_REQUIRED; no installation/enrollment is performed'}
 $commit=(& git -C $repo rev-parse HEAD).Trim();if($LASTEXITCODE -or $commit -notmatch '^[a-f0-9]{40}$'){throw 'EXACT_COMMIT_REQUIRED'}
 if($ExpectedCommit -and $ExpectedCommit -cne $commit){throw 'EXPECTED_COMMIT_MISMATCH'}
-$dirty=@(& git -C $repo status --porcelain --untracked-files=no);if($LASTEXITCODE -or $dirty.Count){throw 'CLEAN_TRACKED_CHECKOUT_REQUIRED'}
+$dirty=@(& git -C $repo status --porcelain);if($LASTEXITCODE -or $dirty.Count){throw 'CLEAN_TRACKED_CHECKOUT_REQUIRED'}
+$installed=$null
+if(!$Inspect -and !$Rollback){
+ Assert-Administrator
+ $installed=Get-Content -Raw -LiteralPath $Manifest | ConvertFrom-Json
+ $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+ if($installed.owner_sid -ne $sid){throw 'INSTALLED_OWNER_SID_REQUIRED; no ACL/identity changes'}
+ $activation=Invoke-ServiceIPC 'activation.status'
+ if(!$activation.has_identity -or $activation.state -ne 'ACTIVATED'){throw 'EXISTING_ACTIVATED_IDENTITY_REQUIRED'}
+ # Build and compile-check the pinned DLL filters BEFORE remote mutation.
+ & (Join-Path $PSScriptRoot 'build-e2e.ps1') -DriverDirectory ([string]$installed.driver.directory)
+}
 $bin=Join-Path $repo 'bin\relay-fleet';[void][IO.Directory]::CreateDirectory($bin)
 $oldOS=$env:GOOS;$oldArch=$env:GOARCH;$oldCGO=$env:CGO_ENABLED
 Push-Location $repo
@@ -42,3 +53,22 @@ if($Inspect){$arguments+='--inspect'}
 Write-Host ('Owner relay-only operation; commit='+$commit+' host='+$RelayHost+'; no CA rotation, enrollment, activation deployment or revoke-tests')
 & python @arguments
 if($LASTEXITCODE){throw 'RELAY_FLEET_OPERATION_FAILED; inspect safe stage/rollback report above'}
+
+if(!$Inspect -and !$Rollback){
+ try {
+ # Closing only the same owner's GUI through its existing activation pipe frees
+ # legacy recovery helper handles. Never terminate Chrome/Edge/game processes.
+ & (Join-Path $PSScriptRoot 'Close-VeliqGuiForUpdate.ps1')
+ & (Join-Path $PSScriptRoot 'update-service.ps1') -InstallDirectory (Split-Path -Parent $Manifest)
+ $until=[DateTime]::UtcNow.AddSeconds(60);$ready=$false
+ while([DateTime]::UtcNow -lt $until){
+  try{
+   $state=Invoke-ServiceIPC 'relay.primary.status'
+   if($state.configured_primary -eq ($RelayHost+':4433')){$ready=$true;break}
+  }catch{ }
+  Start-Sleep -Seconds 2
+ }
+ if(!$ready){throw 'NODE_DEPLOYED_CLIENT_PRIMARY_NOT_OBSERVED; old relay retained; inspect relay.primary.status'}
+ } catch {Write-Host 'NODE_DEPLOYED_CLIENT_UPDATE_FAILED; remote relay may already be committed; old relay retained; inspect safe local error below';throw}
+ Write-Host 'PASS node deployment + existing service update; signed VPS-PRIMARY selected for new VPS-01 policy opens. Existing identity/codes/CA unchanged; no browser/game restart. No playback PASS inferred.'
+}

@@ -334,6 +334,23 @@ func (s *remoteState) apply(ctx context.Context, cfg security.Config) error {
 		}
 	}
 	c.Measurements.SetCandidates(candidates)
+	// P0 only: distinct server audience, existing local VPS-01 policy name.
+	// No process/profile/manual policy rewrite or TCP replay is performed.
+	primaryAddress := ""
+	for _, node := range cfg.Relays {
+		if node.ID == primaryRelayID && node.Load < 1 {
+			primaryAddress = node.Address
+		}
+	}
+	c.relayPrimary.mu.Lock()
+	c.relayPrimary.primary = primaryAddress
+	c.relayPrimary.standby = s.addresses["VPS-01"]
+	c.relayPrimary.mu.Unlock()
+	if primary := s.clients[primaryRelayID]; primary != nil && primaryAddress != "" {
+		c.Engine.SetRelay("VPS-01", &primaryRelayProvider{primary: primary, standby: s.clients["VPS-01"], primaryAddress: primaryAddress, standbyAddress: s.addresses["VPS-01"], runtime: c.relayPrimary})
+	} else {
+		c.Engine.SetRelay("VPS-01", s.clients["VPS-01"])
+	}
 	return nil
 }
 func (s *remoteState) close() {

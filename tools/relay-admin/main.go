@@ -195,6 +195,9 @@ func run() error {
 	if d.Decode(&q) != nil || !safeID(q.ID) {
 		return errors.New("INVALID_FLEET_REQUEST")
 	}
+	if q.ID == "VPS-01" && q.Op != "inspect" && q.Op != "rollback" {
+		return errors.New("DISTINCT_PRIMARY_TICKET_AUDIENCE_REQUIRED")
+	}
 	ip, e := addressIP(q.Address)
 	if e != nil {
 		return e

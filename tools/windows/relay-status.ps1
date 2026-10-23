@@ -8,5 +8,6 @@ $bin=Join-Path $repo 'bin\relay-fleet\relay-client.exe'
 if(!(Test-Path -LiteralPath $bin)){throw 'Run add-relay-vps.ps1 -Inspect -PromotePrimary first to build the signed-cache reader'}
 & $bin '--mode' 'status' '--manifest' $Manifest
 if($LASTEXITCODE){throw 'SIGNED_CACHE_STATUS_FAILED'}
-Invoke-ServiceIPC 'relay.pool.diagnostics' @{relay_id='VPS-01'} | ConvertTo-Json -Depth 8
-Write-Host 'Legacy client: active sessions may include old pinned TCP flows. A published address does not prove every established flow moved.'
+Invoke-ServiceIPC 'relay.primary.status' | ConvertTo-Json -Depth 8
+Invoke-ServiceIPC 'relay.pool.diagnostics' @{relay_id='VPS-PRIMARY'} | ConvertTo-Json -Depth 8
+Write-Host 'connections.observed_tcp_session_endpoint plus TX/RX proves actual new TCP session usage. Empty counters mean no observed traffic yet; UDP exposes selected identity, not peer socket endpoint. Existing streams stay pinned.'
