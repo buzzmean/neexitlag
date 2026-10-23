@@ -42,6 +42,7 @@ VPS/credentials/certificates/PR8 не тронуты, deployment VPS не тре
 
 | Работа | Файлы | Агент | Ветка | Статус |
 |---|---|---|---|---|
+| Multi-relay/Hostkey P0–E (23.10.2026) | новые deploy/vps relay fleet scripts; tools/windows/add-relay-vps, relay-status, relay-speed; core/optimizer/controlclient; services/control-plane relay registry; services/client-service remote/relay selection (не TTFB файлы); tests; docs | Codex | codex/work | В РАБОТЕ: P0 перенос VPS-01/аудит/пул серверов; production только владелец |
 | YouTube relay скорость/TTFB (23.10.2026) | services/client-service browser meter/native/transport; core/transport; services/relay; platform/windows TCP forwarding (аудит); tools/windows diag/observe-video; tests/verify workflow/docs | Codex | codex/work | ОСВОБОЖДЕНО: client receive credit/OPEN phases/per-video metrics/observer готовы; Windows/ISP playback не подтверждён |
 | YouTube admission/ordinary Google/build PS5.1 A–D (23.10.2026) | services/client-service browser policy/admission/meter; core/browserproxy Plan/errors; tools/windows build/filter/diag/acceptance; tests/docs | Codex | codex/work | ОСВОБОЖДЕНО: build/A/B/C/D запушены; локальные проверки PASS; ждёт Windows/ISP 2мин video retest |
 | Browser DNS/DoH и opaque recovery A–E (23.10.2026) | core/browserproxy DNS/первые байты; platform/windows DNS/capture/domain; services/client-service browser*; tests/diag/docs | Codex | codex/work | ОСВОБОЖДЕНО: A–E реализованы/запушены; ждёт реальной Windows/ISP приёмки; svchost/custom DoH ограничения задокументированы |
