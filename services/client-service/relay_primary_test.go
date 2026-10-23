@@ -12,6 +12,7 @@ import (
 
 	"github.com/buzzmean/neexitlag/core/routing"
 	"github.com/buzzmean/neexitlag/core/security"
+	"github.com/buzzmean/neexitlag/core/transport"
 )
 
 type primaryFixture struct {
@@ -91,5 +92,18 @@ func TestP0PrimaryUniqueAudienceAndFailClosedNewOpensPreserveExisting(t *testing
 	}
 	if _, e = oldVerifier.Accept(raw, device, now); e == nil {
 		t.Fatal("cross-audience replay accepted")
+	}
+}
+
+func TestP0EmptySignedRegistryDoesNotPublishTypedNilRelay(t *testing.T) {
+	c := New(context.Background())
+	defer c.Close()
+	s := &remoteState{controller: c, clients: map[string]*transport.Pool{}, addresses: map[string]string{}}
+	if err := s.apply(context.Background(), security.Config{}); err != nil {
+		t.Fatal(err)
+	}
+	f := routing.Flow{Protocol: "tcp", Source: netip.MustParseAddrPort("127.0.0.1:50001"), Destination: netip.MustParseAddrPort("1.1.1.1:443"), PinnedPolicy: &routing.Policy{Route: routing.Route{RelayID: "VPS-01"}, BlockOnFailure: true}}
+	if conn, err := c.Engine.OpenTCP(context.Background(), f); err == nil || conn != nil {
+		t.Fatal("empty signed registry did not fail closed")
 	}
 }

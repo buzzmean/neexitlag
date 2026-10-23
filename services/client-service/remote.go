@@ -347,9 +347,17 @@ func (s *remoteState) apply(ctx context.Context, cfg security.Config) error {
 	c.relayPrimary.standby = s.addresses["VPS-01"]
 	c.relayPrimary.mu.Unlock()
 	if primary := s.clients[primaryRelayID]; primary != nil && primaryAddress != "" {
-		c.Engine.SetRelay("VPS-01", &primaryRelayProvider{primary: primary, standby: s.clients["VPS-01"], primaryAddress: primaryAddress, standbyAddress: s.addresses["VPS-01"], runtime: c.relayPrimary})
+		var standby primaryRelayPool
+		if pool := s.clients["VPS-01"]; pool != nil {
+			standby = pool
+		}
+		c.Engine.SetRelay("VPS-01", &primaryRelayProvider{primary: primary, standby: standby, primaryAddress: primaryAddress, standbyAddress: s.addresses["VPS-01"], runtime: c.relayPrimary})
 	} else {
-		c.Engine.SetRelay("VPS-01", s.clients["VPS-01"])
+		if pool := s.clients["VPS-01"]; pool != nil {
+			c.Engine.SetRelay("VPS-01", pool)
+		} else {
+			c.Engine.SetRelay("VPS-01", nil)
+		}
 	}
 	return nil
 }
