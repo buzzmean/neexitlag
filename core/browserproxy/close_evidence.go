@@ -114,6 +114,10 @@ func (w closeWriter) Write(p []byte) (int, error) {
 	return n, e
 }
 func noReplyFailure(err error) string {
+	var capacity interface{ FailureReason() string }
+	if errors.As(err, &capacity) && capacity.FailureReason() == "OPAQUE_GOOGLE_RELAY_ADMISSION_CAPACITY" {
+		return "OPAQUE_GOOGLE_ADMISSION"
+	}
 	if errors.Is(err, ErrVideoRelayAdmission) {
 		return "GOOGLEVIDEO_ADMISSION"
 	}

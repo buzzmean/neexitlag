@@ -136,27 +136,38 @@ func TestOpaqueGoogleRelayNeedsTwoIPsAndStaysScopedBounded(t *testing.T) {
 		t.Fatal("unbounded family failures")
 	}
 }
-func TestOpaqueGoogleAndKnownVideoShareEightAdmissionsWithoutFakeDomain(t *testing.T) {
+func TestOpaqueGoogleCannotConsumeDedicatedVideoAdmissions(t *testing.T) {
 	u := &browserRelayUsage{}
 	var release []func()
-	for i := 0; i < 8; i++ {
-		r, ok := u.acquireVideoContext(t.Context(), i >= 6)
+	for i := 0; i < opaqueGoogleRelayLimit; i++ {
+		r, ok := u.acquireVideoContext(t.Context(), true)
 		if !ok {
 			t.Fatal(i)
 		}
 		release = append(release, r)
 	}
+	for i := 0; i < videoRelayLimit; i++ {
+		r, ok := u.acquireVideoContext(t.Context())
+		if !ok {
+			t.Fatal("opaque starved video", i)
+		}
+		release = append(release, r)
+	}
 	s := u.snapshot()
-	if s.VideoActive != 6 || s.OpaqueGoogleActive != 2 || s.SharedVideoActive != 8 {
+	if s.VideoActive != videoRelayLimit || s.OpaqueGoogleActive != opaqueGoogleRelayLimit || s.TotalGoogleActive != 16 || s.SharedVideoActive != videoRelayLimit || s.VideoTimeouts != 0 {
 		t.Fatal(s)
 	}
 	if _, ok := u.acquireVideo(); ok {
-		t.Fatal("opaque recovery bypassed VPS admission")
+		t.Fatal("video cap bypassed")
+	}
+	if _, ok := u.tryAcquireVideo(true, true); ok {
+		t.Fatal("opaque cap bypassed")
 	}
 	for _, r := range release {
 		r()
+		r()
 	}
-	if s = u.snapshot(); s.SharedVideoActive != 0 || s.OpaqueGoogleActive != 0 {
+	if s = u.snapshot(); s.TotalGoogleActive != 0 {
 		t.Fatal(s)
 	}
 }

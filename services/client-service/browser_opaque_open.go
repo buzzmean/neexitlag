@@ -27,8 +27,7 @@ func (c *Controller) openOpaqueBrowserPlan(ctx context.Context, cur profilesResu
 	p = stallRetryPlan(cur, p)
 	p.Policy.Source = "opaque_direct_open_retry"
 	p.Probe = "OPAQUE_DIRECT_OPEN_FAILED_RELAY"
-	conn, err = open(ctx, q, p)
-	return conn, p, err
+	return c.openBrowserPlan(ctx, cur, q, p, open)
 }
 func (c *Controller) recordNativeBrowserStall(cur profilesResult, q browserproxy.Request, p browserproxy.Plan, opaque bool) {
 	if q.Host != "" {

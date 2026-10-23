@@ -183,3 +183,21 @@ func TestFirstByteNoReplyReasonsOnActualConnect(t *testing.T) {
 		})
 	}
 }
+
+type localAdmissionError string
+
+func (e localAdmissionError) Error() string         { return string(e) }
+func (e localAdmissionError) FailureReason() string { return string(e) }
+func (e localAdmissionError) Unwrap() error         { return ErrVideoRelayAdmission }
+func TestOpaqueAdmissionIsNotReportedAsVideoOrUpstreamFailure(t *testing.T) {
+	err := localAdmissionError("OPAQUE_GOOGLE_RELAY_ADMISSION_CAPACITY")
+	if got := openFailure(err); got != "OPAQUE_GOOGLE_RELAY_ADMISSION_CAPACITY" {
+		t.Fatal(got)
+	}
+	if got := noReplyFailure(err); got != "OPAQUE_GOOGLE_ADMISSION" {
+		t.Fatal(got)
+	}
+	if got := noReplyFailure(ErrVideoRelayAdmission); got != "GOOGLEVIDEO_ADMISSION" {
+		t.Fatal(got)
+	}
+}

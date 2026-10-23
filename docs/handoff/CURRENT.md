@@ -22,7 +22,7 @@
 
 | Работа | Файлы | Агент | Ветка | Статус |
 |---|---|---|---|---|
-| YouTube admission/ordinary Google/build PS5.1 A–D (23.10.2026) | services/client-service browser policy/admission/meter; tools/windows build/filter/diag/acceptance; tests/docs | Codex | codex/work | В РАБОТЕ: shared Google starvation, DIRECT hints, dedicated video admission и безопасная сборка |
+| YouTube admission/ordinary Google/build PS5.1 A–D (23.10.2026) | services/client-service browser policy/admission/meter; core/browserproxy Plan/errors; tools/windows build/filter/diag/acceptance; tests/docs | Codex | codex/work | В РАБОТЕ: shared Google starvation, DIRECT hints, dedicated video admission и безопасная сборка |
 | Browser DNS/DoH и opaque recovery A–E (23.10.2026) | core/browserproxy DNS/первые байты; platform/windows DNS/capture/domain; services/client-service browser*; tests/diag/docs | Codex | codex/work | ОСВОБОЖДЕНО: A–E реализованы/запушены; ждёт реальной Windows/ISP приёмки; svchost/custom DoH ограничения задокументированы |
 | Срочно: компиляция фильтров WinDivert/iSCSI (22.10.2026) | platform/windows capture/loader/storage/filter tests; tools/windows build/filter check; Windows CI; docs | Codex | codex/work | СВОБОДНО: grouped NOT исправлен; все фильтры обязательны к проверке DLL; actual Windows capture ждёт владельца |
 | PUBG: scope античита/local-first/status (22.10.2026) | core/gameudp; platform/windows game UDP guard; services/client-service game_udp; desktop GameUdp; tests/docs | Codex | codex/work | СВОБОДНО: scope/local-first/GUI готовы; реальные Windows/PUBG матчи ждут владельца |
@@ -2514,3 +2514,18 @@ YouTube API/CDN aliases, protected ambiguity, DoH и explicit BLOCK не осл�
 hint-hash cache, TTL2мин/max256; unrelated SNI не отравляет ordinary origins.
 Targeted Go race и vet service PASS; native Windows/ISP ещё не проверены.
 Далее B/C/D, область занята.
+
+## 23.10.2026 — YouTube starvation B
+
+A03eba78 запушен. B: dedicated googlevideo12 + otherGoogle4 (32waiters суммарно,
+2с/1с budget), без конкуренции с opaque за video slots. Глобальный pool8×48 и
+security не менялись. Idle3с доI/O,20сvideo/10сother после; stale callback generation
+не закрывает working stream, local idle EOF учитывается отдельно. Native/PAC
+показывают local admission code вместо open_io_failed. Cancellation отдельна.
+Владелец добавил ChromeWebStore: local/stream capacity OPEN failure обычного AUTO
+origin возвращает реальный DIRECT plan до payload. Protected/DoH/explicitRequired
+и protected DNS ambiguity не имеют fallback. Не мигрировать successful streams.
+Go race core/service PASS; player-like controlled16flows при opaque4 и других
+admission/idle/fallback regressions x3 PASS, это не YouTube/player Internet PASS.
+Исправление meter nil accounting в zero-value fixture покрыто. Общие race/vet/build
+проверки идут; native Windows/ISP ещё не выполнялись. Далее C/D, область занята.

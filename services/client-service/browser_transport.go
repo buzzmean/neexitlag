@@ -217,13 +217,16 @@ func (c *Controller) openBrowser(ctx context.Context, q browserproxy.Request, pl
 		return backend.OpenBrowserLocalTCP(ctx, browserIdentity(q), q.Source, plan.Destination, d)
 	}
 	release := func() {}
-	opaqueGoogle := !isVideo(q) && (q.Host == "" && browserGoogleDestination(plan.Destination) || plan.Policy.Source == "browser_opaque_google_failure_cache")
+	opaqueGoogle := !isVideo(q) && !restrictiveBrowserDomain(q.Host) && (browserGoogleDestination(plan.Destination) || ordinaryGoogleDomain(q.Host))
 	if observe && d.Route.RelayID != "" && (isVideo(q) || opaqueGoogle) {
 		var ok bool
 		release, ok = c.relayUsage().acquireVideoContext(ctx, opaqueGoogle)
 		if !ok {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
+			}
+			if opaqueGoogle {
+				return nil, errOpaqueGoogleCapacity
 			}
 			return nil, errVideoRelayCapacity
 		}
@@ -240,7 +243,15 @@ func (c *Controller) openBrowser(ctx context.Context, q browserproxy.Request, pl
 		}
 		closeCount := usage.openedTunnel(current.profile.ID, domain, time.Now())
 		videoRelease := release
-		conn = &relayMeterConn{Conn: conn, usage: usage, profile: current.profile.ID, domain: domain, release: func() { videoRelease(); closeCount() }}
+		meter := &relayMeterConn{Conn: conn, usage: usage, profile: current.profile.ID, domain: domain, release: func() { videoRelease(); closeCount() }}
+		if isVideo(q) || opaqueGoogle {
+			idle := browserVideoIdle
+			if opaqueGoogle {
+				idle = browserOpaqueGoogleIdle
+			}
+			meter.armIdle(browserRelayFirstIOIdle, idle, opaqueGoogle)
+		}
+		conn = meter
 	}
 
 	if observe {

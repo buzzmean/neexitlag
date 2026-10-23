@@ -93,7 +93,7 @@ func TestRelayUsageIsBoundedAndReportsOverflowInsteadOfSilentlyLosingEvidence(t 
 	}
 }
 
-func TestVideoAdmissionWaitsForSlotAndNeverExceedsEight(t *testing.T) {
+func TestVideoAdmissionWaitsForSlotAndNeverExceedsDedicatedLimit(t *testing.T) {
 	u := &browserRelayUsage{}
 	var held []func()
 	for i := 0; i < videoRelayLimit; i++ {
@@ -153,11 +153,11 @@ func TestVideoAdmissionIsBoundedAndCanceledWaiterDoesNotLeak(t *testing.T) {
 	if _, ok := u.acquireVideoContext(ctx); ok {
 		t.Fatal("saturated admitted")
 	}
-	if s := u.snapshot(); s.VideoWaiting != 0 || s.VideoTimeouts != 1 || s.VideoActive != videoRelayLimit {
+	if s := u.snapshot(); s.VideoWaiting != 0 || s.VideoCanceled != 1 || s.VideoTimeouts != 0 || s.VideoActive != videoRelayLimit {
 		t.Fatal(s)
 	}
 	u.mu.Lock()
-	u.waiting = videoRelayWaitLimit
+	u.videoAdmission.waiting = videoRelayWaitLimit
 	u.mu.Unlock()
 	started := time.Now()
 	if _, ok := u.acquireVideoContext(context.Background()); ok || time.Since(started) > time.Second {

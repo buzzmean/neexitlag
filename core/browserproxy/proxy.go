@@ -63,6 +63,9 @@ type Trial struct {
 	DurationMS       int64  `json:"duration_ms"`
 }
 type Plan struct {
+	// Set only by native planner when no protected DNS/outer association exists.
+	OrdinaryCapacityDirect bool `json:"-"`
+
 	OriginPrior         []OriginAttempt    `json:"-"`
 	OriginNegativeSkips int                `json:"-"`
 	RelayCandidates     []netip.AddrPort   `json:"-"`
@@ -747,7 +750,7 @@ func openFailure(err error) string {
 	var typed interface{ FailureReason() string }
 	if errors.As(err, &typed) {
 		switch reason := typed.FailureReason(); reason {
-		case "LOCAL_FLOW_RESERVATION_IN_USE", "NATIVE_PAC_DELEGATION_INVALID", "NATIVE_PAC_DELEGATION_UNAVAILABLE", "NATIVE_CAPTURE_NOT_READY", "NATIVE_PROFILE_CHANGED", "NATIVE_OWNER_SID_MISMATCH", "NATIVE_EVIDENCE_CAPACITY", "relay_destination_denied", "relay_flow_capacity", "upstream_dial_timeout", "upstream_connection_refused", "upstream_dial_failed", "authorization_expired_or_revoked", "authorization_lease_expired", "device_revoked", "relay_rejected_unspecified", "stream_capacity", "caller_cancelled", "open_ack_timeout", "open_stream_reset", "open_ack_eof", "open_io_failed", "transport_open_failed", "session_creation_failed":
+		case "OPAQUE_GOOGLE_RELAY_ADMISSION_CAPACITY", "LOCAL_FLOW_RESERVATION_IN_USE", "NATIVE_PAC_DELEGATION_INVALID", "NATIVE_PAC_DELEGATION_UNAVAILABLE", "NATIVE_CAPTURE_NOT_READY", "NATIVE_PROFILE_CHANGED", "NATIVE_OWNER_SID_MISMATCH", "NATIVE_EVIDENCE_CAPACITY", "relay_destination_denied", "relay_flow_capacity", "upstream_dial_timeout", "upstream_connection_refused", "upstream_dial_failed", "authorization_expired_or_revoked", "authorization_lease_expired", "device_revoked", "relay_rejected_unspecified", "stream_capacity", "caller_cancelled", "open_ack_timeout", "open_stream_reset", "open_ack_eof", "open_io_failed", "transport_open_failed", "session_creation_failed":
 			return strings.ToUpper(reason)
 		}
 	}

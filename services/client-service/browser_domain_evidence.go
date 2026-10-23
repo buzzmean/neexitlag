@@ -288,7 +288,7 @@ func (c *Controller) nativeOpaquePlan(p profiles.Profile, t wp.Tuple, network st
 		policy.Source = "browser_secure_dns_relay"
 		policy.Reason = "known resolver endpoint, no DIRECT Secure DNS bypass"
 	}
-	return browserproxy.Plan{Enabled: true, Network: network, Destination: t.Destination, Policy: policy, Probe: e.Source}
+	return browserproxy.Plan{Enabled: true, Network: network, Destination: t.Destination, Policy: policy, Probe: e.Source, OrdinaryCapacityDirect: !e.Restricted && !secureDNS && policy.Source != "rule"}
 }
 
 func (x *browserDomainIndex) observeBrowserDNS(network, profile string, rows []browserproxy.DNSHint, now time.Time) {

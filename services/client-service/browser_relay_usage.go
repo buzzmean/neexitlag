@@ -1,19 +1,22 @@
 package clientservice
 
 import (
-	"context"
 	"github.com/buzzmean/neexitlag/core/browserproxy"
 	"github.com/buzzmean/neexitlag/core/flowpolicy"
-	"net"
 	"sort"
 	"sync"
 	"time"
 )
 
 var errVideoRelayCapacity = browserproxy.ErrVideoRelayAdmission
+var errOpaqueGoogleCapacity = &nativePACOpenError{code: "OPAQUE_GOOGLE_RELAY_ADMISSION_CAPACITY", cause: browserproxy.ErrVideoRelayAdmission}
 
-const videoRelayLimit = 8
-const videoRelayWaitLimit = 32
+// Per-PC: two tracks, concurrent ranges/preload and seek replacement headroom.
+// This is a bounded starting budget, not measured 36-PC VPS throughput.
+const videoRelayLimit = 12
+const opaqueGoogleRelayLimit = 4
+const videoRelayWaitLimit = 24
+const opaqueGoogleWaitLimit = 8
 const videoRelayWait = 2 * time.Second
 const relayUsageCapacity = 1024
 const relayUsageRetention = 10 * time.Minute
@@ -31,8 +34,21 @@ type relayMinute struct {
 	Received uint64    `json:"received_bytes"`
 }
 type relayUsageSnapshot struct {
-	OpaqueGoogleActive int `json:"opaque_google_active_tunnels"`
-	SharedVideoActive  int `json:"googlevideo_shared_limit_active"`
+	OpaqueGoogleActive      int    `json:"opaque_google_active_tunnels"`
+	OpaqueGoogleLimit       int    `json:"opaque_google_tunnel_limit"`
+	OpaqueGoogleWaiting     int    `json:"opaque_google_waiters"`
+	OpaqueGoogleFailures    uint64 `json:"opaque_google_admission_failures"`
+	OpaqueGoogleCanceled    uint64 `json:"opaque_google_admission_canceled"`
+	VideoCanceled           uint64 `json:"googlevideo_admission_canceled"`
+	VideoIdleClosed         uint64 `json:"googlevideo_idle_closed"`
+	OpaqueIdleClosed        uint64 `json:"opaque_google_idle_closed"`
+	VideoWaited             uint64 `json:"googlevideo_waited"`
+	VideoWaitTotalMS        int64  `json:"googlevideo_wait_total_ms"`
+	VideoWaitMaxMS          int64  `json:"googlevideo_wait_max_ms"`
+	CapacityDirectFallbacks uint64 `json:"ordinary_capacity_direct_fallbacks"`
+	AdmissionScope          string `json:"admission_scope"`
+	TotalGoogleActive       int    `json:"google_admission_total_active"`
+	SharedVideoActive       int    `json:"googlevideo_shared_limit_active"`
 
 	Active          int                 `json:"active_tcp_tunnels"`
 	Opened          uint64              `json:"tcp_tunnels_opened"`
@@ -54,12 +70,10 @@ type browserRelayUsage struct {
 	opened, overflowTunnels uint64
 	mu                      sync.Mutex
 	minutes                 map[relayMinuteKey]relayMinute
-	opaqueGoogle            int
-	video                   int
-	waiting                 int
-	admissionFailures       uint64
-	changed                 chan struct{}
-	limitHits, overflow     uint64
+	videoAdmission          relayAdmissionPool
+	opaqueAdmission         relayAdmissionPool
+	capacityDirectFallbacks uint64
+	overflow                uint64
 }
 
 type relayActiveOrigin struct {
@@ -127,86 +141,6 @@ func (c *Controller) relayUsage() *browserRelayUsage {
 	}
 	return c.browser.usage
 }
-func (u *browserRelayUsage) acquireVideo() (func(), bool) { return u.tryAcquireVideo(true) }
-func (u *browserRelayUsage) tryAcquireVideo(count bool, opaque ...bool) (func(), bool) {
-	u.mu.Lock()
-	defer u.mu.Unlock()
-	if u.video >= videoRelayLimit {
-		if count {
-			u.limitHits++
-		}
-		return nil, false
-	}
-	u.video++
-	isOpaque := len(opaque) > 0 && opaque[0]
-	if isOpaque {
-		u.opaqueGoogle++
-	}
-	var once sync.Once
-	return func() {
-		once.Do(func() {
-			u.mu.Lock()
-			u.video--
-			if isOpaque {
-				u.opaqueGoogle--
-			}
-			if u.changed != nil {
-				close(u.changed)
-				u.changed = nil
-			}
-			u.mu.Unlock()
-		})
-	}, true
-}
-
-// The caller's existing flow worker waits; no goroutine or unbounded queue is
-// created. Eight active tunnels and at most 32 waiters are shared by both browsers.
-func (u *browserRelayUsage) acquireVideoContext(ctx context.Context, opaque ...bool) (func(), bool) {
-	if ctx.Err() != nil {
-		return nil, false
-	}
-	if release, ok := u.tryAcquireVideo(true, opaque...); ok {
-		return release, true
-	}
-	u.mu.Lock()
-	if u.waiting >= videoRelayWaitLimit {
-		u.admissionFailures++
-		u.mu.Unlock()
-		return nil, false
-	}
-	u.waiting++
-	u.mu.Unlock()
-	defer func() { u.mu.Lock(); u.waiting--; u.mu.Unlock() }()
-	timer := time.NewTimer(videoRelayWait)
-	defer timer.Stop()
-	for {
-		u.mu.Lock()
-		if u.changed == nil {
-			u.changed = make(chan struct{})
-		}
-		changed := u.changed
-		u.mu.Unlock()
-		if ctx.Err() == nil {
-			if release, ok := u.tryAcquireVideo(false, opaque...); ok {
-				return release, true
-			}
-		}
-		select {
-		case <-changed:
-		case <-ctx.Done():
-			u.mu.Lock()
-			u.admissionFailures++
-			u.mu.Unlock()
-			return nil, false
-		case <-timer.C:
-			u.mu.Lock()
-			u.admissionFailures++
-			u.mu.Unlock()
-			return nil, false
-		}
-	}
-}
-
 func (u *browserRelayUsage) account(profile, domain string, tx, rx uint64, at time.Time) {
 	if tx+rx == 0 {
 		return
@@ -217,6 +151,9 @@ func (u *browserRelayUsage) account(profile, domain string, tx, rx uint64, at ti
 		if at.Sub(k.minute) > relayUsageRetention {
 			delete(u.minutes, k)
 		}
+	}
+	if u.minutes == nil {
+		u.minutes = map[relayMinuteKey]relayMinute{}
 	}
 	key := relayMinuteKey{at.UTC().Truncate(time.Minute), profile, domain}
 	v, ok := u.minutes[key]
@@ -232,7 +169,8 @@ func (u *browserRelayUsage) account(profile, domain string, tx, rx uint64, at ti
 func (u *browserRelayUsage) snapshot() relayUsageSnapshot {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	s := relayUsageSnapshot{VideoActive: u.video - u.opaqueGoogle, OpaqueGoogleActive: u.opaqueGoogle, SharedVideoActive: u.video, VideoLimit: videoRelayLimit, VideoLimitHits: u.limitHits, VideoWaiting: u.waiting, VideoTimeouts: u.admissionFailures, OverflowBytes: u.overflow, Minutes: []relayMinute{}}
+	v, o := u.videoAdmission, u.opaqueAdmission
+	s := relayUsageSnapshot{VideoActive: v.active, OpaqueGoogleActive: o.active, SharedVideoActive: v.active, TotalGoogleActive: v.active + o.active, VideoLimit: videoRelayLimit, OpaqueGoogleLimit: opaqueGoogleRelayLimit, VideoLimitHits: v.hits, VideoWaiting: v.waiting, OpaqueGoogleWaiting: o.waiting, VideoTimeouts: v.failures, OpaqueGoogleFailures: o.failures, VideoCanceled: v.canceled, OpaqueGoogleCanceled: o.canceled, VideoIdleClosed: v.idleClosed, OpaqueIdleClosed: o.idleClosed, VideoWaited: v.waited, VideoWaitTotalMS: v.waitTotal.Milliseconds(), VideoWaitMaxMS: v.waitMax.Milliseconds(), CapacityDirectFallbacks: u.capacityDirectFallbacks, AdmissionScope: "DEDICATED_GOOGLEVIDEO_12_PLUS_OTHER_GOOGLE_4; shared_limit_active is legacy video-only", OverflowBytes: u.overflow, Minutes: []relayMinute{}}
 	s.Active = u.active
 	s.Opened = u.opened
 	s.OverflowTunnels = u.overflowTunnels
@@ -278,41 +216,12 @@ func (u *browserRelayUsage) snapshot() relayUsageSnapshot {
 	return s
 }
 
-type relayMeterConn struct {
-	net.Conn
-	usage           *browserRelayUsage
-	profile, domain string
-	release         func()
-	once            sync.Once
-}
-
-func (c *relayMeterConn) Read(p []byte) (int, error) {
-	n, e := c.Conn.Read(p)
-	if n > 0 {
-		c.usage.account(c.profile, c.domain, 0, uint64(n), time.Now())
-	}
-	return n, e
-}
-func (c *relayMeterConn) Write(p []byte) (int, error) {
-	n, e := c.Conn.Write(p)
-	if n > 0 {
-		c.usage.account(c.profile, c.domain, uint64(n), 0, time.Now())
-	}
-	return n, e
-}
-func (c *relayMeterConn) Close() error { e := c.Conn.Close(); c.once.Do(c.release); return e }
-func (c *relayMeterConn) CloseWrite() error {
-	if cw, ok := c.Conn.(interface{ CloseWrite() error }); ok {
-		return cw.CloseWrite()
-	}
-	return nil
-}
 func isVideo(q browserproxy.Request) bool { return flowpolicy.DomainMatches(q.Host, "googlevideo.com") }
 
 // Called while browser.mu is already held by status IPC.
 func (c *Controller) relayUsageLocked() relayUsageSnapshot {
 	if c.browser.usage == nil {
-		return relayUsageSnapshot{VideoLimit: videoRelayLimit, Minutes: []relayMinute{}}
+		return (&browserRelayUsage{}).snapshot()
 	}
 	return c.browser.usage.snapshot()
 }
