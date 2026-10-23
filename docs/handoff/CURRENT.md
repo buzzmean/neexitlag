@@ -2800,3 +2800,14 @@ settings не меняются, файлы/identity не создаются, ser
 Race tests defaults/idempotence/no-write/explicit-settings + tool no-enroll +
 activation/club/dispatcher subset PASS. Workaround service.relayproof.json больше
 не нужен; actual owner probe ещё не выполнен. VPS не запускался.
+
+### 1c — tracked checkout / Python / private output (23.10.2026)
+add-relay проверяет только tracked changes, untracked owner reports не мешают.
+diag default → %LOCALAPPDATA%\VELIQ\Diagnostics\diag-result.txt (TEMP fallback),
+legacy diag-result/cs-diag/observe-result patterns игнорируются Git. Python preflight
+проверяет реальный3.9+, пропускает WindowsApps Store alias без запуска, поддерживает
+py -3 и даёт winget install Python.Python.3.12 при отсутствии. Никаких empty native
+arguments; prefix argv сохраняется. PS7 fixture (real temp Git repo, untracked ok,
+tracked rejected, Store alias rejected, real Python) PASS; parser/browser StrictMode
+PASS, workflow YAML parsed. PS5.1 fixture добавлен в CI, локально native5.1 нет.
+VPS/owner PC не запускались; повторный deployment не требуется.

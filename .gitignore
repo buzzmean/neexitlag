@@ -26,3 +26,8 @@ TestResults/
 tests/desktop-native/bin/
 
 /dist/
+
+# Owner diagnostics are private output, never release inputs or source changes.
+diag-result*.txt
+cs-diag*.txt
+observe-result*

@@ -2,8 +2,7 @@
 <#
 Non-interactive, read-only diagnostics to run with the VPN OFF, as a normal user:
   powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\windows\diag-no-vpn.ps1
-Writes diag-result.txt next to this script (falls back to %TEMP% if that folder is not
-writable). Changes nothing on the machine. Reads no token/identity/certificate into the
+Writes %LOCALAPPDATA%\VELIQ\Diagnostics\diag-result.txt (falls back to %TEMP%). Changes nothing on the machine. Reads no token/identity/certificate into the
 report; the whole report is scrubbed of secret-shaped values before the run ends.
 Self-contained: does not need common.ps1. -Only limits the run to some sections:
   env, service, ipc, tcp, udp, mtu, dns, sites, sni, browser, apps, youtube, game
@@ -24,7 +23,11 @@ Set-StrictMode -Version 2
 $Only=@($Only|ForEach-Object{$_ -split ','}|Where-Object{$_})   # -File passes 'a,b' as one string
 $scriptDir=if($PSScriptRoot){$PSScriptRoot}else{(Get-Location).Path}
 if(-not $BuildDirectory){$BuildDirectory=Join-Path (Split-Path $scriptDir -Parent | Split-Path -Parent) 'bin\windows-e2e'}
-$result=if($OutputFile){$OutputFile}else{Join-Path $scriptDir 'diag-result.txt'}
+$result=if($OutputFile){$OutputFile}else{
+ $reportRoot=if($env:LOCALAPPDATA){Join-Path $env:LOCALAPPDATA 'VELIQ\Diagnostics'}else{[IO.Path]::GetTempPath()}
+ try{[void][IO.Directory]::CreateDirectory($reportRoot)}catch{$reportRoot=[IO.Path]::GetTempPath()}
+ Join-Path $reportRoot 'diag-result.txt'
+}
 $utf8=New-Object Text.UTF8Encoding($false)      # appends: the BOM is written once, below
 $utf8Bom=New-Object Text.UTF8Encoding($true)
 $bom=[byte[]](0xEF,0xBB,0xBF)                    # UTF-8 BOM so Windows tools show Cyrillic correctly
