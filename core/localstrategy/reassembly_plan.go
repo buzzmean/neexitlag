@@ -38,6 +38,7 @@ func chainStream(st *State, c *compiled) Result {
 	reverse := false
 	var fake []byte
 	var ttl uint8
+	repeats := 1
 	for _, a := range actions {
 		switch a.Kind {
 		case "fake-tls":
@@ -46,6 +47,9 @@ func chainStream(st *State, c *compiled) Result {
 				return Result{}
 			}
 			ttl = a.TTL
+			if a.Repeats > 0 {
+				repeats = int(a.Repeats)
+			}
 		case "tcp-multisplit":
 			start := 0
 			if a.Anchor == "sni" {
@@ -117,9 +121,17 @@ func chainStream(st *State, c *compiled) Result {
 		changed = true
 	}
 	if fake != nil {
-		out.Packets = append([][]byte{fake}, out.Packets...)
-		out.PacketOrigins = append([]int{order[0]}, out.PacketOrigins...)
-		out.FakePackets = 1
+		copies := make([][]byte, repeats)
+		origins := make([]int, repeats)
+		for i := range copies {
+			copies[i] = append([]byte(nil), fake...)
+			binary.BigEndian.PutUint16(copies[i][4:], binary.BigEndian.Uint16(fake[4:])+uint16(i))
+			checksumTransport(copies[i])
+			origins[i] = order[0]
+		}
+		out.Packets = append(copies, out.Packets...)
+		out.PacketOrigins = append(origins, out.PacketOrigins...)
+		out.FakePackets = uint64(repeats)
 		out.ModifiedOrigins[order[0]] = true
 		st.fakeSent = true
 		changed = true

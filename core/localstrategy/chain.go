@@ -4,12 +4,14 @@ import (
 	"encoding/binary"
 	"errors"
 	"sort"
+	"strconv"
 	"strings"
 )
 
-// Actions are a finite packet plan, not a scripting language. At most one fake,
+// Actions are a finite packet plan, not a scripting language. At most two old-sequence fakes,
 // one segmentation and one reversal; at most five emitted packets per input.
 type Action struct {
+	Repeats   uint8    `json:"repeats,omitempty"` // TCP only: default1, maximum2; total output remains <=5.
 	Kind      string   `json:"kind"`
 	Positions []uint16 `json:"positions,omitempty"`
 	Anchor    string   `json:"anchor,omitempty"` // empty=payload, sni=complete SNI offset
@@ -24,12 +26,12 @@ func validateChain(p Profile) error {
 	for i, a := range p.Actions {
 		switch a.Kind {
 		case "fake-tls":
-			if fake || i != 0 || a.TTL < 2 || a.TTL > 16 || len(a.Positions) > 0 || a.Anchor != "" {
+			if fake || i != 0 || a.TTL < 2 || a.TTL > 16 || a.Repeats > 2 || len(a.Positions) > 0 || a.Anchor != "" {
 				return errors.New("fake TLS requires explicit TTL 2..16 and first position")
 			}
 			fake = true
 		case "tcp-multisplit":
-			if split || reverse || a.TTL != 0 || len(a.Positions) < 1 || len(a.Positions) > 3 || (a.Anchor != "" && a.Anchor != "sni") {
+			if a.Repeats != 0 || split || reverse || a.TTL != 0 || len(a.Positions) < 1 || len(a.Positions) > 3 || (a.Anchor != "" && a.Anchor != "sni") {
 				return errors.New("invalid bounded split")
 			}
 			last := uint16(0)
@@ -41,7 +43,7 @@ func validateChain(p Profile) error {
 			}
 			split = true
 		case "tcp-disorder":
-			if !split || reverse || i != len(p.Actions)-1 || len(a.Positions) > 0 || a.TTL != 0 || a.Anchor != "" {
+			if a.Repeats != 0 || !split || reverse || i != len(p.Actions)-1 || len(a.Positions) > 0 || a.TTL != 0 || a.Anchor != "" {
 				return errors.New("disorder requires prior split")
 			}
 			reverse = true
@@ -49,12 +51,32 @@ func validateChain(p Profile) error {
 			return errors.New("unknown chain action")
 		}
 	}
+	outputs := 1
+	fakes := 0
+	for _, a := range p.Actions {
+		if a.Kind == "fake-tls" {
+			fakes = int(a.Repeats)
+			if fakes == 0 {
+				fakes = 1
+			}
+		}
+		if a.Kind == "tcp-multisplit" {
+			outputs = len(a.Positions) + 1
+		}
+	}
+	if outputs+fakes > 5 {
+		return errors.New("TCP chain output exceeds five packets")
+	}
 	return nil
 }
 func ChainLabel(actions []Action) string {
 	parts := []string{}
 	for _, a := range actions {
-		parts = append(parts, a.Kind)
+		label := a.Kind
+		if a.Kind == "fake-tls" && a.Repeats > 1 {
+			label += " x" + strconv.Itoa(int(a.Repeats))
+		}
+		parts = append(parts, label)
 	}
 	return strings.Join(parts, " + ")
 }
@@ -176,6 +198,7 @@ func chainPackets(p []byte, st *State, c *compiled) Result {
 	var real [][]byte
 	var fake []byte
 	var ttl uint8
+	repeats := 1
 	for _, a := range c.Actions {
 		switch a.Kind {
 		case "fake-tls":
@@ -184,6 +207,9 @@ func chainPackets(p []byte, st *State, c *compiled) Result {
 				return Result{}
 			} // uncertain handshake => entire plan fail-open
 			ttl = a.TTL
+			if a.Repeats > 0 {
+				repeats = int(a.Repeats)
+			}
 		case "tcp-multisplit":
 			offset := 0
 			if a.Anchor == "sni" {
@@ -234,9 +260,15 @@ func chainPackets(p []byte, st *State, c *compiled) Result {
 	}
 	if fake != nil {
 		st.fakeSent = true
-		real = append([][]byte{fake}, real...)
+		copies := make([][]byte, repeats)
+		for i := range copies {
+			copies[i] = append([]byte(nil), fake...)
+			binary.BigEndian.PutUint16(copies[i][4:], binary.BigEndian.Uint16(fake[4:])+uint16(i))
+			checksumTransport(copies[i])
+		}
+		real = append(copies, real...)
 	}
-	return Result{Packets: real, Modified: len(real) > 1, FakePackets: boolCount(fake != nil), FakeTTL: ttl, Chain: ChainLabel(c.Actions), Preset: c.Preset}
+	return Result{Packets: real, Modified: len(real) > 1, FakePackets: uint64(repeats) * boolCount(fake != nil), FakeTTL: ttl, Chain: ChainLabel(c.Actions), Preset: c.Preset}
 }
 func boolCount(v bool) uint64 {
 	if v {
