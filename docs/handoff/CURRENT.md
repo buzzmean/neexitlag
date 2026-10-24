@@ -14,6 +14,7 @@ Pre-push: existing browser.local.probes/native.status routed/club-readonly, no n
 ## Таблица работ
 | Работа / дата | Файлы | Агент / ветка | Статус |
 |---|---|---|---|
+| Фазы0/1: измерения relay/DNS/LOCAL /25.10.2026 | core/transport; core/localstrategy inspection; services/client-service telemetry; tools/windows diag; catalog informational fields; tests/docs | Codex/codex/work | В РАБОТЕ; поведение сначала не менять, VPS/SSH запрещены |
 | CDN identity/media evidence + ordinary dispatch /25.10.2026 | services/client-service browser selection/meter/native/ordinary; tools/windows diag; tests/docs | Codex/codex/work | ОСВОБОЖДЕНО: media admission/endpoint/identity иevidence готовы; native Windows/ISP впереди |
 | CDN neutral retry + ordinary DIRECT /24.10.2026 | services/client-service browser selection/meter/origin/native; core/browserproxy; tools/windows diag; tests/docs | Codex/codex/work | ОСВОБОЖДЕНО: CDN retry + ordinary DNS DIRECT/diag готовы; native Windows/ISP приёмка впереди |
 | Game catalog LF integrity /24.10.2026 | .gitattributes; tests/desktop и windows-tools; verify workflow; docs/handoff | Codex/codex/work | ОСВОБОЖДЕНО: LF/hash/CRLF fixture/C#/WPF готовы; native Windows/PS5.1 впереди |
