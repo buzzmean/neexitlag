@@ -36,7 +36,7 @@ func TestCatalogPublicSignedAndAdminAtomicUpdateWithoutDBMutation(t *testing.T) 
 	if _, err := localcatalog.Validate(keys, w.Body.Bytes(), time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	input := localCatalogRelease{Version: 2, Catalog: localstrategy.BundledCatalog()}
+	input := localCatalogRelease{Version: 3, Catalog: localstrategy.BundledCatalog()}
 	input.Catalog.Reviewed = "2026-10-24"
 	raw, _ := json.Marshal(input)
 	if w = call("PUT", raw, false); w.Code != 401 {
@@ -49,7 +49,7 @@ func TestCatalogPublicSignedAndAdminAtomicUpdateWithoutDBMutation(t *testing.T) 
 		t.Fatal(w.Code, w.Body.String())
 	}
 	doc, err := localcatalog.Validate(keys, w.Body.Bytes(), time.Now())
-	if err != nil || doc.Version != 2 {
+	if err != nil || doc.Version != 3 {
 		t.Fatal("publication signature", err)
 	}
 	before, _ := os.ReadFile(path)

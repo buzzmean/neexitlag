@@ -6,6 +6,7 @@ import (
 	"github.com/buzzmean/neexitlag/core/controlclient"
 	"github.com/buzzmean/neexitlag/core/locallearning"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -170,7 +171,7 @@ func (c *Controller) runSharedLearning(ctx context.Context, cp *controlclient.Cl
 				return
 			}
 			cmd := locallearning.Command{Scope: locallearning.Scope{Group: k.Domain, HintOnly: k.HintOnly}, Action: "observe"}
-			if !locallearning.ValidScope(cmd.Scope) {
+			if !locallearning.ValidScope(cmd.Scope) || !c.sharedScopeAllowed(k) {
 				continue
 			}
 			v := pending[k]
@@ -260,4 +261,12 @@ func (c *Controller) runSharedLearning(ctx context.Context, cp *controlclient.Cl
 			poll()
 		}
 	}
+}
+
+func (c *Controller) sharedScopeAllowed(k youtubeKey) bool {
+	host := k.Domain
+	if strings.HasPrefix(host, "googlevideo:") {
+		host = "googlevideo.com"
+	}
+	return c.browserOriginPolicy(host).Kind == "DPI"
 }

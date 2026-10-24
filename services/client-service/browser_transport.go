@@ -196,7 +196,7 @@ func (c *Controller) openBrowser(ctx context.Context, q browserproxy.Request, pl
 	if protectedBrowserDomain(q.Host) && plan.Policy.Action != flowpolicy.RelayRequired {
 		return nil, errors.New("protected origin cannot downgrade")
 	}
-	if current.enabled && q.Port != 53 && flowpolicy.KnownBrowserRelayGroup(q.Host) != "" && (plan.Policy.Action != flowpolicy.RelayRequired || plan.Policy.Fallback != flowpolicy.Required) {
+	if current.enabled && q.Port != 53 && c.browserOriginPolicy(q.Host).Kind == "RELAY" && (plan.Policy.Action != flowpolicy.RelayRequired || plan.Policy.Fallback != flowpolicy.Required) {
 		return nil, errors.New("known relay-first browser group cannot downgrade")
 	}
 	d := applyFlowResult(current.profile, wp.Decision{}, plan.Policy, current.network, c.browserLocal(plan.Policy.Strategy))
@@ -353,11 +353,11 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 	if !current.enabled || protectedBrowserDomain(q.Host) || result.Source == "rule" {
 		return plan, nil
 	}
-	if flowpolicy.KnownBrowserRelayGroup(q.Host) != "" {
+	if c.browserOriginPolicy(q.Host).Kind == "RELAY" {
 		plan.Probe = "KNOWN_RELAY_FIRST"
 		return plan, nil
 	}
-	if youtubeRelayDomain(q.Host) {
+	if c.browserOriginPolicy(q.Host).Kind == "DPI" {
 		if plan.Policy.Source == "configured_baseline" && plan.Policy.Action == flowpolicy.DirectPlus {
 			return plan, nil
 		}
@@ -366,7 +366,7 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 		plan.Policy.Strategy = ""
 		plan.Policy.RelayID = ""
 		plan.Policy.Fallback = flowpolicy.FailBlock
-		plan.Policy.Reason = "YouTube new TLS: DIRECT then scoped LOCAL, RELAY after local failure"
+		plan.Policy.Reason = "Known DPI group: background verified LOCAL selection; unproven foreground RELAY, no DIRECT stall"
 		plan.Probe = "YOUTUBE_LOCAL_LADDER"
 		return plan, nil
 	}

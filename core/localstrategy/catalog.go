@@ -6,12 +6,17 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/buzzmean/neexitlag/core/originpolicy"
 	"sort"
 	"strconv"
 	"strings"
 )
 
 const CatalogVersion = 1
+
+// Data release is separate from schema: adding reviewed origin data changes the
+// signed payload and must not equivocate under the old default release version.
+const BundledCatalogRelease = 2
 const CatalogMaxBytes = 256 * 1024
 
 //go:embed catalog.json
@@ -32,12 +37,13 @@ type CatalogRule struct {
 	Options  map[string][]string `json:"options"`
 }
 type Catalog struct {
-	Version  int             `json:"version"`
-	Reviewed string          `json:"reviewed"`
-	Release  string          `json:"flowseal_release"`
-	Files    []string        `json:"flowseal_files"`
-	Sources  []CatalogSource `json:"sources"`
-	Rules    []CatalogRule   `json:"rules"`
+	Origins  *originpolicy.Registry `json:"origins,omitempty"`
+	Version  int                    `json:"version"`
+	Reviewed string                 `json:"reviewed"`
+	Release  string                 `json:"flowseal_release"`
+	Files    []string               `json:"flowseal_files"`
+	Sources  []CatalogSource        `json:"sources"`
+	Rules    []CatalogRule          `json:"rules"`
 }
 type CatalogPlan struct {
 	Candidate
@@ -57,6 +63,11 @@ func ParseCatalog(raw []byte) (Catalog, error) {
 	var c Catalog
 	if len(raw) == 0 || len(raw) > CatalogMaxBytes || json.Unmarshal(raw, &c) != nil || c.Version != CatalogVersion || len(c.Rules) == 0 || len(c.Rules) > 256 || len(c.Sources) > 8 || len(c.Files) > 64 {
 		return c, errors.New("LOCAL_CATALOG_INVALID")
+	}
+	if c.Origins != nil {
+		if err := c.Origins.Validate(); err != nil {
+			return c, err
+		}
 	}
 	sources := map[string]string{}
 	seen := map[string]bool{}
@@ -88,6 +99,10 @@ func BundledCatalog() Catalog {
 	c, err := ParseCatalog(bundledCatalog)
 	if err != nil {
 		panic("invalid embedded local catalog")
+	}
+	if c.Origins == nil {
+		r := originpolicy.Bundled()
+		c.Origins = &r
 	}
 	return c
 }

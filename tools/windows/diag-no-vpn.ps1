@@ -290,7 +290,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-24.3 (signed local catalog and actual primary relay status)'
+$ScriptVersion='2026-10-24.4 (signed local catalog and actual primary relay status)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -627,6 +627,7 @@ function Write-LocalCatalogEvidence($catalog) {
  if($null -eq $catalog){Say 'local catalog: UNINSTRUMENTED';return}
  Say ('local catalog: source='+(Prop $catalog 'source')+' version='+(Prop $catalog 'version' 0)+' schema='+(Prop $catalog 'schema')+' rules='+(Prop $catalog 'rules' 0)+' unsupported='+(Prop $catalog 'unsupported' 0)+' available_plans='+@(Prop $catalog 'plans' @()).Count+' checked='+(Prop $catalog 'last_check')+' error='+(Prop $catalog 'error' '')+' activation='+(Prop $catalog 'activation'))
  foreach($plan in @(Prop $catalog 'plans' @()) | Select-Object -First 48){Say (' catalog plan='+(Prop $plan 'ID')+' source='+(Prop $plan 'source')+' rule='+(Prop $plan 'rule')+' adaptation='+(Prop $plan 'adaptation'))}
+ Say ('Origin policy data: version='+(Prop $catalog 'origin_version' 0)+' groups='+(Prop $catalog 'origin_rules' 0)+' immutable RELAY floors retained; ordinary origins DIRECT')
  Say 'Catalog availability/signature is NOT local bypass confirmation; unsupported modes are never executed.'
 }
 
@@ -641,13 +642,13 @@ function Write-YouTubeLocalEvidence($ladder) {
  $selection=Prop $ladder 'selection'
  if($null -ne $selection){Say ('YouTube selection: background='+(Prop $selection 'BackgroundAttempts' 0)+' background_fail='+(Prop $selection 'BackgroundFailures' 0)+' trials='+(Prop $selection 'Trials' 0)+' trial_success='+(Prop $selection 'TrialSuccesses' 0)+' trial_fail='+(Prop $selection 'TrialFailures' 0)+' failed_after_reply='+(Prop $selection 'FailedAfterReply' 0)+' active='+(Prop $selection 'active_trial' $false)+' contract='+(Prop $selection 'contract'))}
  foreach($stage in @(Prop $ladder 'stages' @())){
-  Say (' youtube-media stage='+(Prop $stage 'stage')+' strategy='+(Prop $stage 'strategy' '-')+' connections='+(Prop $stage 'Connections' 0)+' tx='+(Prop $stage 'TX' 0)+' rx='+(Prop $stage 'RX' 0)+' failures='+(Prop $stage 'Failures' 0)+' transport_confirmed='+(Prop $stage 'Confirmed' 0))
+  Say (' '+(Prop $stage 'service' 'youtube-media')+' stage='+(Prop $stage 'stage')+' strategy='+(Prop $stage 'strategy' '-')+' connections='+(Prop $stage 'Connections' 0)+' tx='+(Prop $stage 'TX' 0)+' rx='+(Prop $stage 'RX' 0)+' failures='+(Prop $stage 'Failures' 0)+' transport_confirmed='+(Prop $stage 'Confirmed' 0))
  }
  foreach($entry in @(Prop $ladder 'cache' @())){
   Say (' youtube cache: profile='+(Prop $entry 'Profile')+' domain='+(Prop $entry 'Domain')+' hint_only='+(Prop $entry 'HintOnly' $false)+' stage='+(Prop $entry 'Stage')+' strategy='+(Prop $entry 'Strategy')+' until='+(Prop $entry 'Until')+' recheck='+(Prop $entry 'Retry')+' streak='+(Prop $entry 'Streak' 0)+' reason='+(Prop $entry 'Reason'))
  }
  foreach($flow in @(Prop $ladder 'records' @())){
-  Say (' youtube step #'+(Prop $flow 'id')+' profile='+(Prop $flow 'profile')+' domain='+(Prop $flow 'domain')+' destination='+(Prop $flow 'destination')+' stage='+(Prop $flow 'stage')+' strategy='+(Prop $flow 'strategy' '-')+' tx='+(Prop $flow 'TX' 0)+' rx='+(Prop $flow 'RX' 0)+' server_hello='+(Prop $flow 'ServerHello' $false)+' committed_transform_confirmed='+$(if(Prop $flow 'TransformKnown' $false){if(Prop $flow 'Transform' $false){'YES'}else{'NOT_CONFIRMED'}}else{'UNKNOWN_NOT_QUERIED'})+' reason='+(Prop $flow 'reason'))
+  Say (' youtube step #'+(Prop $flow 'id')+' profile='+(Prop $flow 'profile')+' service='+(Prop $flow 'service' 'youtube-media')+' domain='+(Prop $flow 'domain')+' destination='+(Prop $flow 'destination')+' stage='+(Prop $flow 'stage')+' strategy='+(Prop $flow 'strategy' '-')+' tx='+(Prop $flow 'TX' 0)+' rx='+(Prop $flow 'RX' 0)+' server_hello='+(Prop $flow 'ServerHello' $false)+' committed_transform_confirmed='+$(if(Prop $flow 'TransformKnown' $false){if(Prop $flow 'Transform' $false){'YES'}else{'NOT_CONFIRMED'}}else{'UNKNOWN_NOT_QUERIED'})+' reason='+(Prop $flow 'reason'))
  }
  Say 'LOCAL bytes are real upstream bytes; transport_confirmed requires committed native transform and sustained TLS bytes, not playback PASS. DIRECT/LOCAL ClientHello traffic can precede a RELAY fallback. Existing TLS never moves after origin bytes.'
 }

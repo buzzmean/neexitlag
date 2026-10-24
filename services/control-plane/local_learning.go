@@ -5,9 +5,11 @@ import (
 	"encoding/hex"
 	"github.com/buzzmean/neexitlag/core/locallearning"
 	"github.com/buzzmean/neexitlag/core/localstrategy"
+	"github.com/buzzmean/neexitlag/core/originpolicy"
 	"github.com/buzzmean/neexitlag/core/security"
 	"net/http"
 	"net/netip"
+	"strings"
 	"time"
 )
 
@@ -58,6 +60,18 @@ func (a *API) localLearning(w http.ResponseWriter, r *http.Request) {
 	release, e := a.readLocalCatalog()
 	if e != nil {
 		a.fail(w, 503, "LOCAL_LEARNING_CATALOG_UNAVAILABLE")
+		return
+	}
+	registry := originpolicy.Bundled()
+	if release.Catalog.Origins != nil {
+		registry = *release.Catalog.Origins
+	}
+	host := req.Command.Scope.Group
+	if strings.HasPrefix(host, "googlevideo:") {
+		host = "googlevideo.com"
+	}
+	if registry.Lookup(host).Kind != "DPI" {
+		a.fail(w, 400, "LOCAL_LEARNING_REVIEWED_DPI_SCOPE_REQUIRED")
 		return
 	}
 	plans, _ := release.Catalog.Compile()

@@ -114,7 +114,7 @@ func (c *Controller) exchangeBrowserDNS(ctx context.Context, cur profilesResult,
 	}
 	path := "SYSTEM_DNS"
 	var answer []byte
-	if cur.enabled && restrictiveBrowserDomain(host) {
+	if cur.enabled && c.browserOriginPolicy(host).Kind != "" {
 		path = "AUTHENTICATED_RELAY_DOH"
 		if cur.network == "" {
 			return nil, errors.New("BROWSER_DNS_NETWORK_UNAVAILABLE")

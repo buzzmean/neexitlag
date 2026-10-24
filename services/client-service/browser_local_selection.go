@@ -342,7 +342,10 @@ func (c *Controller) youtubeBackgroundRecheck(cur profilesResult, q browserproxy
 	}
 	// Do not let a recheck postpone an already-qualified CDN trial's cooldown.
 	r := c.browser.youtube
-	allowed, sharedCandidate := r.shared.decision(key, time.Now())
+	allowed, sharedCandidate := true, ""
+	if c.sharedScopeAllowed(key) {
+		allowed, sharedCandidate = r.shared.decision(key, time.Now())
+	}
 	if !allowed {
 		return
 	}
@@ -405,7 +408,7 @@ func (c *Controller) youtubeBackgroundRecheck(cur profilesResult, q browserproxy
 			sort.SliceStable(addresses, func(i, j int) bool { return addresses[i].Is4() && !addresses[j].Is4() })
 			var dst netip.AddrPort
 			for _, ip := range addresses {
-				if ip.Is4() && ip.IsGlobalUnicast() && !ip.IsPrivate() && !ip.IsLoopback() {
+				if ip.Is4() && browserproxy.PublicDNSAddress(ip) {
 					dst = netip.AddrPortFrom(ip, 443)
 					break
 				}

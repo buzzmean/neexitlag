@@ -1,6 +1,9 @@
 package flowpolicy
 
-import "strings"
+import (
+	"github.com/buzzmean/neexitlag/core/originpolicy"
+	"strings"
+)
 
 // BrowserRelayGroup is a bounded family hint, not authorization for DIRECT and
 // not evidence that the family is blocked. Never match generic Google domains.
@@ -8,12 +11,10 @@ func BrowserRelayGroup(host string) string {
 	if group := KnownBrowserRelayGroup(host); group != "" {
 		return group
 	}
-	host = strings.ToLower(strings.TrimSuffix(host, "."))
-	for _, suffix := range []string{"youtube.com", "googlevideo.com", "ytimg.com", "ggpht.com", "youtube-nocookie.com", "youtubei.googleapis.com", "youtube.googleapis.com", "youtubeembeddedplayer.googleapis.com", "youtubekids.com", "youtu.be", "yt3.googleusercontent.com", "wide-youtube.l.google.com", "youtube-ui.l.google.com", "ytimg.l.google.com", "jnn-pa.googleapis.com"} {
-		if DomainMatches(host, suffix) {
-			return "youtube-media"
-		}
+	if r := originpolicy.Floor(host); r.Group == "youtube-media" {
+		return r.Group
 	}
+
 	return ""
 }
 
@@ -54,16 +55,9 @@ func (c *DirectTimeoutCache) ProbeHost(k DirectTimeoutKey) string {
 // Unlike YouTube's learned failure family these routes do not require a failed
 // foreground DIRECT trial. Suffix matching includes WebSocket/API subdomains.
 func KnownBrowserRelayGroup(host string) string {
-	host = strings.ToLower(strings.TrimSuffix(host, "."))
-	for _, suffix := range []string{"telegram.org", "t.me"} {
-		if DomainMatches(host, suffix) {
-			return "telegram"
-		}
-	}
-	for _, suffix := range []string{"claude.ai", "anthropic.com", "claudeusercontent.com", "claude.com"} {
-		if DomainMatches(host, suffix) {
-			return "anthropic"
-		}
+	r := originpolicy.Floor(host)
+	if r.Kind == "RELAY" && !r.Protected {
+		return r.Group
 	}
 	return ""
 }

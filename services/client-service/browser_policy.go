@@ -8,6 +8,7 @@ import (
 	"github.com/buzzmean/neexitlag/core/browserproxy"
 	"github.com/buzzmean/neexitlag/core/flowpolicy"
 	"github.com/buzzmean/neexitlag/core/localstrategy"
+	"github.com/buzzmean/neexitlag/core/originpolicy"
 	"github.com/buzzmean/neexitlag/core/profiles"
 	"github.com/buzzmean/neexitlag/core/routing"
 	wp "github.com/buzzmean/neexitlag/platform/windows"
@@ -32,14 +33,8 @@ func chromeProfile(p profiles.Profile) bool {
 	}
 	return false
 }
-func protectedBrowserDomain(domain string) bool {
-	for _, suffix := range []string{"chatgpt.com", "openai.com", "oaistatic.com", "oaiusercontent.com", "chat.com"} {
-		if flowpolicy.DomainMatches(domain, suffix) {
-			return true
-		}
-	}
-	return false
-}
+func protectedBrowserDomain(domain string) bool { return originpolicy.Floor(domain).Protected }
+
 func youtubeDomain(domain string) bool {
 	for _, preset := range localstrategy.Presets() {
 		if preset.ID == "youtube" {
@@ -101,7 +96,8 @@ func (c *Controller) browserFlow(p profiles.Profile, id wp.ProcessIdentity, t wp
 	if protectedBrowserDomain(domain) {
 		return required("protected OpenAI origin: authenticated consistent egress")
 	}
-	if group := flowpolicy.KnownBrowserRelayGroup(domain); group != "" {
+	if policy := c.browserOriginPolicy(domain); policy.Kind == "RELAY" {
+		group := policy.Group
 		// A stricter explicit BLOCK remains authoritative; a learned/explicit
 		// DIRECT choice cannot weaken this family's relay-only data path.
 		if r, ok := flowpolicy.Evaluate(p.Rules, flowpolicy.Input{Protocol: t.Protocol, Domain: domain, Network: network, Destination: t.Destination}); ok && r.Action == flowpolicy.Block {

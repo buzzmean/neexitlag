@@ -15,6 +15,7 @@ import (
 	"github.com/buzzmean/neexitlag/core/browserproxy"
 	"github.com/buzzmean/neexitlag/core/flowpolicy"
 	"github.com/buzzmean/neexitlag/core/localstrategy"
+	"github.com/buzzmean/neexitlag/core/originpolicy"
 )
 
 const youtubeLadderSource = "youtube_local_ladder"
@@ -40,11 +41,13 @@ type youtubeLearn struct {
 	Confirmed        bool
 }
 type youtubeStage struct {
+	Service                                  string `json:"service,omitempty"`
 	Stage                                    string `json:"stage"`
 	Strategy                                 string `json:"strategy,omitempty"`
 	Connections, TX, RX, Failures, Confirmed uint64
 }
 type youtubeRecord struct {
+	Service                string `json:"service,omitempty"`
 	Active                 bool   `json:"active"`
 	ID                     uint64 `json:"id"`
 	Profile                string `json:"profile"`
@@ -112,8 +115,9 @@ func newYoutubeRuntime() *youtubeRuntime {
 	return r
 }
 func youtubeLadderEligible(q browserproxy.Request, p browserproxy.Plan) bool {
-	return !(p.Policy.Action == flowpolicy.RelayRequired && p.Policy.Source == "") && p.Enabled && !q.OriginAmbiguous && q.Secure && q.Port == 443 && youtubeRelayDomain(q.Host) && !protectedBrowserDomain(q.Host) && flowpolicy.KnownBrowserRelayGroup(q.Host) == "" && p.Policy.Source != "rule" && p.Policy.Action != flowpolicy.Block && p.Destination.Addr().Is4() && p.Destination.Addr().IsGlobalUnicast() && !p.Destination.Addr().IsPrivate()
+	return localBrowserRequestEligible(q, p) && originpolicy.Floor(q.Host).Kind == "DPI"
 }
+
 func (c *Controller) youtubeLocalAllowed(network string) bool {
 	n := c.network.Load()
 	return network != "" && n != nil && n.Fingerprint == network && n.Error == "" && time.Since(n.ObservedAt) < 45*time.Second && len(n.VPN) == 0 && len(n.Conflicts) == 0 && !n.ConflictsObservedAt.IsZero() && time.Since(n.ConflictsObservedAt) < 3*time.Minute
@@ -277,7 +281,7 @@ func (c *Controller) youtubeEngine(cur profilesResult, q browserproxy.Request, p
 		return "", nil
 	}
 	engine := localstrategy.New()
-	profile := localstrategy.Profile{ID: id, Name: "YouTube local / " + candidate, Version: 1, Application: q.Owner.Exe, Protocol: "tcp", Ports: []uint16{443}, Domains: domains, IPs: ips, Strategy: "chain", Actions: actions, Preset: preset, PresetVersion: localstrategy.PresetVersion, Cutoff: 1, Enabled: true}
+	profile := localstrategy.Profile{ID: id, Name: "Browser LOCAL / " + candidate, Version: 1, Application: q.Owner.Exe, Protocol: "tcp", Ports: []uint16{443}, Domains: domains, IPs: ips, Strategy: "chain", Actions: actions, Preset: preset, PresetVersion: localstrategy.PresetVersion, Cutoff: 1, Enabled: true}
 	if engine.Reload(localstrategy.Config{Version: 1, Enabled: true, User: []localstrategy.Profile{profile}}) != nil {
 		return "", nil
 	}
@@ -347,6 +351,10 @@ func (c *Controller) openYoutubeLadder(ctx context.Context, cur profilesResult, 
 		r.setPlans(c.catalog.snapshot().Plans)
 	}
 	ref := &youtubePlanRef{}
+	service := c.browserOriginPolicy(q.Host).Group
+	if service == "" {
+		service = "ordinary"
+	}
 	key := youtubeScope(cur, q)
 	r.register(key, cur, q, p, time.Now())
 	r.shared.notify()
@@ -426,12 +434,14 @@ func (c *Controller) openYoutubeLadder(ctx context.Context, cur profilesResult, 
 			}
 			delete(r.records, old)
 		}
-		r.records[record] = youtubeRecord{Active: err == nil, ID: record, Profile: cur.profile.ID, Domain: q.Host, Destination: actual.Destination.String(), Stage: stage, Strategy: strategy, Reason: "OPEN", Trial: trial && stage == "LOCAL", Updated: time.Now()}
-		label := stage + ":" + strategy
+		r.records[record] = youtubeRecord{Service: service, Active: err == nil, ID: record, Profile: cur.profile.ID, Domain: q.Host, Destination: actual.Destination.String(), Stage: stage, Strategy: strategy, Reason: "OPEN", Trial: trial && stage == "LOCAL", Updated: time.Now()}
+		label := service + ":" + stage + ":" + strategy
 		if _, exists := r.stats[label]; !exists && len(r.stats) >= 128 {
-			label = stage + ":CATALOG_OVERFLOW"
+			label = "other:" + stage + ":CATALOG_OVERFLOW"
+			service = "other"
 		}
 		stats := r.stats[label]
+		stats.Service = service
 		stats.Stage = stage
 		stats.Strategy = strategy
 		stats.Connections++

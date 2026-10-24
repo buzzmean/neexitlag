@@ -66,12 +66,18 @@ func ValidScope(s Scope) bool {
 		}
 		return true
 	}
-	for _, suffix := range []string{"youtube.com", "ytimg.com", "ggpht.com", "youtube-nocookie.com", "youtubekids.com", "youtubei.googleapis.com", "youtube.googleapis.com", "youtubeembeddedplayer.googleapis.com", "yt3.googleusercontent.com", "wide-youtube.l.google.com", "youtube-ui.l.google.com", "ytimg.l.google.com", "jnn-pa.googleapis.com", "youtu.be"} {
-		if s.Group == suffix || strings.HasSuffix(s.Group, "."+suffix) {
-			return len(s.Group) <= 128 && !strings.ContainsAny(s.Group, "/\r\n\x00 :")
+	if len(s.Group) < 3 || len(s.Group) > 128 || !strings.Contains(s.Group, ".") || strings.HasPrefix(s.Group, ".") || strings.HasSuffix(s.Group, ".") || strings.Contains(s.Group, "..") {
+		return false
+	}
+	if _, err := netip.ParseAddr(s.Group); err == nil {
+		return false
+	}
+	for _, r := range s.Group {
+		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '.') {
+			return false
 		}
 	}
-	return false
+	return true
 }
 
 // The CP derives this opaque cohort from its actual peer, never forwarded headers

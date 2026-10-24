@@ -8,7 +8,8 @@ de8e5d7/08a9eb5/a3ec712/77566d6. Обычный merge20d8bd8 разрешён в
 Пункт3 подключает catalog plans к bounded selection и guarded CDN trials;
 Пункт4 signed advisory coordination подготовлен и изолированно проверен;
 production CP ещё без endpoint, общего picker на40ПК там пока нет.
-Пункты5–7 (общий origin policy/учёт/hysteresis) ещё в работе.
+Пункт5: общий HTTPS origin policy/selector проверен; HTTP80/Discord UDP LOCAL
+не реализованы, прежний voice не изменялся. Далее6–7 (учёт/hysteresis).
 Решение CDN принято: обе фоновые проверки www.youtube.com/i.ytimg.com >64KiB,
 затем max1 LOCAL trial при реально получающих данные RELAY googlevideo siblings,
 cooldown несколько минут/подгруппу;3успешных >64KiB потоков перед LOCAL,
@@ -3010,3 +3011,34 @@ container после проверки удалён; production DB/activation/CA 
 CI пункта3 c7ef8bd Verify40045013456: core/windows failure со steps=[]; CI не
 исполнился. https://github.com/buzzmean/neexitlag/actions/runs/40045013456
 Новые annotations не получены, artifact quota не назначена причиной.
+
+### 5 — общий HTTPS origin policy/selector (24.10.2026 MSK; в проверке)
+Единый versioned registry/source/date для DPI/RELAY групп в core/originpolicy;
+старые BrowserRelayGroup/KnownBrowserRelayGroup/protectedBrowserDomain читают
+данные, required security floors не ослабляются. Registry optional в signed
+catalog, default data release2 вместо1 (schema1); публикация next>=3, regression
+old1→new2 без equivocation. Обычные VK/Google/Яндекс DIRECT; известные DPI origins
+и индивидуально отказавшие обычные HTTPS origins используют ТОТ ЖЕ worker/cache/
+engine, без дублирования. Динамические signed GEO enforced в planner/open/native
+hints/DNS; required9th hint проверяется до truncation. Club learning передаёт
+только reviewed DPI scopes, не неизвестные browsing names; peer локально проверяет.
+Статистика service-separated: YouTube не смешивается с Discord/X/rutracker.
+Это TCP443/IPv4 этап: HTTP80/browser QUIC fake unsupported; Discord adaptive UDP
+voice НЕ изменялся и LOCAL для него НЕ доказан/не реализован. Без подходящего
+public body >64KiB LOCAL не объявляется. Подробности docs/BROWSER_ORIGIN_POLICY.md.
+Проверки и commit фиксируются после полного прохода; VPS/CA/activation не трогались.
+Пункт5 проверки: полный Go race PASS; unit data floor/nested override/suffix /
+ordinary defaults /dynamic signed routing /required9th hint /scope reserved IP
+PASS; old signed catalog release1→release2 regression PASS. Полный isolatedPG17
+CP race11.281s PASS после явного pg_isready; первый запуск был ошибочно начат до
+готовности fixture и дал connection refused, код/тесты ради этого не менялись.
+Container удалён. Go vet/Linux/Windows build+vet PASS;100Python deployment иPS7
+fixtures PASS. Последнее reserved-IP изменение проверено subset и полным race;
+сборки/проверку pinned DLL повторить до публикации. Native Windows/PS5.1/ISP и
+Discord voice LOCAL не проверены. Пункты6–7 пока НЕ выполнены.
+Пункт5 publication gates: final full Go race PASS; повтор Linux/Windows build+vet
+PASS; pinned actual DLL test EXE пересобран с текущим кодом, filters70/iSCSI30/
+catalog checksum13 PASS подWine. PS7+100Python PASS. Все result markers/logs вне
+repo; нативный WinDivertOpen/PS5.1/ISP/player не запускались. C# не менялся.
+TCP-часть5 готова к проверке, HTTP80/QUIC fake/Discord UDP LOCAL остаются явными
+ограничениями (не выключать прежнюю adaptive voice логику). Пункты6–7 следующие.

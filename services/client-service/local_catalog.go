@@ -6,25 +6,30 @@ import (
 	"github.com/buzzmean/neexitlag/core/controlclient"
 	"github.com/buzzmean/neexitlag/core/localcatalog"
 	"github.com/buzzmean/neexitlag/core/localstrategy"
+	"github.com/buzzmean/neexitlag/core/originpolicy"
 	"path/filepath"
 	"sync"
 	"time"
 )
 
 type catalogStatus struct {
-	Source      string                      `json:"source"`
-	Version     uint64                      `json:"version"`
-	Schema      int                         `json:"schema"`
-	Rules       int                         `json:"rules"`
-	Unsupported int                         `json:"unsupported"`
-	Plans       []localstrategy.CatalogPlan `json:"plans"`
-	LastCheck   time.Time                   `json:"last_check"`
-	Error       string                      `json:"error,omitempty"`
-	Activation  string                      `json:"activation"`
+	Source        string                      `json:"source"`
+	Version       uint64                      `json:"version"`
+	Schema        int                         `json:"schema"`
+	Rules         int                         `json:"rules"`
+	Unsupported   int                         `json:"unsupported"`
+	Plans         []localstrategy.CatalogPlan `json:"plans"`
+	LastCheck     time.Time                   `json:"last_check"`
+	Error         string                      `json:"error,omitempty"`
+	OriginVersion uint64                      `json:"origin_version"`
+	OriginSource  string                      `json:"origin_source"`
+	OriginRules   int                         `json:"origin_rules"`
+	Activation    string                      `json:"activation"`
 }
 type clientCatalog struct {
-	mu     sync.Mutex
-	status catalogStatus
+	mu      sync.Mutex
+	status  catalogStatus
+	origins originpolicy.Registry
 }
 
 func newClientCatalog() *clientCatalog {
@@ -42,7 +47,12 @@ func (c *clientCatalog) use(data localstrategy.Catalog, version uint64, source s
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.status = catalogStatus{Source: source, Version: version, Schema: data.Version, Rules: len(data.Rules), Unsupported: unsupported, Plans: plans, LastCheck: c.status.LastCheck, Activation: "BOUNDED_SELECTION_CANDIDATES; availability is not transformed TLS health"}
+	registry := originpolicy.Bundled()
+	if data.Origins != nil {
+		registry = *data.Origins
+	}
+	c.origins = registry
+	c.status = catalogStatus{OriginVersion: registry.Version, OriginSource: registry.Source, OriginRules: len(registry.Rules), Source: source, Version: version, Schema: data.Version, Rules: len(data.Rules), Unsupported: unsupported, Plans: plans, LastCheck: c.status.LastCheck, Activation: "BOUNDED_SELECTION_CANDIDATES; availability is not transformed TLS health"}
 }
 func (c *clientCatalog) snapshot() catalogStatus { c.mu.Lock(); defer c.mu.Unlock(); return c.status }
 func (c *clientCatalog) check(err string) {
@@ -93,4 +103,14 @@ func (c *clientCatalog) run(ctx context.Context, cp *controlclient.Client, keys 
 			poll()
 		}
 	}
+}
+
+func (c *clientCatalog) origin(host string) originpolicy.Rule {
+	floor := originpolicy.Floor(host)
+	if floor.Kind == "RELAY" {
+		return floor
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.origins.Lookup(host)
 }

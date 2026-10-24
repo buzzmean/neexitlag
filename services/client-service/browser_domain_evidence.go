@@ -81,6 +81,9 @@ func (x *browserDomainIndex) evidence(network string, destination netip.Addr, ou
 	return x.profileEvidence(network, "", destination, outer, now)
 }
 func (x *browserDomainIndex) profileEvidence(network, profile string, destination netip.Addr, outer string, now time.Time) browserDomainEvidence {
+	return x.profileEvidenceFor(network, profile, destination, outer, now, restrictiveBrowserDomain)
+}
+func (x *browserDomainIndex) profileEvidenceFor(network, profile string, destination netip.Addr, outer string, now time.Time, restrictive func(string) bool) browserDomainEvidence {
 	out := browserDomainEvidence{Source: "OPAQUE_UNKNOWN_DIRECT_DEFAULT", Confidence: "UNKNOWN; ECH inner name not observed", Outer: outer, Candidates: []string{}}
 	x.mu.Lock()
 	defer x.mu.Unlock()
@@ -112,7 +115,7 @@ func (x *browserDomainIndex) profileEvidence(network, profile string, destinatio
 	// A protected association can restrict a shared IP but can never authorize
 	// DIRECT for it. Never claim that an ambiguous shared IP identifies a site.
 	for _, host := range out.Candidates {
-		if restrictiveBrowserDomain(host) {
+		if restrictive(host) {
 			out.Restricted = true
 		}
 	}
@@ -133,7 +136,7 @@ func (x *browserDomainIndex) profileEvidence(network, profile string, destinatio
 	}
 	// A visible protected outer name may only make policy MORE restrictive.
 	// In GREASE flows this also restores TLS-first-flight IP health/recovery.
-	if browserproxy.ValidPublicDNSName(outer) && restrictiveBrowserDomain(outer) {
+	if browserproxy.ValidPublicDNSName(outer) && restrictive(outer) {
 		out.Restricted = true
 		if len(out.Candidates) == 0 || seen[outer] {
 			out.Domain = outer
@@ -154,7 +157,7 @@ func (x *browserDomainIndex) profileEvidence(network, profile string, destinatio
 			out.YoutubeOnly = false
 		}
 	}
-	if browserproxy.ValidPublicDNSName(outer) && restrictiveBrowserDomain(outer) && !youtubeRelayDomain(outer) {
+	if browserproxy.ValidPublicDNSName(outer) && restrictive(outer) && !youtubeRelayDomain(outer) {
 		out.YoutubeOnly = false
 	}
 	if out.YoutubeOnly && len(out.Candidates) > 0 {

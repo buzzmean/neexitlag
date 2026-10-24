@@ -52,7 +52,7 @@ func (c *Controller) browserOpenPlan(ctx context.Context, q browserproxy.Request
 	return c.openBrowserPlan(ctx, cur, q, p, c.browserOpen)
 }
 func (c *Controller) openBrowserPlan(ctx context.Context, current profilesResult, q browserproxy.Request, p browserproxy.Plan, open func(context.Context, browserproxy.Request, browserproxy.Plan) (net.Conn, error)) (net.Conn, browserproxy.Plan, error) {
-	if current.enabled && browserAuto(current.profile) && !current.routingDisabled && youtubeLadderEligible(q, p) {
+	if current.enabled && browserAuto(current.profile) && !current.routingDisabled && c.localLadderEligible(current, q, p) {
 		if _, explicit := flowpolicy.Evaluate(current.profile.Rules, flowpolicy.Input{Protocol: "tcp", Destination: p.Destination, Domain: q.Host, Network: current.network}); !explicit {
 			return c.openYoutubeLadder(ctx, current, q, p, open)
 		}
@@ -67,7 +67,7 @@ func (c *Controller) openBrowserPlanAttempt(ctx context.Context, current profile
 		conn, err := open(ctx, q, p)
 		return conn, p, err
 	}
-	if p.Enabled && current.enabled && q.Port != 53 && flowpolicy.KnownBrowserRelayGroup(q.Host) != "" {
+	if p.Enabled && current.enabled && q.Port != 53 && c.browserOriginPolicy(q.Host).Kind == "RELAY" {
 		currentPolicy := c.browserFlow(current.profile, current.id, wp.Tuple{Protocol: "tcp", Destination: p.Destination}, q.Host, current.network)
 		if currentPolicy.Action == flowpolicy.Block || p.Policy.Action != flowpolicy.RelayRequired || p.Policy.Fallback != flowpolicy.Required {
 			p.Policy = currentPolicy

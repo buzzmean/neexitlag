@@ -19,7 +19,7 @@ type localCatalogRelease struct {
 }
 
 func (a *API) readLocalCatalog() (localCatalogRelease, error) {
-	fallback := localCatalogRelease{Version: 1, Catalog: localstrategy.BundledCatalog()}
+	fallback := localCatalogRelease{Version: localstrategy.BundledCatalogRelease, Catalog: localstrategy.BundledCatalog()}
 	if a.Settings.LocalCatalogFile == "" {
 		return fallback, nil
 	}
@@ -62,7 +62,7 @@ func (a *API) localCatalog(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var next localCatalogRelease
-		if body(r, &next) != nil || next.Version <= release.Version {
+		if body(r, &next) != nil || next.Version <= release.Version || next.Version <= localstrategy.BundledCatalogRelease {
 			a.fail(w, 400, "LOCAL_CATALOG_NEW_VERSION_REQUIRED")
 			return
 		}

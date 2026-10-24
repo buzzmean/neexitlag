@@ -548,7 +548,7 @@ func (c *Controller) openNativeBrowser(ctx context.Context, p profiles.Profile, 
 	plan := browserproxy.Plan{Enabled: true, Network: current.network, Destination: t.Destination, Policy: d.Policy}
 	secureDNS := browserproxy.KnownDoHEndpoint(q.Host, t.Destination)
 	if opaque {
-		evidence = c.browser.domains.profileEvidence(current.network, p.ID, t.Destination.Addr(), d.OuterSNI, time.Now())
+		evidence = c.browser.domains.profileEvidenceFor(current.network, p.ID, t.Destination.Addr(), d.OuterSNI, time.Now(), func(host string) bool { return c.browserOriginPolicy(host).Kind != "" })
 		if browserproxy.KnownDoHEndpoint(evidence.Domain, t.Destination) {
 			secureDNS = true
 			evidence.Restricted = true

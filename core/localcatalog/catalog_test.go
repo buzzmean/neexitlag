@@ -66,3 +66,24 @@ func TestSignedCatalogExpiryDomainTamperRollbackAndPersistentCache(t *testing.T)
 		t.Fatal("rejected update changed disk cache")
 	}
 }
+
+func TestOriginDataReleaseDoesNotEquivocateUnderOldCatalogVersion(t *testing.T) {
+	pub, key, _ := ed25519.GenerateKey(rand.Reader)
+	now := time.Now()
+	keys := map[string]ed25519.PublicKey{"k": pub}
+	cache := New(keys, "")
+	old := localstrategy.BundledCatalog()
+	old.Origins = nil
+	before, _ := security.Sign(Domain, "k", key, Document{Version: 1, GeneratedAt: now, ExpiresAt: now.Add(time.Hour), Catalog: old})
+	if e := cache.Apply(before, now); e != nil {
+		t.Fatal(e)
+	}
+	next, _ := security.Sign(Domain, "k", key, Document{Version: localstrategy.BundledCatalogRelease, GeneratedAt: now, ExpiresAt: now.Add(time.Hour), Catalog: localstrategy.BundledCatalog()})
+	if e := cache.Apply(next, now); e != nil {
+		t.Fatal("data addition reused the old signed version", e)
+	}
+	d, e := cache.Current(now)
+	if e != nil || d.Catalog.Origins == nil || d.Version != 2 {
+		t.Fatal(d.Version, e)
+	}
+}
