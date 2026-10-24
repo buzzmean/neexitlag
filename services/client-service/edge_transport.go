@@ -621,10 +621,15 @@ func (c *Controller) loadEdgeTransport() error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 	raw, err := io.ReadAll(io.LimitReader(f, 262145))
+	// Reapply may atomically replace this same journal. Windows does not
+	// permit that while our non-delete-sharing read handle is still open.
+	closeErr := f.Close()
 	if err != nil || len(raw) > 262144 {
 		return errors.New("invalid saved Edge state")
+	}
+	if closeErr != nil {
+		return closeErr
 	}
 	var saved edgeSaved
 	if err = security.Parse(raw, &saved); err != nil {

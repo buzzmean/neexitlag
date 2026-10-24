@@ -11,10 +11,12 @@ Go full race/vet/build Linux+Windows и Windows vet PASS после финаль
 Pre-push: новые/использованные IPC routed; service.json readers/defaults не менялись; PS5.1-compatible diagnostics/BOM, quoted flags; owner block безgit switch, native exit/hash checks. Экономия: здоровый DIRECT DNS A раньше LOCAL/RELAY. Секреты/драйвер pin/фильтры/iSCSI/игровые guards/VPS/CA/коды/SSH/PR8 не менялись.
 Решение: каталог не обходит CLUB_ADMIN_MANAGED, гостевой ClubWindow остаётся прежним; внешний catalog update требует отдельного доверенного public key/release workflow. Обновить service+GUI, проверить обычный GUI/Riot безwinws и -Only riot,browser. Предыдущие итоги дословно вARCHIVE.
 
+Freeze follow-up24.10: старый Edge loadEdgeTransport держал read handle при atomic rename во время reapply. Wine baseline Edge20/20FAIL; close до reapply ->20/20PASS, ACL/foreign policy не ослаблялись. Строка с91d78c79(18.10), не новая cb4 regression. Native Windows ещё не проверен. Go full gates/pinnedDLL/PS7 текущего дерева PASS; CDN changes ещё в работе.
+
 ## Таблица работ
 | Работа / дата | Файлы | Агент / ветка | Статус |
 |---|---|---|---|
-| CDN small EOF/sibling /24.10.2026 | services/client-service browser meter/selection/video usage/probe evidence + freeze fixture audit; tools/windows diag; tests/docs | Codex/codex/work | В РАБОТЕ: small EOF with retransmits, recent scoped sibling, meaningful trial evidence |
+| CDN small EOF/sibling /24.10.2026 | services/client-service browser meter/selection/video usage/probe evidence + edge_transport.go/freeze fixture audit; tools/windows diag; tests/docs | Codex/codex/work | В РАБОТЕ: small EOF with retransmits, recent scoped sibling, meaningful trial evidence |
 | Riot launcher / 24.10.2026 | core/profiles/localstrategy; services/client-service launcher/native/origin; platform/windows discovery; tools/windows diag; tests/docs | Codex / codex/work | ОСВОБОЖДЕНО: launcher/alternate DNS/LOCAL/diag; owner acceptance впереди |
 | Game catalog / 24.10.2026 | apps/desktop-core/GameCatalog* и Resources; apps/desktop Games/MainWindow/VM integration; tests/desktop; docs | Codex / codex/work | ОСВОБОЖДЕНО: каталог/UI/тесты готовы; native Windows/club owner acceptance впереди |
 | LOCAL engine / 24.10.2026 | core/localstrategy; platform/windows native/DNS/TCP inject; services/client-service browser* и минимальный controller/club IPC dispatch; tools/windows diag; tests/workflow/docs | Codex / codex/work | ОСВОБОЖДЕНО: код/лаборатория готовы; Windows/ISP приёмка не доказана |
