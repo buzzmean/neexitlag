@@ -1,6 +1,6 @@
 # CURRENT — состояние проекта (обновляется в конце каждой сессии)
 
-Текущая работа Codex (24.10.2026 MSK): экономия VPS, очередь1–7.
+Последний итог Codex (24.10.2026 MSK): очередь экономии VPS, код опубликован по этапам; область освобождена.
 Владелец подтвердил Hostkey relay/1080p; LOCAL video пока НЕ подтверждён.
 Пункты1a–1c и каталог2 сохранены коммитами b213fa5/c84f7c1/3799f75,
 de8e5d7/08a9eb5/a3ec712/77566d6. Обычный merge20d8bd8 разрешён владельцем
@@ -9,7 +9,7 @@ de8e5d7/08a9eb5/a3ec712/77566d6. Обычный merge20d8bd8 разрешён в
 Пункт4 signed advisory coordination подготовлен и изолированно проверен;
 production CP ещё без endpoint, общего picker на40ПК там пока нет.
 Пункт5: общий HTTPS origin policy/selector проверен; HTTP80/Discord UDP LOCAL
-не реализованы, прежний voice не изменялся. Пункт6 учёт подготовлен/проверен; далее7 (primary/standby hysteresis).
+не реализованы, прежний voice не изменялся. Пункт6 aac01db: учёт проверен; пункт7 (этот коммит): primary/standby hysteresis и live diagnostics.
 Решение CDN принято: обе фоновые проверки www.youtube.com/i.ytimg.com >64KiB,
 затем max1 LOCAL trial при реально получающих данные RELAY googlevideo siblings,
 cooldown несколько минут/подгруппу;3успешных >64KiB потоков перед LOCAL,
@@ -79,7 +79,7 @@ VPS/credentials/certificates/PR8 не тронуты, deployment VPS не тре
 
 | Работа | Файлы | Агент | Ветка | Статус |
 |---|---|---|---|---|
-| Экономия VPS / LOCAL каталог и автоподбор 1–7 (23.10.2026) | docs/AGENT_RULES и handoff; services/client-service controller/IPC/browser/local/relay; core localstrategy/browserproxy/controlclient/security/flowpolicy; platform/windows local packet code/tests; tools relay-client/windows/catalog; services/control-plane/relay metrics/config; tests/workflows/docs | Codex | codex/work | В РАБОТЕ: merge20d8bd8 разрешён/выполнен; публикация2 и bounded subgroup selection3 по принятому CDN решению, затем4–7; production не запускать |
+| Экономия VPS / LOCAL каталог и автоподбор 1–7 (23.10.2026) | docs/AGENT_RULES и handoff; services/client-service controller/IPC/browser/local/relay; core localstrategy/browserproxy/controlclient/security/flowpolicy/originpolicy/locallearning/routing/traffic; platform/windows local packet code/tests; tools relay-client/windows/catalog; services/control-plane/relay metrics/config; tests/workflows/docs | Codex | codex/work | ОСВОБОЖДЕНО:1–4/TCP443часть5/6–7 опубликованы; Go local gates PASS. LOCAL1080p/Windows/PS5.1/40ПК не подтверждены; HTTP80/QUIC fake/Discord UDP LOCAL не реализованы; optional CP endpoints production не включены |
 | Multi-relay/Hostkey P0 (23.10.2026) | новые deploy/vps relay fleet scripts; tools/windows/add-relay-vps, relay-status, relay-speed; core/optimizer/controlclient; services/control-plane relay registry; services/client-service remote/relay selection (не TTFB файлы); tests; docs | Codex | codex/work | ОСВОБОЖДЕНО: P0 подготовлен/запушен с unique VPS-PRIMARY audience; реальный deployment только владелец; A–E следующая очередь, не выполнены |
 | YouTube LOCAL-first A–G (23.10.2026) | services/client-service browser transport/local ladder/meter; core/localstrategy; platform/windows local TCP audit/tests; tools/windows diag; tests; docs | Codex | codex/work | ОСВОБОЖДЕНО: audit/packet/ladder/cache/diag готовы; local gates PASS, native Windows/ISP/1080p не проверены; existing TLS pinned |
 | YouTube relay скорость/TTFB (23.10.2026) | services/client-service browser meter/native/transport; core/transport; services/relay; platform/windows TCP forwarding (аудит); tools/windows diag/observe-video; tests/verify workflow/docs | Codex | codex/work | ОСВОБОЖДЕНО: client receive credit/OPEN phases/per-video metrics/observer готовы; Windows/ISP playback не подтверждён |
@@ -3070,3 +3070,94 @@ catalog checksum13 повтор PASS подWine (EXE пункта5, capture sour
 C# не менялся. Нет native Windows/PS5.1/ISP/40ПК/monthly production proof.
 Учёт не пишет schema/config/identity и не меняет маршруты; optional server meter
 не включён. Переходим к7 без ожидания.
+
+### 7 — minimal primary/standby (24.10.2026 MSK; в проверке)
+Runtime hold30s + continuous fresh authenticated primary recovery30s, без
+load-balancing, без миграции/replay existing TCP/UDP. Signed config refresh
+не сбрасывает hold; single session/capacity/origin error не отравляет здоровый
+pool. Новые OPEN bounded1.5s→other auth pool; оба fail→fail-closed, не DIRECT.
+Per-relay address/live endpoint/probe RTT+timestamp/health/active/bytes/failure
+class/switch reason. relay-status.ps1 теперь только live IPC, не требует старого
+Go cache reader или повторного add-relay/SSH. Video12/other4 и8×48/probe reserve
+сохранены. Детали/ограничения — docs/RELAY_PRIMARY_FAILOVER.md.
+Первые focused race10x и PS7/diag allowlist PASS; полный проход ещё идёт.
+
+Пункт7 final: основной Hostkey/standby через signed registry, replacement standby
+с собственным ID без installer rebuild. Aggregate load=1 не снимает provider;
+реальное здоровье своего pool/echo отдельно. Повторение одного good snapshot не
+доказательство восстановления: нужны более новые positive probe observations.
+Focused race10x с failure/capacity/origin/config/load/UDP/old TCP cases PASS.
+Финальные go test -race -p1 ./..., vet, build Linux/Windows и Windows vet PASS.
+Новый Windows platform test EXE собран; actual pinned DLL filters70/iSCSI30/
+catalog checksums13 PASS подWine. PS7 status/traffic/catalog/selection/legacy/
+StrictMode fixtures PASS;100Python deployment PASS. Не native driver/PS5.1/ISP.
+C# исходники не менялись: после разрешённого merge ранее198/198 +WPF0errors,
+4 прежних CS8604 PASS; в6–7 заново WPF не собирали.
+Isolated PG17 полного CP6 PASS12.462s; контейнер удалён, CP7 не менялся.
+GitHub Verify для aac01db:40070545974, core/windows failure со steps=[]:
+https://github.com/buzzmean/neexitlag/actions/runs/40070545974
+CI тесты не исполнялись; новый billing текст не получен, artifact quota не
+назначена причиной. Ни Go gates, ни Wine не заменяют native Windows acceptance.
+
+### Решения24.10.2026 / границы готовности
+- Экономия: только sustained verified LOCAL; неподтверждённые DPI группы временно
+  RELAY и продолжают bounded подбор. Игры/DNS53/TLS/mTLS/lease/replay не менялись.
+- Клуб: shared hints advisory, peer подтверждает локально; без нового CP endpoint
+  явно per-PC fallback, общего picker на текущем production обещать нельзя.
+- Учёт: client payload session/day доступен после client update; server NIC month
+  и forecast подготовлены с explicit gaps. Flags default-off; production monthly
+  пока UNKNOWN. Его включение/shared endpoint — отдельное разрешение на CP/relay
+  и приватные state dirs. Повторный deployment для LOCAL клиента НЕ нужен.
+- Failover: только новые authenticated opens, минимум30с hold/30с sustained return,
+  fresh echo proof, no load-balancing. Старые TCP/UDP pinned до close/death;
+  потерянный established TCP не восстанавливается прозрачно на другом egress.
+- Оставшиеся ограничения: собственный TCP443 каталог не является полной копией
+  Flowseal; неподдержанные HTTP80/QUIC/fakedsplit варианты явно отмечены данными.
+  QUIC→TCP прежний; Discord WebSocket участвует в HTTPS selector, voice UDP LOCAL
+  не реализован, прежний adaptive voice не менялся. Short response не >64KiB proof.
+  LOCAL1080p/ISP/40ПК/PS5.1/native WinDivertOpen здесь не подтверждены.
+- Hostkey P0 принят владельцем ранее; не требовать add-relay/CA rotation/codes заново.
+  Старый2.56.177.4 доступен как standby до12.11 по данным владельца, не гарантия
+  дальнейшей доступности. Серверы/сертификаты/credentials/activation/PR8 не трогались.
+
+### ТОЧНЫЕ команды владельцу (ПК; без закрытия Chrome/Edge и без VPS deployment)
+
+PowerShell администратора под прежним SID, из корня клона codex/work (путь любой).
+Закрывается только VELIQ GUI, чтобы освободить прежние recovery helpers. GUI код
+не менялся в6–7, build-desktop/install-desktop не нужны. Служба обновляется с
+сохранением identity/settings/owner; на время её перезапуска managed sockets могут
+переподключиться — не обещать непрерывность существующего TCP при service restart.
+Обычный GUI затем открыть прежним ярлыком; на UAC-off режиме права как раньше.
+
+```powershell
+git switch codex/work
+git pull --ff-only origin codex/work
+git rev-parse HEAD
+$m=Get-Content -Raw "$env:ProgramData\neexitlag\service.json" | ConvertFrom-Json
+& .\tools\windows\build-e2e.ps1 -DriverDirectory $m.driver.directory
+& .\tools\windows\Close-VeliqGuiForUpdate.ps1
+& .\tools\windows\update-service.ps1
+. .\tools\windows\common.ps1
+Invoke-ServiceIPC 'status' | Select-Object build,connected,optimizing,capture_active
+Invoke-ServiceIPC 'local.catalog' | ConvertTo-Json -Depth 7
+& .\tools\windows\relay-status.ps1
+& .\tools\windows\relay-traffic.ps1
+# В уже открытом Chrome/Edge: YouTube1080p2мин и перемотка после подтверждения LOCAL.
+# Также Discord, Instagram, X, Telegram Web, ChatGPT/Claude, rutracker, VK/Яндекс.
+& .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube
+```
+
+Нужны enabled optimization/READY и реальные новые browser flows, не только
+профили/настроенный адрес. В diag.6: service-separated LOCAL/RELAY counters и
+стратегия, trial costs/streak, причина relay/cache, primary physical endpoint и
+байты/health/probe timestamp, client session/day. VK/Яндекс DIRECT, IP/GEO группы
+Telegram/ChatGPT/Claude/Instagram RELAY_REQUIRED; DPI группы LOCAL только после
+положительной проверки. Discord voice LOCAL не считать принятым по TCP.
+Для холодного googlevideo guard требует3законченных успешных проб с интервалом
+>=3мин: двух минут недостаточно для первоначального подтверждения. Подбор идёт
+автоматически, пока основной video получает RELAY; visible/post-reply failures
+считать явно. После подтверждения проверить новые потоки1080p2мин+seek: LOCAL RX
+должен стать основным, новые video RELAY RX около0; старые pinned relay потоки,
+DNS DoH/CP/tickets в это обещание не входят. При неудаче — RELAY и следующий
+bounded trial, не объявлять LOCAL PASS. Затем выключить оптимизацию и проверить
+обычный сайт без перезапуска браузеров. Диагностику/коды/секреты не коммитить.

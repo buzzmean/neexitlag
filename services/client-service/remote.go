@@ -319,21 +319,23 @@ func (s *remoteState) apply(ctx context.Context, cfg security.Config) error {
 	// No process/profile/manual policy rewrite or TCP replay is performed.
 	primaryAddress := ""
 	for _, node := range cfg.Relays {
-		if node.ID == primaryRelayID && node.Load < 1 {
+		// Server aggregate session load is not this healthy pool's capacity.
+		if node.ID == primaryRelayID {
 			primaryAddress = node.Address
 		}
 	}
-	c.relayPrimary.mu.Lock()
-	c.relayPrimary.primary = primaryAddress
-	c.relayPrimary.standby = s.addresses["VPS-01"]
-	c.relayPrimary.mu.Unlock()
+	standbyID := standbyCandidate(cfg.Relays)
+	standbyAddress := s.addresses[standbyID]
 	if primary := s.clients[primaryRelayID]; primary != nil && primaryAddress != "" {
 		var standby primaryRelayPool
-		if pool := s.clients["VPS-01"]; pool != nil {
+		if pool := s.clients[standbyID]; pool != nil {
 			standby = pool
 		}
-		c.Engine.SetRelay("VPS-01", &primaryRelayProvider{primary: primary, standby: standby, primaryAddress: primaryAddress, standbyAddress: s.addresses["VPS-01"], runtime: c.relayPrimary})
+		provider := &primaryRelayProvider{primary: primary, standby: standby, primaryAddress: primaryAddress, standbyAddress: standbyAddress, standbyID: standbyID, runtime: c.relayPrimary, quality: c.Selector.Qualities}
+		c.relayPrimary.configure(provider, primaryAddress, standbyAddress)
+		c.Engine.SetRelay("VPS-01", provider)
 	} else {
+		c.relayPrimary.configure(nil, primaryAddress, standbyAddress)
 		if pool := s.clients["VPS-01"]; pool != nil {
 			c.Engine.SetRelay("VPS-01", pool)
 		} else {

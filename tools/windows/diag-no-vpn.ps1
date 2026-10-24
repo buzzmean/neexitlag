@@ -290,7 +290,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-24.5 (signed local catalog and actual primary relay status)'
+$ScriptVersion='2026-10-24.6 (LOCAL evidence, traffic budget and primary/standby hysteresis)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -691,6 +691,13 @@ function Write-NativeIngressEvidence($native) {
  }
  Say 'PAC_NATIVE_UPSTREAM is not native-only. Native new TCP does not require policy refresh. Opaque TLS defaults DIRECT under owner policy; observed protected associations remain relay-only; native UDP443 is rejected to TCP; process capture is not an independent kernel crash guard. No policy changed by diagnostics.'
 }
+function Write-RelaySelectionEvidence($mapping) {
+ Say ('relay new-flow selection: preferred='+(Prop $mapping 'preferred_for_new_opens' 'UNINSTRUMENTED')+' reason='+(Prop $mapping 'selection_reason' 'UNINSTRUMENTED')+' switches='+(Prop $mapping 'selection_switches' 0)+' hold_until='+(Prop $mapping 'standby_hold_until' '-')+' primary_healthy_since='+(Prop $mapping 'primary_healthy_since' '-'))
+ foreach($row in @(Prop $mapping 'connections' @())){
+  Say (' relay health: id='+(Prop $row 'authenticated_relay_id' 'UNKNOWN')+' address='+(Prop $row 'configured_address' 'UNKNOWN')+' pool_healthy='+(Prop $row 'pool_healthy' 'UNKNOWN')+' state='+(Prop $row 'health' 'UNINSTRUMENTED')+' probe_rtt_ms='+(Prop $row 'probe_rtt_ms' 'UNKNOWN')+' probe_at='+(Prop $row 'probe_observed_at' 'UNKNOWN')+' new_open_failures='+(Prop $row 'new_open_failures' 0)+' last_failure='+(Prop $row 'last_failure_class' '-'))
+ }
+ Say 'Hysteresis affects new authenticated opens only; no existing flow migration/replay. Pool capacity or one origin failure does not blacklist VPS. Zero/unobserved probe time is not a measured RTT.'
+}
 function Write-NativeFirewallEvidence($firewall) {
  $state=Prop $firewall 'state' 'UNKNOWN'
  if(!(Prop $firewall 'known' $false)){$state='UNKNOWN: '+$state}
@@ -709,6 +716,7 @@ Step 'local_catalog' {
 Step 'relay_primary_mapping' {
  try{
   $mapping=Invoke-IPC 'relay.primary.status'
+  Write-RelaySelectionEvidence $mapping
   Say ('relay mapping: local_policy=VPS-01 primary='+(Prop $mapping 'configured_primary')+' standby='+(Prop $mapping 'configured_standby')+' last_actual_authenticated_id='+(Prop $mapping 'last_opened_authenticated_relay' 'NONE')+' reason='+(Prop $mapping 'reason'))
   foreach($row in @(Prop $mapping 'connections' @())){Say (' relay payload: authenticated_id='+(Prop $row 'authenticated_relay_id')+' tcp_peer='+(Prop $row 'observed_tcp_session_endpoint' 'UDP_PEER_NOT_EXPOSED')+' opens='+(Prop $row 'Opens' 0)+' active='+(Prop $row 'Active' 0)+' tx='+(Prop $row 'TX' 0)+' rx='+(Prop $row 'RX' 0))}
   if(Prop $mapping 'configured_primary' ''){
