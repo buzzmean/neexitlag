@@ -319,3 +319,9 @@ Chrome/Edge readiness. При изменении egress только новые 
 TTL ограничен; alert не replay. Эти фикстуры не ISP acceptance и не тест patch
 manifest/login. На ПК проверить запуск Riot без winws и diag -Only riot,browser;
 Vanguard/игры должны оставаться DIRECT. VPS/CA/SSH/activation не менялись.
+
+Дополнение кRiot: внешний first-flight wrapper теперь получает policy от каждого
+фактического OPEN вложенной LOCAL ladder. Без этого поздний безопасный переход
+LOCAL→RELAY мог оставлять в riot.status старую LOCAL-policy. TLS regression с
+silent LOCAL и работающим authenticated-route seam проверяет актуальный reporter;
+без replay после ответа, пакеты/route selection не переписываются.

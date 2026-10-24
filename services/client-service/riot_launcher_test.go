@@ -147,3 +147,43 @@ func TestRiotStatusDispatchAndNoBrowserReadinessContamination(t *testing.T) {
 		t.Fatal("club diagnostics inaccessible")
 	}
 }
+
+func TestRiotLateLocalRetryReportsActualRelay(t *testing.T) {
+	c, cur, q, p := youtubeFixture(t)
+	cur.profile.ID = "riot-client"
+	cur.profile.AppPreset = "riot-client"
+	q.Host = "sieve.services.riotcdn.net"
+	q.Owner.Profile = cur.profile.ID
+	c.Backend = &youtubeTransformFixture{}
+	p.Policy = flowpolicy.Result{Action: flowpolicy.Direct, Source: "riot_direct_first"}
+	c.browser.directTimeouts.RecordTimeout(c.directTimeoutKey(cur, q, p), time.Now())
+	c.browser.youtube.confirmed(youtubeScope(cur, q), "LOCAL", youtubeLegacyOrder[0], time.Now())
+	server, roots := youtubeTLSHTTPFixture(t, q.Host)
+	var local, relay atomic.Int32
+	open := func(ctx context.Context, _ browserproxy.Request, plan browserproxy.Plan) (net.Conn, error) {
+		if plan.Policy.Action == flowpolicy.DirectPlus {
+			local.Add(1)
+			a, b := net.Pipe()
+			go func() { defer b.Close(); io.Copy(io.Discard, b) }()
+			return a, nil
+		}
+		if plan.Policy.Action != flowpolicy.RelayRequired {
+			t.Error("unexpected route", plan.Policy)
+		}
+		relay.Add(1)
+		return (&net.Dialer{}).DialContext(ctx, "tcp", server.Listener.Addr().String())
+	}
+	raw, _, err := c.openRiotPlan(context.Background(), cur, q, p, open)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	secure := tls.Client(raw, &tls.Config{ServerName: q.Host, RootCAs: roots, MinVersion: tls.VersionTLS12, CurvePreferences: []tls.CurveID{tls.CurveP256}})
+	secure.SetDeadline(time.Now().Add(5 * time.Second))
+	if err = secure.Handshake(); err != nil {
+		t.Fatal(err)
+	}
+	if local.Load() != 1 || relay.Load() != 1 || raw.(browserproxy.PlanReporter).CurrentPlan().Policy.Action != flowpolicy.RelayRequired {
+		t.Fatal("stale route after LOCAL retry", local.Load(), relay.Load(), raw.(browserproxy.PlanReporter).CurrentPlan())
+	}
+}

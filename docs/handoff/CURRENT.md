@@ -5,6 +5,7 @@
 ## Последний итог — Riot launcher,24.10.2026
 Добавлен built-in Riot Client AUTO,4 launcher exe внутри Riot Games/Riot Client; games/vgc/vgk/anti-cheat не наследуют профиль. TCP443 new-TCP native/SNI/owner guards, без PAC.
 Riot hostname: сначала<=2 DNS IPv4, silent ClientHello -> другой адрес, лишь затем общая verified LOCAL/RELAY selection.10мин per-network/profile/host/IP negative, без permanent/subnet pin; после origin byte replay запрещён. Auth/CDN с рабочим DIRECT остаются DIRECT.
+Follow-up кc625f9b: каждый фактический OPEN обновляет общий reporter, включая поздний LOCAL→RELAY без origin byte; отдельный verified TLS тест подтверждает правильную ступень. Go full gates повторены после этой правки.
 Отдельный riot.status/club read handler и diag.13 -Only riot: выбранный путь/bytes LOCAL/RELAY, actualSNI vs foreignSNI<=2 A/host, TLS verification ON, без credentials. Riot не считается Browser ready.
 Go race/vet/build Linux+Windows и Windows vet PASS; PS7 Riot formatter PASS; pinned DLL70filters/iSCSI/checksums PASS подWine; Riot Windows EXE/Wine PASS. Native Windows/PS5.1/Riot login/manifest/ISP НЕ проверены. VPS/CA/коды/SSH не использовались.
 Решение: не обобщать один silent IP на Cloudflare subnet; вместо этого пробовать другой DNS A и хранить ограниченный отрицательный endpoint verdict. Подробности docs/LOCAL_ENGINE_AUDIT.md.

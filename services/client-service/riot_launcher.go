@@ -49,6 +49,16 @@ func (c *Controller) riotOwnerProfile(o browserproxy.Owner) (profilesResult, err
 // ANY origin byte. No subnet verdict is inferred from a single silent endpoint.
 func (c *Controller) openRiotPlan(ctx context.Context, cur profilesResult, q browserproxy.Request, p browserproxy.Plan, open func(context.Context, browserproxy.Request, browserproxy.Plan) (net.Conn, error)) (net.Conn, browserproxy.Plan, error) {
 	ref := &youtubePlanRef{}
+	// Every actual OPEN updates the shared reporter, including a later LOCAL ->
+	// RELAY zero-origin retry inside the nested common ladder.
+	observedOpen := func(work context.Context, request browserproxy.Request, actual browserproxy.Plan) (net.Conn, error) {
+		conn, err := open(work, request, actual)
+		if err == nil {
+			ref.set(actual, conn)
+		}
+		return conn, err
+	}
+
 	addresses := []netip.AddrPort{p.Destination}
 	for _, a := range p.DirectCandidates {
 		if a != p.Destination && a.IsValid() && a.Addr().Is4() && browserproxy.PublicDNSAddress(a.Addr()) {
@@ -76,7 +86,7 @@ func (c *Controller) openRiotPlan(ctx context.Context, cur profilesResult, q bro
 				break
 			}
 			attempt, cancel := context.WithTimeout(work, budget)
-			conn, e := open(attempt, q, actual)
+			conn, e := observedOpen(attempt, q, actual)
 			cancel()
 			nextIndex := index + 1
 			failed := func(string) {
@@ -99,7 +109,7 @@ func (c *Controller) openRiotPlan(ctx context.Context, cur profilesResult, q bro
 		}
 		// Same scoped catalog, background verified GET, LOCAL cache and negative TTL
 		// as browsers. Healthy auth/CDN hosts never enter this branch.
-		conn, actual, e := c.openYoutubeLadder(work, cur, q, p, open)
+		conn, actual, e := c.openYoutubeLadder(work, cur, q, p, observedOpen)
 		if e == nil {
 			ref.set(actual, conn)
 		}
