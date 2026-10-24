@@ -1,0 +1,135 @@
+{
+  "version": 1,
+  "games": [
+    {
+      "id": "valorant",
+      "name": "VALORANT",
+      "icon": "VAL",
+      "executables": [
+        "VALORANT-Win64-Shipping.exe"
+      ],
+      "launcher": "Riot Client",
+      "antiCheat": "Vanguard",
+      "defaultMode": "DIRECT",
+      "udpPreset": "",
+      "launcherNeedsBypass": true
+    },
+    {
+      "id": "lol",
+      "name": "League of Legends",
+      "icon": "LOL",
+      "executables": [
+        "League of Legends.exe"
+      ],
+      "launcher": "Riot Client",
+      "antiCheat": "Vanguard",
+      "defaultMode": "DIRECT",
+      "udpPreset": "",
+      "launcherNeedsBypass": true
+    },
+    {
+      "id": "cs2",
+      "name": "Counter-Strike 2",
+      "icon": "CS2",
+      "executables": [
+        "cs2.exe"
+      ],
+      "launcher": "Steam",
+      "antiCheat": "VAC / FACEIT (режим матчей)",
+      "defaultMode": "DIRECT",
+      "udpPreset": "",
+      "launcherNeedsBypass": false
+    },
+    {
+      "id": "dota2",
+      "name": "Dota 2",
+      "icon": "DOT",
+      "executables": [
+        "dota2.exe"
+      ],
+      "launcher": "Steam",
+      "antiCheat": "VAC",
+      "defaultMode": "DIRECT",
+      "udpPreset": "dota2",
+      "launcherNeedsBypass": false
+    },
+    {
+      "id": "pubg",
+      "name": "PUBG: BATTLEGROUNDS",
+      "icon": "PUB",
+      "executables": [
+        "TslGame.exe"
+      ],
+      "launcher": "Steam",
+      "antiCheat": "BattlEye",
+      "defaultMode": "DIRECT",
+      "udpPreset": "pubg",
+      "launcherNeedsBypass": false
+    },
+    {
+      "id": "fortnite",
+      "name": "Fortnite",
+      "icon": "FOR",
+      "executables": [
+        "FortniteClient-Win64-Shipping.exe"
+      ],
+      "launcher": "Epic Games",
+      "antiCheat": "EAC / BattlEye",
+      "defaultMode": "DIRECT",
+      "udpPreset": "",
+      "launcherNeedsBypass": false
+    },
+    {
+      "id": "apex",
+      "name": "Apex Legends",
+      "icon": "APE",
+      "executables": [
+        "r5apex.exe"
+      ],
+      "launcher": "Steam / EA",
+      "antiCheat": "EAC",
+      "defaultMode": "DIRECT",
+      "udpPreset": "",
+      "launcherNeedsBypass": false
+    },
+    {
+      "id": "rust",
+      "name": "Rust",
+      "icon": "RUS",
+      "executables": [
+        "RustClient.exe"
+      ],
+      "launcher": "Steam",
+      "antiCheat": "EAC",
+      "defaultMode": "DIRECT",
+      "udpPreset": "",
+      "launcherNeedsBypass": false
+    },
+    {
+      "id": "gtav",
+      "name": "Grand Theft Auto V",
+      "icon": "GTA",
+      "executables": [
+        "GTA5.exe"
+      ],
+      "launcher": "Rockstar / Steam / Epic",
+      "antiCheat": "BattlEye (Online)",
+      "defaultMode": "DIRECT",
+      "udpPreset": "",
+      "launcherNeedsBypass": false
+    },
+    {
+      "id": "rdr2",
+      "name": "Red Dead Redemption 2",
+      "icon": "RDR",
+      "executables": [
+        "RDR2.exe"
+      ],
+      "launcher": "Rockstar / Steam / Epic",
+      "antiCheat": "Rockstar Online",
+      "defaultMode": "DIRECT",
+      "udpPreset": "",
+      "launcherNeedsBypass": false
+    }
+  ]
+}

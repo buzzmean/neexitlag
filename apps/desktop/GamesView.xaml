@@ -1,0 +1,28 @@
+<UserControl x:Class="Neexitlag.Desktop.GamesView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:ui="clr-namespace:Neexitlag.Desktop">
+ <DockPanel>
+  <StackPanel DockPanel.Dock="Top">
+   <TextBlock Text="{ui:Tr Games}" FontSize="28" FontWeight="SemiBold"/>
+   <TextBlock Text="{ui:Tr GameCatalogHint}" TextWrapping="Wrap" Margin="0,8"/>
+   <TextBox Text="{Binding Search,UpdateSourceTrigger=PropertyChanged}" ToolTip="{ui:Tr GameCatalogSearch}" Margin="0,8"/>
+   <TextBlock Text="{Binding Notice}" TextWrapping="Wrap" Foreground="#AAAAAA" Margin="0,8"/>
+  </StackPanel>
+  <ScrollViewer VerticalScrollBarVisibility="Auto">
+   <ItemsControl ItemsSource="{Binding Games}" IsEnabled="{Binding CanInteract}"><ItemsControl.ItemTemplate><DataTemplate>
+    <Border BorderBrush="#303030" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,12" Background="#101010">
+     <StackPanel>
+      <DockPanel><TextBlock Text="{Binding Icon}" Width="60" FontWeight="Bold" FontSize="18"/><TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="18"/></DockPanel>
+      <TextBlock Text="{Binding Launcher}" Margin="0,8,0,0"/>
+      <TextBlock Text="{Binding AntiCheat}"/>
+      <TextBlock Text="{Binding Compatibility}" TextWrapping="Wrap" Foreground="#AAAAAA" Margin="0,4"/>
+      <StackPanel Orientation="Horizontal" Margin="0,8">
+       <ComboBox Width="145" ItemsSource="{Binding DataContext.Modes,RelativeSource={RelativeSource AncestorType=UserControl}}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding Mode,UpdateSourceTrigger=PropertyChanged}"/>
+       <Button Content="{ui:Tr GameCatalogApply}" Click="Apply" Margin="12,0,0,0"/>
+       <Button Content="{ui:Tr GameCatalogRepair}" Click="Repair" IsEnabled="{Binding CanRepair}" Margin="12,0,0,0"/>
+      </StackPanel>
+      <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Foreground="#AAAAAA"/>
+     </StackPanel>
+    </Border>
+   </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+  </ScrollViewer>
+ </DockPanel>
+</UserControl>

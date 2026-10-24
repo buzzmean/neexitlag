@@ -6,6 +6,7 @@ using Microsoft.Win32;
 namespace Neexitlag.Desktop;
 public partial class MainWindow : Window
 {
+    readonly GameCatalogViewModel games;
     readonly DesktopViewModel model; readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromSeconds(2) }; readonly CancellationTokenSource lifetime = new();
     readonly LocalPreferences preferences; readonly bool shutdownOnClose; readonly string? preferencesPath; readonly System.Windows.Forms.NotifyIcon tray; readonly System.Drawing.Icon trayImage; bool exiting, settingsLoaded, startupApplied;
     public MainWindow() : this(LocalPreferences.Load(), true, true) { }
@@ -13,12 +14,15 @@ public partial class MainWindow : Window
     // without starting IPC timers or shutting down the host Application.
     internal MainWindow(LocalPreferences preferences, bool background, bool shutdownOnClose, string? preferencesPath = null, IServiceClient? serviceClient = null)
     {
-        model = new(serviceClient ?? new WindowsServiceClient());
+        var service=serviceClient ?? new WindowsServiceClient();
+        model = new(service);games=new(service);
         this.preferences = preferences;
         this.shutdownOnClose = shutdownOnClose;
         this.preferencesPath = preferencesPath;
         InitializeComponent();
+        Games.DataContext=games;
         InitializeGuiFailureLog();
+        games.Failed+=(error,phase)=>model.RecordGuiFailure(error,phase);
  LocalPorts.Text="443";LocalSplitPosition.Text="1";
         DataContext = model;
         model.PropertyChanged += (_, args) => {
@@ -153,7 +157,8 @@ public partial class MainWindow : Window
     {
         string page = (string)((Button)sender).Tag;
         PageTitle.Text = Text.Get(page);
-        foreach (string name in new[] { "Home", "Applications", "Routes", "Statistics", "Diagnostics", "Settings", "LocalStrategies" })
+        if(page=="Games") _=Execute(()=>games.RefreshAsync(lifetime.Token));
+        foreach (string name in new[] { "Home", "Games", "Applications", "Routes", "Statistics", "Diagnostics", "Settings", "LocalStrategies" })
             ((FrameworkElement)FindName(name)).Visibility = name == page ? Visibility.Visible : Visibility.Collapsed;
         if (page == "Settings" && model.Snapshot is { } snapshot)
             LoadSettings(snapshot);

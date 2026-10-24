@@ -2,20 +2,20 @@
 
 # CURRENT
 
-## Последний итог — Riot launcher,24.10.2026
-Добавлен built-in Riot Client AUTO,4 launcher exe внутри Riot Games/Riot Client; games/vgc/vgk/anti-cheat не наследуют профиль. TCP443 new-TCP native/SNI/owner guards, без PAC.
-Riot hostname: сначала<=2 DNS IPv4, silent ClientHello -> другой адрес, лишь затем общая verified LOCAL/RELAY selection.10мин per-network/profile/host/IP negative, без permanent/subnet pin; после origin byte replay запрещён. Auth/CDN с рабочим DIRECT остаются DIRECT.
-Follow-up кc625f9b: каждый фактический OPEN обновляет общий reporter, включая поздний LOCAL→RELAY без origin byte; отдельный verified TLS тест подтверждает правильную ступень. Go full gates повторены после этой правки.
-Отдельный riot.status/club read handler и diag.13 -Only riot: выбранный путь/bytes LOCAL/RELAY, actualSNI vs foreignSNI<=2 A/host, TLS verification ON, без credentials. Riot не считается Browser ready.
-Go race/vet/build Linux+Windows и Windows vet PASS; PS7 Riot formatter PASS; pinned DLL70filters/iSCSI/checksums PASS подWine; Riot Windows EXE/Wine PASS. Native Windows/PS5.1/Riot login/manifest/ISP НЕ проверены. VPS/CA/коды/SSH не использовались.
-Решение: не обобщать один silent IP на Cloudflare subnet; вместо этого пробовать другой DNS A и хранить ограниченный отрицательный endpoint verdict. Подробности docs/LOCAL_ENGINE_AUDIT.md.
-Следующий этап: каталог игр/минимальный UI; C#-изменения ещё не входят в Riot commit. Pre-push: riot.status routed/readonly allowlist, manifest readers не менялись, PS5.1-compatible formatter/BOM/quoted flags; существующие ограничения сохранены.
+## Последний итог — Riot + каталог игр,24.10.2026
+Riot c625f9b/bd21116: встроенный launcher AUTO,4exe в Riot Games/Riot Client, только TCP443 native; <=2 DNS A перед общей verified LOCAL/RELAY ladder. Per-network/profile/host/IP отрицательный TTL10min, не Cloudflare blanket, no replay после origin byte. Riot не считается browser readiness.
+Diag.13 -Only riot: реальные выбранные route/bytes, installed exe names, actual vs foreignSNI<=2 A/host. SNI helper TLS1.2 (PS5.1), это не полная имитация Riot TLS1.3. Новый riot.status routed/club-readonly<=48KiB; поздний LOCAL retry правильно обновляет actual route.
+Каталог v1:10игр, встроенный JSON/SHA256, RSA-PSS verifier для будущего owner-pinned update; unsigned imports/network update выключены, production подпись каталога не выпускалась. Монограммы вместо внешних иконок. docs/GAME_CATALOG.md.
+Страница «Игры»: поиск/карточки, явные AUTO/DIRECT/DIRECT+/RELAY, копирование existing profile+metadata, repair только Riot. DIRECT+ лишь готовый gameudp с exactpath/guard; остальные не получают выдуманную стратегию. AUTO игр DIRECT; Vanguard/FACEIT/club permissions сохраняются. RELAY warning до выбора, без обещания ping.
+Go full race/vet/build Linux+Windows и Windows vet PASS после финального Go-fix; pinned DLL70filters/iSCSI/checksums PASS подWine,5Riot Windows EXE/Wine PASS. C#208/208 иWPF build0errors/4прежнихCS8604 PASS; PS7 fixtures/parser PASS. Native Windows/PS5.1/GUI runtime/Riot login+patch/ISP НЕ проверены.
+Pre-push: новые/использованные IPC routed; service.json readers/defaults не менялись; PS5.1-compatible diagnostics/BOM, quoted flags; owner block безgit switch, native exit/hash checks. Экономия: здоровый DIRECT DNS A раньше LOCAL/RELAY. Секреты/драйвер pin/фильтры/iSCSI/игровые guards/VPS/CA/коды/SSH/PR8 не менялись.
+Решение: каталог не обходит CLUB_ADMIN_MANAGED, гостевой ClubWindow остаётся прежним; внешний catalog update требует отдельного доверенного public key/release workflow. Обновить service+GUI, проверить обычный GUI/Riot безwinws и -Only riot,browser. Предыдущие итоги дословно вARCHIVE.
 
 ## Таблица работ
 | Работа / дата | Файлы | Агент / ветка | Статус |
 |---|---|---|---|
 | Riot launcher / 24.10.2026 | core/profiles/localstrategy; services/client-service launcher/native/origin; platform/windows discovery; tools/windows diag; tests/docs | Codex / codex/work | ОСВОБОЖДЕНО: launcher/alternate DNS/LOCAL/diag; owner acceptance впереди |
-| Game catalog / 24.10.2026 | apps/desktop-core/GameCatalog* и Resources; apps/desktop Games/MainWindow/VM integration; tests/desktop; docs | Codex / codex/work | В РАБОТЕ: встроенные данные/страница/профили, после Riot commit |
+| Game catalog / 24.10.2026 | apps/desktop-core/GameCatalog* и Resources; apps/desktop Games/MainWindow/VM integration; tests/desktop; docs | Codex / codex/work | ОСВОБОЖДЕНО: каталог/UI/тесты готовы; native Windows/club owner acceptance впереди |
 | LOCAL engine / 24.10.2026 | core/localstrategy; platform/windows native/DNS/TCP inject; services/client-service browser* и минимальный controller/club IPC dispatch; tools/windows diag; tests/workflow/docs | Codex / codex/work | ОСВОБОЖДЕНО: код/лаборатория готовы; Windows/ISP приёмка не доказана |
 | CDN LOCAL recovery / 24.10.2026 | core/localstrategy inspection; core/browserproxy/probe.go; platform/windows TCP evidence; services/client-service browser selection/probes; tools/windows diag; tests/docs | Codex / codex/work | ОСВОБОЖДЕНО: selector/probes/telemetry готовы; требуется owner trace для EOF и CDN success |
 | CDN neutral close / 24.10.2026 | services/client-service browser meter/selection/evidence; core/browserproxy TLS metadata/midstream; core/localstrategy inspection; platform/windows TCP evidence; tools/windows diag; tests/docs | Codex / codex/work | ОСВОБОЖДЕНО: реализация/тесты готовы; ISP/Chrome intent и CDN success требуют приёмки |
@@ -40,6 +40,7 @@ Go race/vet/build Linux+Windows и Windows vet PASS; PS7 Riot formatter PASS; pi
 | Дизайн VELIQ / 20.10.2026 | site/, brand/, design/; будущие WPF/assets | Claude Code | Сайт согласован; перенос в WPF и новая иконка не сделаны |
 
 ## Текущая очередь и открытые вопросы
+- Riot запуск/login/patch и фактические имена exe требуют Windows/ISP приёмки; каталог обычного GUI — тоже. Signed external game updates не включены; гостевой ClubWindow не менялся.
 - Ordinary akashi: per-IP DIRECT_ADDRESS_FAILED вовлекает ladder раньше второго A; отдельный policy coupling, не исправлен, реальный TCP отказ неизвестен.
 - Приёмка CDN: strong_promotions/trial_success растут ДО Close, active slot свободен/занят новой группой; LOCAL TTL10min и новый LOCAL RX основной; поздний failure отзывает будущие opens.2160p/seek, игры DIRECT.
 - HTTP80, QUIC fake и Discord voice UDP LOCAL не реализованы; fakedsplit TCP443 реализован, весь Flowseal не заявляется.
@@ -83,40 +84,43 @@ Go race/vet/build Linux+Windows и Windows vet PASS; PS7 Riot formatter PASS; pi
 - Video12/other4 клиентские пределы и8×48/probe reserve сохранять; деньги/ресурсы: DIRECT/LOCAL перед VPS, без искусственного page PASS.
 - CLAUDE.md20d8bd8 не откатывать/не дублировать; авто-порядок Claude относится к Claude Code.
 
-## Последние команды владельцу — обновление клиента, без VPS deployment
-PowerShell администратора под прежним owner SID, из корня клона; Git/Go в PATH и установленный pinned driver. Только GUI VELIQ закрывается; Chrome/Edge не закрывать.
+## Последние команды владельцу — клиент, без VPS/SSH
+PowerShell5.1 администратора под прежним owner SID из корня codex/work; Git/Go/.NET8. Chrome/Edge/игры не закрываются скриптом; только GUI VELIQ. GUI после обновления открывается обычным ярлыком (UAC-off full-admin — прежнее исключение).
 ```powershell
 & {
     $ErrorActionPreference='Stop'
-    if (-not (Get-Command go -ErrorAction SilentlyContinue)) { throw 'Install Go: winget install GoLang.Go' }
-    & go version
-    if ($LASTEXITCODE) { throw 'Install Go: winget install GoLang.Go' }
-    if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw 'Install Git: winget install Git.Git' }
-    $gitPreference=$ErrorActionPreference
+    foreach($tool in @('git','go','dotnet')) {
+        if(-not (Get-Command $tool -ErrorAction SilentlyContinue)) { throw ('Нужен '+$tool+': Git.Git / GoLang.Go / Microsoft.DotNet.SDK.8 через winget install') }
+    }
+    & go version; if($LASTEXITCODE){throw 'Go недоступен'}
+    & dotnet --version; if($LASTEXITCODE){throw '.NET SDK недоступен'}
+    $savedPreference=$ErrorActionPreference
     try {
         $ErrorActionPreference='Continue'
         $branch=(& git branch --show-current | Out-String).Trim()
-        if ($LASTEXITCODE -or $branch -ne 'codex/work') { throw 'Use existing codex/work checkout; no branch was switched' }
+        if($LASTEXITCODE -or $branch -ne 'codex/work'){throw 'Нужен существующий codex/work; ветка не переключалась'}
         & git pull --ff-only origin codex/work
         $pullExit=$LASTEXITCODE
-    } finally { $ErrorActionPreference=$gitPreference }
-    if ($pullExit) { throw 'git pull failed' }
+    } finally { $ErrorActionPreference=$savedPreference }
+    if($pullExit){throw 'git pull failed'}
+    . .\tools\windows\activation-nuget.ps1
+    Initialize-ActivationNuGetSource
     & .\tools\windows\build-e2e.ps1 -DriverDirectory (Join-Path $env:ProgramData 'neexitlag\driver')
+    & .\tools\windows\build-desktop.ps1
     & .\tools\windows\Close-VeliqGuiForUpdate.ps1
     & .\tools\windows\update-service.ps1
+    & .\tools\windows\install-desktop.ps1
+    $pairs=@(
+        @('.\bin\windows-e2e\neexitlag-service.exe',"$env:ProgramData\neexitlag\neexitlag-service.exe"),
+        @('.\bin\release\VELIQ.exe',"$env:LOCALAPPDATA\Programs\VELIQ\VELIQ.exe")
+    )
+    foreach($pair in $pairs){if((Get-FileHash $pair[0] -Algorithm SHA256).Hash -ne (Get-FileHash $pair[1] -Algorithm SHA256).Hash){throw ('HASH_MISMATCH '+$pair[1])}}
     . .\tools\windows\common.ps1
     Invoke-ServiceIPC 'status' | Select-Object build,connected,optimizing,capture_active
-    $a=(Get-FileHash '.\bin\windows-e2e\neexitlag-service.exe' -Algorithm SHA256).Hash
-    $b=(Get-FileHash "$env:ProgramData\neexitlag\neexitlag-service.exe" -Algorithm SHA256).Hash
-    if ($a -ne $b) { throw 'SERVICE_HASH_MISMATCH' }
-    Read-Host 'YouTube2160p >=2мин и перемотка в открытом Chrome; затем Enter (Chrome/Edge не закрывать)'
-    & .\tools\windows\relay-status.ps1
-    & .\tools\windows\relay-traffic.ps1
-    & .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube
+    Invoke-ServiceIPC 'profiles' | Where-Object {$_.id -eq 'riot-client'} | Select-Object id,name,mode,executables
+    Read-Host 'Откройте VELIQ обычным ярлыком: Игры/поиск/Riot. Без winws запустите Riot, проверьте login/patch; затем Enter. Chrome/Edge не закрывать'
+    & .\tools\windows\diag-no-vpn.ps1 -Only riot,browser
 }
 ```
-Нужны READY/optimizing и новые flows. DPI LOCAL только после proof; VK/Яндекс DIRECT; Telegram/IG/FB/OpenAI/Anthropic RELAY_REQUIRED.
-Холодный CDN: strong proof >=1MiB/16 completed records/3s даёт LOCAL10min безClose.2мин не гарантируют создание eligible trial; старые RELAY flows pinned. После обучения новый LOCAL RX должен стать основным.
-В diag смотреть strong_promotions/trial_success/trial_result, active_state/age/admission, small_eof_inconclusive/post_promotion_failures, LOCAL failure timing/volume и новый LOCAL RX. TrialFailure — не число всех поздних отказов.
-Discord public WSS/redirect CONTROL_NOT_BULK не доказывают авторизованный gateway/voice. Затем выключить оптимизацию → VK без restart, игры DIRECT.
-Monthly data пока UNKNOWN; серверные read-only команды — docs/RELAY_TRAFFIC_BUDGET.md, deployment здесь не разрешён.
+Ожидание: Riot AUTO, реальный обмен; исправный второй A DIRECT раньше relay, не всем auth/CDN RELAY. TLS/HTTP404 корня может быть нормальным control endpoint, не доказательством успешного login/patch.
+Принимать browser packet/byte evidence за page PASS нельзя. Игры по умолчанию DIRECT; prepared PUBG UDP — отдельное прежнее исключение, античит не трогается. После выключения оптимизации браузеры без restart.

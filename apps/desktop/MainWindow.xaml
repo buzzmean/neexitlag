@@ -7,6 +7,7 @@
      <StackPanel Orientation="Horizontal" Margin="12,0,0,4"><Image Source="{StaticResource VeliqSymbol}" Width="32" Height="32" Margin="0,0,10,0" AutomationProperties.Name="VELIQ"/><TextBlock Text="VELIQ" FontSize="28" FontWeight="Bold"/></StackPanel>
      <TextBlock Text="{ui:Tr AppSubtitle}" Foreground="#FFFFFF" FontSize="12" Margin="12,0,0,28"/>
      <Button Content="{ui:Tr Home}" Tag="Home" Click="Navigate" HorizontalContentAlignment="Left"/>
+     <Button Content="{ui:Tr Games}" Tag="Games" Click="Navigate"/>
      <Button Content="{ui:Tr Applications}" Tag="Applications" Click="Navigate"/>
      <Button Content="{ui:Tr Routes}" Tag="Routes" Click="Navigate"/>
      <Button Content="{ui:Tr Statistics}" Tag="Statistics" Click="Navigate"/>
@@ -42,6 +43,7 @@
      <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="{ui:Tr ActiveApps}" Style="{StaticResource Caption}"/><TextBlock Text="{Binding ActiveApps}" FontSize="18" TextWrapping="Wrap" Margin="0,12,0,0"/></StackPanel></Border>
      <TextBlock Text="{ui:Tr MeasurementsHint}" Style="{StaticResource Hint}"/><TextBlock Text="{ui:Tr CaptureHint}" Style="{StaticResource Hint}"/>
     </StackPanel></ScrollViewer>
+    <ui:GamesView x:Name="Games" Visibility="Collapsed"/>
     <DockPanel x:Name="Applications" Visibility="Collapsed">
      <StackPanel DockPanel.Dock="Top"><WrapPanel>
       <Button Content="{ui:Tr AddApplication}" Click="AddApplication" IsEnabled="{Binding CanControl}"/>
