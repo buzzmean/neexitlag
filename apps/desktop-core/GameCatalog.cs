@@ -4,11 +4,13 @@ using System.Security.Cryptography;
 using System.Text.Json;
 namespace Neexitlag.Desktop;
 
-public sealed record GameDefinition(string Id, string Name, string Icon, string[] Executables, string Launcher, string AntiCheat, string DefaultMode, string UdpPreset, bool LauncherNeedsBypass);
-public sealed record GameCatalogData(int Version, GameDefinition[] Games);
+public sealed record GameDefinition(string Id, string Name, string Icon, string[] Executables, string Launcher, string AntiCheat, string DefaultMode, string UdpPreset, bool LauncherNeedsBypass, string[]? NetworkReferences = null);
+// Informational data only. Never consumed by capture/profile/routing code.
+public sealed record GameNetworkReference(string Id, string Name, string[] TcpPorts, string[] UdpPorts, string Evidence);
+public sealed record GameCatalogData(int Version, GameDefinition[] Games, GameNetworkReference[]? NetworkInformation = null);
 public static class GameCatalog
 {
-    public const string BundledSha256 = "65409160B1CE9EF67F1DFD5724D8D5FB762B5D989D091EB9363964D26FB32BE7";
+    public const string BundledSha256 = "BF4437B9ED30C9C7916DBA4DB8D534ABD5CE3550358A9C51EB9739FC85D68013";
     // No unsigned imports/network updates. Catalog trust follows the installed
     // assembly. A public update envelope requires an owner-pinned signing key.
     public static GameCatalogData Bundled() {

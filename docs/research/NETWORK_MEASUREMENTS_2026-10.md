@@ -38,14 +38,29 @@
 
 TCP timeout без pcap = TCP_CONNECT_FAILED_NO_SYNACK_PROOF, не «SYN DROP». TLS reset не устанавливает автора RST. Зависший HTTP после16–20KiB — наблюдение, не диагноз ТСПУ. Короткий404/redirect не bulk-success. Клиент проверки — отдельный процесс со своим маршрутом, не доказательство поведения Chrome/Riot. В cloud внешние проверки не выполнялись: нужны данные владельца, прежний NXDOMAIN Youtube — только его замер, не доказанное DNS-падение desktop-приложения.
 
-`-Only browser,youtube` сохраняет пассивные снимки; активные послойные проверки запрашиваются явно через `layers` (полный default run также содержит их). Диагностика .16 уже была занята предыдущей задачей, поэтому версия осталась .16 с явной `measurement revision 1`, старые поля не удалены.
+`-Only browser,youtube` сохраняет пассивные снимки; активные послойные проверки запрашиваются явно через `layers` (полный default run также содержит их). Диагностика .16 уже была занята предыдущей задачей, поэтому версия осталась .16 с явной `measurement revision 2` (первая фаза была revision 1), старые поля не удалены.
 
 ## M4/M5 — timestamps и ранние признаки
 
-`browser.local.probes.layer_audit` — census **retained LOCAL records**, не полная lifetime частота: pure-ts plans, отсутствие timestamp в payload, неизвестное/отрицательное SYN-согласование, TIMESTAMP_OPTION_REQUIRED, >=3 ранних client retransmit, remote RST relative<=4096, отказы после ответа и в диапазоне16–20KiB. Состояние «нет SYN при hot-attach» = UNKNOWN, не нарушение. Пробы с TIMESTAMP_OPTION_REQUIRED считаются отдельно от flow-планов. Непопавшие в retained/не-browser DIRECT+ потоки не реконструируются; отсутствие записи не означает ноль нарушений.
+`browser.local.probes.layer_audit` — census **retained LOCAL records**, не полная lifetime частота: pure-ts plans, отсутствие timestamp в payload, неизвестное/отрицательное SYN-согласование, TIMESTAMP_OPTION_REQUIRED, >=3 ранних client retransmit, remote RST relative<=4096, выбранные STALL/TIMEOUT/RST-отказы после ответа и в диапазоне16–20KiB wire RX (TLS-байты, не HTTP body). Состояние «нет SYN при hot-attach» = UNKNOWN, не нарушение. Пробы с TIMESTAMP_OPTION_REQUIRED считаются отдельно от flow-планов. Непопавшие в retained/не-browser DIRECT+ потоки не реконструируются; отсутствие записи не означает ноль нарушений.
 
 WinDivert ledger теперь сохраняет **только относительные** early sequence признаки и SYN timestamp booleans. Без SYN относительный RST UNKNOWN; raw payload/absolute seq не экспортируются. Retransmits могут быть обычной сетью, малый RST — сервером или middlebox. Это кандидаты раннего failure, **не автоматическое переключение стратегии**. HTTPS redirect/GOAWAY/segment не видим без MITM. Existing TLS после origin byte не replay/migrate.
 
 Ранее pure-ts уже явно пропускается с TIMESTAMP_OPTION_REQUIRED при отсутствии опции. Собственный LOCAL-сокет включает timestamps per-socket; глобальный netsh не нужен. Из владельческих логов известен timestamp_option=True; статистики реально несогласованных/ранних отказов ещё нет. Фаза1 не должна заменять ts или ускорять перебор вслепую.
 
 Локальный M2 bootstrap/recovery: 2 новых сессии, 2 попытки за60с, max concurrent=1; успешные QUIC handshake ≈4.53/2.22мс (пример loopback, не RTT клуба), factory≈5.99/3.27мс. Метрики проверены real authenticated pool integration. Не следует переносить эти длительности/частоту на40ПК или сеть владельца.
+
+## Решения фазы1 — без догадок по данным community
+
+| Пункт | Статус | Решение/основание |
+|---|---|---|
+| C1 | Сделано | M2/M3 и пассивный M4/M5 оставлены в постоянной read-only диагностике; Go+PS tests, legacy UNINSTRUMENTED, bounded retention. Native PS5.1 ещё требуется. |
+| C2 | Отложено; глобальный netsh не нужен | При отсутствии payload timestamps guard уже TIMESTAMP_OPTION_REQUIRED. Нет реального M4-счётчика потока pure-ts с несогласованными timestamps; не заменять ts вслепую. UNKNOWN/hot-attach не повод отбрасывать рабочий план. Получить census; только затем точечный ts,md5sig/md5sig/skip без системных настроек. |
+| C3 | Отложено | Новые relative evidence/candidate counters измеряют базу, но частота и выигрыш в клубе неизвестны. Три ретрансмитa и малый RST бывают не DPI. Будущий counter: failures3/60s поnetwork/profile/host/IP/strategy, bounded state, без массового poisoning; max1/cooldown>=3min и endpoint scope сохранить. После origin byte допускается завершить плохой поток и сменить будущие flows, но не replay. HTTPS redirect недоступен без MITM. |
+| C4 | Отложено | Подтверждён только owner NXDOMAIN Youtube в браузере, где broker/recovery уже есть. Нет доказанного desktop-приложения, сломанного именно DNS. Если появится: отдельно спроектировать whitelist blocked-name encrypted DoT/IP или authenticated relay-HTTPS DNS, cache TTL/network/profile, normal cert validation; DNS53 обычного трафика остаётся DIRECT. Resolver службы сейчас не менялся. |
+| C5 | Сделан только дизайн; код не нужен по текущим замерам | `../RELAY_TRANSPORT_EVOLUTION.md`: дополнительная версия ALPN, SNI под своим SAN, TCP+TLS fallback, flags OFF, compatibility matrix, backup/rollback. Ни одного признака фильтрации действующего relay пока не измерено; протокол и сервер не менять. |
+| C6/П6 | Сделано | В diag только известные googlevideo назначения в указанных AS20485 префиксах помечены COMMUNITY_GGC_RANGE_UNVERIFIED. Метка справочная, не доказанная принадлежность/деградация; маршруты/QUIC fallback не меняются. |
+| C6/П5 | Отложено | Два IP меняют VPS и egress/маршрутизацию; нужны решение владельца и доказанное приложение с проблемой exit-IP. Не покупать/добавлять IP и не менять server config. |
+| C6/П8 | Сделано, справочные данные | Steam/Valve порты и Battlefield6 network reference в bundled catalog; источники community/unverified помечены. Не создают profile/filter/relay route. Для BF6 не придуман exe: это справочная запись, не новая runnable карточка. Default DIRECT существующих10 игр, guards/Riot/UDP scope неизменны. |
+
+Повторные внешние endpoint-проверки/реальные ISP результаты не подменяются loopback. Следующий шаг — владелец присылает M2/M3/M4/M5 snapshot; только доказанный отдельный дефект открывает поведенческую правку.

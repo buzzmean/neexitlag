@@ -196,3 +196,9 @@ Write-Host 'PASS read-only 120s video observer, real interval deltas, baseline/r
 $script:lines=@();Write-BrowserDNSEvidence ([pscustomobject]@{relay_usage=[pscustomobject]@{video_connections=@();video_performance_scope='TLS_WIRE'}})
 Check (($script:lines -join "`n") -match 'video performance scope=TLS_WIRE' -and ($script:lines -join "`n") -notmatch 'video performance: UNINSTRUMENTED' -and ($script:lines -join "`n") -notmatch 'video connection:') 'Empty new service ledger confused with missing instrumentation'
 Write-Host 'PASS empty video ledger before opening a video is instrumented, not an old-service failure'
+
+$script:lines=@()
+Write-NativeIngressEvidence ([pscustomobject]@{youtube_local_ladder=[pscustomobject]@{records=@([pscustomobject]@{domain='rr6---sn-test.googlevideo.com';destination='188.43.67.12:443'},[pscustomobject]@{domain='vk.ru';destination='188.43.67.13:443'},[pscustomobject]@{domain='rr4---sn-other.googlevideo.com';destination='188.43.70.12:443'})}})
+$text=$script:lines -join ' '
+if($text -notmatch '188.43.67.12:443 label=COMMUNITY_GGC_RANGE_UNVERIFIED' -or $text -match 'GGC: host=vk.ru' -or $text -match '188.43.70.12:443 label='){throw 'GGC_LABEL_SCOPE_WRONG'}
+Write-Host 'PASS community GGC prefix label scoped to known googlevideo; no routing verdict'

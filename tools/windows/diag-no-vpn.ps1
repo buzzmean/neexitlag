@@ -291,7 +291,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-25.16 (measurement revision 1: relay sessions, layered DNS/TLS, timestamp/early failure audit)'
+$ScriptVersion='2026-10-25.16 (measurement revision 2: relay sessions, layered DNS/TLS, timestamp/early failure audit)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -719,7 +719,7 @@ function Write-OrdinaryAddressEvidence($ladder) {
 
 function Write-LocalProbeEvidence($ladder) {
  $audit=Prop $ladder 'layer_audit'
- Say ('LOCAL layer audit: retained='+(Prop $audit 'RetainedFlows' 'UNINSTRUMENTED')+' pure_ts='+(Prop $audit 'PureTS' 'UNINSTRUMENTED')+' missing_payload_ts='+(Prop $audit 'PureTSMissingPayloadTimestamp' 'UNINSTRUMENTED')+' negotiation_unknown='+(Prop $audit 'PureTSNegotiationUnknown' 'UNINSTRUMENTED')+' not_negotiated='+(Prop $audit 'PureTSNotNegotiated' 'UNINSTRUMENTED')+' timestamp_option_required='+(Prop $audit 'TimestampOptionRequired' 'UNINSTRUMENTED')+' timestamp_required_probes='+(Prop $audit 'TimestampOptionRequiredProbes' 'UNINSTRUMENTED')+' inspection_unknown='+(Prop $audit 'InspectionUnavailable' 'UNINSTRUMENTED')+' pure_ts_inspection_unknown='+(Prop $audit 'PureTSInspectionUnavailable' 'UNINSTRUMENTED')+' plan_unknown='+(Prop $audit 'PlanUnavailable' 'UNINSTRUMENTED')+' early_retrans_candidates='+(Prop $audit 'EarlyRetransmitCandidates' 'UNINSTRUMENTED')+' small_RST_candidates='+(Prop $audit 'SmallRSTCandidates' 'UNINSTRUMENTED')+' late_after_reply='+(Prop $audit 'LateFailuresAfterReply' 'UNINSTRUMENTED')+' freeze_16_20KiB='+(Prop $audit 'Freeze16To20KiB' 'UNINSTRUMENTED'))
+ Say ('LOCAL layer audit: retained='+(Prop $audit 'RetainedFlows' 'UNINSTRUMENTED')+' pure_ts='+(Prop $audit 'PureTS' 'UNINSTRUMENTED')+' missing_payload_ts='+(Prop $audit 'PureTSMissingPayloadTimestamp' 'UNINSTRUMENTED')+' negotiation_unknown='+(Prop $audit 'PureTSNegotiationUnknown' 'UNINSTRUMENTED')+' not_negotiated='+(Prop $audit 'PureTSNotNegotiated' 'UNINSTRUMENTED')+' timestamp_option_required='+(Prop $audit 'TimestampOptionRequired' 'UNINSTRUMENTED')+' timestamp_required_probes='+(Prop $audit 'TimestampOptionRequiredProbes' 'UNINSTRUMENTED')+' inspection_unknown='+(Prop $audit 'InspectionUnavailable' 'UNINSTRUMENTED')+' pure_ts_inspection_unknown='+(Prop $audit 'PureTSInspectionUnavailable' 'UNINSTRUMENTED')+' plan_unknown='+(Prop $audit 'PlanUnavailable' 'UNINSTRUMENTED')+' early_retrans_candidates='+(Prop $audit 'EarlyRetransmitCandidates' 'UNINSTRUMENTED')+' small_RST_candidates='+(Prop $audit 'SmallRSTCandidates' 'UNINSTRUMENTED')+' late_after_reply='+(Prop $audit 'LateFailuresAfterReply' 'UNINSTRUMENTED')+' freeze_wire_16_20KiB='+(Prop $audit 'Freeze16To20KiB' 'UNINSTRUMENTED'))
  Say ('audit scope: '+(Prop $audit 'Scope' 'UNINSTRUMENTED'))
  Write-CdnTrialEvidence $ladder
  Write-OrdinaryAddressEvidence $ladder
@@ -773,6 +773,13 @@ function Write-YouTubeLocalEvidence($ladder) {
 }
 
 function Write-NativeIngressEvidence($native) {
+ foreach($r in @(Prop (Prop $native 'youtube_local_ladder') 'records' @())){
+  $hostName=[string](Prop $r 'domain' '');$address=[string](Prop $r 'destination' '')
+  if($hostName -match '(^|\.)googlevideo\.com$' -and $address -match '^188\.43\.(61|64|65|66|67|68|69|87|126|127)\.[0-9]+:443$'){
+   Say ('googlevideo GGC: host='+$hostName+' destination='+$address+' label=COMMUNITY_GGC_RANGE_UNVERIFIED AS20485-reference; prefix label only, not measured ownership/throttling and no routing change')
+  }
+ }
+
  Write-YouTubeLocalEvidence (Prop $native 'youtube_local_ladder')
  Write-BrowserDNSEvidence $native
  $dc=Prop $native 'domain_cache';if($dc){Say ('native DNS cache: checked='+(Prop $dc 'checked_at')+' error='+(Prop $dc 'last_error')+' addresses='+(Prop $dc 'addresses')+' source='+(Prop $dc 'source')+' unknown_policy='+(Prop $dc 'unknown_policy'))}

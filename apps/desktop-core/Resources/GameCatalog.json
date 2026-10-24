@@ -38,7 +38,10 @@
       "antiCheat": "VAC / FACEIT (режим матчей)",
       "defaultMode": "DIRECT",
       "udpPreset": "",
-      "launcherNeedsBypass": false
+      "launcherNeedsBypass": false,
+      "networkReferences": [
+        "steam-valve"
+      ]
     },
     {
       "id": "dota2",
@@ -51,7 +54,10 @@
       "antiCheat": "VAC",
       "defaultMode": "DIRECT",
       "udpPreset": "dota2",
-      "launcherNeedsBypass": false
+      "launcherNeedsBypass": false,
+      "networkReferences": [
+        "steam-valve"
+      ]
     },
     {
       "id": "pubg",
@@ -64,7 +70,10 @@
       "antiCheat": "BattlEye",
       "defaultMode": "DIRECT",
       "udpPreset": "pubg",
-      "launcherNeedsBypass": false
+      "launcherNeedsBypass": false,
+      "networkReferences": [
+        "steam-valve"
+      ]
     },
     {
       "id": "fortnite",
@@ -90,7 +99,10 @@
       "antiCheat": "EAC",
       "defaultMode": "DIRECT",
       "udpPreset": "",
-      "launcherNeedsBypass": false
+      "launcherNeedsBypass": false,
+      "networkReferences": [
+        "steam-valve"
+      ]
     },
     {
       "id": "rust",
@@ -103,7 +115,10 @@
       "antiCheat": "EAC",
       "defaultMode": "DIRECT",
       "udpPreset": "",
-      "launcherNeedsBypass": false
+      "launcherNeedsBypass": false,
+      "networkReferences": [
+        "steam-valve"
+      ]
     },
     {
       "id": "gtav",
@@ -116,7 +131,10 @@
       "antiCheat": "BattlEye (Online)",
       "defaultMode": "DIRECT",
       "udpPreset": "",
-      "launcherNeedsBypass": false
+      "launcherNeedsBypass": false,
+      "networkReferences": [
+        "steam-valve"
+      ]
     },
     {
       "id": "rdr2",
@@ -129,7 +147,50 @@
       "antiCheat": "Rockstar Online",
       "defaultMode": "DIRECT",
       "udpPreset": "",
-      "launcherNeedsBypass": false
+      "launcherNeedsBypass": false,
+      "networkReferences": [
+        "steam-valve"
+      ]
+    }
+  ],
+  "networkInformation": [
+    {
+      "id": "steam-valve",
+      "name": "Steam / Valve",
+      "tcpPorts": [
+        "27015-27050",
+        "27020",
+        "27021",
+        "27024",
+        "443"
+      ],
+      "udpPorts": [
+        "27000-27250",
+        "3478",
+        "4379",
+        "4380",
+        "27014-27030"
+      ],
+      "evidence": "Community reference October 2026; informational only, not capture rules or verified game requirements"
+    },
+    {
+      "id": "battlefield6",
+      "name": "Battlefield 6",
+      "tcpPorts": [
+        "80",
+        "443",
+        "2053",
+        "2083",
+        "2087",
+        "2096",
+        "8443"
+      ],
+      "udpPorts": [
+        "443",
+        "19294-19344",
+        "50000-50100"
+      ],
+      "evidence": "Community reference October 2026; executable/anti-cheat compatibility unverified; no runnable profile"
     }
   ]
 }

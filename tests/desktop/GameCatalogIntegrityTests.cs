@@ -42,3 +42,25 @@ public sealed class GameCatalogIntegrityTests
         Assert.Equal("GAME_CATALOG_SIGNATURE_INVALID", error.Message);
     }
 }
+
+public sealed class GameNetworkReferenceTests
+{
+    [Fact]
+    public void PortsAreOnlyInformationalAndLeaveAllProfilesDirect()
+    {
+        var catalog=GameCatalog.Bundled();
+        Assert.NotNull(catalog.NetworkInformation);
+        var valve=Assert.Single(catalog.NetworkInformation,x=>x.Id=="steam-valve");
+        Assert.Contains("27015-27050",valve.TcpPorts);
+        Assert.Contains("27020",valve.TcpPorts);Assert.Contains("27021",valve.TcpPorts);Assert.Contains("27024",valve.TcpPorts);Assert.Contains("443",valve.TcpPorts);
+        foreach(var port in new[]{"27000-27250","3478","4379","4380","27014-27030"})Assert.Contains(port,valve.UdpPorts);
+        var bf=Assert.Single(catalog.NetworkInformation,x=>x.Id=="battlefield6");
+        Assert.Equal(new[]{"80","443","2053","2083","2087","2096","8443"},bf.TcpPorts);
+        Assert.Equal(new[]{"443","19294-19344","50000-50100"},bf.UdpPorts);
+        Assert.Contains("unverified",bf.Evidence);
+        Assert.DoesNotContain(catalog.Games,x=>x.Id=="battlefield6");
+        Assert.Equal(10,catalog.Games.Length);Assert.All(catalog.Games,g=>Assert.Equal("DIRECT",g.DefaultMode));
+        foreach(var g in catalog.Games)
+            foreach(var id in g.NetworkReferences??[])Assert.Contains(catalog.NetworkInformation,x=>x.Id==id);
+    }
+}

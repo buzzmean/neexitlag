@@ -2,17 +2,19 @@
 
 # CURRENT
 
-## Последний итог — фаза0 relay/DNS/LOCAL измерений,25.10.2026
-База07e65b0 поверх8b7b2e2, wiki целиком прочитан как гипотезы, предыдущий итог дословно вARCHIVE. Маршруты/лимиты/ALPN не менялись; VPS/SSH/CA/коды не использовались.
-M1: local realQUIC peer decoded emptySNI дляIP; legacy/1, ticket/3+/2, TLS1.3; JA4-like параметры вdocs/research/NETWORK_MEASUREMENTS_2026-10.md, неfingerprint/DPI proof.
-M2: session_creation perpool 60second buckets/max/start/recovery reason, concurrent, factory vs successful QUIC handshake; lab2sessions/max1 concurrent. M3: read-onlynetwork-check.exe/build-e2e иdiag .16 measurement revision1; system+UDP/TCP/verifiedDoT/DoH поIP, AA/AD/RCode, TCP/realforeignTLS/public boundedHTTP. Активныепробы только-Only layers/default fullrun; -Only browser,youtube пассивный. NXDOMAIN/aa≠подмена, timeout≠SYN proof.
-M4/M5: retainedLOCAL census purets/payload timestamp/SYN negotiationUnknown/TIMESTAMP_OPTION_REQUIRED, relative earlyretrans/RST/body-fail counters. БезSYN/hotattach seqUNKNOWN; HTTPredirect вTLSневиден. Autocircular/fooling/transport не менялись доISP evidence.
-Проверки: полныйGo race/vet/Linux+Windows builds, finalnetdiagnostic/audit tests, pinnedDLL70filters/iSCSI+trace подWine, PS7 local/browser/youtube/measurement checks PASS. NativeWindows/PS5.1/ISP/внешнийDoT НЕ проверены; C#/GUI вфазе0 не менялись. ExistingIPC routed/clubreadonly, manifest readers/newdeps отсутствуют; PSBOM/quotedflags/trackedonly/owner/nativeexit checks сохранены. Фаза1 следующая: только обоснованныепостоянные измерения, designs, GGCиcatalog metadata безмаршрутов.
+## Последний итог — M1–M5/C1–C6,25.10.2026
+Фаза0 0b505da; база07e65b0 поверх8b7b2e2. CLAUDE/AGENT_RULES/protocol/wiki прочитаны; wiki неISP facts. Прежнийитог дословно вARCHIVE.
+M1 peer-decoded localQUIC: IP→пустойSNI, legacy/1, ticket/3+/2, TLS1.3, JA4-like параметры безCH bytes/secret; Go1.25.3, нефакт fingerprints Chrome/ISP. M2 pool session_creation attempts/created60s/max/concurrent/start+replacement+capacity+rotation/factory vs handshake. Lab2sessions/max1 concurrent, не40ПК.
+M3 network-check.exe изbuild-e2e: system/UDP/TCP/verifiedDoT+DoH(IP dial)/AA/AD/TC/RCode/ID-question, <=2IP TCP/TLSrealforeign/publicHTTP128KiB4s. Existing controls only, no creds/redirects/TLS bypass. Diag.16 measurement revision2: активныепробы-Only layers/default, browser+youtubepassive. NXDOMAIN+aa/timeout/reset≠доказаннаяподмена/SYNdrop/DPI.
+M4/M5 boundedretainedLOCAL census ts/payload/SYN negotiatedUNKNOWN/required, relativeearlyretrans/RST/latewireRXfails; безSYN hotattachUNKNOWN. НельзяHTTPredirect внутриTLS, raw/absolute seq неэкспортируются. C1 permanent instrumentation/tests. C2/C3/C4 отложены донастоящихM4/earlyfail/nonbrowserDNS данных; purets безопцииужеskip, netsh ненужен. Лестница/кадрирование/guards/max1/3мин/no-replay не менялись.
+C5 толькоdocs/RELAY_TRANSPORT_EVOLUTION.md: additiveALPN/version/SNIownSAN/TCP+TLS flagsOFF/compatmatrix/backup+rollback/securitynonce preservation. Нетдоказанногоrelayfiltering → кода/flags/serverdeployment нет. C6 GGC_AS20485 communityrange label only, дваIPотложены(решениеowner/нетapp); SteamValve/BF6ports metadata вcatalog сновымpin+LF, BF6 неrunnablecard/exeневыдуман, все10defaultDIRECT иguards/Riot неизменны.
+Проверки: полныйGo race/vet/build Linux+Windows PASS; realQUIC CH+authenticatedpool recovery; pinnedDLL70filters/iSCSI/trace подWine PASS; PS7measurement/local/browser/youtube PASS; C#211/211 иWPF0errors/4прежнихCS8604, LF/hash/CRLF negative PASS. NativeWindows/PS5.1/ISP/DoT/реальнаяэкономия НЕ проверены. Отчёт/ограничения по каждомуC — docs/research/NETWORK_MEASUREMENTS_2026-10.md.
+Prepush: existingRPC routed/clubreadonly; no manifestreader/default/newdeps; PSquotedflags/BOM/UTF8JSON/trackedonly/nativeexit/hash checks. НичегонаVPS/SSH/CA/кодах/activation/PR8 не запускалось. Область освобождена; следующийшаг — owner measurements, неавтоматическийdeploy/rotation.
 
 ## Таблица работ
 | Работа / дата | Файлы | Агент / ветка | Статус |
 |---|---|---|---|
-| Фазы0/1: измерения relay/DNS/LOCAL /25.10.2026 | core/transport; core/localstrategy inspection; services/client-service telemetry; tools/windows diag; catalog informational fields; tests/docs | Codex/codex/work | В РАБОТЕ; поведение сначала не менять, VPS/SSH запрещены |
+| Фазы0/1: измерения relay/DNS/LOCAL /25.10.2026 | core/transport; core/localstrategy inspection; services/client-service telemetry; tools/windows diag; catalog informational fields; tests/docs | Codex/codex/work | ОСВОБОЖДЕНО: фаза0 0b505da, фаза1 metadata/design; ISP/native Windows gates открыты |
 | CDN identity/media evidence + ordinary dispatch /25.10.2026 | services/client-service browser selection/meter/native/ordinary; tools/windows diag; tests/docs | Codex/codex/work | ОСВОБОЖДЕНО: media admission/endpoint/identity иevidence готовы; native Windows/ISP впереди |
 | CDN neutral retry + ordinary DIRECT /24.10.2026 | services/client-service browser selection/meter/origin/native; core/browserproxy; tools/windows diag; tests/docs | Codex/codex/work | ОСВОБОЖДЕНО: CDN retry + ordinary DNS DIRECT/diag готовы; native Windows/ISP приёмка впереди |
 | Game catalog LF integrity /24.10.2026 | .gitattributes; tests/desktop и windows-tools; verify workflow; docs/handoff | Codex/codex/work | ОСВОБОЖДЕНО: LF/hash/CRLF fixture/C#/WPF готовы; native Windows/PS5.1 впереди |
@@ -43,6 +45,7 @@ M4/M5: retainedLOCAL census purets/payload timestamp/SYN negotiationUnknown/TIME
 | Дизайн VELIQ / 24.10.2026 | `app-ui/` (макеты: экран активации, каталог игр), `brand/copy.md` | Claude Code | ГОТОВО 24.10.2026, область освобождена: в макетах есть экран активации (все состояния и коды ошибок) и каталог игр с режимами и лаунчером Riot; тексты в `brand/copy.md`. Код программы не менялся. Перенос в WPF и новая иконка не сделаны |
 
 ## Текущая очередь и открытые вопросы
+- M1–M5: собрать реальный .16 measurement revision2 snapshot/ClientHello наGoПК; ts/circular/nonbrowserDNS/новыйtransport менять только послеevidence. Старыеproxy/LOCAL/ordinary поля сохранены.
 - Riot запуск/login/patch и фактические имена exe требуют Windows/ISP приёмки; каталог обычного GUI — тоже. Signed external game updates не включены; гостевой ClubWindow не менялся.
 - Ordinary .16: сверить compact host/IP ladder rows, DNS DIRECT attempts иscope denials. .15 NONE_RECORDED могло означатьусечение; старыйcapacity counter неDNS. VK/IP/гео/DPI причины не установлены, безданных не менятьполитику.
 - Приёмка CDN .16: требуется >1MiB recent RELAY того жеhost/sn-cluster; сверить exposureIDs, data_trials/strong_promotions/LOCAL RX иendpoint TTL. Новый TCP обязателен; старый H2/preconnect безterminal не разрывать, success не гарантирован.
@@ -87,46 +90,46 @@ M4/M5: retainedLOCAL census purets/payload timestamp/SYN negotiationUnknown/TIME
 - Video12/other4 клиентские пределы и8×48/probe reserve сохранять; деньги/ресурсы: DIRECT/LOCAL перед VPS, без искусственного page PASS.
 - CLAUDE.md20d8bd8 не откатывать/не дублировать; авто-порядок Claude относится к Claude Code.
 
-## Последние команды владельцу — служба/diag, без GUI rebuild/VPS
-PowerShell5.1 администратора под прежним owner SID, корень клона codex/work. Нужны Git/Go и установленный pinned driver. Браузеры не закрывать; helper закрывает только VELIQ, после обновления открыть обычным ярлыком.
+## Последние команды владельцу — клиент/каталог/измерения, безVPS
+PowerShell5.1 администратора под прежним ownerSID, кореньcodex/work; Git/Go/.NET8/pinned installed driver. Браузеры не закрывать. Helper закрывает толькоVELIQ, GUI затемоткрыть обычнымярлыком; rebuild GUI нужен из-заcatalog. Активныеlayers<=60s/host дополнительно кстарымdiag.
 ```powershell
 & {
     $ErrorActionPreference='Stop'
-    if(-not (Get-Command git -ErrorAction SilentlyContinue)){throw 'Install Git: winget install --id Git.Git -e'}
-    if(-not (Get-Command go -ErrorAction SilentlyContinue)){throw 'Install Go: winget install --id GoLang.Go -e'}
+    $install=@{git='winget install --id Git.Git -e';go='winget install --id GoLang.Go -e';dotnet='winget install --id Microsoft.DotNet.SDK.8 -e'}
+    foreach($tool in @('git','go','dotnet')){if(!(Get-Command $tool -ErrorAction SilentlyContinue)){throw ('Install: '+$install[$tool])}}
     & go version
-    if($LASTEXITCODE){throw 'Go is unavailable'}
+    if($LASTEXITCODE){throw 'Go unavailable'}
+    & dotnet --version
+    if($LASTEXITCODE){throw '.NET SDK unavailable'}
     $saved=$ErrorActionPreference
     try {
         $ErrorActionPreference='Continue'
         & git --version
-        if($LASTEXITCODE){throw 'Git is unavailable'}
-        $branch=(& git branch --show-current | Out-String).Trim()
+        if($LASTEXITCODE){throw 'Git unavailable'}
+        $branch=(& git branch --show-current|Out-String).Trim()
         if($LASTEXITCODE -or $branch -ne 'codex/work'){throw 'Use existing codex/work checkout'}
         $tracked=@(& git status --porcelain --untracked-files=no)
-        if($LASTEXITCODE -or $tracked.Count){throw 'Preserve tracked edits before updating; untracked diagnostics ignored'}
+        if($LASTEXITCODE -or $tracked.Count){throw 'Preserve tracked changes before update'}
         & git pull --ff-only origin codex/work
         if($LASTEXITCODE){throw 'git pull failed'}
     } finally {$ErrorActionPreference=$saved}
-    . .\tools\windows\common.ps1
-    try {
-        $before=Invoke-ServiceIPC 'browser.native.status'
-        $lp=$before.PSObject.Properties['youtube_local_ladder']
-        if($lp){
-            $rp=$lp.Value.PSObject.Properties['records']
-            if($rp){$rp.Value | Where-Object {$p=$_.PSObject.Properties['service'];$p -and $p.Value -eq 'ordinary'} | Select-Object domain,destination,profile,stage,reason,TX,RX | Format-Table -AutoSize}
-        }
-    } catch {Write-Host 'Previous ordinary history unavailable; update continues'}
+    & .\tests\windows-tools\layer-measurement-checks.ps1
+    & .\tests\windows-tools\browser-path-checks.ps1
+    & go test ./core/transport '-run' '^TestRelayClientHelloObservedOnWire$' '-v'
+    if($LASTEXITCODE){throw 'Local QUIC ClientHello fixture failed; no VPS was used'}
     & .\tools\windows\build-e2e.ps1 -DriverDirectory (Join-Path $env:ProgramData 'neexitlag\driver')
+    & .\tools\windows\build-desktop.ps1
     & .\tools\windows\Close-VeliqGuiForUpdate.ps1
     & .\tools\windows\update-service.ps1
+    & .\tools\windows\install-desktop.ps1
     $built=(Get-FileHash '.\bin\windows-e2e\neexitlag-service.exe' -Algorithm SHA256).Hash
     $installed=(Get-FileHash (Join-Path $env:ProgramData 'neexitlag\neexitlag-service.exe') -Algorithm SHA256).Hash
     if($built -ne $installed){throw 'SERVICE_HASH_MISMATCH'}
+    Get-Service neexitlag | Select-Object Status
     . .\tools\windows\common.ps1
     Invoke-ServiceIPC 'status' | Select-Object build,connected,optimizing,capture_active
-    Read-Host 'Откройте VELIQ обычным ярлыком, YouTube2160p >=2мин + перемотка; VK/Яндекс в новых вкладках, затем Enter. Chrome/Edge не закрывать'
-    & .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube
+    Read-Host 'Откройте VELIQ обычным ярлыком; YouTube >=2мин с перемоткой, Discord, VK/Яндекс в новых вкладках. Затем Enter. Chrome/Edge не закрывать'
+    & .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube,layers -LayerHosts @('www.youtube.com','discord.com','i.ytimg.com')
 }
 ```
-Смотреть .16: active_trial_id/record_id противID закрытия, active_host/IP; media_rx>1MiB иSCOPED_BULK_RELAY_NOT_OBSERVED; data_trials/LOCAL RX иendpoint negatives. Ordinary DNS attempts/scope_denials/retained/omitted/ladder hosts показывают реальныйпуть. ФильтрацияIP/гео/DPI безизмерений не доказана. Передupdate печатается стараяretained ordinary история, не весьaggregate. GUI не пересобирать; 2мин не гарантируют eligible новыйTCP/LOCAL.
+Смотреть session_creation пристарте/обычнойработе/восстановлении (неkillрадипробы); layer_audit retained/unknown отдельноот0; DNS encryptedcontrast/TLS/HTTP stage иGGC label. НетдоказательстваISP фильтра→C2–C5 неактивироватьвслепую. Файлdiag-resultне коммитить, секретынеприсылать. NativePS5.1 checks иpinnedDLL gate исполняются вownerblock/build-e2e; здесьтолькоPS7/Wine.
