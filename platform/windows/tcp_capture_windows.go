@@ -326,9 +326,10 @@ func (t *tcpRedirect) processPacket(p []byte, a [80]byte, classify Classifier) {
 		// socket may consume an internal delegation, never another process using
 		// the same tuple during the bounded reservation/bind interval.
 		pid, ownerErr := resolveTCPOwner(tuple)
-		if delegated.decision.OpenDeferred != nil && (ownerErr != nil || pid != uint32(os.Getpid())) {
-			// A protected reserved socket cannot become self/DIRECT when ownership
+		if delegatedOwnerPending(delegated.decision, pid, uint32(os.Getpid()), ownerErr) {
+			// A protected or LOCAL reserved socket cannot become self/DIRECT when ownership
 			// lookup races its first SYN. Drop this packet; a retransmit can retry.
+			t.b.evidence.RecordLocalInspection(delegated.owner.identity, delegated.owner.tuple, &localstrategy.Inspection{Reason: "DELEGATED_TCP_OWNER_NOT_CONFIRMED", Detail: "reserved SYN held until exact service owner is observable"})
 			t.b.drop(delegated.owner.identity, tuple)
 			return
 		}

@@ -110,7 +110,7 @@ type youtubeRuntime struct {
 func newYoutubeRuntime() *youtubeRuntime {
 	r := &youtubeRuntime{cache: map[youtubeKey]youtubeLearn{}, engines: map[string]youtubeEngine{}, stats: map[string]youtubeStage{}, records: map[uint64]youtubeRecord{}, qualifications: map[youtubeQualification]time.Time{}, scores: map[youtubeScoreKey]youtubeScore{}, pending: map[youtubeKey]youtubePending{}}
 	r.shared = newSharedLearning()
-	r.selection.Contract = "max1 CDN trial globally; 3min/subgroup; live RELAY sibling required; both public prerequisites >64KiB; 3 sustained CDN flows; failures after reply are NOT guaranteed invisible"
+	r.selection.Contract = "max1 CDN trial globally; 3min/subgroup; live RELAY sibling required; same scoped strategy committed on YouTube; public sustained proof optional for CDN trial; 3 sustained CDN flows; failures after reply are NOT guaranteed invisible"
 	plans, _ := localstrategy.BundledCatalog().Compile()
 	r.setPlans(plans)
 	return r

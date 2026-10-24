@@ -437,7 +437,7 @@ func (l *EvidenceLedger) RecordLocalInspection(id ProcessIdentity, t Tuple, d *l
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	k := l.keyLocked(id, t)
-	if v, ok := l.lookupLocked(k); ok && (v.LocalInspection == nil || d.SegmentsSeen > 0 && (v.LocalInspection.Reason == "REASSEMBLY_STARTED" || v.LocalInspection.Reason == "REASSEMBLY_WAITING" || v.LocalInspection.Reason == "REASSEMBLY_OUT_OF_ORDER")) {
+	if v, ok := l.lookupLocked(k); ok && (v.LocalInspection == nil || v.LocalInspection.Reason == "DELEGATED_TCP_OWNER_NOT_CONFIRMED" || d.SegmentsSeen > 0 && (v.LocalInspection.Reason == "REASSEMBLY_STARTED" || v.LocalInspection.Reason == "REASSEMBLY_WAITING" || v.LocalInspection.Reason == "REASSEMBLY_OUT_OF_ORDER")) {
 		copy := *d
 		v.LocalInspection = &copy
 		l.storeLocked(k, v)

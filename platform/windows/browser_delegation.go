@@ -29,3 +29,10 @@ func (s *tcpState) closePlannedDelegation(bound Tuple, owner *tcpEntry) {
 		_ = local.Close()
 	}
 }
+
+// A service-created reserved LOCAL socket must not accidentally become self /
+// DIRECT if the OS owner table lags its first SYN. Retry proof on retransmission.
+// Does not authorize any arbitrary service socket or change established flows.
+func delegatedOwnerPending(d Decision, ownerPID, servicePID uint32, ownerError error) bool {
+	return (d.OpenDeferred != nil || d.Route.Local()) && (ownerError != nil || ownerPID != servicePID)
+}

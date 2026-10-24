@@ -12,18 +12,19 @@ import (
 )
 
 type localProbeEvidence struct {
-	Sent       uint64                    `json:"sent_bytes"`
-	At         time.Time                 `json:"at"`
-	Strategy   string                    `json:"strategy"`
-	Host       string                    `json:"host"`
-	Service    string                    `json:"service"`
-	Result     string                    `json:"result"`
-	Phase      string                    `json:"phase"`
-	Detail     string                    `json:"detail"`
-	Received   uint64                    `json:"received_bytes"`
-	Body       uint64                    `json:"body_bytes"`
-	Committed  bool                      `json:"committed"`
-	Inspection *localstrategy.Inspection `json:"inspection,omitempty"`
+	PlannedActions []localstrategy.Action    `json:"planned_actions,omitempty"`
+	Sent           uint64                    `json:"sent_bytes"`
+	At             time.Time                 `json:"at"`
+	Strategy       string                    `json:"strategy"`
+	Host           string                    `json:"host"`
+	Service        string                    `json:"service"`
+	Result         string                    `json:"result"`
+	Phase          string                    `json:"phase"`
+	Detail         string                    `json:"detail"`
+	Received       uint64                    `json:"received_bytes"`
+	Body           uint64                    `json:"body_bytes"`
+	Committed      bool                      `json:"committed"`
+	Inspection     *localstrategy.Inspection `json:"inspection,omitempty"`
 }
 
 func localProbeOutcome(p browserproxy.ProbeResult, applied bool) string {
@@ -67,6 +68,27 @@ func (c *Controller) recordLocalProbe(q browserproxy.Request, p browserproxy.Pla
 	r := c.browser.youtube
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if plan, ok := r.plans[strategy]; ok {
+		row.PlannedActions = append([]localstrategy.Action(nil), plan.Actions...)
+	} else {
+		for _, candidate := range localstrategy.BrowserYouTubeCandidates() {
+			if candidate.ID == strategy {
+				row.PlannedActions = append([]localstrategy.Action(nil), candidate.Actions...)
+			}
+		}
+	}
+	if applied && youtubeDomain(q.Host) && p.Network != "" {
+		for k, until := range r.qualifications {
+			if !time.Now().Before(until) {
+				delete(r.qualifications, k)
+			}
+		}
+		key := youtubeQualification{p.Network, q.Owner.Profile, strategy, q.HintOnly}
+		_, exists := r.qualifications[key]
+		if len(r.qualifications) < 256 || exists {
+			r.qualifications[youtubeQualification{p.Network, q.Owner.Profile, strategy, q.HintOnly}] = time.Now().Add(youtubeLearnTTL)
+		}
+	}
 	r.probeEvidence = append(r.probeEvidence, row)
 	if len(r.probeEvidence) > 128 {
 		r.probeEvidence = append([]localProbeEvidence(nil), r.probeEvidence[len(r.probeEvidence)-128:]...)

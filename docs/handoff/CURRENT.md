@@ -69,7 +69,7 @@
 - Сохранять профили/identity/SID/ACL/IPC/config при обновлении; чужую policy не трогать; SCM/IPC/пути/ALPN/module не переименовывать.
 - iSCSI3260 bypass сохранять; никаких not (...) в фильтрах, все через pinned DLL compiler; WinDivert pin/зависимости без разрешения не менять.
 - Игры AUTO DIRECT; FACEIT/Vanguard guard не ослаблять, PUBG scope отдельно; без инъекции в процессы/файлы/память игры, без внешнего winws.
-- CDN: обе public пробы >64KiB; max1 real LOCAL trial с живым RELAY sibling, >=3мин cooldown/подгруппу,3успеха подряд; сбой→RELAY новых flows/backoff.
+- CDN (решение владельца24.10): тот же scoped transform на любом YouTube host разрешает только пробу; public >64KiB больше не обязательный барьер; max1 real LOCAL trial с живым RELAY sibling, >=3мин cooldown/подгруппу,3успеха подряд; сбой→RELAY новых flows/backoff.
 - Пробы не гарантируют незаметность player retry; post-reply failures считать. Для холодного CDN двух минут недостаточно (минимум6мин+завершение проб).
 - При работающем LOCAL новый video RELAY RX около0; старые pinned relay flows/CP/tickets/DNS DoH не входят в это обещание.
 - Video12/other4 клиентские пределы и8×48/probe reserve сохранять; деньги/ресурсы: DIRECT/LOCAL перед VPS, без искусственного page PASS.
@@ -111,3 +111,5 @@ Monthly data пока UNKNOWN; серверные read-only команды — d
 Diag.7 — таблица всех групп; новые PS7/PS5.1 CI gates. Это диагностика, не LOCAL PASS; PS5.1 и ISP здесь не выполнялись.
 Пункты2–5 в работе: raw WinDivert send уже есть; проверить owner race LOCAL delegation, actual catalog semantics и допуск CDN по реальному transform. CP/shared flags не включать.
 Пункт1 проверки: полный Go race/vet/build Linux+Windows PASS; actual pinned DLL filters70/iSCSI30/catalog checksum13 подWine PASS, не kernel. PS7 probes/legacy allowlist PASS; native PS5.1 НЕ проверен. IPC inventory/общая нормализация не менялись; новый метод включён в dispatch и club read-only.
+Пункт2/5: LOCAL reserved SYN теперь требует owner proof как native; прежний DIRECT self bypass при owner lookup race запрещён. CDN trial допущен по committed transform того же scoped плана, критерий3успеха/>64KiB и live relay sibling сохранён. Пункт3 (все TCP443 семантики) ещё не реализован; аудит docs/LOCAL_ENGINE_AUDIT.md.
+Пункты2/5 gates: полный Go race/vet/build Linux+Windows+Windows vet PASS; DLL70filters/iSCSI30/checksums13 подWine PASS, PS7 PASS. Старые delegation-close тесты сохранены. На ISP root cause/LOCAL2160p и native PS5.1 НЕ доказаны.

@@ -127,3 +127,19 @@ func TestPlannedCloseDoesNotRetireForeignGenerationOrLegacy(t *testing.T) {
 		})
 	}
 }
+
+func TestReservedLocalSYNMustNotBecomeSelfDirectOnOwnerTableRace(t *testing.T) {
+	d := Decision{Route: routing.Route{Kind: routing.DirectPlusRoute}}
+	if !delegatedOwnerPending(d, 0, 100, errors.New("TCP owner table pending")) {
+		t.Fatal("unverified reserved LOCAL SYN escaped as self DIRECT")
+	}
+	if !delegatedOwnerPending(d, 200, 100, nil) {
+		t.Fatal("foreign owner accepted")
+	}
+	if delegatedOwnerPending(d, 100, 100, nil) {
+		t.Fatal("verified own socket blocked")
+	}
+	if delegatedOwnerPending(Decision{}, 0, 100, errors.New("unrelated lookup")) {
+		t.Fatal("unrelated socket affected")
+	}
+}

@@ -351,9 +351,20 @@ func (c *Controller) youtubeBackgroundRecheck(cur profilesResult, q browserproxy
 	}
 	r.mu.Lock()
 	v := r.cache[key]
+	// Any committed YouTube transform of this same scoped plan permits a
+	// guarded real CDN trial, not a LOCAL confirmation or a page-success claim.
+	candidate := r.nextCandidate(key, v)
+	if sharedCandidate != "" {
+		candidate = sharedCandidate
+	}
+	transformProof := youtubeCDN(key) && candidate != "" && r.qualified(key, candidate, time.Now())
 	waitingTrial := v.Qualified != "" && r.qualified(key, v.Qualified, time.Now())
 	r.mu.Unlock()
 	if waitingTrial {
+		return
+	}
+	if transformProof {
+		r.completeCDNQualification(key, candidate, time.Now())
 		return
 	}
 	learned, ok := r.takeRecheck(key, time.Now())
@@ -520,6 +531,9 @@ func (r *youtubeRuntime) completeCDNQualification(key youtubeKey, strategy strin
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if !r.room(key, now) {
+		return
+	}
 	if len(r.qualifications) >= 256 {
 		for k, until := range r.qualifications {
 			if !now.Before(until) {
@@ -543,7 +557,7 @@ func (r *youtubeRuntime) completeCDNQualification(key youtubeKey, strategy strin
 	}
 	v.Qualified = strategy
 	v.Retry = now
-	v.Reason = "TWO_ORIGINS_VERIFIED_CDN_TRIAL_PENDING"
+	v.Reason = "SAME_STRATEGY_TRANSFORM_PROVEN_CDN_TRIAL_PENDING"
 	if stillConfirmed {
 		v.Reason = "PUBLIC_RECHECK_PASSED; EXISTING_MEDIA_CONFIRMATION_DEADLINE_PRESERVED"
 	}

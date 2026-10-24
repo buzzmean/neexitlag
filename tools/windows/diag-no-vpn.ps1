@@ -645,6 +645,9 @@ function Write-LocalProbeEvidence($ladder) {
  Say 'LOCAL probes: service | host | strategy | result | wire_tx | wire_rx | body_rx | committed | inspection | sent packets(length/TTL/protocol)'
  foreach($probe in @(Prop $ladder 'probes' @())){
   $inspection=Prop $probe 'inspection'
+  $actions=@(Prop $probe 'planned_actions' @() | ForEach-Object {((Prop $_ 'kind')+'/ttl='+(Prop $_ 'ttl' 0)+'/repeats='+(Prop $_ 'repeats' 0)+'/fooling='+(Prop $_ 'fooling' ''))}) -join ','
+  Say (' planned (not wire proof): '+$actions)
+
   $packets=@(Prop $inspection 'sent_packets' @() | ForEach-Object {('len='+(Prop $_ 'length')+'/ttl='+(Prop $_ 'ttl')+'/proto='+(Prop $_ 'protocol')+'/seq_delta='+(Prop $_ 'sequence_offset')+'/flags='+(Prop $_ 'tcp_flags'))}) -join ','
   Say ((Prop $probe 'service')+' | '+(Prop $probe 'host')+' | '+(Prop $probe 'strategy')+' | '+(Prop $probe 'result')+' | '+(Prop $probe 'sent_bytes' 0)+' | '+(Prop $probe 'received_bytes' 0)+' | '+(Prop $probe 'body_bytes' 0)+' | '+(Prop $probe 'committed' $false)+' | '+(Prop $inspection 'reason' 'NO_LEDGER_OBSERVATION')+' '+(Prop $inspection 'detail' '')+' syn='+(Prop $inspection 'syn_seen' 'UNKNOWN')+' handshake='+(Prop $inspection 'handshake_confirmed' 'UNKNOWN')+' server_ttl='+(Prop $inspection 'server_ttl' 'UNKNOWN')+' | '+$packets)
  }
