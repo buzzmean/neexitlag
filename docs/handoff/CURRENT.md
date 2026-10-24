@@ -6,7 +6,9 @@
 de8e5d7/08a9eb5/a3ec712/77566d6. Обычный merge20d8bd8 разрешён владельцем
 и выполнен9135519: только9строк CLAUDE.md, конфликтов нет, без rebase/force.
 Пункт3 подключает catalog plans к bounded selection и guarded CDN trials;
-пункты4–7 ещё в работе, общий club learning/budget/hysteresis не готовы.
+Пункт4 signed advisory coordination подготовлен и изолированно проверен;
+production CP ещё без endpoint, общего picker на40ПК там пока нет.
+Пункты5–7 (общий origin policy/учёт/hysteresis) ещё в работе.
 Решение CDN принято: обе фоновые проверки www.youtube.com/i.ytimg.com >64KiB,
 затем max1 LOCAL trial при реально получающих данные RELAY googlevideo siblings,
 cooldown несколько минут/подгруппу;3успешных >64KiB потоков перед LOCAL,
@@ -2980,3 +2982,31 @@ PS7 diag trial-cost/StrictMode и legacy browser fixtures PASS. Pinned DLL helpe
 filters70/iSCSI30/catalog checksum13 повторяется без packet/filter source changes.
 Native Windows/PS5.1/WinDivertOpen/owner ISP/actual new strategy LOCAL video НЕ
 проверены. Пункты4–7 ещё НЕ выполнены, текущее обучение локально этому ПК.
+
+### 4 — signed club coordination (24.10.2026 MSK; подготовка)
+Добавлен отдельный advisory local-learning domain/API: device proof bound к hash
+command, nonce/revocation через существующий ConsumeProof, signed scoped TTL90s.
+CP HMAC cohort от фактического peer /24 или /48 (не XFF), никаких hardware/user
+метаданных. Один leased picker/cohort+subgroup+hint, candidate10min; peers только
+локально подтверждают известный ID, не включают LOCAL по одному signed сообщению.
+Строгие prerequisites/trials3 сохранены. Shared failure не ослабляет protected.
+Файл CP0600 atomic<=256KiB/512entries, явный -local-learning-file, без SQL migrations.
+Не настроено/legacy404/outage → диагностируемый per-PC fallback, не обещать общий
+picker в текущем production. Клиентский polling<=1req/2s/ПК, picker30s/peer2m/
+confirmed5m, max16scopes/проход; не блокирует foreground. Не было VPS deployment.
+Core40-member/persistence/re-election/proof scope/TTL/failure tests PASS; isolated
+PG17 полный CP race10.752s PASS (включая nonce replay/revocation/schema3 invariant),
+service shared/real TLS subset3x PASS. Full final checks фиксируются перед push.
+Реальный40ПК/freeze/Windows/ISP/shared CP не проверен. Пункты5–7 ещё не готовы.
+Подробный протокол/ограничения — docs/SHARED_LOCAL_LEARNING.md.
+Пункт4 final: полный Go race повтор PASS; Go vet/Linux build/Windows build+vet
+PASS;100Python deployment PASS; PS7 shared/legacy/StrictMode fixtures PASS; pinned
+DLL70filters/iSCSI30/catalog checksum13 PASS подWine (packet/filter source не
+менялся). Один предыдущий full race имел demo25s route timeout при параллельной
+компиляции, последний full PASS; причина flake НЕ доказана, тест не менялся.
+Дополнительные regressions сохраняют3CDN successes при warm flow и запрещают
+продлевать CDN media deadline одними public prerequisites. Изолированный PG
+container после проверки удалён; production DB/activation/CA не запускались.
+CI пункта3 c7ef8bd Verify40045013456: core/windows failure со steps=[]; CI не
+исполнился. https://github.com/buzzmean/neexitlag/actions/runs/40045013456
+Новые annotations не получены, artifact quota не назначена причиной.

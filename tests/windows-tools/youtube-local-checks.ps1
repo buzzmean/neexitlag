@@ -18,3 +18,9 @@ Write-YouTubeLocalEvidence ([pscustomobject]@{selection=[pscustomobject]@{Trials
 $text=$script:lines -join "`n"
 if($text -notmatch 'trials=3 trial_success=2 trial_fail=1 failed_after_reply=1' -or $text -notmatch 'streak=2' -or $text -match 'HIDDEN'){throw 'Trial cost or subgroup streak missing/unsafe'}
 Write-Host 'PASS CDN trial counters including failures after origin reply and consecutive streak'
+
+$script:lines=@()
+Write-YouTubeLocalEvidence ([pscustomobject]@{shared_learning=[pscustomobject]@{state='SIGNED_SHARED_LEARNING';rows=@([pscustomobject]@{profile='chrome';group='googlevideo:sn-abc';picker=$false;candidate='catalog-x';state='SHARED_CANDIDATE_REQUIRES_LOCAL_CONFIRMATION'});device_key='HIDDEN_PROOF'}})
+$text=$script:lines -join "`n"
+if($text -notmatch 'SIGNED_SHARED_LEARNING' -or $text -notmatch 'candidate=catalog-x' -or $text -match 'HIDDEN_PROOF'){throw 'Unsafe or missing shared learning projection'}
+Write-Host 'PASS shared learning candidate is diagnostic data, no proof/identity output'

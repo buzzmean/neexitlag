@@ -290,7 +290,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-24.2 (signed local catalog and actual primary relay status)'
+$ScriptVersion='2026-10-24.3 (signed local catalog and actual primary relay status)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -633,6 +633,11 @@ function Write-LocalCatalogEvidence($catalog) {
 function Write-YouTubeLocalEvidence($ladder) {
  if($null -eq $ladder){Say 'YouTube local ladder: UNINSTRUMENTED (service update required)';return}
  Say ('YouTube local ladder: cache_entries='+(Prop $ladder 'cache_entries' 0)+' recent_records_omitted='+(Prop $ladder 'records_omitted' 0)+' cache_entries_omitted='+(Prop $ladder 'cache_entries_omitted' 0)+' contract='+(Prop $ladder 'replay_contract' 'UNKNOWN'))
+ $shared=Prop $ladder 'shared_learning'
+ if($null -ne $shared){
+  Say ('LOCAL shared learning: state='+(Prop $shared 'state')+' checked='+(Prop $shared 'last_check')+' error='+(Prop $shared 'last_error' '')+' scope='+(Prop $shared 'scope'))
+  foreach($row in @(Prop $shared 'rows' @())){Say (' shared profile='+(Prop $row 'profile')+' group='+(Prop $row 'group')+' picker='+(Prop $row 'picker' $false)+' candidate='+(Prop $row 'candidate' '')+' state='+(Prop $row 'state')+' until='+(Prop $row 'until'))}
+ }
  $selection=Prop $ladder 'selection'
  if($null -ne $selection){Say ('YouTube selection: background='+(Prop $selection 'BackgroundAttempts' 0)+' background_fail='+(Prop $selection 'BackgroundFailures' 0)+' trials='+(Prop $selection 'Trials' 0)+' trial_success='+(Prop $selection 'TrialSuccesses' 0)+' trial_fail='+(Prop $selection 'TrialFailures' 0)+' failed_after_reply='+(Prop $selection 'FailedAfterReply' 0)+' active='+(Prop $selection 'active_trial' $false)+' contract='+(Prop $selection 'contract'))}
  foreach($stage in @(Prop $ladder 'stages' @())){

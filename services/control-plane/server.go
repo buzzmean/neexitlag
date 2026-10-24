@@ -22,6 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/buzzmean/neexitlag/core/locallearning"
 	"github.com/buzzmean/neexitlag/core/optimizer"
 	"github.com/buzzmean/neexitlag/core/profiles"
 	"github.com/buzzmean/neexitlag/core/security"
@@ -29,6 +30,7 @@ import (
 
 type Settings struct {
 	LocalCatalogFile     string
+	LocalLearningFile    string
 	EnrollmentProbeToken string
 	AdminToken           string
 	KeyID                string
@@ -39,6 +41,8 @@ type Settings struct {
 }
 type API struct {
 	localCatalogMu                            sync.Mutex
+	localLearningMu                           sync.Mutex
+	learning                                  *locallearning.Broker
 	Store                                     *Store
 	Settings                                  Settings
 	Requests, Errors, AuthFailures, Telemetry atomic.Uint64
@@ -106,6 +110,7 @@ func (a *API) Handler() http.Handler {
 	m.HandleFunc("/api/v1/codes/", a.codes)
 	m.HandleFunc("GET /api/v1/config", a.config)
 	m.HandleFunc("/api/v1/local/catalog", a.localCatalog)
+	m.HandleFunc("POST /api/v1/local/learning", a.localLearning)
 	m.HandleFunc("GET /api/v1/version", func(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, map[string]string{"version": "0.3.0-dev", "ipc_version": "1"})
 	})

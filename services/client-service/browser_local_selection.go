@@ -264,15 +264,25 @@ func (r *youtubeRuntime) takeTrial(k youtubeKey, now time.Time, workingRelay boo
 	r.cache[k] = v
 	return v.Qualified, true
 }
-func (r *youtubeRuntime) finishTrial(k youtubeKey, strategy string, success, afterReply bool, now time.Time) {
+func (r *youtubeRuntime) finishTrial(k youtubeKey, strategy string, success, afterReply bool, now time.Time, received ...uint64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.trialActive = false
 	r.selection.ActiveTrial = false
+	if !r.room(k, now) {
+		r.selection.TrialFailures++
+		if afterReply {
+			r.selection.FailedAfterReply++
+		}
+		return
+	}
 	v := r.cache[k]
 	if success && v.Qualified == strategy && r.qualified(k, strategy, now) {
 		r.score(k, strategy, true, now)
 		r.selection.TrialSuccesses++
+		if len(received) > 0 && received[0] > 64*1024 {
+			v.VerifiedBytes = received[0]
+		}
 		v.Streak++
 		if v.Streak >= youtubeTrialSuccesses {
 			v.Stage = "LOCAL"
@@ -332,6 +342,10 @@ func (c *Controller) youtubeBackgroundRecheck(cur profilesResult, q browserproxy
 	}
 	// Do not let a recheck postpone an already-qualified CDN trial's cooldown.
 	r := c.browser.youtube
+	allowed, sharedCandidate := r.shared.decision(key, time.Now())
+	if !allowed {
+		return
+	}
 	r.mu.Lock()
 	v := r.cache[key]
 	waitingTrial := v.Qualified != "" && r.qualified(key, v.Qualified, time.Now())
@@ -357,6 +371,9 @@ func (c *Controller) youtubeBackgroundRecheck(cur profilesResult, q browserproxy
 		probeQ.Ingress = "YOUTUBE_BACKGROUND_RECHECK"
 		r.mu.Lock()
 		strategy := r.nextCandidate(key, learned)
+		if sharedCandidate != "" {
+			strategy = sharedCandidate
+		}
 		r.selection.BackgroundAttempts++
 		r.mu.Unlock()
 		if strategy == "" {
@@ -364,6 +381,7 @@ func (c *Controller) youtubeBackgroundRecheck(cur profilesResult, q browserproxy
 		}
 		// For a CDN no signed media URL is visible without MITM. These are necessary
 		// prerequisites only, never a claim that the actual CDN has been validated.
+		var verifiedBytes uint64
 		passed := youtubePrerequisites(key, q.Host, func(origin [2]string) bool {
 			// Separate held source reservations prevent the second origin from borrowing
 			// the first origin's committed-transform evidence on a shared CDN address.
@@ -415,6 +433,7 @@ func (c *Controller) youtubeBackgroundRecheck(cur profilesResult, q browserproxy
 				r.backgroundFailure(key, strategy, "BACKGROUND_NOT_SUSTAINED_OR_NO_TRANSFORM")
 				return false
 			}
+			verifiedBytes = result.BodyBytes
 			return true
 		})
 		if !passed {
@@ -423,28 +442,10 @@ func (c *Controller) youtubeBackgroundRecheck(cur profilesResult, q browserproxy
 
 		now := time.Now()
 		if youtubeCDN(key) {
-			r.mu.Lock()
-			defer r.mu.Unlock()
-			if len(r.qualifications) >= 256 {
-				for k, until := range r.qualifications {
-					if !now.Before(until) {
-						delete(r.qualifications, k)
-					}
-				}
-			}
-			if len(r.qualifications) >= 256 {
-				return
-			}
-			r.qualifications[youtubeQualification{key.Network, key.Profile, strategy, key.HintOnly}] = now.Add(youtubeLearnTTL)
-			v := r.cache[key]
-			v.Streak = 0
-			v.Qualified = strategy
-			v.Retry = now
-			v.Reason = "TWO_ORIGINS_VERIFIED_CDN_TRIAL_PENDING"
-			v.Until = now.Add(youtubeLearnTTL)
-			r.cache[key] = v
+			r.completeCDNQualification(key, strategy, now)
 		} else {
 			r.confirmed(key, "LOCAL", strategy, now)
+			r.recordVerification(key, verifiedBytes)
 		}
 	}()
 }
@@ -480,4 +481,52 @@ func youtubePrerequisites(k youtubeKey, host string, probe func([2]string) bool)
 		}
 	}
 	return true
+}
+
+func (r *youtubeRuntime) recordVerification(k youtubeKey, bytes uint64) {
+	r.mu.Lock()
+	v, ok := r.cache[k]
+	if !ok {
+		r.mu.Unlock()
+		return
+	}
+	v.VerifiedBytes = bytes
+	r.cache[k] = v
+	r.mu.Unlock()
+	r.shared.notify()
+}
+
+// Public prerequisites do not extend a real CDN confirmation deadline.
+func (r *youtubeRuntime) completeCDNQualification(key youtubeKey, strategy string, now time.Time) {
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.qualifications) >= 256 {
+		for k, until := range r.qualifications {
+			if !now.Before(until) {
+				delete(r.qualifications, k)
+			}
+		}
+	}
+	if len(r.qualifications) >= 256 {
+		return
+	}
+	r.qualifications[youtubeQualification{key.Network, key.Profile, strategy, key.HintOnly}] = now.Add(youtubeLearnTTL)
+	v := r.cache[key]
+	stillConfirmed := v.Confirmed && v.Stage == "LOCAL" && v.Strategy == strategy && now.Before(v.Until)
+	if !stillConfirmed {
+		v.Streak = 0
+		v.Confirmed = false
+		v.Stage = "RELAY"
+		v.Strategy = ""
+		v.VerifiedBytes = 0
+		v.Until = now.Add(youtubeLearnTTL)
+	}
+	v.Qualified = strategy
+	v.Retry = now
+	v.Reason = "TWO_ORIGINS_VERIFIED_CDN_TRIAL_PENDING"
+	if stillConfirmed {
+		v.Reason = "PUBLIC_RECHECK_PASSED; EXISTING_MEDIA_CONFIRMATION_DEADLINE_PRESERVED"
+	}
+	r.cache[key] = v
 }

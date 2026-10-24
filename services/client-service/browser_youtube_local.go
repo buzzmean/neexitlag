@@ -35,6 +35,7 @@ type youtubeLearn struct {
 	Tried            uint64
 	Failures, Streak uint32
 	Qualified        string
+	VerifiedBytes    uint64
 	Reason           string
 	Confirmed        bool
 }
@@ -74,6 +75,7 @@ type youtubeSnapshot struct {
 	CacheEntries   int                      `json:"cache_entries"`
 	Stages         []youtubeStage           `json:"stages"`
 	Records        []youtubeRecord          `json:"records"`
+	Shared         sharedLearningSnapshot   `json:"shared_learning"`
 	Selection      youtubeSelectionSnapshot `json:"selection"`
 	Replays        string                   `json:"replay_contract"`
 }
@@ -98,10 +100,12 @@ type youtubeRuntime struct {
 	pending        map[youtubeKey]youtubePending
 	workers        sync.WaitGroup
 	stopped        bool
+	shared         *browserSharedLearning
 }
 
 func newYoutubeRuntime() *youtubeRuntime {
 	r := &youtubeRuntime{cache: map[youtubeKey]youtubeLearn{}, engines: map[string]youtubeEngine{}, stats: map[string]youtubeStage{}, records: map[uint64]youtubeRecord{}, qualifications: map[youtubeQualification]time.Time{}, scores: map[youtubeScoreKey]youtubeScore{}, pending: map[youtubeKey]youtubePending{}}
+	r.shared = newSharedLearning()
 	r.selection.Contract = "max1 CDN trial globally; 3min/subgroup; live RELAY sibling required; both public prerequisites >64KiB; 3 sustained CDN flows; failures after reply are NOT guaranteed invisible"
 	plans, _ := localstrategy.BundledCatalog().Compile()
 	r.setPlans(plans)
@@ -158,6 +162,7 @@ func (r *youtubeRuntime) failed(k youtubeKey, stage, strategy, reason string, no
 	v.Until = now.Add(youtubeLearnTTL)
 	v.Reason = reason
 	r.cache[k] = v
+	r.shared.reject(k, strategy)
 }
 func (r *youtubeRuntime) confirmed(k youtubeKey, stage, strategy string, now time.Time) {
 	if k.Network == "" {
@@ -171,12 +176,16 @@ func (r *youtubeRuntime) confirmed(k youtubeKey, stage, strategy string, now tim
 	if stage == "LOCAL" {
 		r.score(k, strategy, true, now)
 	}
-	r.cache[k] = youtubeLearn{Stage: stage, Strategy: strategy, Until: now.Add(youtubeLearnTTL), Retry: now.Add(youtubeRetryAfter), Confirmed: true}
+	streak := uint32(0)
+	if old := r.cache[k]; old.Confirmed && old.Stage == stage && old.Strategy == strategy && now.Before(old.Until) {
+		streak = old.Streak
+	}
+	r.cache[k] = youtubeLearn{Stage: stage, Strategy: strategy, Until: now.Add(youtubeLearnTTL), Retry: now.Add(youtubeRetryAfter), Confirmed: true, Streak: streak}
 }
 func (r *youtubeRuntime) snapshot() youtubeSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	s := youtubeSnapshot{RecordsOmitted: r.seq - uint64(len(r.records)), CacheEntries: len(r.cache), Cache: []youtubeCacheView{}, Stages: []youtubeStage{}, Records: []youtubeRecord{}, Selection: r.selection, Replays: "complete ClientHello only before ANY origin byte; established TLS pinned; transport health is not HTTP/playback PASS"}
+	s := youtubeSnapshot{RecordsOmitted: r.seq - uint64(len(r.records)), CacheEntries: len(r.cache), Cache: []youtubeCacheView{}, Stages: []youtubeStage{}, Records: []youtubeRecord{}, Shared: r.shared.snapshot(), Selection: r.selection, Replays: "complete ClientHello only before ANY origin byte; established TLS pinned; transport health is not HTTP/playback PASS"}
 	for k, v := range r.cache {
 		if len(s.Cache) < 24 {
 			s.Cache = append(s.Cache, youtubeCacheView{k.HintOnly, k.Network, k.Profile, k.Domain, v.Stage, v.Strategy, v.Reason, k.Port, v.Until, v.Retry, v.Tried, v.Streak, v.Qualified})
@@ -340,6 +349,7 @@ func (c *Controller) openYoutubeLadder(ctx context.Context, cur profilesResult, 
 	ref := &youtubePlanRef{}
 	key := youtubeScope(cur, q)
 	r.register(key, cur, q, p, time.Now())
+	r.shared.notify()
 	stage, strategy := r.choose(key, time.Now())
 	if stage == "RELAY" && p.Policy.Source == "configured_baseline" && p.Policy.Action == flowpolicy.DirectPlus {
 		stage = "LOCAL"
@@ -587,6 +597,10 @@ func (m *youtubeMeter) account(tx, rx uint64) {
 	m.mu.Unlock()
 	if confirmed && m.stage != "RELAY" && !m.trial {
 		m.r.confirmed(m.key, m.stage, m.strategy, time.Now())
+		m.mu.Lock()
+		verified := m.rx
+		m.mu.Unlock()
+		m.r.recordVerification(m.key, verified)
 	}
 	m.r.mu.Lock()
 	defer m.r.mu.Unlock()
@@ -652,9 +666,9 @@ func (m *youtubeMeter) Close() error {
 	if m.trial {
 		m.trialDone.Do(func() {
 			m.mu.Lock()
-			success, after := m.healthy && !m.failed, m.rx > 0
+			success, after, received := m.healthy && !m.failed, m.rx > 0, m.rx
 			m.mu.Unlock()
-			m.r.finishTrial(m.key, m.strategy, success, after, time.Now())
+			m.r.finishTrial(m.key, m.strategy, success, after, time.Now(), received)
 		})
 	}
 	m.r.mu.Lock()
