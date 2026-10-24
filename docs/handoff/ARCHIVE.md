@@ -1,3 +1,16 @@
+## Последний итог — neutral close/admission,24.10.2026
+Владелец57396ee: все first-close CLIENT FIN+ACK, без RST/ретрансмитов; CDN1trial/12мин,0success. Это не доказанный отказ LOCAL.
+CLIENT_INITIATED_CLOSE с rx>0 теперь neutral, не failure/failed_after_reply/negative score; без sustained не success. TrialInconclusive/ClientInitiatedTrialCloses отдельно; реальные RST/timeout/TLS failures сохраняются.
+Терминальный Read при обоих FIN/reset завершает учёт max1 сразу; поздний Close не трогает чужой trial. Живой H2 не обрывается/не переезжает ради новой пробы.
+TrialAfter>=3мин сохранён, фоновый Retry больше не gate qualified реального flow. По подгруппе reason/count/time допуска, active slot age/lastRX/state; TRIAL_PENDING не гарантирует, что Chrome создаст новый TCP.
+Diag.11: LOCAL/RELAY Hello→ServerHello avg/max, TCP open, transform send/reassembly, Hello→close/lastRX→close, wire RX после SH, outer application record/half-close. HTTP/H2/Chrome intent без MITM не виден.
+Midstream watchdog отмечает timeout ДО Close, чтобы его собственный FIN не скрывал failure. Пассивная idle gap не отравляет strategy; реальные timeout/after-reply failures остаются отрицательными.
+Полные Go race/vet/build Linux+Windows и Windows vet PASS; обе Windows fixture EXE собраны; pinned DLL70filters/iSCSI30/checksum44plans подWine PASS; PS7 PASS. Native Windows/PS5.1/Chrome intent/ISP CDN success НЕ проверены здесь. Fake recipes/repeats/TTL/guards, VPS/CA/коды/SSH/CP flags/PR8 не менялись.
+Аудит/ограничения: docs/LOCAL_ENGINE_AUDIT.md (после57396ee). Предыдущий итог перенесён дословно в ARCHIVE, ничего из истории не удалено.
+
+
+---
+
 ## Последний итог — CDN trial/EOF,24.10.2026
 Владелец6df8a42 подтвердил www.youtube.com/discord.com128KiB LOCAL(c0aa53…), но CDN0/4/3post-reply failures: успех googlevideo всё ещё НЕ доказан.
 Исправлен selector: same network/profile/hint-mode sustained YouTube proof выше transform-only/catalog prior; точный Qualified ID виден в diag; failed CDN candidate не форсируется снова в текущем sweep.

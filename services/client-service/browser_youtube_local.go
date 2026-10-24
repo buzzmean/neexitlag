@@ -54,19 +54,21 @@ type youtubeStage struct {
 	Inconclusive, HelloSamples, HelloSumMS, HelloMaxMS uint64
 }
 type youtubeRecord struct {
-	OpenMS                 float64        `json:"open_ms"`
-	Timing                 youtubeTimings `json:"-"`
-	LastRX                 time.Time      `json:"-"`
-	IOFailure              string         `json:"io_failure,omitempty"`
-	Service                string         `json:"service,omitempty"`
-	Active                 bool           `json:"active"`
-	ID                     uint64         `json:"id"`
-	Profile                string         `json:"profile"`
-	Domain                 string         `json:"domain"`
-	Destination            string         `json:"destination"`
-	Stage                  string         `json:"stage"`
-	Strategy               string         `json:"strategy,omitempty"`
-	Reason                 string         `json:"reason"`
+	TrialResult            string                `json:"trial_result,omitempty"`
+	Failure                *localFailureEvidence `json:"-"`
+	OpenMS                 float64               `json:"open_ms"`
+	Timing                 youtubeTimings        `json:"-"`
+	LastRX                 time.Time             `json:"-"`
+	IOFailure              string                `json:"io_failure,omitempty"`
+	Service                string                `json:"service,omitempty"`
+	Active                 bool                  `json:"active"`
+	ID                     uint64                `json:"id"`
+	Profile                string                `json:"profile"`
+	Domain                 string                `json:"domain"`
+	Destination            string                `json:"destination"`
+	Stage                  string                `json:"stage"`
+	Strategy               string                `json:"strategy,omitempty"`
+	Reason                 string                `json:"reason"`
 	TX, RX                 uint64
 	ServerHello, Transform bool
 	Trial                  bool                      `json:"trial"`
@@ -104,6 +106,7 @@ type youtubeEngine struct {
 }
 type youtubeRuntime struct {
 	probeEvidence  []localProbeEvidence
+	failures       []localFailureEvidence
 	mu             sync.Mutex
 	cache          map[youtubeKey]youtubeLearn
 	engines        map[string]youtubeEngine
@@ -131,7 +134,7 @@ type youtubeRuntime struct {
 func newYoutubeRuntime() *youtubeRuntime {
 	r := &youtubeRuntime{cache: map[youtubeKey]youtubeLearn{}, engines: map[string]youtubeEngine{}, stats: map[string]youtubeStage{}, records: map[uint64]youtubeRecord{}, qualifications: map[youtubeQualification]time.Time{}, sustained: map[youtubeQualification]time.Time{}, scores: map[youtubeScoreKey]youtubeScore{}, pending: map[youtubeKey]youtubePending{}}
 	r.shared = newSharedLearning()
-	r.selection.Contract = "max1 CDN trial globally; 3min/subgroup; live RELAY sibling required; same scoped strategy committed on YouTube; public sustained proof optional for CDN trial; 3 sustained CDN flows; failures after reply are NOT guaranteed invisible"
+	r.selection.Contract = "max1 unproven CDN trial; 3min/subgroup; live RELAY sibling required; same scoped transform; LOCAL10min after running >=1MiB/16 completed TLS type23 records/3s RX span, or 3 weaker closed sustained flows; late real failure revokes future LOCAL; no playback proof/replay"
 	plans, _ := localstrategy.BundledCatalog().Compile()
 	r.setPlans(plans)
 	return r
@@ -185,6 +188,12 @@ func (r *youtubeRuntime) failed(k youtubeKey, stage, strategy, reason string, no
 	v.Streak = 0
 	v.Confirmed = false
 	v.Retry = now.Add(youtubeBackoff(v.Failures))
+	if youtubeCDN(k) {
+		v.TrialAfter = now.Add(youtubeTrialCooldown)
+		if v.Retry.Before(v.TrialAfter) {
+			v.Retry = v.TrialAfter
+		}
+	}
 	v.Until = now.Add(youtubeLearnTTL)
 	v.Reason = reason
 	r.cache[k] = v
@@ -576,6 +585,9 @@ type youtubeMeter struct {
 	applied, witnessChecked         bool
 	lastReply                       time.Time
 	trial                           bool
+	promoted                        bool
+	firstApplicationRX              time.Time
+	smallEOF                        bool
 	trialDone                       sync.Once
 	failed                          bool
 	gap                             sync.Once
@@ -583,7 +595,7 @@ type youtubeMeter struct {
 }
 
 func (m *youtubeMeter) failure(reason string) {
-	if strings.Contains(reason, "EOF") && m.noteClientClose() {
+	if strings.Contains(reason, "EOF") && (m.noteClientClose() || m.noteSmallEOF()) {
 		return
 	}
 	m.bad.Do(func() {
@@ -594,10 +606,22 @@ func (m *youtubeMeter) failure(reason string) {
 		}
 		m.failed = true
 		applied, known := m.applied, m.witnessChecked
+		promoted := m.promoted
+		failure := m.failureEvidenceLocked(reason, time.Now())
 		m.mu.Unlock()
 		m.r.failed(m.key, m.stage, m.strategy, reason, time.Now())
 		m.r.mu.Lock()
 		defer m.r.mu.Unlock()
+		if m.stage == "LOCAL" {
+			m.r.failures = append(m.r.failures, failure)
+			if len(m.r.failures) > 32 {
+				m.r.failures = append([]localFailureEvidence(nil), m.r.failures[len(m.r.failures)-32:]...)
+			}
+		}
+		if promoted {
+			m.r.selection.PostPromotionFailures++
+			m.r.selection.FailedAfterReply++
+		}
 		s := m.r.stats[m.label]
 		s.Failures++
 		m.r.stats[m.label] = s
@@ -606,6 +630,10 @@ func (m *youtubeMeter) failure(reason string) {
 				v.Inspection = m.inspection()
 			}
 			v.Reason = reason
+			v.Failure = &failure
+			if promoted {
+				v.TrialResult = "SUCCESS_REVOKED_AFTER_FAILURE"
+			}
 			if strings.Contains(reason, "STALL") || strings.Contains(reason, "TIMEOUT") || strings.Contains(reason, "SILENT") || strings.Contains(reason, "BUDGET") {
 				v.IOFailure = "TIMEOUT"
 			}
@@ -675,7 +703,7 @@ func (m *youtubeMeter) Read(p []byte) (int, error) {
 				m.r.records[m.id] = record
 			}
 			m.r.mu.Unlock()
-			if errors.Is(e, io.EOF) && m.noteClientClose() { /* neither negative proof nor sustained success */
+			if errors.Is(e, io.EOF) && (m.noteClientClose() || m.noteSmallEOF()) { /* neither negative proof nor sustained success */
 			} else {
 				reason := "REMOTE_IO_ERROR"
 				if code == "REMOTE_RESET" {
@@ -700,6 +728,9 @@ func (m *youtubeMeter) Read(p []byte) (int, error) {
 			m.failure("REMOTE_RST")
 		}
 	}
+	if n > 0 && (e == nil || errors.Is(e, io.EOF)) {
+		m.maybePromoteTrial(time.Now())
+	}
 	if e != nil && !isYoutubeTimeout(e) {
 		trace := m.currentInspection()
 		if isTCPReset(e) || trace != nil && trace.TCPPackets.ClientFIN > 0 && trace.TCPPackets.RemoteFIN > 0 {
@@ -723,6 +754,9 @@ func (m *youtubeMeter) account(tx, rx uint64) {
 	if firstHello {
 		m.serverHelloAt = time.Now()
 	}
+	if rx > 0 && snapshot.Origin.ApplicationBytes > 0 && m.firstApplicationRX.IsZero() {
+		m.firstApplicationRX = time.Now()
+	}
 	timing := m.timingLocked(nil, time.Time{})
 	lastRX := m.lastReply
 	if m.stage == "LOCAL" && !m.witnessChecked && m.tx > 0 && rx > 0 {
@@ -744,7 +778,6 @@ func (m *youtubeMeter) account(tx, rx uint64) {
 		m.r.recordVerification(m.key, verified)
 	}
 	m.r.mu.Lock()
-	defer m.r.mu.Unlock()
 	s := m.r.stats[m.label]
 	if firstHello && timing.ClientHelloToServerHelloMS >= 0 {
 		v := uint64(timing.ClientHelloToServerHelloMS)
@@ -774,6 +807,7 @@ func (m *youtubeMeter) account(tx, rx uint64) {
 		v.Updated = time.Now()
 		m.r.records[m.id] = v
 	}
+	m.r.mu.Unlock()
 }
 func (m *youtubeMeter) CloseWrite() error {
 	m.mu.Lock()

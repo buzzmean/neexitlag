@@ -77,6 +77,9 @@ func TestCDNRealFailuresAfterReplyStayFailures(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m, r, _, _ := trialMeterFixture(t, tc.trace, tc.err)
+			if tc.name == "remote eof" {
+				m.rx = 100 * 1024
+			} // Large unconfirmed EOF is still a failure.
 			m.Read(make([]byte, 50))
 			m.Close()
 			if !m.failed || r.selection.TrialFailures != 1 || r.selection.FailedAfterReply != 1 || r.selection.TrialInconclusive != 0 {

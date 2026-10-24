@@ -19,17 +19,18 @@ const youtubeTrialCooldown = 3 * time.Minute
 const youtubeTrialSuccesses = 3
 
 type youtubeSelectionSnapshot struct {
-	BackgroundAttempts, BackgroundFailures                  uint64 `json:",omitempty"`
-	Trials, TrialSuccesses, TrialFailures, FailedAfterReply uint64
-	TrialInconclusive                                       uint64
-	ClientInitiatedTrialCloses                              uint64
-	ActiveDomain                                            string `json:"active_domain,omitempty"`
-	ActiveAgeMS                                             int64  `json:"active_age_ms"`
-	ActiveLastRXAgeMS                                       int64  `json:"active_last_rx_age_ms"`
-	ActiveState                                             string `json:"active_state,omitempty"`
-	ActiveTrial                                             bool   `json:"active_trial"`
-	BackgroundActive                                        bool   `json:"background_active"`
-	Contract                                                string `json:"contract"`
+	BackgroundAttempts, BackgroundFailures                              uint64 `json:",omitempty"`
+	Trials, TrialSuccesses, TrialFailures, FailedAfterReply             uint64
+	TrialInconclusive                                                   uint64
+	ClientInitiatedTrialCloses                                          uint64
+	StrongPromotions, PostPromotionFailures, RemoteSmallEOFInconclusive uint64
+	ActiveDomain                                                        string `json:"active_domain,omitempty"`
+	ActiveAgeMS                                                         int64  `json:"active_age_ms"`
+	ActiveLastRXAgeMS                                                   int64  `json:"active_last_rx_age_ms"`
+	ActiveState                                                         string `json:"active_state,omitempty"`
+	ActiveTrial                                                         bool   `json:"active_trial"`
+	BackgroundActive                                                    bool   `json:"background_active"`
+	Contract                                                            string `json:"contract"`
 }
 type youtubeQualification struct {
 	Network, Profile, Strategy string
@@ -346,7 +347,7 @@ func (r *youtubeRuntime) finishTrialOutcome(k youtubeKey, strategy, verdict stri
 	r.trialStrategy = ""
 	r.trialRecord = 0
 	r.selection.ActiveTrial = false
-	if verdict == "INCONCLUSIVE" || verdict == "CLIENT_INITIATED_CLOSE" {
+	if verdict == "INCONCLUSIVE" || verdict == "CLIENT_INITIATED_CLOSE" || verdict == "REMOTE_SMALL_EOF" {
 		r.selection.TrialInconclusive++
 		if verdict == "CLIENT_INITIATED_CLOSE" {
 			r.selection.ClientInitiatedTrialCloses++
@@ -355,6 +356,10 @@ func (r *youtubeRuntime) finishTrialOutcome(k youtubeKey, strategy, verdict stri
 		v.Retry = now.Add(youtubeTrialCooldown)
 		v.TrialAfter = v.Retry
 		v.Reason = "CDN_TRIAL_INCONCLUSIVE"
+		if verdict == "REMOTE_SMALL_EOF" {
+			r.selection.RemoteSmallEOFInconclusive++
+			v.Reason = "CDN_TRIAL_SMALL_EOF_INCONCLUSIVE"
+		}
 		if verdict == "CLIENT_INITIATED_CLOSE" {
 			v.Reason = "CDN_TRIAL_CLIENT_CLOSE_INCONCLUSIVE"
 		}

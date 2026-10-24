@@ -37,10 +37,10 @@ func TestYouTubeLocalCacheScopeTTLAndBoundedRecheck(t *testing.T) {
 	if stage, _ := r.choose(k, now); stage != "RELAY" {
 		t.Fatal(stage)
 	}
-	if v, ok := r.takeRecheck(k, now.Add(2*youtubeRetryAfter)); !ok || v.Next == 0 {
+	if v, ok := r.takeRecheck(k, now.Add(youtubeTrialCooldown+time.Second)); !ok || v.Next == 0 {
 		t.Fatal(v, ok)
 	}
-	if _, ok := r.takeRecheck(k, now.Add(2*youtubeRetryAfter)); ok {
+	if _, ok := r.takeRecheck(k, now.Add(youtubeTrialCooldown+time.Second)); ok {
 		t.Fatal("unbounded simultaneous rechecks")
 	}
 	if stage, _ := r.choose(k, now.Add(youtubeRetryAfter)); stage != "RELAY" {
@@ -429,14 +429,20 @@ func TestShortControlEOFDoesNotInvalidatePublicProofOrConfirmCDN(t *testing.T) {
 		m := &youtubeMeter{Conn: &eofControlProbeConn{}, r: r, id: 1, key: k, stage: "LOCAL", strategy: id, tx: 2000, rx: 7000, trial: trial, witnessChecked: true, applied: true, transform: func() bool { return true }}
 		hello := append([]byte{22, 3, 3, 0, 42, 2, 0, 0, 38}, make([]byte, 38)...)
 		m.wire.ObserveOrigin(hello)
+		if trial {
+			v := r.cache[k]
+			v.Stage = "RELAY"
+			v.Confirmed = false
+			r.cache[k] = v
+		}
 		if _, e := m.Read(make([]byte, 100)); !errors.Is(e, io.EOF) {
 			t.Fatal(e)
 		}
 		if !trial && (r.cache[k].Stage != "LOCAL" || r.records[1].Reason != "SHORT_TLS_CLOSE_WITH_PUBLIC_CONTROL_PROOF") {
 			t.Fatal("control EOF poisoned route", r.cache[k], r.records[1])
 		}
-		if trial && (r.cache[k].Stage != "RELAY" || !m.failed) {
-			t.Fatal("short CDN trial was promoted")
+		if trial && (r.cache[k].Stage != "RELAY" || m.healthy || m.failed) {
+			t.Fatal("short unproven CDN EOF became success or failure")
 		}
 		if m.healthy {
 			t.Fatal("short response became bulk health")

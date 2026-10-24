@@ -61,15 +61,26 @@ DIRECT timeout cache.44 catalog plans +9 legacy кандидатов подкл�
 hint-mode, даже если публичный HTTP body не прошёл >64KiB. Это допуск пробы, не
 успех CDN: max1 globally, живой получающий RELAY-сосед, >=3мин/subgroup. Проверки
 обоих публичных origins >64KiB остаются более сильным сигналом, но не тупиком.
-Три последовательных trial-потока с ServerHello,
-последующей записью браузера, >64KiB RX, committed transform и без наблюдаемого
-сбоя до закрытия переводят новые потоки на LOCAL с TTL10мин. Очень быстрый
-настоящий ответ не замедляется искусственной паузой. Долгий trial держит слот
-до своего закрытия; это сознательное ограничение риска и может замедлить подбор.
-Ошибки→следующий кандидат/RELAY новых потоков/backoff, счётчик failed_after_reply
-показывает цену проб. Свежий CDN не станет LOCAL за2мин: только cooldown требует
-не менее6мин на3пробы плюс время закрытия потоков. Длительный ручной тест не
-нужен для unit/integration; реальную работу стратегий доказывает только ISP.
+С24.10 (послеd28dda8) сильный running proof засчитывается без Close: полный
+ServerHello, подтверждённый transform, последующая запись браузера, >=1MiB RX
+после SH и >=1MiB в >=16 завершённых TLS type23 records, >=3с между первым и
+последним наблюдённым application RX, свежий RX<=3с. Это sustained transport,
+не доказательство playback/HTTP. Простой после быстрого burst не набирает3с.
+TrialSuccesses/StrongPromotions увеличиваются один раз, scope сразу LOCAL10мин.
+Глобальный слот освобождён для следующей НЕПОДТВЕРЖДЁННОЙ пробы; established
+TLS остаётся на том же socket/egress. Max1 unproven/live RELAY sibling/3мин
+на повторные пробы той же подгруппы сохранены. Старый путь из3 более слабых
+закрытых sustained потоков (>64KiB каждый) оставлен как альтернатива.
+
+Реальный RST/TLS/IO/WatchMidstream timeout после running promotion отзывает LOCAL
+для будущих flows и учитывается PostPromotionFailures/FailedAfterReply; прошлый
+сильный успех не стирается. Это НЕ дополнительная TrialFailure уже завершённой
+пробы. Малый EOF с0<rx<64KiB, без известного failure, RST/ретрансмитов/alert/
+invalid TLS нейтрален (RemoteSmallEOFInconclusive), не success и не bad score.
+Зашифрованный Google idle/abandon/alert без MITM не различим: нейтральный исход
+с3мин cooldown не утверждает исправность. EOF без ответа, reset и таймаут остаются
+отрицательными. Холодный CDN больше не обязан ждать6мин+Close, но без подходящего
+нового flow/сильного proof срок LOCAL не гарантируется.
 
 Граница повтора прежняя: только полный ClientHello(+dummy CCS)<=64KiB до ЛЮБОГО
 origin byte; early-data/application/partial hello и TLS alert не переигрываются.

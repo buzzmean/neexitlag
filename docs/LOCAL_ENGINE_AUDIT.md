@@ -222,3 +222,63 @@ copy→CloseWrite, но не доказывает намерение Chrome. Fak
 изменялись; влияние repeats6 и fakedsplit на реальном ПК измеряется новыми полями,
 лабораторный speed/Chrome-intent PASS не заявляется. NetLog с приватными URL не
 включается автоматически. Без restart/ручного policy reload; VPS/CA/SSH не нужны.
+
+
+## Running CDN sustained / послеd28dda8,24.10.2026
+Владелец доказал реальный LOCAL googlevideo196453980bytes(c0aa53) на одном потоке;
+прежний trialDone только при terminal Close держал global slot331s и не считал
+успех. Теперь отдельный сильный критерий (>=1MiB после SH и в>=16 завершённых
+outer type23 records, RX-span>=3s, freshRX<=3s, fullSH/postSH write/committed)
+фиксирует TrialSuccesses/StrongPromotions до закрытия. Не HTTP/playback proof.
+TLSWireObserver продолжает считать завершённые records/bytes после восьми
+сохранённых headers, память константная, payload не сохраняется/не расшифровывается.
+Стратегия и группа те же; ключ network/profile/subgroup/port/hint-mode. Cache
+LOCAL10min; max1 применяется к новым неподтверждённым trials; cooldown>=3min.
+Established socket не трогается, поздний Close не освобождает чужую новую пробу.
+Поздний настоящий failure отзывает scoped LOCAL на будущие opens; отдельный
+PostPromotionFailures и FailedAfterReply показывают цену, success не переписывается.
+
+EOF2717bytes с remoteFIN без reset/retransmits/alert — недостаточно доказательств
+отказа: REMOTE_SMALL_EOF_INCONCLUSIVE, не failure/score/Tried/потеря qualification,
+не success. ClientFIN-first по-прежнему нейтрален. Малый TLS1.3 encrypted alert
+может выглядеть так же — намерение Google не установлено; neutral не гарантирует
+исправность. RemoteEOF0/invalidTLS/plaintextalert/RST/timeout отрицательны.
+Diag.12: strong_promotions/post_promotion_failures/small_eof_inconclusive;
+trial_result SUCCESS_RUNNING/SUCCESS_CLOSED/SUCCESS_REVOKED_AFTER_FAILURE;
+completed application records/bytes/span. Последние8 LOCAL failures из отдельной
+истории32: точные tx/rx, bytes после SH, Hello/SH→failure и lastRX→failure,
+причина и факт предыдущей promotion (даже когда record вытеснен RELAY-потоками).
+
+MIDSTREAM_STALL_NEW_CONNECTION_REQUIRED — service WatchMidstream: был ответ,
+потом исходящая запись без входящего прогресса6с; callback фиксирует timeout
+перед Close. Это закрывает текущий socket; player может повторить сегмент и
+дать рывок/буферизацию. Никакого replay после origin byte. Без MITM нельзя
+доказать, что именно запись ждала HTTP-ответ (например H2 control); порог/сам
+watchdog в этой задаче не менялся. Пассивная idle pause не failure. Новые timing
+поля показывают масштаб и время до остановки; это не имитация успеха.
+
+Ordinary/akashi.vk-portal.net: DIRECT_ADDRESS_FAILED — отрицательный per-IP
+TCP dial,10мин; family relay-first отдельно требует2 IP. Но localLadderEligible
+в browser_origin_ladder.go при одном per-IP failure вовлекает общую лестницу,
+которая без LOCAL proof выбирает RELAY прежде browser admission второго IP.
+Это отдельное policy coupling: один сбой адреса может отправить ordinary на
+relay вместо проверки другого DIRECT адреса. Правила в этой задаче не менялись;
+реальная причина TCP-отказа akashi без свежей трассы НЕ установлена. Записано
+отдельно, не расширяем вывод до IP/DPI блокировки всей группы VK.
+
+P0 typed-nil test: fixture не задавала PID/path/applicationID, поэтому engine
+по своему контракту игнорировал pinned relay и проверял DIRECT1.1.1.1:443.
+Доступный endpoint=>ложный FAIL; недоступный=>случайный PASS. На57396ee только
+замена адреса на loopback (идентичность всё ещё отсутствует) воспроизвела FAIL10/10
+Linux race и Windows EXE/Wine10/10. Productionrouting не менялся. Исправление
+задаёт настоящую fixture identity+loopback sentinel и проверяет отсутствие
+DIRECT accept: PASS20/20 Linux race и Windows EXE/Wine20/20, Go1.25.3.
+Это дефект старого теста с зависимостью от сети, не доказанная регрессия движка.
+Native Windows/Go1.27 здесь не запускались; нельзя объявлять их PASS.
+
+Контролируемый TLS GET с проверкой certificate передаёт1.25MiB за3.4s, получает
+running promotion/slot release, допускает другую подгруппу и выполняет второй
+GET по тому же TLS (opens=1). Transform в portable seam, не raw ISP proof.
+Owner новый зачёт/TTL/revoke/multi-subgroup и2160p нужно подтвердить на ПК;
+старые196MB владельца — факт дляd28, не приёмка нового кода. VPS/CA/SSH/коды/
+CP flags/фильтры/пакетные рецепты/игры не менялись, внешние winws не применялись.

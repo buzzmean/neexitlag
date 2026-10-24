@@ -2,15 +2,18 @@
 
 # CURRENT
 
-## Последний итог — neutral close/admission,24.10.2026
-Владелец57396ee: все first-close CLIENT FIN+ACK, без RST/ретрансмитов; CDN1trial/12мин,0success. Это не доказанный отказ LOCAL.
-CLIENT_INITIATED_CLOSE с rx>0 теперь neutral, не failure/failed_after_reply/negative score; без sustained не success. TrialInconclusive/ClientInitiatedTrialCloses отдельно; реальные RST/timeout/TLS failures сохраняются.
-Терминальный Read при обоих FIN/reset завершает учёт max1 сразу; поздний Close не трогает чужой trial. Живой H2 не обрывается/не переезжает ради новой пробы.
-TrialAfter>=3мин сохранён, фоновый Retry больше не gate qualified реального flow. По подгруппе reason/count/time допуска, active slot age/lastRX/state; TRIAL_PENDING не гарантирует, что Chrome создаст новый TCP.
-Diag.11: LOCAL/RELAY Hello→ServerHello avg/max, TCP open, transform send/reassembly, Hello→close/lastRX→close, wire RX после SH, outer application record/half-close. HTTP/H2/Chrome intent без MITM не виден.
-Midstream watchdog отмечает timeout ДО Close, чтобы его собственный FIN не скрывал failure. Пассивная idle gap не отравляет strategy; реальные timeout/after-reply failures остаются отрицательными.
-Полные Go race/vet/build Linux+Windows и Windows vet PASS; обе Windows fixture EXE собраны; pinned DLL70filters/iSCSI30/checksum44plans подWine PASS; PS7 PASS. Native Windows/PS5.1/Chrome intent/ISP CDN success НЕ проверены здесь. Fake recipes/repeats/TTL/guards, VPS/CA/коды/SSH/CP flags/PR8 не менялись.
-Аудит/ограничения: docs/LOCAL_ENGINE_AUDIT.md (после57396ee). Предыдущий итог перенесён дословно в ARCHIVE, ничего из истории не удалено.
+## Последний итог — running CDN success/release,24.10.2026
+Наd28 владелец получил196MB реального googlevideo LOCAL(c0aa53), но success ждал Close и держал slot331s. Исправлено: сильный sustained proof засчитывается на живом потоке, слот свободен для другой пробы, established TLS не переносится.
+Критерий: fullSH/committed/postSH write, >=1MiB после SH и в>=16 завершённых outer type23 records, RX-span>=3s и freshRX<=3s. Scope сразу LOCAL10min; max1 НОВАЯ неподтверждённая проба/live RELAY sibling/3min cooldown сохранены. Это transport, не playback proof.
+Поздний настоящий failure отзывает будущий LOCAL: PostPromotionFailures/FailedAfterReply и SUCCESS_REVOKED_AFTER_FAILURE отдельно от уже засчитанного успеха. Поздний Close не освобождает чужой новый slot.
+Малый EOF(0<rx<64KiB) без known failure/RST/retransmits/alert/invalidTLS нейтрален: не bad score/Tried/failed_after_reply и не success. Намерение Google без MITM не установлено; реальные RST/timeout/alert отрицательны.
+Diag.12: strong_promotions/post_promotion_failures/small_eof_inconclusive/trial_result; completed app records/bytes/span; отдельные последние LOCAL failure timings/volume, включая midstream stall6s. Такой timeout закрывает socket, browser retry/rebuffer возможен, replay запрещён.
+Ordinary akashi: один per-IP DIRECT failure включает общую ladder до проверки второго адреса, defaultRELAY без LOCAL proof. Отдельный policy coupling, не исправлялся; реальная причина TCP-отказа без трассы неизвестна.
+P0 typed-nil fixture не имела PID/path/appID, поэтому игнорировала pinnedRELAY и зависела от доступности1.1.1.1. На57396ee с доступным loopback FAIL10/10 Linux+Wine; исправленная identity/sentinel PASS20/20 Linux race+Windows EXE/Wine. Go1.27/native Windows здесь не запускались.
+Полные Go race/vet/build Linux+Windows и Windows vet PASS; обе Windows fixture EXE собраны. PinnedDLL70filters/iSCSI30/checksum44plans PASS подWine; новые CDN Windows EXE/Wine и PS7 fixtures PASS; Native Windows/PS5.1/новый ISP promotion/TTL/revoke/multi-subgroup НЕ проверены. VPS/CA/SSH/коды/CP flags/пакетные рецепты/фильтры/игры не менялись.
+Тест реального TLS с certificate validation:1.25MiB/3.4s -> promotion безClose, допуск другой группы, второй GET по тому же TLS (opens=1). Transform portable seam — не WinDivert/ISP proof.
+Pre-push: существующие IPC dispatch проверены; новых методов/manifest readers нет; PS5.1 syntax/BOM/quoted native flags сохранены, JSON/внешние tools не менялись. Команды безgit switch, с exit/hash checks. DIRECT/LOCAL передRELAY, protected/games без изменений.
+Аудит: docs/LOCAL_ENGINE_AUDIT.md; прежний итог перенесён дословно в ARCHIVE. Решение24.10 владельца: сильный running proof заменяет ожидание terminal/3weak successes;3weak closed success остаются альтернативой.
 
 ## Таблица работ
 | Работа / дата | Файлы | Агент / ветка | Статус |
@@ -18,7 +21,7 @@ Midstream watchdog отмечает timeout ДО Close, чтобы его соб
 | LOCAL engine / 24.10.2026 | core/localstrategy; platform/windows native/DNS/TCP inject; services/client-service browser* и минимальный controller/club IPC dispatch; tools/windows diag; tests/workflow/docs | Codex / codex/work | ОСВОБОЖДЕНО: код/лаборатория готовы; Windows/ISP приёмка не доказана |
 | CDN LOCAL recovery / 24.10.2026 | core/localstrategy inspection; core/browserproxy/probe.go; platform/windows TCP evidence; services/client-service browser selection/probes; tools/windows diag; tests/docs | Codex / codex/work | ОСВОБОЖДЕНО: selector/probes/telemetry готовы; требуется owner trace для EOF и CDN success |
 | CDN neutral close / 24.10.2026 | services/client-service browser meter/selection/evidence; core/browserproxy TLS metadata/midstream; core/localstrategy inspection; platform/windows TCP evidence; tools/windows diag; tests/docs | Codex / codex/work | ОСВОБОЖДЕНО: реализация/тесты готовы; ISP/Chrome intent и CDN success требуют приёмки |
-| Sustained CDN promotion / 24.10.2026 | services/client-service browser meter/selection/evidence и primary fixture; core/browserproxy TLS metadata; tools/windows diag; tests/docs | Codex / codex/work | В РАБОТЕ: early sustained success/release, EOF inconclusive, stall evidence, clean fixture audit |
+| Sustained CDN promotion / 24.10.2026 | services/client-service browser meter/selection/evidence и primary fixture; core/browserproxy TLS metadata; tools/windows diag; tests/docs | Codex / codex/work | ОСВОБОЖДЕНО: promotion/release/rollback/diag/fixture готовы; native Windows/ISP приёмка впереди |
 | Компактный handoff / 24.10.2026 | docs/handoff/*, docs/AGENT_RULES.md | Codex / codex/work | ОСВОБОЖДЕНО: архив и правила готовы; только документы |
 | Экономия VPS / LOCAL каталог и автоподбор 1–7 (23.10.2026) | Детали — [ARCHIVE.md](ARCHIVE.md) | Codex / codex/work | ОСВОБОЖДЕНО; код готов, Windows/ISP gates см. ниже |
 | Multi-relay/Hostkey P0 (23.10.2026) | Детали — [ARCHIVE.md](ARCHIVE.md) | Codex / codex/work | ОСВОБОЖДЕНО; код готов, Windows/ISP gates см. ниже |
@@ -39,7 +42,7 @@ Midstream watchdog отмечает timeout ДО Close, чтобы его соб
 | Дизайн VELIQ / 20.10.2026 | site/, brand/, design/; будущие WPF/assets | Claude Code | Сайт согласован; перенос в WPF и новая иконка не сделаны |
 
 ## Текущая очередь и открытые вопросы
-- Приёмка CDN: neutral closes не должны расти как failures; проверить admission и active slot reason/age, SH latency LOCAL/RELAY; после LOCAL —2160p/seek, игры DIRECT.
+- Приёмка CDN: strong_promotions/trial_success растут ДО Close, active slot свободен/занят новой группой; LOCAL TTL10min и новый LOCAL RX основной; поздний failure отзывает будущие opens.2160p/seek, игры DIRECT.
 - HTTP80, QUIC fake и Discord voice UDP LOCAL не реализованы; fakedsplit TCP443 реализован, весь Flowseal не заявляется.
 - Подбор DPI продолжается ограниченно; пока нет proof — временный authenticated RELAY. Short response не доказывает >64KiB.
 - Общий клубный picker и server NIC month/forecast подготовлены, production endpoints/flags выключены: per-PC fallback и monthly UNKNOWN.
@@ -75,8 +78,8 @@ Midstream watchdog отмечает timeout ДО Close, чтобы его соб
 - Сохранять профили/identity/SID/ACL/IPC/config при обновлении; чужую policy не трогать; SCM/IPC/пути/ALPN/module не переименовывать.
 - iSCSI3260 bypass сохранять; никаких not (...) в фильтрах, все через pinned DLL compiler; WinDivert pin/зависимости без разрешения не менять.
 - Игры AUTO DIRECT; FACEIT/Vanguard guard не ослаблять, PUBG scope отдельно; без инъекции в процессы/файлы/память игры, без внешнего winws.
-- CDN (решение владельца24.10): тот же scoped transform на любом YouTube host разрешает только пробу; public >64KiB больше не обязательный барьер; max1 real LOCAL trial с живым RELAY sibling, >=3мин cooldown/подгруппу,3успеха подряд; сбой→RELAY новых flows/backoff.
-- Пробы не гарантируют незаметность player retry; post-reply failures считать. Для холодного CDN двух минут недостаточно (минимум6мин+завершение проб).
+- CDN (владелец24.10): scoped transform разрешает пробу; public >64KiB не барьер. Max1 НОВЫЙ unproven trial/live RELAY sibling/3мин cooldown; strong running >=1MiB/16records/3s -> LOCAL10min; альтернатива3weak closed successes. Failure→RELAY будущих flows/backoff.
+- Пробы не гарантируют незаметность player retry; реальные post-reply failures считать. Сильный trial не ждёт Close/6мин; без нового eligible flow/proof срок обучения не гарантирован.
 - При работающем LOCAL новый video RELAY RX около0; старые pinned relay flows/CP/tickets/DNS DoH не входят в это обещание.
 - Video12/other4 клиентские пределы и8×48/probe reserve сохранять; деньги/ресурсы: DIRECT/LOCAL перед VPS, без искусственного page PASS.
 - CLAUDE.md20d8bd8 не откатывать/не дублировать; авто-порядок Claude относится к Claude Code.
@@ -99,8 +102,7 @@ PowerShell администратора под прежним owner SID, из к
         $pullExit=$LASTEXITCODE
     } finally { $ErrorActionPreference=$gitPreference }
     if ($pullExit) { throw 'git pull failed' }
-    $m=Get-Content -Raw -Encoding UTF8 "$env:ProgramData\neexitlag\service.json" | ConvertFrom-Json
-    & .\tools\windows\build-e2e.ps1 -DriverDirectory $m.driver.directory
+    & .\tools\windows\build-e2e.ps1 -DriverDirectory (Join-Path $env:ProgramData 'neexitlag\driver')
     & .\tools\windows\Close-VeliqGuiForUpdate.ps1
     & .\tools\windows\update-service.ps1
     . .\tools\windows\common.ps1
@@ -108,14 +110,14 @@ PowerShell администратора под прежним owner SID, из к
     $a=(Get-FileHash '.\bin\windows-e2e\neexitlag-service.exe' -Algorithm SHA256).Hash
     $b=(Get-FileHash "$env:ProgramData\neexitlag\neexitlag-service.exe" -Algorithm SHA256).Hash
     if ($a -ne $b) { throw 'SERVICE_HASH_MISMATCH' }
-    Read-Host 'Для сбора новых trial: YouTube2160p >=6мин/seek в открытом Chrome; затем Enter (браузер не закрывать)'
+    Read-Host 'YouTube2160p >=2мин и перемотка в открытом Chrome; затем Enter (Chrome/Edge не закрывать)'
     & .\tools\windows\relay-status.ps1
     & .\tools\windows\relay-traffic.ps1
     & .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube
 }
 ```
 Нужны READY/optimizing и новые flows. DPI LOCAL только после proof; VK/Яндекс DIRECT; Telegram/IG/FB/OpenAI/Anthropic RELAY_REQUIRED.
-Холодный CDN:3trial/>64KiB с cooldown>=3мин (≥6мин+закрытие),2мин просмотра недостаточно для гарантии LOCAL. После обучения —2мин2160p/seek и новый googlevideo LOCAL RX основной.
-В diag смотреть trial_inconclusive/client_initiated_trial_closes, admission/checks/denials и active_state/age; затем close timing/SH avg LOCAL-RELAY и новый LOCAL RX. Старый pinned RELAY не переносится.
+Холодный CDN: strong proof >=1MiB/16 completed records/3s даёт LOCAL10min безClose.2мин не гарантируют создание eligible trial; старые RELAY flows pinned. После обучения новый LOCAL RX должен стать основным.
+В diag смотреть strong_promotions/trial_success/trial_result, active_state/age/admission, small_eof_inconclusive/post_promotion_failures, LOCAL failure timing/volume и новый LOCAL RX. TrialFailure — не число всех поздних отказов.
 Discord public WSS/redirect CONTROL_NOT_BULK не доказывают авторизованный gateway/voice. Затем выключить оптимизацию → VK без restart, игры DIRECT.
 Monthly data пока UNKNOWN; серверные read-only команды — docs/RELAY_TRAFFIC_BUDGET.md, deployment здесь не разрешён.

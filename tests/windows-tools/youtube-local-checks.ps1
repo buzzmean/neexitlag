@@ -30,3 +30,9 @@ Write-YouTubeLocalEvidence ([pscustomobject]@{selection=[pscustomobject]@{TrialI
 $text=$script:lines -join "`n"
 if($text -notmatch 'trial_inconclusive=1' -or $text -notmatch 'client_initiated_trial_closes=1' -or $text -notmatch 'admission=GLOBAL_TRIAL_ACTIVE checks=4 denials=4' -or $text -notmatch 'hello_avg_ms=200'){throw 'Missing neutral/admission/timing evidence'}
 Write-Host 'PASS neutral trial, admission reason and LOCAL/RELAY hello latency aggregation'
+
+$script:lines=@()
+Write-YouTubeLocalEvidence ([pscustomobject]@{selection=[pscustomobject]@{StrongPromotions=1;PostPromotionFailures=1;RemoteSmallEOFInconclusive=2};records=@([pscustomobject]@{trial_result='SUCCESS_RUNNING';reason='SUSTAINED_CDN_RUNNING_PROMOTED'})})
+$text=$script:lines -join "`n"
+if($text -notmatch 'strong_promotions=1 post_promotion_failures=1 small_eof_inconclusive=2' -or $text -notmatch 'trial_result=SUCCESS_RUNNING'){throw 'Running promotion/revocation/inconclusive counters missing'}
+Write-Host 'PASS explicit running trial success and later revocation diagnostics'

@@ -11,9 +11,11 @@ import (
 // Times are passive observations, never decoded HTTP/2 frames or application
 // contents. TLS1.3 type23 may contain handshake/alerts as well as HTTP data.
 type youtubeTimings struct {
-	ClientHelloToServerHelloMS                       int64  `json:"hello_to_server_hello_ms"`
-	ClientHelloToCloseMS                             int64  `json:"hello_to_close_ms"`
-	LastRXToCloseMS                                  int64  `json:"last_rx_to_close_ms"`
+	ClientHelloToServerHelloMS                       int64 `json:"hello_to_server_hello_ms"`
+	ClientHelloToCloseMS                             int64 `json:"hello_to_close_ms"`
+	LastRXToCloseMS                                  int64 `json:"last_rx_to_close_ms"`
+	ApplicationRecords, ApplicationBytes             uint64
+	ApplicationSpanMS                                int64
 	ReceivedAfterServerHello                         uint64 `json:"rx_after_server_hello_observed"`
 	ClientApplicationRecord, OriginApplicationRecord bool
 	ApplicationEvidenceBounded                       bool
@@ -36,6 +38,11 @@ func (m *youtubeMeter) timingLocked(inspection *localstrategy.Inspection, closed
 		t.ClientHelloToServerHelloMS = m.serverHelloAt.Sub(m.firstClientWrite).Milliseconds()
 	}
 	wire := m.wire.Snapshot()
+	t.ApplicationRecords = wire.Origin.ApplicationRecords
+	t.ApplicationBytes = wire.Origin.ApplicationBytes
+	if !m.firstApplicationRX.IsZero() {
+		t.ApplicationSpanMS = m.lastReply.Sub(m.firstApplicationRX).Milliseconds()
+	}
 	if wire.Origin.ServerHelloEndBytes > 0 && m.rx >= wire.Origin.ServerHelloEndBytes {
 		t.ReceivedAfterServerHello = m.rx - wire.Origin.ServerHelloEndBytes
 	}
@@ -58,6 +65,8 @@ func (m *youtubeMeter) timingLocked(inspection *localstrategy.Inspection, closed
 			}
 		}
 	}
+	t.ClientApplicationRecord = wire.Client.ApplicationRecords > 0
+	t.OriginApplicationRecord = wire.Origin.ApplicationRecords > 0
 	for _, r := range wire.Client.Records {
 		t.ClientApplicationRecord = t.ClientApplicationRecord || r.Type == 23
 	}
@@ -83,6 +92,7 @@ func (m *youtubeMeter) noteClientClose() bool {
 		return false
 	}
 	m.neutral = true
+	m.smallEOF = false
 	count := !m.healthy && !m.neutralCounted
 	m.neutralCounted = true
 	timing := m.timingLocked(inspection, time.Time{})
@@ -115,6 +125,8 @@ func (m *youtubeMeter) finishObservation() {
 			verdict = "FAILED"
 		} else if m.healthy {
 			verdict = "SUCCESS"
+		} else if m.smallEOF {
+			verdict = "REMOTE_SMALL_EOF"
 		} else if m.neutral {
 			verdict = "CLIENT_INITIATED_CLOSE"
 		}
@@ -127,12 +139,15 @@ func (m *youtubeMeter) updateCloseRecord() {
 	inspection := m.currentInspection()
 	m.mu.Lock()
 	timing := m.timingLocked(inspection, time.Now())
-	failed, healthy, neutral := m.failed, m.healthy, m.neutral
+	failed, healthy, neutral, promoted := m.failed, m.healthy, m.neutral, m.promoted
 	m.mu.Unlock()
 	m.r.mu.Lock()
 	defer m.r.mu.Unlock()
 	if v, ok := m.r.records[m.id]; ok {
 		v.Active = false
+		if promoted && !failed {
+			v.TrialResult = "SUCCESS_CLOSED"
+		}
 		v.Inspection = inspection
 		v.Timing = timing
 		v.Updated = time.Now()

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"os"
 	"testing"
 	"time"
 
@@ -102,8 +103,31 @@ func TestP0EmptySignedRegistryDoesNotPublishTypedNilRelay(t *testing.T) {
 	if err := s.apply(context.Background(), security.Config{}); err != nil {
 		t.Fatal(err)
 	}
-	f := routing.Flow{Protocol: "tcp", Source: netip.MustParseAddrPort("127.0.0.1:50001"), Destination: netip.MustParseAddrPort("1.1.1.1:443"), PinnedPolicy: &routing.Policy{Route: routing.Route{RelayID: "VPS-01"}, BlockOnFailure: true}}
-	if conn, err := c.Engine.OpenTCP(context.Background(), f); err == nil || conn != nil {
+	listener, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	path, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Identity is required: unauthenticated flows intentionally ignore pinned
+	// policies and stay DIRECT. Never make this security assertion depend on WAN.
+	f := routing.Flow{PID: uint32(os.Getpid()), ProcessPath: path, ApplicationID: "fixture-protected", Protocol: "tcp", Source: netip.MustParseAddrPort("127.0.0.1:50001"), Destination: listener.Addr().(*net.TCPAddr).AddrPort(), PinnedPolicy: &routing.Policy{Route: routing.Route{RelayID: "VPS-01"}, BlockOnFailure: true}}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if conn, err := c.Engine.OpenTCP(ctx, f); err == nil || conn != nil {
+		if conn != nil {
+			conn.Close()
+		}
 		t.Fatal("empty signed registry did not fail closed")
+	}
+	listener.SetDeadline(time.Now().Add(30 * time.Millisecond))
+	if conn, err := listener.Accept(); conn != nil || err == nil {
+		if conn != nil {
+			conn.Close()
+		}
+		t.Fatal("DIRECT leak to isolated sentinel")
 	}
 }

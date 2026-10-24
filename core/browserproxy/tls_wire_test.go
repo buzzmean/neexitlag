@@ -118,3 +118,19 @@ func TestServerHelloEndOffsetAcrossReadsAndRecords(t *testing.T) {
 		}
 	}
 }
+
+func TestWireCountsCompletedApplicationRecordsPastRetainedHistory(t *testing.T) {
+	var o TLSWireObserver
+	for i := 0; i < 100; i++ {
+		o.ObserveOrigin([]byte{23, 3, 3, 0, 2, 1})
+		o.ObserveOrigin([]byte{2})
+	}
+	s := o.Snapshot().Origin
+	if len(s.Records) != 8 || !s.Bounded || s.ApplicationRecords != 100 || s.ApplicationBytes != 200 || s.TotalRecords != 100 {
+		t.Fatal(s)
+	}
+	o.ObserveOrigin([]byte{23, 3, 3, 0, 10, 0})
+	if o.Snapshot().Origin.ApplicationRecords != 100 {
+		t.Fatal("partial record counted as completed")
+	}
+}

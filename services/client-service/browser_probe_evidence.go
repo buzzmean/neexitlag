@@ -160,7 +160,11 @@ func (c *Controller) localProbeSnapshot() map[string]any {
 	if len(rows) > 32 {
 		rows = rows[len(rows)-32:]
 	}
-	result := map[string]any{"tcp_closures": closed, "probes": rows, "retained": len(r.probeEvidence), "retention_limit": 128, "scope": "bounded recent probes and closes; headers/timing only; TLS1.3 type23 is NOT HTTP content proof"}
+	recentFailures := r.failures
+	if len(recentFailures) > 8 {
+		recentFailures = recentFailures[len(recentFailures)-8:]
+	}
+	result := map[string]any{"failures": recentFailures, "tcp_closures": closed, "probes": rows, "retained": len(r.probeEvidence), "retention_limit": 128, "scope": "bounded recent probes and closes; headers/timing only; TLS1.3 type23 is NOT HTTP content proof"}
 	for {
 		result["probes"] = rows
 		result["tcp_closures"] = closed

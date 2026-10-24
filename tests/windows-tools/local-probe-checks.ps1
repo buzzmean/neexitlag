@@ -11,3 +11,9 @@ $s=$script:lines -join ' '
 if($s -notmatch 'remote_rst=1' -or $s -notmatch 'remote_terminal_ttl=117' -or $s -notmatch 'ts_delta=-600000' -or $s -notmatch 'hello_to_server_hello_ms=150' -or $s -notmatch 'rx_after_hello_observed=6000'){throw 'Missing TCP/fooling diagnostics'}
 if($s -notmatch 'discord.com' -or $s -notmatch 'seq_delta=-10000' -or $s -notmatch 'handshake=False' -or $s -notmatch 'fake=True' -or $s -match 'SECRET'){throw 'Missing or unsafe LOCAL probe table'}
 Write-Host 'PASS LOCAL strategy/host headers, handshake and secret allowlist; PS5.1-compatible syntax (runtime separately required)'
+
+$script:lines=@()
+Write-LocalProbeEvidence ([pscustomobject]@{failures=@([pscustomobject]@{Domain='googlevideo:sn-test';Reason='MIDSTREAM_STALL_NEW_CONNECTION_REQUIRED';SinceClientHelloMS=8000;SinceLastRXMS=6001;RX=20000;ReceivedAfterHello=19900;Promoted=$true;private_payload='SECRET'});tcp_closures=@([pscustomobject]@{Timing=[pscustomobject]@{ApplicationRecords=65;ApplicationBytes=1064960;ApplicationSpanMS=3400}})})
+$s=$script:lines -join ' '
+if($s -notmatch 'last_rx_to_failure_ms=6001' -or $s -notmatch 'rx_after_hello=19900' -or $s -notmatch 'promoted=True' -or $s -notmatch 'application_records=65 application_bytes=1064960 application_span_ms=3400' -or $s -match 'SECRET'){throw 'Missing/unsafe sustained or midstream failure evidence'}
+Write-Host 'PASS running sustained proof counters and exact failure timing/volume allowlist'
