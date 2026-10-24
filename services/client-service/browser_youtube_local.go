@@ -32,6 +32,8 @@ type youtubeKey struct {
 	HintOnly                 bool
 }
 type youtubeLearn struct {
+	cdnTrialSlot
+	NeutralShortStreak        uint32
 	Stage, Strategy           string
 	Until, Retry              time.Time
 	TrialAfter                time.Time
@@ -56,6 +58,7 @@ type youtubeStage struct {
 	Inconclusive, HelloSamples, HelloSumMS, HelloMaxMS uint64
 }
 type youtubeRecord struct {
+	cdnTrialSlot
 	DataTrial              bool                  `json:"data_trial"`
 	TrialResult            string                `json:"trial_result,omitempty"`
 	Failure                *localFailureEvidence `json:"-"`
@@ -80,6 +83,9 @@ type youtubeRecord struct {
 	Updated                time.Time `json:"updated_at"`
 }
 type youtubeCacheView struct {
+	cdnTrialSlot
+	NeutralShortStreak                                uint32
+	CooldownWaitMS                                    int64
 	HintOnly                                          bool
 	Network, Profile, Domain, Stage, Strategy, Reason string
 	Port                                              uint16
@@ -140,7 +146,7 @@ type youtubeRuntime struct {
 func newYoutubeRuntime() *youtubeRuntime {
 	r := &youtubeRuntime{cache: map[youtubeKey]youtubeLearn{}, engines: map[string]youtubeEngine{}, stats: map[string]youtubeStage{}, records: map[uint64]youtubeRecord{}, qualifications: map[youtubeQualification]time.Time{}, sustained: map[youtubeQualification]time.Time{}, scores: map[youtubeScoreKey]youtubeScore{}, pending: map[youtubeKey]youtubePending{}}
 	r.shared = newSharedLearning()
-	r.selection.Contract = "max1 unproven CDN trial; 3min/subgroup; same network/profile live/recent30s RELAY media required; same scoped transform; LOCAL10min after running >=1MiB/16 completed TLS type23 records/3s RX span, or 3 weaker closed sustained flows; late real failure revokes future LOCAL; no playback proof/replay"
+	r.selection.Contract = "max1 unproven CDN trial; 3min/subgroup except at most 3 consecutive neutral short probes; same network/profile live/recent30s RELAY media required; same scoped transform; LOCAL10min after running >=1MiB/16 completed TLS type23 records/3s RX span, or 3 weaker closed sustained flows; late real failure revokes future LOCAL; no playback proof/replay"
 	plans, _ := localstrategy.BundledCatalog().Compile()
 	r.setPlans(plans)
 	return r
@@ -192,6 +198,7 @@ func (r *youtubeRuntime) failed(k youtubeKey, stage, strategy, reason string, no
 	v.Strategy = ""
 	v.Qualified = ""
 	v.Streak = 0
+	v.NeutralShortStreak = 0
 	v.Confirmed = false
 	v.Retry = now.Add(youtubeBackoff(v.Failures))
 	if youtubeCDN(k) {
@@ -254,7 +261,7 @@ func (r *youtubeRuntime) snapshot() youtubeSnapshot {
 			if v.LastTrialCheck.IsZero() {
 				admission = "NO_ELIGIBLE_NEW_FLOW_CHECK"
 			}
-			s.Cache = append(s.Cache, youtubeCacheView{k.HintOnly, k.Network, k.Profile, k.Domain, v.Stage, v.Strategy, v.Reason, k.Port, v.Until, v.Retry, v.Tried, v.Streak, v.Qualified, admission, v.TrialChecks, v.TrialDenials, v.LastTrialCheck, v.TrialAfter, v.Sibling, v.SiblingWaits})
+			s.Cache = append(s.Cache, youtubeCacheView{v.cdnTrialSlot, v.NeutralShortStreak, max(int64(0), time.Until(v.TrialAfter).Milliseconds()), k.HintOnly, k.Network, k.Profile, k.Domain, v.Stage, v.Strategy, v.Reason, k.Port, v.Until, v.Retry, v.Tried, v.Streak, v.Qualified, admission, v.TrialChecks, v.TrialDenials, v.LastTrialCheck, v.TrialAfter, v.Sibling, v.SiblingWaits})
 		}
 	}
 	for _, v := range r.stats {
@@ -506,7 +513,7 @@ func (c *Controller) openYoutubeLadder(ctx context.Context, cur profilesResult, 
 		if trial && stage == "LOCAL" {
 			r.trialRecord = record
 		}
-		r.records[record] = youtubeRecord{OpenMS: float64(time.Since(openStarted)) / float64(time.Millisecond), Service: service, Active: err == nil, ID: record, Profile: cur.profile.ID, Domain: q.Host, Destination: actual.Destination.String(), Stage: stage, Strategy: strategy, Reason: "OPEN", Trial: trial && stage == "LOCAL", Updated: time.Now()}
+		r.records[record] = youtubeRecord{cdnTrialSlot: cdnTrialSlot{NeutralShortAttempt: r.cache[key].NeutralShortStreak + 1}, OpenMS: float64(time.Since(openStarted)) / float64(time.Millisecond), Service: service, Active: err == nil, ID: record, Profile: cur.profile.ID, Domain: q.Host, Destination: actual.Destination.String(), Stage: stage, Strategy: strategy, Reason: "OPEN", Trial: trial && stage == "LOCAL", Updated: time.Now()}
 		label := service + ":" + stage + ":" + strategy
 		if _, exists := r.stats[label]; !exists && len(r.stats) >= 128 {
 			label = "other:" + stage + ":CATALOG_OVERFLOW"
@@ -557,6 +564,7 @@ func (c *Controller) openYoutubeLadder(ctx context.Context, cur profilesResult, 
 		}
 		ref.set(actual, conn)
 		observer := &youtubeMeter{trial: trial && stage == "LOCAL", Conn: conn, r: r, id: record, label: label, key: key, stage: stage, strategy: strategy, started: time.Now(), host: q.Host, destination: actual.Destination.String(), sibling: trialPeer, inspection: func() *localstrategy.Inspection { return c.localPacketInspection(q, actual) }, transform: func() bool { return c.browserTransform(q, actual) }}
+		observer.slot.NeutralShortAttempt = r.cacheAttempt(key)
 		observer.recordTrialEvidence(true)
 		if stage == "RELAY" {
 			return observer, actual, nil
@@ -607,6 +615,7 @@ type youtubeMeter struct {
 	trialFinalized                  bool
 	sibling                         relaySiblingEvidence
 	smallEOF                        bool
+	slot                            cdnTrialSlot
 	trialDone                       sync.Once
 	failed                          bool
 	gap                             sync.Once
@@ -615,6 +624,10 @@ type youtubeMeter struct {
 
 func (m *youtubeMeter) failure(reason string) {
 	if strings.Contains(reason, "EOF") && (m.noteClientClose() || m.noteSmallEOF()) {
+		// The first-flight wrapper may report EOF without another meter.Read.
+		// Finalize here, not only on Read/Close, or max1 remains held indefinitely.
+		m.finishObservation()
+		m.updateCloseRecord()
 		return
 	}
 	m.bad.Do(func() {

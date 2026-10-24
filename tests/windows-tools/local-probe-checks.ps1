@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 $tokens=$null;$errors=$null
 $ast=[System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '..\..\tools\windows\diag-no-vpn.ps1'),[ref]$tokens,[ref]$errors)
@@ -26,3 +26,9 @@ Write-Host 'PASS per-trial exact host/neutral result/close timing/recent sibling
 
 $script:lines=@();Write-CdnTrialEvidence ([pscustomobject]@{trials=$null});if(($script:lines -join ' ') -match 'CDN trial: host='){throw 'Null history fabricated a trial'}
 Write-Host 'PASS empty history does not fabricate a trial'
+
+$script:lines=@()
+Write-CdnTrialEvidence ([pscustomobject]@{trials=@([pscustomobject]@{Host='rr4---sn-test.googlevideo.com';TrialResult='INCONCLUSIVE_SMALL_EOF';slot_active=$false;slot_released_at='2026-10-24T12:00:00Z';slot_release_reason='REMOTE_SMALL_EOF';neutral_short_attempt=2;cooldown_until='2026-10-24T12:00:00Z';secret='HIDDEN'})})
+$s=$script:lines -join ' '
+if($s -notmatch 'slot_active=False slot_released_at=2026-10-24T12:00:00Z slot_release_reason=REMOTE_SMALL_EOF neutral_short_attempt=2 cooldown_until=' -or $s -match 'HIDDEN'){throw 'Slot release/retry evidence missing or unsafe'}
+Write-Host 'PASS per-trial slot release and bounded neutral attempt metadata'

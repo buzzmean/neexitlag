@@ -59,6 +59,7 @@ func (m *youtubeMeter) maybePromoteTrial(now time.Time) {
 			m.promoted = true
 			promotedNow = true
 			m.r.mu.Lock()
+			m.slot = m.r.cache[m.key].cdnTrialSlot
 			if v, ok := m.r.records[m.id]; ok {
 				v.TrialResult = "SUCCESS_RUNNING"
 				v.Reason = "SUSTAINED_CDN_RUNNING_PROMOTED"
@@ -71,7 +72,7 @@ func (m *youtubeMeter) maybePromoteTrial(now time.Time) {
 		if m.failed {
 			verdict = "FAILED"
 		}
-		m.r.finishTrialOutcome(m.key, m.strategy, verdict, m.rx > 0, now, m.rx)
+		m.slot = m.r.finishTrialOutcome(m.key, m.strategy, verdict, m.rx > 0, now, m.rx)
 		m.trialFinalized = true
 	})
 	if promotedNow {
@@ -87,11 +88,6 @@ func (r *youtubeRuntime) promoteRunning(k youtubeKey, id string, received uint64
 	}
 	// This flow's current sustained proof supersedes its old public prerequisite;
 	// it never grants another device/session authorization or another subgroup LOCAL.
-	r.trialActive = false
-	r.trialKey = youtubeKey{}
-	r.trialStrategy = ""
-	r.trialRecord = 0
-	r.selection.ActiveTrial = false
 	r.selection.TrialSuccesses++
 	r.selection.StrongPromotions++
 	r.score(k, id, true, now)
@@ -104,6 +100,10 @@ func (r *youtubeRuntime) promoteRunning(k youtubeKey, id string, received uint64
 	v.TrialAfter = now.Add(youtubeTrialCooldown)
 	v.Retry = v.TrialAfter
 	v.Reason = "SUSTAINED_CDN_RUNNING_PROMOTED"
+	attempt := v.NeutralShortStreak + 1
+	v.NeutralShortStreak = 0
+	v.cdnTrialSlot = cdnTrialSlot{SlotReleasedAt: now, SlotReleaseReason: "SUCCESS_RUNNING", CooldownUntil: v.TrialAfter, NeutralShortAttempt: attempt}
+	r.releaseTrialSlotLocked(v.cdnTrialSlot)
 	r.cache[k] = v
 	return true
 }

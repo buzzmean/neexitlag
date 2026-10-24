@@ -201,3 +201,25 @@ Hard read I/O после healthy также остаётся failure; обычн
 не приравнивается автоматически к отказу. Outcome/failure синхронизированы,
 чтобы не считать один сбой дважды. Sibling row хранит снимок именно допуска,
 а не новый deny-check того же cache key, пришедший пока открывался upstream.
+
+
+### 24.10.2026 — neutral callback и быстрый следующий поток (diag.15)
+Старый `failure(...EOF...)` callback первого TLS-flight помечал ответ нейтральным,
+но не вызывал finishObservation. Если wrapper возвращал EOF без следующего Read
+meter, слот оставался занят до Close, которое могло долго не приходить. Тест
+callback без Read/Close воспроизвёл ActiveTrial=true инулевые inconclusive.
+Теперь нейтральный callback немедленно финализирует exposure, освобождает слот
+и записывает slot_released_at/reason; поздний Close не освобождает новую пробу
+даже той же подгруппы/стратегии. Существующий TCP не мигрирует/не replay.
+
+Для 0<rx<64KiB с full ServerHello и нейтральным EOF/клиентским FIN разрешён
+следующий НОВЫЙ flow без 3мин ожидания: максимум3 таких коротких подряд на
+network/profile/subgroup. После третьего — ALL_SMALL_NO_DATA_LIMIT_COOLDOWN
+>=3мин; пустой/неизвестный outcome не получает исключение. Счётчик не означает
+успех, HTTP redirect или сегмент. Реальные RST/alert/timeout/post-reply I/O
+остаются failure с обычным cooldown/отзывом LOCAL для будущих соединений.
+Max1 глобально и прежний eligible recent RELAY media<=30с проверяются при
+каждом допуске; исключение не создаёт sibling и не обходит expired proof.
+Diag.15: slot_active, время/причина освобождения, neutral_short_attempt,
+neutral_short_streak, cooldown_until/wait_ms, admission и прежние bytes/data_trials.
+Нативная Windows/PS5.1/ISP экономия не подтверждается лабораторией.

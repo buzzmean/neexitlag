@@ -51,8 +51,8 @@ func TestCDNClientFINThenRemoteFINIsNeutralAndReleasesOnlyItsOwnSlot(t *testing.
 	if v.Qualified != id || v.Tried != 0 || v.Failures != 0 || v.Stage != "RELAY" {
 		t.Fatal("neutral poisoned strategy or promoted LOCAL", v)
 	}
-	if _, ok := r.takeTrial(k, time.Now(), testSibling(true)); ok {
-		t.Fatal("neutral bypassed 3min cooldown")
+	if v.TrialAfter.After(time.Now()) || v.NeutralShortStreak != 1 {
+		t.Fatal("short neutral did not permit bounded next-flow retry")
 	}
 	other := k
 	other.Domain = "googlevideo:sn-other"

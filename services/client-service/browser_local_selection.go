@@ -19,6 +19,7 @@ const youtubeTrialCooldown = 3 * time.Minute
 const youtubeTrialSuccesses = 3
 
 type youtubeSelectionSnapshot struct {
+	cdnTrialSlot
 	BackgroundAttempts, BackgroundFailures                              uint64 `json:",omitempty"`
 	Trials, TrialSuccesses, TrialFailures, FailedAfterReply             uint64
 	DataTrials                                                          uint64
@@ -317,6 +318,9 @@ func (r *youtubeRuntime) takeTrial(k youtubeKey, now time.Time, peer relaySiblin
 		}
 		return "", false
 	}
+	if v.NeutralShortStreak >= cdnNeutralShortLimit {
+		v.NeutralShortStreak = 0
+	}
 	// Retry is a BACKGROUND probe deadline; only TrialAfter gates real trials.
 	r.trialActive = true
 	r.trialKey = k
@@ -341,18 +345,16 @@ func (r *youtubeRuntime) finishTrial(k youtubeKey, strategy string, success, aft
 	}
 	r.finishTrialOutcome(k, strategy, verdict, afterReply, now, n)
 }
-func (r *youtubeRuntime) finishTrialOutcome(k youtubeKey, strategy, verdict string, afterReply bool, now time.Time, received uint64) {
+func (r *youtubeRuntime) finishTrialOutcome(k youtubeKey, strategy, verdict string, afterReply bool, now time.Time, received uint64) (slot cdnTrialSlot) {
 	success := verdict == "SUCCESS"
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if !r.trialActive || r.trialKey != k || r.trialStrategy != strategy {
 		return
 	}
-	r.trialActive = false
-	r.trialKey = youtubeKey{}
-	r.trialStrategy = ""
-	r.trialRecord = 0
-	r.selection.ActiveTrial = false
+	slot = cdnTrialSlot{SlotReleasedAt: now, SlotReleaseReason: verdict, NeutralShortAttempt: r.cache[k].NeutralShortStreak + 1}
+	// Runs under r.mu and after the outcome has chosen its cooldown.
+	defer func() { r.releaseTrialSlotLocked(slot) }()
 	if verdict == "INCONCLUSIVE" || verdict == "CLIENT_INITIATED_CLOSE" || verdict == "REMOTE_SMALL_EOF" {
 		r.selection.TrialInconclusive++
 		if verdict == "CLIENT_INITIATED_CLOSE" {
@@ -369,6 +371,20 @@ func (r *youtubeRuntime) finishTrialOutcome(k youtubeKey, strategy, verdict stri
 		if verdict == "CLIENT_INITIATED_CLOSE" {
 			v.Reason = "CDN_TRIAL_CLIENT_CLOSE_INCONCLUSIVE"
 		}
+		short := (verdict == "REMOTE_SMALL_EOF" || verdict == "CLIENT_INITIATED_CLOSE") && received > 0 && received < cdnDataTrialBytes
+		if short {
+			v.NeutralShortStreak++
+			if v.NeutralShortStreak < cdnNeutralShortLimit {
+				v.TrialAfter = now
+				v.Reason = "CDN_TRIAL_NEUTRAL_SHORT_NEXT_NEW_FLOW"
+			} else {
+				v.Reason = "CDN_TRIAL_ALL_SMALL_NO_DATA_LIMIT_COOLDOWN"
+			}
+		} else {
+			v.NeutralShortStreak = 0
+		}
+		slot.CooldownUntil = v.TrialAfter
+		v.cdnTrialSlot = slot
 		if r.room(k, now) {
 			r.cache[k] = v
 		}
@@ -382,6 +398,7 @@ func (r *youtubeRuntime) finishTrialOutcome(k youtubeKey, strategy, verdict stri
 		return
 	}
 	v := r.cache[k]
+	v.NeutralShortStreak = 0
 	if success && v.Qualified == strategy && r.qualified(k, strategy, now) {
 		r.score(k, strategy, true, now)
 		r.selection.TrialSuccesses++
@@ -423,7 +440,10 @@ func (r *youtubeRuntime) finishTrialOutcome(k youtubeKey, strategy, verdict stri
 	v.Retry = now.Add(pause)
 	v.TrialAfter = v.Retry
 	v.Until = now.Add(youtubeLearnTTL)
+	slot.CooldownUntil = v.TrialAfter
+	v.cdnTrialSlot = slot
 	r.cache[k] = v
+	return
 }
 
 func youtubeTransferOK(p browserproxy.ProbeResult) bool {

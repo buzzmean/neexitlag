@@ -10,6 +10,8 @@ const cdnTrialEvidenceCapacity = 32
 // Passive metadata only. Expected response size, HTTP redirects and media segment
 // boundaries are encrypted: do not infer them from rrN or TLS record type23.
 type cdnTrialEvidence struct {
+	cdnTrialSlot
+	SlotActive                                                                              bool `json:"slot_active"`
 	ID                                                                                      uint64
 	Profile, Network, Host, Subgroup, Strategy, TrialResult, Reason, IOFailure, Destination string
 	TX, RX                                                                                  uint64
@@ -53,7 +55,7 @@ func (m *youtubeMeter) recordTrialEvidence(active bool) {
 		closed = time.Now()
 	}
 	failureReason := m.failureReason
-	row := cdnTrialEvidence{ID: m.id, Profile: m.key.Profile, Network: m.key.Network, Host: m.host, Destination: m.destination, Subgroup: m.key.Domain, Strategy: m.strategy, TrialResult: result, TX: m.tx, RX: m.rx, DataTrial: m.dataObserved, Active: active, Updated: time.Now(), Timing: m.timingLocked(inspection, closed), Sibling: m.sibling}
+	row := cdnTrialEvidence{cdnTrialSlot: m.slot, SlotActive: m.slot.SlotReleasedAt.IsZero(), ID: m.id, Profile: m.key.Profile, Network: m.key.Network, Host: m.host, Destination: m.destination, Subgroup: m.key.Domain, Strategy: m.strategy, TrialResult: result, TX: m.tx, RX: m.rx, DataTrial: m.dataObserved, Active: active, Updated: time.Now(), Timing: m.timingLocked(inspection, closed), Sibling: m.sibling}
 	if inspection != nil {
 		row.Packets = inspection.TCPPackets
 	}
@@ -68,6 +70,10 @@ func (m *youtubeMeter) recordTrialEvidence(active bool) {
 		row.IOFailure = "REMOTE_EOF"
 	}
 	if v, ok := m.r.records[m.id]; ok {
+		if !v.SlotReleasedAt.IsZero() {
+			row.cdnTrialSlot = v.cdnTrialSlot
+			row.SlotActive = false
+		}
 		row.Reason = v.Reason
 		row.IOFailure = v.IOFailure
 		v.TrialResult = result
