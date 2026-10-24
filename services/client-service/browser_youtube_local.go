@@ -9,7 +9,9 @@ import (
 	"net"
 	"net/netip"
 	"sort"
+	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/buzzmean/neexitlag/core/browserproxy"
@@ -32,6 +34,7 @@ type youtubeKey struct {
 type youtubeLearn struct {
 	Stage, Strategy  string
 	Until, Retry     time.Time
+	TrialAfter       time.Time
 	Next             int
 	Tried            uint64
 	Failures, Streak uint32
@@ -47,6 +50,7 @@ type youtubeStage struct {
 	Connections, TX, RX, Failures, Confirmed uint64
 }
 type youtubeRecord struct {
+	IOFailure              string `json:"io_failure,omitempty"`
 	Service                string `json:"service,omitempty"`
 	Active                 bool   `json:"active"`
 	ID                     uint64 `json:"id"`
@@ -58,7 +62,8 @@ type youtubeRecord struct {
 	Reason                 string `json:"reason"`
 	TX, RX                 uint64
 	ServerHello, Transform bool
-	Trial                  bool `json:"trial"`
+	Trial                  bool                      `json:"trial"`
+	Inspection             *localstrategy.Inspection `json:"-"`
 	TransformKnown         bool
 	Updated                time.Time `json:"updated_at"`
 }
@@ -70,6 +75,7 @@ type youtubeCacheView struct {
 	Tried                                             uint64
 	Streak                                            uint32
 	Qualified                                         string
+	TrialAfter                                        time.Time
 }
 type youtubeSnapshot struct {
 	RecordsOmitted uint64                   `json:"records_omitted"`
@@ -97,7 +103,9 @@ type youtubeRuntime struct {
 	plans          map[string]localstrategy.CatalogPlan
 	order          []string
 	qualifications map[youtubeQualification]time.Time
+	sustained      map[youtubeQualification]time.Time
 	selecting      bool
+	trialKey       youtubeKey
 	trialActive    bool
 	selection      youtubeSelectionSnapshot
 	scores         map[youtubeScoreKey]youtubeScore
@@ -108,7 +116,7 @@ type youtubeRuntime struct {
 }
 
 func newYoutubeRuntime() *youtubeRuntime {
-	r := &youtubeRuntime{cache: map[youtubeKey]youtubeLearn{}, engines: map[string]youtubeEngine{}, stats: map[string]youtubeStage{}, records: map[uint64]youtubeRecord{}, qualifications: map[youtubeQualification]time.Time{}, scores: map[youtubeScoreKey]youtubeScore{}, pending: map[youtubeKey]youtubePending{}}
+	r := &youtubeRuntime{cache: map[youtubeKey]youtubeLearn{}, engines: map[string]youtubeEngine{}, stats: map[string]youtubeStage{}, records: map[uint64]youtubeRecord{}, qualifications: map[youtubeQualification]time.Time{}, sustained: map[youtubeQualification]time.Time{}, scores: map[youtubeScoreKey]youtubeScore{}, pending: map[youtubeKey]youtubePending{}}
 	r.shared = newSharedLearning()
 	r.selection.Contract = "max1 CDN trial globally; 3min/subgroup; live RELAY sibling required; same scoped strategy committed on YouTube; public sustained proof optional for CDN trial; 3 sustained CDN flows; failures after reply are NOT guaranteed invisible"
 	plans, _ := localstrategy.BundledCatalog().Compile()
@@ -193,7 +201,7 @@ func (r *youtubeRuntime) snapshot() youtubeSnapshot {
 	s := youtubeSnapshot{RecordsOmitted: r.seq - uint64(len(r.records)), CacheEntries: len(r.cache), Cache: []youtubeCacheView{}, Stages: []youtubeStage{}, Records: []youtubeRecord{}, Shared: r.shared.snapshot(), Selection: r.selection, Replays: "complete ClientHello only before ANY origin byte; established TLS pinned; transport health is not HTTP/playback PASS"}
 	for k, v := range r.cache {
 		if len(s.Cache) < 24 {
-			s.Cache = append(s.Cache, youtubeCacheView{k.HintOnly, k.Network, k.Profile, k.Domain, v.Stage, v.Strategy, v.Reason, k.Port, v.Until, v.Retry, v.Tried, v.Streak, v.Qualified})
+			s.Cache = append(s.Cache, youtubeCacheView{k.HintOnly, k.Network, k.Profile, k.Domain, v.Stage, v.Strategy, v.Reason, k.Port, v.Until, v.Retry, v.Tried, v.Streak, v.Qualified, v.TrialAfter})
 		}
 	}
 	for _, v := range r.stats {
@@ -485,7 +493,7 @@ func (c *Controller) openYoutubeLadder(ctx context.Context, cur profilesResult, 
 			return conn, actual, err
 		}
 		ref.set(actual, conn)
-		observer := &youtubeMeter{trial: trial && stage == "LOCAL", Conn: conn, r: r, id: record, label: label, key: key, stage: stage, strategy: strategy, started: time.Now(), transform: func() bool { return c.browserTransform(q, actual) }}
+		observer := &youtubeMeter{trial: trial && stage == "LOCAL", Conn: conn, r: r, id: record, label: label, key: key, stage: stage, strategy: strategy, started: time.Now(), inspection: func() *localstrategy.Inspection { return c.localPacketInspection(q, actual) }, transform: func() bool { return c.browserTransform(q, actual) }}
 		if stage == "RELAY" {
 			return observer, actual, nil
 		}
@@ -512,6 +520,8 @@ type youtubeMeter struct {
 	key                     youtubeKey
 	stage, strategy         string
 	started                 time.Time
+	inspection              func() *localstrategy.Inspection
+	closing                 bool
 	transform               func() bool
 	mu                      sync.Mutex
 	wire                    browserproxy.TLSWireObserver
@@ -544,6 +554,9 @@ func (m *youtubeMeter) failure(reason string) {
 		s.Failures++
 		m.r.stats[m.label] = s
 		if v, ok := m.r.records[m.id]; ok {
+			if m.inspection != nil {
+				v.Inspection = m.inspection()
+			}
 			v.Reason = reason
 			v.Transform = applied
 			v.TransformKnown = known
@@ -577,10 +590,35 @@ func (m *youtubeMeter) Read(p []byte) (int, error) {
 	}
 	if e != nil && !errors.Is(e, net.ErrClosed) {
 		m.mu.Lock()
-		spoken := m.tx > 0
+		spoken := m.tx > 0 && !m.closing
 		healthy := m.healthy
 		m.mu.Unlock()
+		if spoken && !healthy && errors.Is(e, io.EOF) && v.ServerHelloComplete && !m.trial {
+			m.r.mu.Lock()
+			control := m.r.cache[m.key]
+			if control.Confirmed && control.Stage == "LOCAL" && control.Strategy == m.strategy && time.Now().Before(control.Until) && strings.HasPrefix(control.Reason, "BACKGROUND_PUBLIC_") && strings.HasSuffix(control.Reason, "_NOT_BULK_PROOF") {
+				if record, ok := m.r.records[m.id]; ok {
+					record.Reason = "SHORT_TLS_CLOSE_WITH_PUBLIC_CONTROL_PROOF"
+					m.r.records[m.id] = record
+				}
+				m.r.mu.Unlock()
+				return n, e
+			}
+			m.r.mu.Unlock()
+		}
 		if spoken && !healthy && (errors.Is(e, io.EOF) || !isYoutubeTimeout(e)) {
+			code := "READ_IO_ERROR"
+			if errors.Is(e, io.EOF) {
+				code = "REMOTE_EOF"
+			} else if errors.Is(e, syscall.ECONNRESET) || errors.Is(e, syscall.Errno(10054)) {
+				code = "REMOTE_RESET"
+			}
+			m.r.mu.Lock()
+			if record, ok := m.r.records[m.id]; ok {
+				record.IOFailure = code
+				m.r.records[m.id] = record
+			}
+			m.r.mu.Unlock()
 			m.failure("EARLY_EOF_OR_IO_NO_REPLAY")
 		}
 	}
@@ -673,6 +711,9 @@ func (m *youtubeMeter) progressGap(now time.Time) {
 }
 
 func (m *youtubeMeter) Close() error {
+	m.mu.Lock()
+	m.closing = true
+	m.mu.Unlock()
 	err := m.Conn.Close()
 	if m.trial {
 		m.trialDone.Do(func() {
@@ -685,6 +726,12 @@ func (m *youtubeMeter) Close() error {
 	m.r.mu.Lock()
 	if v, ok := m.r.records[m.id]; ok {
 		v.Active = false
+		if v.Reason == "OPEN" {
+			v.Reason = "CLIENT_CLOSED_BEFORE_SUSTAINED_PROOF"
+		}
+		if m.inspection != nil {
+			v.Inspection = m.inspection()
+		}
 		v.Updated = time.Now()
 		m.r.records[m.id] = v
 	}

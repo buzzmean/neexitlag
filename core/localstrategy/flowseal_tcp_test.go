@@ -380,3 +380,28 @@ func TestNativeHostSplitAcceptsSNIEndingAtClientHelloBoundary(t *testing.T) {
 		checkPacket(t, q)
 	}
 }
+
+func TestNativeSentPacketDiagnosticsReportActiveFoolingAndOriginalTTL(t *testing.T) {
+	base := withNativeTimestamp(tlsInput(1000))
+	base[8] = 128
+	for _, mode := range []string{"ts", "badseq", "md5sig"} {
+		plan := &NativeTCPPlan{Fooling: mode, BadSequence: -10000, BadACK: -66000, TimestampDelta: -600000}
+		q := nativeTCPPacket(base, []byte{1, 2, 3}, 0, true, plan)
+		if q == nil {
+			t.Fatal(mode)
+		}
+		d := DescribeSentPacket(q, base)
+		if d.TTL != 128 {
+			t.Fatal("invented TTL change", mode, d)
+		}
+		if mode == "ts" && (d.TimestampDelta != -600000 || d.SequenceOffset != 0 || d.ACKOffset != 0) {
+			t.Fatal("TS fake not accurately described", d)
+		}
+		if mode == "badseq" && (d.SequenceOffset != -10000 || d.ACKOffset != -66000) {
+			t.Fatal("badseq/ack not applied", d)
+		}
+		if mode == "md5sig" && !d.MD5Present {
+			t.Fatal("MD5 option missing", d)
+		}
+	}
+}

@@ -376,6 +376,7 @@ func TestGuardedCDNRealTLSHTTPThreeTrialsThenWarmLOCAL(t *testing.T) {
 		r.mu.Lock()
 		v := r.cache[k]
 		v.Retry = time.Time{}
+		v.TrialAfter = time.Time{} // Same virtual cooldown clock; production cannot bypass it.
 		r.cache[k] = v
 		r.mu.Unlock()
 		conn, _, err := c.openBrowserPlan(context.Background(), cur, q, p, open)
@@ -409,5 +410,36 @@ func TestGuardedCDNRealTLSHTTPThreeTrialsThenWarmLOCAL(t *testing.T) {
 	}
 	if local != 4 || r.snapshot().Selection.Trials != 3 || r.snapshot().Selection.TrialSuccesses != 3 {
 		t.Fatal(local, r.snapshot())
+	}
+}
+
+type eofControlProbeConn struct{ net.Conn }
+
+func (*eofControlProbeConn) Read([]byte) (int, error) { return 0, io.EOF }
+func TestShortControlEOFDoesNotInvalidatePublicProofOrConfirmCDN(t *testing.T) {
+	for _, trial := range []bool{false, true} {
+		r := newYoutubeRuntime()
+		k := youtubeKey{"net", "chrome", "youtube.com", 443, false}
+		id := r.order[0]
+		r.confirmed(k, "LOCAL", id, time.Now())
+		v := r.cache[k]
+		v.Reason = "BACKGROUND_PUBLIC_REDIRECT_CONTROL_NOT_BULK_PROOF"
+		r.cache[k] = v
+		r.records[1] = youtubeRecord{ID: 1, Stage: "LOCAL"}
+		m := &youtubeMeter{Conn: &eofControlProbeConn{}, r: r, id: 1, key: k, stage: "LOCAL", strategy: id, tx: 2000, rx: 7000, trial: trial, witnessChecked: true, applied: true, transform: func() bool { return true }}
+		hello := append([]byte{22, 3, 3, 0, 42, 2, 0, 0, 38}, make([]byte, 38)...)
+		m.wire.ObserveOrigin(hello)
+		if _, e := m.Read(make([]byte, 100)); !errors.Is(e, io.EOF) {
+			t.Fatal(e)
+		}
+		if !trial && (r.cache[k].Stage != "LOCAL" || r.records[1].Reason != "SHORT_TLS_CLOSE_WITH_PUBLIC_CONTROL_PROOF") {
+			t.Fatal("control EOF poisoned route", r.cache[k], r.records[1])
+		}
+		if trial && (r.cache[k].Stage != "RELAY" || !m.failed) {
+			t.Fatal("short CDN trial was promoted")
+		}
+		if m.healthy {
+			t.Fatal("short response became bulk health")
+		}
 	}
 }

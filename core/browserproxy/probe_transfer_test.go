@@ -30,6 +30,9 @@ func TestTransferProbeRequiresActualVerifiedLargeBodyAndBoundsStalls(t *testing.
 			t.Error("probe must be credential free GET")
 		}
 		switch r.URL.Path {
+		case "/redirect":
+			w.Header().Set("Location", "https://www.youtube.com/")
+			w.WriteHeader(301)
 		case "/short":
 			w.WriteHeader(404)
 			w.Write([]byte("no video URL"))
@@ -65,6 +68,10 @@ func TestTransferProbeRequiresActualVerifiedLargeBodyAndBoundsStalls(t *testing.
 	p = ProbeOriginTransfer(context.Background(), "www.youtube.com", "/short", roots, open)
 	if p.Status != 404 || p.BodyBytes >= 65536 {
 		t.Fatal(p)
+	}
+	p = ProbeOriginTransfer(context.Background(), "www.youtube.com", "/redirect", roots, open)
+	if p.Failure != "" || p.Status != 301 || p.BodyBytes != 0 {
+		t.Fatal("empty redirect mislabelled as connection failure", p)
 	}
 	for _, path := range []string{"/stall", "/truncated"} {
 		ctx, stop := context.WithTimeout(context.Background(), 150*time.Millisecond)

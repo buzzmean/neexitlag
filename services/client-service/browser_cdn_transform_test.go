@@ -3,6 +3,7 @@ package clientservice
 import (
 	"context"
 	"github.com/buzzmean/neexitlag/core/browserproxy"
+	"net/netip"
 	"testing"
 	"time"
 )
@@ -53,4 +54,24 @@ func TestCDNCanTrialWithCommittedTransformDespiteSilentPublicTLS(t *testing.T) {
 	if r.qualified(k, "different-plan", time.Now()) {
 		t.Fatal("proof crossed strategy")
 	}
+}
+
+func TestCDNBackgroundSelectsExactSustainedPublicProofInsteadOfCatalogPrior(t *testing.T) {
+	c, cur, q, p := youtubeFixture(t)
+	q.Source = netip.MustParseAddrPort("192.0.2.2:51000")
+	r := c.browser.youtube
+	k := youtubeScope(cur, q)
+	weak, strong := r.order[0], r.order[1]
+	public := q
+	public.Host = "www.youtube.com"
+	p.Network = cur.network
+	c.recordLocalProbe(public, p, weak, browserproxy.ProbeResult{Failure: "NETWORK_TIMEOUT"}, true)
+	c.recordLocalProbe(public, p, strong, browserproxy.ProbeResult{Status: 200, TLSVersion: 0x304, BodyBytes: 131073}, true)
+	r.completeCDNQualification(k, weak, time.Now())
+	c.youtubeBackgroundRecheck(cur, q, p, k)
+	id, ok := r.takeTrial(k, time.Now(), true)
+	if !ok || id != strong {
+		t.Fatal("public proof was ignored", id, strong, r.cache[k])
+	}
+	r.finishTrial(k, id, false, false, time.Now())
 }

@@ -35,6 +35,9 @@ func TestLocalProbeSnapshotBoundedBelowIPC(t *testing.T) {
 	for i := 0; i < 128; i++ {
 		c.browser.youtube.probeEvidence = append(c.browser.youtube.probeEvidence, localProbeEvidence{Host: strings.Repeat("x", 253), Strategy: strings.Repeat("s", 96), Inspection: &localstrategy.Inspection{Detail: strings.Repeat("d", 1024), SentPackets: make([]localstrategy.SentPacket, 20)}})
 	}
+	for i := uint64(1); i <= 8; i++ {
+		c.browser.youtube.records[i] = youtubeRecord{ID: i, Stage: "LOCAL", Domain: strings.Repeat("d", 253), Reason: "EARLY_EOF_OR_IO_NO_REPLAY", Inspection: &localstrategy.Inspection{SentPackets: make([]localstrategy.SentPacket, 64)}}
+	}
 	raw, e := json.Marshal(c.localProbeSnapshot())
 	if e != nil || len(raw) >= 49000 {
 		t.Fatal(len(raw), e)

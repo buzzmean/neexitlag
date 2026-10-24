@@ -100,6 +100,9 @@ func (b *WinDivertBackend) BrowserLocalInspection(id ProcessIdentity, source, de
 	for _, f := range ev.Flows {
 		if f.LocalInspection != nil {
 			v := *f.LocalInspection
+			if f.LocalTCP != nil {
+				v.TCPPackets = *f.LocalTCP
+			}
 			v.SentPackets = append([]localstrategy.SentPacket(nil), v.SentPackets...)
 			return &v
 		}

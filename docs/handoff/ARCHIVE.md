@@ -1,3 +1,15 @@
+## Последний итог — LOCAL native engine,24.10.2026
+`5319850`: точная strategy×host диагностика; `4568dd4`: LOCAL owner race guard и CDN trial по scoped transform.
+`1cdb650`:64 Flowseal TCP443 rules реально исполняются в fixtures,44 уникальных плана+9legacy;49 HTTP/QUIC/прочих rules явно unsupported.
+Raw WinDivertSend уже существовал; исправлены LSO>1500, native TS/MD5/badseq semantics, fake/split/disorder/host/SYN-data и bounded64 outputs/flight. Без external winws/глобальных настроек.
+Pure TS требует timestamp negotiation; собственный LOCAL socket включает Winsock option10, отказ виден в diag. Templates свои, побитовая эквивалентность winws НЕ заявлена.
+Общие DPI группы: Discord CDN PNG >64KiB/один TLS; публичный gateway WSS nonce ping/pong и .gg redirect — отдельный CONTROL_NOT_BULK proof, не login/page/voice PASS.
+Diag.9/browser.local.probes: actual fake/TTL/seq delta/headers, TX/RX/body, status/failure и отдельные silence/RST/freeze/EOF/protocol/NO_TRANSFORM причины; все service groups.
+Полные Go race/vet/build Linux+Windows+Windows vet PASS; обе Windows fixture EXE собраны; DLL70filters/iSCSI30/checksums всех catalog plans подWine PASS; PS7 fixtures PASS.
+Нативные Windows/PS5.1/новый socket option/ISP2160p/Discord LOCAL НЕ проверены; видео RELAY RX≈0 ещё НЕ доказано. CI не выдавать за PASS без job steps.
+VPS/CA/activation/коды/CP flags/PR8 не трогали; браузеры не закрывали. Аудит/ограничения: docs/LOCAL_ENGINE_AUDIT.md; предыдущие итоги дословно в ARCHIVE.
+
+
 ## LOCAL диагностика — 24.10.2026 (работа продолжается)
 Владелец f0e181a:2160p RELAY работает, LOCAL0/CDN trials0; ordinary тоже имеет отказы. Исправления общие для DPI групп, IP/GEO relay и VK/Яндекс DIRECT сохраняются.
 Пункт1: browser.local.probes (отдельный read-only IPC из-за64KiB лимита), bounded128 recent/<=48KiB выдача, strategy×host/group/result/TX/RX/body/commit/SYN/handshake/TTL/actual packet headers. Payload не сохраняется.

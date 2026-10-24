@@ -162,7 +162,7 @@ func probeOrigin(ctx context.Context, host string, port uint16, secure bool, pat
 	if err != nil {
 		return probeError(r, err)
 	}
-	if len(b) == 0 && resp.StatusCode != http.StatusNoContent {
+	if len(b) == 0 && resp.StatusCode != http.StatusNoContent && (resp.StatusCode < 300 || resp.StatusCode >= 400) {
 		r.Failure, r.Detail = "CONNECTION_FAILED", "EMPTY_BODY"
 		return r
 	}

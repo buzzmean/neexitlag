@@ -7,6 +7,7 @@ import (
 	wp "github.com/buzzmean/neexitlag/platform/windows"
 	"net"
 	"net/netip"
+	"sort"
 	"sync/atomic"
 	"time"
 )
@@ -69,13 +70,16 @@ func localProbeOutcome(p browserproxy.ProbeResult, applied bool) string {
 	}
 	return "ORIGIN_RESPONSE_NOT_SUSTAINED"
 }
-func (c *Controller) recordLocalProbe(q browserproxy.Request, p browserproxy.Plan, strategy string, result browserproxy.ProbeResult, applied bool, sent ...uint64) {
-	var inspection *localstrategy.Inspection
+func (c *Controller) localPacketInspection(q browserproxy.Request, p browserproxy.Plan) *localstrategy.Inspection {
 	if b, ok := c.Backend.(interface {
 		BrowserLocalInspection(wp.ProcessIdentity, netip.AddrPort, netip.AddrPort) *localstrategy.Inspection
 	}); ok {
-		inspection = b.BrowserLocalInspection(browserIdentity(q), q.Source, p.Destination)
+		return b.BrowserLocalInspection(browserIdentity(q), q.Source, p.Destination)
 	}
+	return nil
+}
+func (c *Controller) recordLocalProbe(q browserproxy.Request, p browserproxy.Plan, strategy string, result browserproxy.ProbeResult, applied bool, sent ...uint64) {
+	inspection := c.localPacketInspection(q, p)
 	row := localProbeEvidence{Failure: result.Failure, HTTPStatus: result.Status, TLSVersion: result.TLSVersion, At: time.Now(), Strategy: strategy, Host: q.Host, Service: c.browserOriginPolicy(q.Host).Group, Result: localProbeOutcome(result, applied), Phase: result.Phase, Detail: result.Detail, Received: result.Bytes, Body: result.BodyBytes, Committed: applied, Inspection: inspection}
 	if len(sent) > 0 {
 		row.Sent = sent[0]
@@ -101,7 +105,15 @@ func (c *Controller) recordLocalProbe(q browserproxy.Request, p browserproxy.Pla
 		key := youtubeQualification{p.Network, q.Owner.Profile, strategy, q.HintOnly}
 		_, exists := r.qualifications[key]
 		if len(r.qualifications) < 256 || exists {
-			r.qualifications[youtubeQualification{p.Network, q.Owner.Profile, strategy, q.HintOnly}] = time.Now().Add(youtubeLearnTTL)
+			r.qualifications[key] = time.Now().Add(youtubeLearnTTL)
+			if youtubeTransferOK(result) {
+				r.sustained[key] = time.Now().Add(youtubeLearnTTL)
+			}
+			for k, until := range r.sustained {
+				if !time.Now().Before(until) {
+					delete(r.sustained, k)
+				}
+			}
 		}
 	}
 	r.probeEvidence = append(r.probeEvidence, row)
@@ -121,20 +133,37 @@ func (c *localProbeConn) Write(p []byte) (int, error) {
 	return n, e
 }
 
+type localCloseEvidence struct {
+	Domain, Strategy, Reason, IOFailure string
+	TX, RX                              uint64
+	Updated                             time.Time
+	Packets                             localstrategy.TCPTrace
+}
+
 func (c *Controller) localProbeSnapshot() map[string]any {
 	r := c.browser.youtube
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	closed := []localCloseEvidence{}
+	for _, v := range r.records {
+		if v.Stage == "LOCAL" && v.Inspection != nil && (!v.Active || v.IOFailure != "") {
+			closed = append(closed, localCloseEvidence{v.Domain, v.Strategy, v.Reason, v.IOFailure, v.TX, v.RX, v.Updated, v.Inspection.TCPPackets})
+		}
+	}
+	sort.Slice(closed, func(i, j int) bool { return closed[i].Updated.After(closed[j].Updated) })
+	if len(closed) > 8 {
+		closed = closed[:8]
+	}
 	rows := append([]localProbeEvidence(nil), r.probeEvidence...)
 	if len(rows) > 32 {
 		rows = rows[len(rows)-32:]
 	}
 	for len(rows) > 0 {
 		raw, _ := json.Marshal(rows)
-		if len(raw) < 48000 {
+		if len(raw) < 36000 {
 			break
 		}
 		rows = rows[1:]
 	}
-	return map[string]any{"probes": rows, "retained": len(r.probeEvidence), "omitted_retained": len(r.probeEvidence) - len(rows), "retention_limit": 128, "scope": "bounded recent probes; packet headers only; no payload; missing evidence is not success"}
+	return map[string]any{"tcp_closures": closed, "probes": rows, "retained": len(r.probeEvidence), "omitted_retained": len(r.probeEvidence) - len(rows), "retention_limit": 128, "scope": "bounded recent probes; packet headers only; no payload; missing evidence is not success"}
 }

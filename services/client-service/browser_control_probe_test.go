@@ -96,7 +96,7 @@ func TestPublicDiscordAssetBatchCrosses64KBOnOneTLSConnection(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		w.Header().Set("Content-Type", "image/png")
-		w.Write(append([]byte{137, 'P', 'N', 'G', 13, 10, 26, 10}, bytes.Repeat([]byte{1}, 8192)...))
+		w.Write(append([]byte{137, 'P', 'N', 'G', 13, 10, 26, 10}, bytes.Repeat([]byte{1}, 1300)...))
 	})
 	server, roots := youtubeTLSHTTPFixture(t, "cdn.discordapp.com", handler)
 	open := func(ctx context.Context) (net.Conn, error) {
@@ -104,7 +104,7 @@ func TestPublicDiscordAssetBatchCrosses64KBOnOneTLSConnection(t *testing.T) {
 		return publicFixtureOpen(server.Listener.Addr().String())(ctx)
 	}
 	p := probePublicService(context.Background(), "cdn.discordapp.com", roots, open)
-	if !localProbeSuccess("cdn.discordapp.com", p) || p.BodyBytes <= 64*1024 || opens.Load() != 1 || requests.Load() < 8 {
+	if !localProbeSuccess("cdn.discordapp.com", p) || p.BodyBytes <= 64*1024 || opens.Load() != 1 || requests.Load() < 49 {
 		t.Fatal("batch did not measure sustained same-connection bytes", p, opens.Load(), requests.Load())
 	}
 }
@@ -121,5 +121,16 @@ func TestPublicRedirectIsNotGeneralBulkOrUnverifiedTLSSuccess(t *testing.T) {
 	p = probePublicService(context.Background(), "discord.gg", nil, open)
 	if p.Failure != "TLS_CERTIFICATE_ERROR" || localProbeSuccess("discord.gg", p) {
 		t.Fatal("certificate verification bypassed", p)
+	}
+}
+
+func TestPublicYouTubeRedirectIsScopedAndNeverBulkProof(t *testing.T) {
+	server, roots := youtubeTLSHTTPFixture(t, "youtube.com", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "https://www.youtube.com/")
+		w.WriteHeader(301)
+	}))
+	p := probePublicService(context.Background(), "youtube.com", roots, publicFixtureOpen(server.Listener.Addr().String()))
+	if !localProbeSuccess("youtube.com", p) || localProbeSuccess("www.youtube.com", p) || youtubeTransferOK(p) {
+		t.Fatal(p)
 	}
 }

@@ -290,7 +290,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-24.9 (native TCP recipes and protocol-specific LOCAL proof)'
+$ScriptVersion='2026-10-24.10 (CDN proof selection and TCP terminal evidence)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -642,13 +642,19 @@ function Write-LocalCatalogEvidence($catalog) {
 }
 
 function Write-LocalProbeEvidence($ladder) {
+ foreach($closed in @(Prop $ladder 'tcp_closures' @())){
+  $t=Prop $closed 'Packets'
+  Say (' LOCAL close: domain='+(Prop $closed 'Domain')+' strategy='+(Prop $closed 'Strategy')+' reason='+(Prop $closed 'Reason')+' io='+(Prop $closed 'IOFailure')+' tx='+(Prop $closed 'TX')+' rx='+(Prop $closed 'RX')+' first='+(Prop $t 'first_close' 'NOT_OBSERVED')+' flags='+(Prop $t 'first_close_flags' 0)+' first_ttl='+(Prop $t 'first_close_ttl' 0)+' client_fin='+(Prop $t 'ClientFIN' 0)+' client_rst='+(Prop $t 'ClientRST' 0)+' remote_fin='+(Prop $t 'RemoteFIN' 0)+' remote_rst='+(Prop $t 'RemoteRST' 0)+' synack_ttl='+(Prop $t 'SYNACKTTL' 0)+' remote_terminal_ttl='+(Prop $t 'RemoteTerminalTTL' 0)+' client_retransmits='+(Prop $t 'ClientRetransmits' 0)+' remote_retransmits='+(Prop $t 'RemoteRetransmits' 0))
+ }
+ Say 'REMOTE_PACKET describes wire direction; a remote RST may be injected by a middlebox. TTL difference alone does not prove DPI.'
+
  Say 'LOCAL probes: service | host | strategy | result | wire_tx | wire_rx | body_rx | committed | inspection | sent packets(length/TTL/protocol)'
  foreach($probe in @(Prop $ladder 'probes' @())){
   $inspection=Prop $probe 'inspection'
-  $actions=@(Prop $probe 'planned_actions' @() | ForEach-Object {$native=Prop $_ 'native_tcp';if($null -ne $native){'native:'+(Prop $native 'mode')+'/repeats='+(Prop $native 'repeats')+'/fooling='+(Prop $native 'fooling')+'/badseq='+(Prop $native 'bad_sequence')+'/badack='+(Prop $native 'bad_ack')+'/ts_delta='+(Prop $native 'timestamp_delta')}else{((Prop $_ 'kind')+'/ttl='+(Prop $_ 'ttl' 0)+'/repeats='+(Prop $_ 'repeats' 0)+'/fooling='+(Prop $_ 'fooling' ''))}}) -join ','
+  $actions=@(Prop $probe 'planned_actions' @() | ForEach-Object {$native=Prop $_ 'native_tcp';if($null -ne $native){'native:'+(Prop $native 'mode')+'/repeats='+(Prop $native 'repeats')+'/fooling='+(Prop $native 'fooling')+'/badseq_only_if_fooling_badseq='+(Prop $native 'bad_sequence')+'/badack_only_if_fooling_badseq='+(Prop $native 'bad_ack')+'/ts_delta='+(Prop $native 'timestamp_delta')}else{((Prop $_ 'kind')+'/ttl='+(Prop $_ 'ttl' 0)+'/repeats='+(Prop $_ 'repeats' 0)+'/fooling='+(Prop $_ 'fooling' ''))}}) -join ','
   Say (' planned (not wire proof): '+$actions)
 
-  $packets=@(Prop $inspection 'sent_packets' @() | ForEach-Object {('fake='+(Prop $_ 'fake' $false)+'/len='+(Prop $_ 'length')+'/ttl='+(Prop $_ 'ttl')+'/proto='+(Prop $_ 'protocol')+'/seq_delta='+(Prop $_ 'sequence_offset')+'/flags='+(Prop $_ 'tcp_flags'))}) -join ','
+  $packets=@(Prop $inspection 'sent_packets' @() | ForEach-Object {('fake='+(Prop $_ 'fake' $false)+'/len='+(Prop $_ 'length')+'/ttl='+(Prop $_ 'ttl')+'/proto='+(Prop $_ 'protocol')+'/seq_delta='+(Prop $_ 'sequence_offset')+'/flags='+(Prop $_ 'tcp_flags')+'/ack_delta='+(Prop $_ 'ack_offset' 0)+'/ts='+(Prop $_ 'timestamp_present' $false)+'/ts_delta='+(Prop $_ 'timestamp_delta' 0)+'/md5='+(Prop $_ 'md5_present' $false))}) -join ','
   Say ((Prop $probe 'service')+' | '+(Prop $probe 'host')+' | '+(Prop $probe 'strategy')+' | '+(Prop $probe 'result')+'/failure='+(Prop $probe 'failure' '')+'/http='+(Prop $probe 'http_status' 0)+' | '+(Prop $probe 'sent_bytes' 0)+' | '+(Prop $probe 'received_bytes' 0)+' | '+(Prop $probe 'body_bytes' 0)+' | '+(Prop $probe 'committed' $false)+' | '+(Prop $inspection 'reason' 'NO_LEDGER_OBSERVATION')+' '+(Prop $inspection 'detail' '')+' syn='+(Prop $inspection 'syn_seen' 'UNKNOWN')+' handshake='+(Prop $inspection 'handshake_confirmed' 'UNKNOWN')+' server_ttl='+(Prop $inspection 'server_ttl' 'UNKNOWN')+' original_packet_bytes='+(Prop $inspection 'original_packet_bytes' 'UNKNOWN')+' tcp_header='+(Prop $inspection 'tcp_header_bytes' 'UNKNOWN')+' timestamp_option='+(Prop $inspection 'timestamp_option' 'UNKNOWN')+' | '+$packets)
  }
 
@@ -668,10 +674,10 @@ function Write-YouTubeLocalEvidence($ladder) {
   Say (' '+(Prop $stage 'service' 'youtube-media')+' stage='+(Prop $stage 'stage')+' strategy='+(Prop $stage 'strategy' '-')+' connections='+(Prop $stage 'Connections' 0)+' tx='+(Prop $stage 'TX' 0)+' rx='+(Prop $stage 'RX' 0)+' failures='+(Prop $stage 'Failures' 0)+' transport_confirmed='+(Prop $stage 'Confirmed' 0))
  }
  foreach($entry in @(Prop $ladder 'cache' @())){
-  Say (' youtube cache: profile='+(Prop $entry 'Profile')+' domain='+(Prop $entry 'Domain')+' hint_only='+(Prop $entry 'HintOnly' $false)+' stage='+(Prop $entry 'Stage')+' strategy='+(Prop $entry 'Strategy')+' until='+(Prop $entry 'Until')+' recheck='+(Prop $entry 'Retry')+' streak='+(Prop $entry 'Streak' 0)+' reason='+(Prop $entry 'Reason'))
+  Say (' youtube cache: profile='+(Prop $entry 'Profile')+' domain='+(Prop $entry 'Domain')+' hint_only='+(Prop $entry 'HintOnly' $false)+' stage='+(Prop $entry 'Stage')+' strategy='+(Prop $entry 'Strategy')+' until='+(Prop $entry 'Until')+' recheck='+(Prop $entry 'Retry')+' qualified='+(Prop $entry 'Qualified' '')+' trial_after='+(Prop $entry 'TrialAfter' '')+' streak='+(Prop $entry 'Streak' 0)+' reason='+(Prop $entry 'Reason'))
  }
  foreach($flow in @(Prop $ladder 'records' @())){
-  Say (' youtube step #'+(Prop $flow 'id')+' profile='+(Prop $flow 'profile')+' service='+(Prop $flow 'service' 'youtube-media')+' domain='+(Prop $flow 'domain')+' destination='+(Prop $flow 'destination')+' stage='+(Prop $flow 'stage')+' strategy='+(Prop $flow 'strategy' '-')+' tx='+(Prop $flow 'TX' 0)+' rx='+(Prop $flow 'RX' 0)+' server_hello='+(Prop $flow 'ServerHello' $false)+' committed_transform_confirmed='+$(if(Prop $flow 'TransformKnown' $false){if(Prop $flow 'Transform' $false){'YES'}else{'NOT_CONFIRMED'}}else{'UNKNOWN_NOT_QUERIED'})+' reason='+(Prop $flow 'reason'))
+  Say (' youtube step #'+(Prop $flow 'id')+' profile='+(Prop $flow 'profile')+' service='+(Prop $flow 'service' 'youtube-media')+' domain='+(Prop $flow 'domain')+' destination='+(Prop $flow 'destination')+' stage='+(Prop $flow 'stage')+' strategy='+(Prop $flow 'strategy' '-')+' tx='+(Prop $flow 'TX' 0)+' rx='+(Prop $flow 'RX' 0)+' server_hello='+(Prop $flow 'ServerHello' $false)+' committed_transform_confirmed='+$(if(Prop $flow 'TransformKnown' $false){if(Prop $flow 'Transform' $false){'YES'}else{'NOT_CONFIRMED'}}else{'UNKNOWN_NOT_QUERIED'})+' reason='+(Prop $flow 'reason')+' io='+(Prop $flow 'io_failure' ''))
  }
  Say 'LOCAL bytes are real upstream bytes; transport_confirmed requires committed native transform and sustained TLS bytes, not playback PASS. DIRECT/LOCAL ClientHello traffic can precede a RELAY fallback. Existing TLS never moves after origin bytes.'
 }

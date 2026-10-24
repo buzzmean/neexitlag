@@ -2,22 +2,22 @@
 
 # CURRENT
 
-## Последний итог — LOCAL native engine,24.10.2026
-`5319850`: точная strategy×host диагностика; `4568dd4`: LOCAL owner race guard и CDN trial по scoped transform.
-`1cdb650`:64 Flowseal TCP443 rules реально исполняются в fixtures,44 уникальных плана+9legacy;49 HTTP/QUIC/прочих rules явно unsupported.
-Raw WinDivertSend уже существовал; исправлены LSO>1500, native TS/MD5/badseq semantics, fake/split/disorder/host/SYN-data и bounded64 outputs/flight. Без external winws/глобальных настроек.
-Pure TS требует timestamp negotiation; собственный LOCAL socket включает Winsock option10, отказ виден в diag. Templates свои, побитовая эквивалентность winws НЕ заявлена.
-Общие DPI группы: Discord CDN PNG >64KiB/один TLS; публичный gateway WSS nonce ping/pong и .gg redirect — отдельный CONTROL_NOT_BULK proof, не login/page/voice PASS.
-Diag.9/browser.local.probes: actual fake/TTL/seq delta/headers, TX/RX/body, status/failure и отдельные silence/RST/freeze/EOF/protocol/NO_TRANSFORM причины; все service groups.
-Полные Go race/vet/build Linux+Windows+Windows vet PASS; обе Windows fixture EXE собраны; DLL70filters/iSCSI30/checksums всех catalog plans подWine PASS; PS7 fixtures PASS.
-Нативные Windows/PS5.1/новый socket option/ISP2160p/Discord LOCAL НЕ проверены; видео RELAY RX≈0 ещё НЕ доказано. CI не выдавать за PASS без job steps.
-VPS/CA/activation/коды/CP flags/PR8 не трогали; браузеры не закрывали. Аудит/ограничения: docs/LOCAL_ENGINE_AUDIT.md; предыдущие итоги дословно в ARCHIVE.
+## Последний итог — CDN trial/EOF,24.10.2026
+Владелец6df8a42 подтвердил www.youtube.com/discord.com128KiB LOCAL(c0aa53…), но CDN0/4/3post-reply failures: успех googlevideo всё ещё НЕ доказан.
+Исправлен selector: same network/profile/hint-mode sustained YouTube proof выше transform-only/catalog prior; точный Qualified ID виден в diag; failed CDN candidate не форсируется снова в текущем sweep.
+Фон не меняет binding/health активного trial; TrialAfter отдельно сохраняет >=3мин независимо от requalification; max1/live RELAY sibling/3sustained CDN success сохранены. Existing TCP pinned, после origin byte replay запрещён.
+Diag.10: фактические ACK/TS deltas/MD5; bounded LOCAL close table с EOF/reset, FIN/RST направлением/первым TTL/SYNACK TTL/ретрансмитами, отдельно от active RELAY records и в пределах IPC budget.
+Для fooling=ts seq_delta0/1 и original TTL128 ожидаемы: badseq/badack неактивны; ts_delta должен быть-600000. Генерация fake/old-sequence legacy не менялась.
+16PNG давали~21KiB: теперь≤64 GET/один TLS/4с/256KiB до >64KiB. Пустой301 не IO failure; canonical youtube.com redirect — CONTROL_NOT_BULK, не CDN/video PASS. i.ytimg404 не успех.
+A: конкретный EARLY_EOF на ПК пока НЕ объяснён; новая packet evidence нужна, чтобы отличить remote FIN/RST/локальное закрытие/короткий ответ. TTL не доказывает DPI, HTTP CDN без MITM не виден.
+Полные Go race/vet/build Linux+Windows и Windows vet PASS; обе Windows fixture EXE собраны, pinned DLL70filters/iSCSI30/checksum44plans подWine PASS; PS7 PASS. Windows kernel/PS5.1/ISP CDN не выполнялись здесь. GUI/CP/shared flags/VPS/CA/коды/SSH/PR8 не трогали.
+Аудит: docs/LOCAL_ENGINE_AUDIT.md (CDN приёмка6df8a42); прежний итог дословно в ARCHIVE. IPC использует прежний browser.local.probes dispatch; manifest/defaults не менялись, DIAG read-only, RELAY не форсируется вместо рабочего LOCAL.
 
 ## Таблица работ
 | Работа / дата | Файлы | Агент / ветка | Статус |
 |---|---|---|---|
 | LOCAL engine / 24.10.2026 | core/localstrategy; platform/windows native/DNS/TCP inject; services/client-service browser* и минимальный controller/club IPC dispatch; tools/windows diag; tests/workflow/docs | Codex / codex/work | ОСВОБОЖДЕНО: код/лаборатория готовы; Windows/ISP приёмка не доказана |
-| CDN LOCAL recovery / 24.10.2026 | core/localstrategy native recipes/inspection; platform/windows TCP evidence/buffer; services/client-service browser selection/probes; tools/windows diag; tests/docs | Codex / codex/work | В РАБОТЕ: точная стратегия CDN, post-reply close, fooling/probes |
+| CDN LOCAL recovery / 24.10.2026 | core/localstrategy inspection; core/browserproxy/probe.go; platform/windows TCP evidence; services/client-service browser selection/probes; tools/windows diag; tests/docs | Codex / codex/work | ОСВОБОЖДЕНО: selector/probes/telemetry готовы; требуется owner trace для EOF и CDN success |
 | Компактный handoff / 24.10.2026 | docs/handoff/*, docs/AGENT_RULES.md | Codex / codex/work | ОСВОБОЖДЕНО: архив и правила готовы; только документы |
 | Экономия VPS / LOCAL каталог и автоподбор 1–7 (23.10.2026) | Детали — [ARCHIVE.md](ARCHIVE.md) | Codex / codex/work | ОСВОБОЖДЕНО; код готов, Windows/ISP gates см. ниже |
 | Multi-relay/Hostkey P0 (23.10.2026) | Детали — [ARCHIVE.md](ARCHIVE.md) | Codex / codex/work | ОСВОБОЖДЕНО; код готов, Windows/ISP gates см. ниже |
@@ -38,7 +38,7 @@ VPS/CA/activation/коды/CP flags/PR8 не трогали; браузеры н
 | Дизайн VELIQ / 20.10.2026 | site/, brand/, design/; будущие WPF/assets | Claude Code | Сайт согласован; перенос в WPF и новая иконка не сделаны |
 
 ## Текущая очередь и открытые вопросы
-- Приёмка LOCAL на ПК владельца: новые browser flows, 1080p2мин с перемоткой после подтверждения LOCAL; игры остаются DIRECT.
+- Приёмка CDN нового кода: сначала scoped c0aa53 proof и >=3min trials; при EOF читать LOCAL close/actual fooling table. После LOCAL —2160p2мин/seek; игры DIRECT.
 - HTTP80, QUIC fake и Discord voice UDP LOCAL не реализованы; fakedsplit TCP443 реализован, весь Flowseal не заявляется.
 - Подбор DPI продолжается ограниченно; пока нет proof — временный authenticated RELAY. Short response не доказывает >64KiB.
 - Общий клубный picker и server NIC month/forecast подготовлены, production endpoints/flags выключены: per-PC fallback и monthly UNKNOWN.
@@ -59,7 +59,7 @@ VPS/CA/activation/коды/CP flags/PR8 не трогали; браузеры н
 - C#198/198 иWPF0errors/4прежнихCS8604 после merge; в6–7 C# не менялся и заново WPF не собирали.
 - CI1cdb650 Verify40090200087: failure, core/windows/Chrome-native/Edge steps=[]; CI не исполнился. Ранее billing gate подтверждён владельцем; новый текст причины не получен.
 - Artifact quota не назначать причиной без evidence: https://github.com/buzzmean/neexitlag/actions/runs/40090200087
-- Telegram/Anthropic recovery и native браузеры подтверждались владельцем ранее; это не proof новых LOCAL стратегий.
+- На6df8a42 владелец подтвердил native capture и public128KiB LOCAL(c0aa53), но CDN0/4; Telegram/Anthropic ранее работали. CDN/Discord voice не объявлять PASS.
 - Исторические непроверенные gates остаются в ARCHIVE.md; при работе над соответствующей областью искать их точечно, не считать закрытыми.
 
 ## Действующие запреты и инварианты
@@ -97,7 +97,10 @@ PowerShell администратора под прежним owner SID, из к
     & .\tools\windows\update-service.ps1
     . .\tools\windows\common.ps1
     Invoke-ServiceIPC 'status' | Select-Object build,connected,optimizing,capture_active
-    Read-Host 'В уже открытом браузере: YouTube2160p2мин с перемоткой; Discord/.gg/CDN/gateway, X/rutracker, Telegram/IG/FB/ChatGPT/Claude, VK/Яндекс; затем Enter'
+    $a=(Get-FileHash '.\bin\windows-e2e\neexitlag-service.exe' -Algorithm SHA256).Hash
+    $b=(Get-FileHash "$env:ProgramData\neexitlag\neexitlag-service.exe" -Algorithm SHA256).Hash
+    if ($a -ne $b) { throw 'SERVICE_HASH_MISMATCH' }
+    Read-Host 'YouTube2160p >=6мин/seek в уже открытом Chrome; Discord/CDN, Telegram/ChatGPT/Claude, VK/Яндекс; затем Enter'
     & .\tools\windows\relay-status.ps1
     & .\tools\windows\relay-traffic.ps1
     & .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube

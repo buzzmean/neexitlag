@@ -3,20 +3,40 @@ package localstrategy
 import (
 	"encoding/binary"
 	"strings"
+	"time"
 )
 
 // Inspection is passive metadata from the first eligible payload, never retained
 // packet bytes. A reason is not evidence that a packet was successfully sent.
 type SentPacket struct {
-	Fake           bool  `json:"fake"`
-	SequenceOffset int32 `json:"sequence_offset"`
-	Flags          uint8 `json:"tcp_flags"`
-	Length         int   `json:"length"`
-	TTL            uint8 `json:"ttl"`
-	Protocol       uint8 `json:"protocol"`
+	ACKOffset        int32 `json:"ack_offset"`
+	TimestampPresent bool  `json:"timestamp_present"`
+	TimestampDelta   int32 `json:"timestamp_delta"`
+	MD5Present       bool  `json:"md5_present"`
+	Fake             bool  `json:"fake"`
+	SequenceOffset   int32 `json:"sequence_offset"`
+	Flags            uint8 `json:"tcp_flags"`
+	Length           int   `json:"length"`
+	TTL              uint8 `json:"ttl"`
+	Protocol         uint8 `json:"protocol"`
+}
+
+type TCPTrace struct {
+	Observed                                                                           uint64 `json:"observed"`
+	ClientPayloadPackets, ClientPayloadBytes, RemotePayloadPackets, RemotePayloadBytes uint64
+	ClientFIN, ClientRST, RemoteFIN, RemoteRST                                         uint64
+	ClientRetransmits, RemoteRetransmits                                               uint64
+	LastRemoteTTL, SYNACKTTL, ClientTerminalTTL, RemoteTerminalTTL                     uint8
+	FirstClose                                                                         string    `json:"first_close,omitempty"`
+	FirstCloseFlags                                                                    uint8     `json:"first_close_flags"`
+	FirstCloseTTL                                                                      uint8     `json:"first_close_ttl"`
+	FirstCloseAt                                                                       time.Time `json:"first_close_at"`
+	ClientNext, RemoteNext                                                             uint32    `json:"-"`
+	ClientSequenceSeen, RemoteSequenceSeen                                             bool      `json:"-"`
 }
 
 type Inspection struct {
+	TCPPackets               TCPTrace     `json:"tcp_packets"`
 	OriginalPacketBytes      int          `json:"original_packet_bytes"`
 	TCPHeaderBytes           int          `json:"tcp_header_bytes"`
 	TimestampOption          bool         `json:"timestamp_option"`
@@ -146,6 +166,45 @@ func DescribeSentPacket(p, original []byte) SentPacket {
 	if len(p) >= 40 && len(original) >= 40 && p[0] == 0x45 && original[0] == 0x45 && p[9] == 6 {
 		v.SequenceOffset = int32(binary.BigEndian.Uint32(p[24:]) - binary.BigEndian.Uint32(original[24:]))
 		v.Flags = p[33]
+		v.ACKOffset = int32(binary.BigEndian.Uint32(p[28:]) - binary.BigEndian.Uint32(original[28:]))
+		stamp, has, md5 := packetTCPOptions(p)
+		before, old, _ := packetTCPOptions(original)
+		v.TimestampPresent = has
+		v.MD5Present = md5
+		if has && old {
+			v.TimestampDelta = int32(stamp - before)
+		}
 	}
 	return v
+}
+
+func packetTCPOptions(p []byte) (stamp uint32, has, md5 bool) {
+	if len(p) < 40 {
+		return
+	}
+	end := 20 + int(p[32]>>4)*4
+	if end > len(p) {
+		return
+	}
+	for i := 40; i < end; {
+		if p[i] == 0 {
+			break
+		}
+		if p[i] == 1 {
+			i++
+			continue
+		}
+		if i+1 >= end || p[i+1] < 2 || i+int(p[i+1]) > end {
+			break
+		}
+		if p[i] == 8 && p[i+1] == 10 {
+			stamp = binary.BigEndian.Uint32(p[i+2:])
+			has = true
+		}
+		if p[i] == 19 && p[i+1] == 18 {
+			md5 = true
+		}
+		i += int(p[i+1])
+	}
+	return
 }

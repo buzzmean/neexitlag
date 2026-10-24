@@ -36,13 +36,16 @@ func (c *publicProbeConn) Read(p []byte) (int, error) {
 	return n, e
 }
 func publicProbeHost(host string) bool {
-	return host == "gateway.discord.gg" || host == "discord.gg" || host == "cdn.discordapp.com"
+	return host == "youtube.com" || host == "gateway.discord.gg" || host == "discord.gg" || host == "cdn.discordapp.com"
 }
 func localProbeSuccess(host string, p browserproxy.ProbeResult) bool {
 	if p.Failure != "" || p.TLSVersion < tls.VersionTLS12 {
 		return false
 	}
 	if host == "gateway.discord.gg" && p.Phase == "PUBLIC_WS_CONTROL" && p.Status == 101 && p.Detail == "THREE_NONCE_PONGS" {
+		return true
+	}
+	if host == "youtube.com" && p.Phase == "PUBLIC_REDIRECT_CONTROL" && p.Status >= 300 && p.Status < 400 && p.Detail == "EXPECTED_YOUTUBE_REDIRECT" {
 		return true
 	}
 	if host == "discord.gg" && p.Phase == "PUBLIC_REDIRECT_CONTROL" && p.Status >= 300 && p.Status < 400 && p.Detail == "EXPECTED_DISCORD_REDIRECT" {
@@ -100,7 +103,7 @@ func probePublicService(ctx context.Context, host string, roots *x509.CertPool, 
 	paths := []string{"/"}
 	if host == "cdn.discordapp.com" {
 		paths = nil
-		for i := 0; i < 16; i++ {
+		for i := 0; i < 64; i++ {
 			paths = append(paths, "/embed/avatars/"+string(rune('0'+i%6))+".png")
 		}
 	}
@@ -119,12 +122,15 @@ func probePublicService(ctx context.Context, host string, roots *x509.CertPool, 
 			return controlFailure(p, e)
 		}
 		p.Status = response.StatusCode
-		if host == "discord.gg" && p.Status >= 300 && p.Status < 400 {
+		if (host == "discord.gg" || host == "youtube.com") && p.Status >= 300 && p.Status < 400 {
 			target, e := response.Location()
 			response.Body.Close()
-			if e == nil && target.Scheme == "https" && target.User == nil && (target.Host == "discord.com" || target.Host == "www.discord.com") {
+			if e == nil && target.Scheme == "https" && target.User == nil && ((host == "discord.gg" && (target.Host == "discord.com" || target.Host == "www.discord.com")) || (host == "youtube.com" && target.Host == "www.youtube.com")) {
 				p.Phase = "PUBLIC_REDIRECT_CONTROL"
 				p.Detail = "EXPECTED_DISCORD_REDIRECT"
+				if host == "youtube.com" {
+					p.Detail = "EXPECTED_YOUTUBE_REDIRECT"
+				}
 				return p
 			}
 			p.Failure = "UNEXPECTED_REDIRECT"
@@ -144,7 +150,7 @@ func probePublicService(ctx context.Context, host string, roots *x509.CertPool, 
 			return p
 		}
 	}
-	p.Failure = "PUBLIC_BODY_NOT_SUSTAINED"
+	p.Failure = "PUBLIC_PROBE_BUDGET_NOT_SUSTAINED"
 	return p
 }
 func probeGatewayControl(ctx context.Context, host string, conn net.Conn, reader *bufio.Reader, p browserproxy.ProbeResult) browserproxy.ProbeResult {

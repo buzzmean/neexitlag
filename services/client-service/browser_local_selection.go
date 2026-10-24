@@ -252,17 +252,41 @@ func (r *youtubeRuntime) endRecheck() {
 func (r *youtubeRuntime) qualified(k youtubeKey, strategy string, now time.Time) bool {
 	return now.Before(r.qualifications[youtubeQualification{k.Network, k.Profile, strategy, k.HintOnly}])
 }
+
+// Caller holds mu. Prefer actual sustained YouTube proof over a transform-only
+// witness, never transfer evidence across network/profile/hint mode or retry a
+// failed candidate within this sweep. Stable catalog order breaks ties.
+func (r *youtubeRuntime) cdnCandidate(k youtubeKey, v youtubeLearn, now time.Time) string {
+	best := ""
+	strength := 0
+	for i, id := range r.order {
+		if v.Tried&(uint64(1)<<uint(i)) != 0 || !r.qualified(k, id, now) {
+			continue
+		}
+		score := 1
+		if now.Before(r.sustained[youtubeQualification{k.Network, k.Profile, id, k.HintOnly}]) {
+			score = 2
+		}
+		if score > strength {
+			best = id
+			strength = score
+		}
+	}
+	return best
+}
 func (r *youtubeRuntime) takeTrial(k youtubeKey, now time.Time, workingRelay bool) (string, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	v := r.cache[k]
-	if !youtubeCDN(k) || !workingRelay || r.trialActive || now.Before(v.Retry) || v.Qualified == "" || !r.qualified(k, v.Qualified, now) {
+	if !youtubeCDN(k) || !workingRelay || r.trialActive || now.Before(v.Retry) || now.Before(v.TrialAfter) || v.Qualified == "" || !r.qualified(k, v.Qualified, now) {
 		return "", false
 	}
 	r.trialActive = true
+	r.trialKey = k
 	r.selection.ActiveTrial = true
 	r.selection.Trials++
 	v.Retry = now.Add(youtubeTrialCooldown)
+	v.TrialAfter = v.Retry
 	r.cache[k] = v
 	return v.Qualified, true
 }
@@ -270,6 +294,7 @@ func (r *youtubeRuntime) finishTrial(k youtubeKey, strategy string, success, aft
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.trialActive = false
+	r.trialKey = youtubeKey{}
 	r.selection.ActiveTrial = false
 	if !r.room(k, now) {
 		r.selection.TrialFailures++
@@ -318,6 +343,7 @@ func (r *youtubeRuntime) finishTrial(k youtubeKey, strategy string, success, aft
 		pause = b
 	}
 	v.Retry = now.Add(pause)
+	v.TrialAfter = v.Retry
 	v.Until = now.Add(youtubeLearnTTL)
 	r.cache[k] = v
 }
@@ -356,11 +382,16 @@ func (c *Controller) youtubeBackgroundRecheck(cur profilesResult, q browserproxy
 	// Any committed YouTube transform of this same scoped plan permits a
 	// guarded real CDN trial, not a LOCAL confirmation or a page-success claim.
 	candidate := r.nextCandidate(key, v)
-	if sharedCandidate != "" {
+	if youtubeCDN(key) {
+		if qualified := r.cdnCandidate(key, v, time.Now()); qualified != "" {
+			candidate = qualified
+		}
+	}
+	if sharedCandidate != "" && (!youtubeCDN(key) || !r.qualified(key, candidate, time.Now())) {
 		candidate = sharedCandidate
 	}
 	transformProof := youtubeCDN(key) && candidate != "" && r.qualified(key, candidate, time.Now())
-	waitingTrial := v.Qualified != "" && r.qualified(key, v.Qualified, time.Now())
+	waitingTrial := r.trialActive || v.Qualified != "" && r.qualified(key, v.Qualified, time.Now()) && (candidate == v.Qualified || candidate == "")
 	r.mu.Unlock()
 	if waitingTrial {
 		return
@@ -509,6 +540,10 @@ func (c *Controller) youtubeBackgroundRecheck(cur profilesResult, q browserproxy
 func (r *youtubeRuntime) backgroundFailure(k youtubeKey, strategy, reason string) {
 	r.mu.Lock()
 	r.selection.BackgroundFailures++
+	if r.trialActive && r.trialKey == k {
+		r.mu.Unlock()
+		return
+	}
 	if reason == "BACKGROUND_DNS_FAILED" || reason == "BACKGROUND_NO_PUBLIC_IPV4" || reason == "BACKGROUND_LOCAL_GUARD" {
 		v := r.cache[k]
 		v.Reason = reason
@@ -558,6 +593,12 @@ func (r *youtubeRuntime) completeCDNQualification(key youtubeKey, strategy strin
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.trialActive {
+		return
+	} // Never change binding beneath an established trial.
+	if best := r.cdnCandidate(key, r.cache[key], now); best != "" {
+		strategy = best
+	}
 	if !r.room(key, now) {
 		return
 	}
@@ -571,7 +612,10 @@ func (r *youtubeRuntime) completeCDNQualification(key youtubeKey, strategy strin
 	if len(r.qualifications) >= 256 {
 		return
 	}
-	r.qualifications[youtubeQualification{key.Network, key.Profile, strategy, key.HintOnly}] = now.Add(youtubeLearnTTL)
+	proof := youtubeQualification{key.Network, key.Profile, strategy, key.HintOnly}
+	if !now.Before(r.qualifications[proof]) {
+		r.qualifications[proof] = now.Add(youtubeLearnTTL)
+	}
 	v := r.cache[key]
 	stillConfirmed := v.Confirmed && v.Stage == "LOCAL" && v.Strategy == strategy && now.Before(v.Until)
 	if !stillConfirmed {
@@ -583,7 +627,11 @@ func (r *youtubeRuntime) completeCDNQualification(key youtubeKey, strategy strin
 		v.Until = now.Add(youtubeLearnTTL)
 	}
 	v.Qualified = strategy
-	v.Retry = now
+	if v.TrialAfter.After(now) {
+		v.Retry = v.TrialAfter
+	} else {
+		v.Retry = now
+	}
 	v.Reason = "SAME_STRATEGY_TRANSFORM_PROVEN_CDN_TRIAL_PENDING"
 	if stillConfirmed {
 		v.Reason = "PUBLIC_RECHECK_PASSED; EXISTING_MEDIA_CONFIRMATION_DEADLINE_PRESERVED"

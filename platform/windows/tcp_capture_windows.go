@@ -216,9 +216,12 @@ func (t *tcpRedirect) processPacket(p []byte, a [80]byte, classify Classifier) {
 				return
 			}
 			t.state.mu.Lock()
-			if e := t.state.entries[reverse]; e != nil && e.mode == "direct" && e.decision.Route.Local() && p[0] == 0x45 && flags&0x3f == 0x12 && 20+int(p[32]>>4)*4 == len(p) {
-				e.localState.ConfirmHandshake(binary.BigEndian.Uint32(p[28:]), binary.BigEndian.Uint32(p[24:]))
-				e.localState.ObserveServerTTL(p[8])
+			if e := t.state.entries[reverse]; e != nil && e.mode == "direct" && e.decision.Route.Local() {
+				t.b.evidence.RecordLocalTCPPacket(e.identity, e.tuple, p, true)
+				if p[0] == 0x45 && flags&0x3f == 0x12 && 20+int(p[32]>>4)*4 == len(p) {
+					e.localState.ConfirmHandshake(binary.BigEndian.Uint32(p[28:]), binary.BigEndian.Uint32(p[24:]))
+					e.localState.ObserveServerTTL(p[8])
+				}
 			}
 			t.state.mu.Unlock()
 			if err = t.send(p, a); err != nil && t.b.ctx.Err() == nil {
@@ -274,6 +277,9 @@ func (t *tcpRedirect) processPacket(p []byte, a [80]byte, classify Classifier) {
 		if mode == "relay" {
 			err = t.reflect(e, p, a, false)
 		} else if mode == "direct" {
+			if e.decision.Route.Local() {
+				t.b.evidence.RecordLocalTCPPacket(e.identity, e.tuple, p, false)
+			}
 			err = e.localBuffer.Push(e.decision, &e.localState, e.identity, e.tuple, p, func(q []byte) error { return t.send(q, a) }, t.b.evidence, time.Now())
 		} else if mode == "hot_attach" {
 			t.b.hotBlocked()

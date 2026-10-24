@@ -203,3 +203,61 @@ func TestSharedIPSubgroupCheckPrecedesDiagnosticTruncation(t *testing.T) {
 		t.Fatal("9th mixed subgroup truncated into LOCAL authorization", e)
 	}
 }
+
+func TestCDNPrefersSustainedScopedProofAndCannotResetTrialCooldown(t *testing.T) {
+	r := newYoutubeRuntime()
+	now := time.Now()
+	k := youtubeKey{"net", "chrome", "googlevideo:sn-a", 443, false}
+	weak, strong := r.order[0], r.order[1]
+	for _, id := range []string{weak, strong} {
+		r.qualifications[youtubeQualification{k.Network, k.Profile, id, k.HintOnly}] = now.Add(youtubeLearnTTL)
+	}
+	r.sustained[youtubeQualification{k.Network, k.Profile, strong, k.HintOnly}] = now.Add(youtubeLearnTTL)
+	if got := r.cdnCandidate(k, youtubeLearn{}, now); got != strong {
+		t.Fatal("picked unproven catalog prior", got, strong)
+	}
+	other := k
+	other.Network = "other"
+	if r.cdnCandidate(other, youtubeLearn{}, now) != "" {
+		t.Fatal("cross-network proof")
+	}
+	r.completeCDNQualification(k, strong, now)
+	if got, ok := r.takeTrial(k, now, true); !ok || got != strong {
+		t.Fatal("wrong admitted strategy", got, ok)
+	}
+	r.finishTrial(k, strong, true, true, now, 70000)
+	r.completeCDNQualification(k, strong, now.Add(time.Minute))
+	if _, ok := r.takeTrial(k, now.Add(time.Minute), true); ok {
+		t.Fatal("requalification bypassed 3min cooldown")
+	}
+	if got, ok := r.takeTrial(k, now.Add(youtubeTrialCooldown), true); !ok || got != strong {
+		t.Fatal("cooldown did not expire", got, ok)
+	}
+	r.finishTrial(k, strong, false, true, now.Add(youtubeTrialCooldown))
+	v := r.cache[k]
+	if v.Streak != 0 || v.Stage != "RELAY" || r.cdnCandidate(k, v, now.Add(youtubeTrialCooldown)) == strong {
+		t.Fatal("failed strategy immediately retried", v)
+	}
+}
+
+func TestBackgroundCompletionCannotRebindOrPoisonAnActiveCDNTrial(t *testing.T) {
+	r := newYoutubeRuntime()
+	now := time.Now()
+	k := youtubeKey{"net", "chrome", "googlevideo:sn-race", 443, false}
+	first, second := r.order[0], r.order[1]
+	r.qualifications[youtubeQualification{k.Network, k.Profile, first, k.HintOnly}] = now.Add(youtubeLearnTTL)
+	r.completeCDNQualification(k, first, now)
+	if _, ok := r.takeTrial(k, now, true); !ok {
+		t.Fatal("no trial")
+	}
+	r.sustained[youtubeQualification{k.Network, k.Profile, second, k.HintOnly}] = now.Add(youtubeLearnTTL)
+	r.completeCDNQualification(k, second, now)
+	r.backgroundFailure(k, second, "BACKGROUND_NOT_SUSTAINED_OR_NO_TRANSFORM")
+	if r.cache[k].Qualified != first {
+		t.Fatal("background altered established trial binding", r.cache[k])
+	}
+	r.finishTrial(k, first, true, true, now, 70000)
+	if r.selection.TrialSuccesses != 1 || r.cache[k].Streak != 1 {
+		t.Fatal("successful trial was lost", r.cache[k])
+	}
+}
