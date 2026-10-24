@@ -1,22 +1,18 @@
 # CURRENT — состояние проекта (обновляется в конце каждой сессии)
 
 Текущая работа Codex (24.10.2026 MSK): экономия VPS, очередь1–7.
-Владелец подтвердил P0 Hostkey/1080p relay на27f2a8f; LOCAL video НЕ подтверждён.
-Пункт1 PUSHED: b213fa5 (IPC),c84f7c1 (общий manifest),3799f75
-(tracked checkout/Python/diag вне repo); PS5.1 quote supplemental пока LOCAL. Главный принцип в AGENT_RULES: aa10a2f.
-Пункт2: каталог119rules/22general/4MIT sources,13unique собственных TCP plans,
-seqovl и signed data delivery готовы локально (de8e5d7,08a9eb5,a3ec712).
-Это НЕ полный winws,81rules explicit unsupported и новые планы ещё не в AUTO.
-Пункты3–7 НЕ выполнены. Никакой экономии YouTube на ISP этим этапом не заявлено.
-PUSH пункта2 BLOCKED: remote20d8bd8 меняет толькоCLAUDE.md; normal push rejected.
-Запрошено разрешение обычного merge, без rebase/force. Ждём также решения CDN:
-строгая background>64KiB либо ограниченный real LOCAL trial с post-hello риском.
-Последний полный Go race/vet/Linux+Windows build/Windows vet PASS,100Python и
-PostgreSQL17 tests PASS, PS7 fixtures PASS, pinned DLL70filters/iSCSI30/checksums
-13plans подWine PASS. Был единичный полныйdemo25s timeout; current и baseline27f
-изолированно оба3/3 PASS; причина не доказана, тест не менялся.
-Native Windows/PS5.1/kernel/ISP/LOCAL1080p не проверены. Production/CA/activation/
-коды/credentials/PR8 не запускались и не менялись агентом. Блокер и команды ниже.
+Владелец подтвердил Hostkey relay/1080p; LOCAL video пока НЕ подтверждён.
+Пункты1a–1c и каталог2 сохранены коммитами b213fa5/c84f7c1/3799f75,
+de8e5d7/08a9eb5/a3ec712/77566d6. Обычный merge20d8bd8 разрешён владельцем
+и выполнен9135519: только9строк CLAUDE.md, конфликтов нет, без rebase/force.
+Новые packet plans ещё не в AUTO; следующие пункты3–7 в работе, не PASS.
+Решение CDN принято: обе фоновые проверки www.youtube.com/i.ytimg.com >64KiB,
+затем max1 LOCAL trial при реально получающих данные RELAY googlevideo siblings,
+cooldown несколько минут/подгруппу;3успешных >64KiB потоков перед LOCAL,
+сбой→RELAY новых соединений, экспоненциальная пауза, post-reply failures в diag.
+Это ограничение риска, не гарантия незаметного повтора сегмента плеером.
+Production/CA/activation/credentials/PR8 агентом не запускались. Windows/PS5.1/
+WinDivertOpen/ISP/LOCAL1080p не проверены; проверки merge записаны ниже.
 
 Последний итог Codex 23.10.2026: очередь P0 Hostkey → YouTube LOCAL-first завершена
 в коде, codex/work. P0 safe audience/provider `e9cf0b5`, root retry/CAS `7b3168c`;
@@ -79,7 +75,7 @@ VPS/credentials/certificates/PR8 не тронуты, deployment VPS не тре
 
 | Работа | Файлы | Агент | Ветка | Статус |
 |---|---|---|---|---|
-| Экономия VPS / LOCAL каталог и автоподбор 1–7 (23.10.2026) | docs/AGENT_RULES и handoff; services/client-service controller/IPC/browser/local/relay; core localstrategy/browserproxy/controlclient/security/flowpolicy; platform/windows local packet code/tests; tools relay-client/windows/catalog; services/control-plane/relay metrics/config; tests/workflows/docs | Codex | codex/work | ПАУЗА перед push2/пунктом3: 1a–1c pushed; каталог/packet/signed data сохранены локально; ждём разрешение merge20d8bd8 и CDN tradeoff; область зарезервирована до синхронизации, production не запускать |
+| Экономия VPS / LOCAL каталог и автоподбор 1–7 (23.10.2026) | docs/AGENT_RULES и handoff; services/client-service controller/IPC/browser/local/relay; core localstrategy/browserproxy/controlclient/security/flowpolicy; platform/windows local packet code/tests; tools relay-client/windows/catalog; services/control-plane/relay metrics/config; tests/workflows/docs | Codex | codex/work | В РАБОТЕ: merge20d8bd8 разрешён/выполнен; публикация2 и bounded subgroup selection3 по принятому CDN решению, затем4–7; production не запускать |
 | Multi-relay/Hostkey P0 (23.10.2026) | новые deploy/vps relay fleet scripts; tools/windows/add-relay-vps, relay-status, relay-speed; core/optimizer/controlclient; services/control-plane relay registry; services/client-service remote/relay selection (не TTFB файлы); tests; docs | Codex | codex/work | ОСВОБОЖДЕНО: P0 подготовлен/запушен с unique VPS-PRIMARY audience; реальный deployment только владелец; A–E следующая очередь, не выполнены |
 | YouTube LOCAL-first A–G (23.10.2026) | services/client-service browser transport/local ladder/meter; core/localstrategy; platform/windows local TCP audit/tests; tools/windows diag; tests; docs | Codex | codex/work | ОСВОБОЖДЕНО: audit/packet/ladder/cache/diag готовы; local gates PASS, native Windows/ISP/1080p не проверены; existing TLS pinned |
 | YouTube relay скорость/TTFB (23.10.2026) | services/client-service browser meter/native/transport; core/transport; services/relay; platform/windows TCP forwarding (аудит); tools/windows diag/observe-video; tests/verify workflow/docs | Codex | codex/work | ОСВОБОЖДЕНО: client receive credit/OPEN phases/per-video metrics/observer готовы; Windows/ISP playback не подтверждён |
@@ -2941,3 +2937,18 @@ core/windows failure со steps=[]; не исполнилось, не CI PASS. �
 каталога CI ещё нет, потому что push заблокирован. Последний supplemental PS7
 preflight/argv/каталог/browser fixtures и Go IPC inventory PASS; C# не менялся.
 Ignore observe-result ограничен форматами отчётов, не скрывает будущие .ps1/.go.
+
+### Решение владельца и синхронизация (24.10.2026 MSK)
+Обычный merge20d8bd8 выполнен9135519 без конфликтов (только CLAUDE.md).
+Владелец разрешил guarded CDN trials: предварительно та же стратегия на
+www.youtube.com и i.ytimg.com с verified TLS/HTTP и >64KiB, max1 trial глобально,
+только при живых RELAY media siblings, раз в несколько минут на подгруппу,
+3consecutive sustained flows перед LOCAL; деградация → RELAY новых потоков,
+next strategy/backoff. Считать сорвавшиеся после ответа trials отдельно.
+Существующие TCP pinned, TLS/owner/anti-cheat guards не ослаблять.
+Исторические записи о блокере выше отражают прежнее состояние, блокер снят.
+После merge повторены: полный Go race PASS; C#198/198 PASS; WPF cross-build
+0errors/4 прежних CS8604 warnings;100Python deployment PASS; PS7 owner preflight,
+каталог и browser-path fixtures PASS; pinned DLL70filters/iSCSI30/catalog13checksum
+PASS подWine. Linux/Windows сборки и vet после merge PASS. Native Windows,
+PS5.1 и ISP этим не подтверждены. Код Chrome/Edge GUI не менялся.
