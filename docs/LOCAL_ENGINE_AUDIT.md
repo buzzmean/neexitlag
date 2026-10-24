@@ -325,3 +325,44 @@ Vanguard/игры должны оставаться DIRECT. VPS/CA/SSH/activatio
 LOCAL→RELAY мог оставлять в riot.status старую LOCAL-policy. TLS regression с
 silent LOCAL и работающим authenticated-route seam проверяет актуальный reporter;
 без replay после ответа, пакеты/route selection не переписываются.
+
+
+## Small CDN EOF / recent sibling, послеcb4ee13,24.10.2026
+Root по коду: noteSmallEOF и noteClientClose отказывали в neutral при любом
+Client/RemoteRetransmits. local_tcp_trace считает serial overlap, не доказывает
+application/TLS failure. Fixture с теми же диапазонами tx/rx и RTX воспроизводит
+старые failure counters; точный RTX trace конкретного owner flow не приложен,
+поэтому не утверждаем, что сеть/Chrome intent того flow установлены полностью.
+Hard veto оставлены: known failure, reset, plaintextalert/invalidTLS и отсутствие
+полногоSH. RTX-only neutral, shortEOF не success; настоящие failure after reply
+считаются. Late data не снимают зафиксированный LOCAL failure.
+
+Sibling раньше требовал still-open+lastRX<5с и не имел network binding. Теперь
+network/profile/HTTPS443/googlevideo,>64KiB иlastRX<=30с, включая недавно закрытый
+stream из bounded128media history. Prefer same subgroup, затем CDN class.
+Недавний RX не доказывает буфер плеера; max1 exposure и>=3min сохраняются.
+Waits/checks/denials/reason/age не обнуляются от warm LOCAL confirmation.
+Trials=exposures, DataTrials=postSH/transform+>=64KiB completed type23 bytes;
+тип rrN/ожидаемый размер HTTP не видны, не blacklist rr5. Positive strong proof
+по1MiB/16records/3s сохранён; HTTP/decoder/playback PASS не заявляется.
+См. docs/YOUTUBE_LOCAL_FIRST.md. Diag.14 сохраняет Riot.32recent trial records,
+RPC latest8 с host/close/timing/neutral-result/sibling-age; native/probe IPC
+budget tests покрывают рост metadata. Новые RPC, payload capture не добавлялись.
+
+Freeze: TestSilentPACBootFreezeReapplyAndForeignPolicy baseline Linux race30/30
+PASS, Windows EXE/Wine Edge20/20 FAIL (Chrome PASS), rename Access denied.
+loadEdgeTransport держал os.Open через defer f.Close до reapplySilentLocked,
+который saveEdge/rename заменял тот же target. Windows read handle не имеет
+FILE_SHARE_DELETE, Linux rename допускает открытый target. Строка существует
+с91d78c79(18.10), это не новая cb4 regression и не только дефект fixture.
+Close теперь до reapply, bounded read/parse/ACL/owner/foreign policy сохранены.
+С исправлением Windows EXE/Wine freeze20/20 PASS; native Windows здесь нет.
+Нет retry/delete workaround и ослабления ACL. VPS/CA/SSH/коды/пакетные recipes/
+фильтры/iSCSI/game/lease invariants не менялись. Только owner ISP-тест подтвердит
+стоимость проб, реальный CDN success и sustained LOCAL после этого исправления.
+
+Дополнительные regression guards: hard read error не скрывается старым healthy;
+известный reset после terminal neutral — PostTrialFailures+FailedAfterReply,
+с отзывом будущего LOCAL. Завершение синхронизировано с failure, без двойного
+учёта. Admission sibling snapshot неизменяем для trial (соседний check может
+обновлять cache, но не историю уже принятой пробы). C# иWPF не менялись.

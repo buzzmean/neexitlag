@@ -28,7 +28,7 @@ func trialMeterFixture(t *testing.T, trace localstrategy.TCPTrace, readErr error
 	now := time.Now()
 	r.qualifications[youtubeQualification{k.Network, k.Profile, id, false}] = now.Add(youtubeLearnTTL)
 	r.completeCDNQualification(k, id, now)
-	if _, ok := r.takeTrial(k, now, true); !ok {
+	if _, ok := r.takeTrial(k, now, testSibling(true)); !ok {
 		t.Fatal("not admitted")
 	}
 	r.records[1] = youtubeRecord{ID: 1, Stage: "LOCAL", Strategy: id, Active: true}
@@ -51,13 +51,13 @@ func TestCDNClientFINThenRemoteFINIsNeutralAndReleasesOnlyItsOwnSlot(t *testing.
 	if v.Qualified != id || v.Tried != 0 || v.Failures != 0 || v.Stage != "RELAY" {
 		t.Fatal("neutral poisoned strategy or promoted LOCAL", v)
 	}
-	if _, ok := r.takeTrial(k, time.Now(), true); ok {
+	if _, ok := r.takeTrial(k, time.Now(), testSibling(true)); ok {
 		t.Fatal("neutral bypassed 3min cooldown")
 	}
 	other := k
 	other.Domain = "googlevideo:sn-other"
 	r.completeCDNQualification(other, id, time.Now())
-	if _, ok := r.takeTrial(other, time.Now(), true); !ok {
+	if _, ok := r.takeTrial(other, time.Now(), testSibling(true)); !ok {
 		t.Fatal("different subgroup stuck")
 	}
 	m.Close() // Late wrapper Close must not release the newer peer trial.
@@ -73,7 +73,7 @@ func TestCDNRealFailuresAfterReplyStayFailures(t *testing.T) {
 	}{
 		{"remote reset", localstrategy.TCPTrace{FirstClose: "REMOTE_PACKET", FirstCloseFlags: 20, RemoteRST: 1}, syscall.ECONNRESET},
 		{"remote eof", localstrategy.TCPTrace{FirstClose: "REMOTE_PACKET", FirstCloseFlags: 17, RemoteFIN: 1}, io.EOF},
-		{"retransmit", localstrategy.TCPTrace{FirstClose: "CLIENT_PACKET", FirstCloseFlags: 17, ClientFIN: 1, RemoteFIN: 1, RemoteRetransmits: 1}, io.EOF},
+		{"reset_with_retransmit", localstrategy.TCPTrace{FirstClose: "REMOTE_PACKET", FirstCloseFlags: 20, RemoteRST: 1, RemoteRetransmits: 1}, syscall.ECONNRESET},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m, r, _, _ := trialMeterFixture(t, tc.trace, tc.err)
@@ -99,6 +99,7 @@ func TestCDNNeutralIsNotSustainedSuccessButHealthyClientCloseCounts(t *testing.T
 	m, r, _, _ := trialMeterFixture(t, localstrategy.TCPTrace{FirstClose: "CLIENT_PACKET", FirstCloseFlags: 17, ClientFIN: 1, RemoteFIN: 1}, io.EOF)
 	m.rx = 70000
 	m.healthy = true
+	m.dataObserved = true
 	m.Read(make([]byte, 50))
 	m.Close()
 	if r.selection.TrialSuccesses != 1 || r.selection.TrialInconclusive != 0 || r.selection.TrialFailures != 0 {
@@ -110,30 +111,30 @@ func TestCDNAdmissionReasonsAndBackgroundRetryDoNotBlockRealFlows(t *testing.T) 
 	k := youtubeKey{"net", "chrome", "googlevideo:sn-admission", 443, false}
 	now := time.Now()
 	id := r.order[0]
-	r.takeTrial(k, now, true)
+	r.takeTrial(k, now, testSibling(true))
 	if r.cache[k].TrialAdmission != "NO_QUALIFIED_STRATEGY" {
 		t.Fatal(r.cache[k])
 	}
 	r.qualifications[youtubeQualification{k.Network, k.Profile, id, false}] = now.Add(youtubeLearnTTL)
 	r.completeCDNQualification(k, id, now)
-	r.takeTrial(k, now, false)
-	if r.cache[k].TrialAdmission != "LIVE_RELAY_SIBLING_NOT_OBSERVED" {
+	r.takeTrial(k, now, testSibling(false))
+	if r.cache[k].TrialAdmission != "RECENT_RELAY_SIBLING_NOT_OBSERVED" {
 		t.Fatal(r.cache[k])
 	}
 	v := r.cache[k]
 	v.Retry = now.Add(10 * time.Minute)
 	r.cache[k] = v
-	if _, ok := r.takeTrial(k, now, true); !ok {
+	if _, ok := r.takeTrial(k, now, testSibling(true)); !ok {
 		t.Fatal("background Retry wrongly gates trial", r.cache[k])
 	}
 	other := k
 	other.Domain = "googlevideo:sn-b"
-	r.takeTrial(other, now, true)
+	r.takeTrial(other, now, testSibling(true))
 	if r.cache[other].TrialAdmission != "GLOBAL_TRIAL_ACTIVE" {
 		t.Fatal(r.cache[other])
 	}
 	r.finishTrial(k, id, false, true, now)
-	r.takeTrial(k, now.Add(time.Minute), true)
+	r.takeTrial(k, now.Add(time.Minute), testSibling(true))
 	if r.cache[k].TrialAdmission != "SUBGROUP_COOLDOWN" {
 		t.Fatal(r.cache[k])
 	}
@@ -181,4 +182,8 @@ func TestActualMidstreamTimeoutIsMarkedBeforeObserverClose(t *testing.T) {
 	if r.selection.TrialFailures != 1 || r.selection.FailedAfterReply != 1 || r.selection.TrialInconclusive != 0 {
 		t.Fatal("watchdog Close hid a real timeout", r.snapshot())
 	}
+}
+
+func testSibling(eligible bool) relaySiblingEvidence {
+	return relaySiblingEvidence{Eligible: eligible, AgeMS: 0, Reason: "UNIT_GUARD_SEAM"}
 }

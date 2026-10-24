@@ -164,7 +164,29 @@ func (c *Controller) localProbeSnapshot() map[string]any {
 	if len(recentFailures) > 8 {
 		recentFailures = recentFailures[len(recentFailures)-8:]
 	}
-	result := map[string]any{"failures": recentFailures, "tcp_closures": closed, "probes": rows, "retained": len(r.probeEvidence), "retention_limit": 128, "scope": "bounded recent probes and closes; headers/timing only; TLS1.3 type23 is NOT HTTP content proof"}
+	trialRows := append([]cdnTrialEvidence(nil), r.trials...)
+	for i := range trialRows {
+		if v, ok := r.records[trialRows[i].ID]; ok && v.Active {
+			trialRows[i].DataTrial = v.DataTrial
+			if v.TrialResult != "" {
+				trialRows[i].TrialResult = v.TrialResult
+			}
+			trialRows[i].TX = v.TX
+			trialRows[i].RX = v.RX
+			trialRows[i].Timing = v.Timing
+			trialRows[i].Updated = v.Updated
+		}
+	}
+	sort.Slice(trialRows, func(i, j int) bool {
+		if !trialRows[i].Updated.Equal(trialRows[j].Updated) {
+			return trialRows[i].Updated.After(trialRows[j].Updated)
+		}
+		return trialRows[i].ID > trialRows[j].ID
+	})
+	if len(trialRows) > 8 {
+		trialRows = trialRows[:8]
+	}
+	result := map[string]any{"trials": trialRows, "failures": recentFailures, "tcp_closures": closed, "probes": rows, "retained": len(r.probeEvidence), "retention_limit": 128, "scope": "bounded recent probes and closes; headers/timing only; TLS1.3 type23 is NOT HTTP content proof"}
 	for {
 		result["probes"] = rows
 		result["tcp_closures"] = closed
@@ -177,6 +199,9 @@ func (c *Controller) localProbeSnapshot() map[string]any {
 			rows = rows[1:]
 		} else if len(closed) > 0 {
 			closed = closed[:len(closed)-1]
+		} else if len(trialRows) > 0 {
+			trialRows = trialRows[:len(trialRows)-1]
+			result["trials"] = trialRows
 		} else {
 			return result
 		}

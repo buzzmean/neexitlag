@@ -1,3 +1,17 @@
+## Последний итог — Riot + каталог игр,24.10.2026
+Riot c625f9b/bd21116: встроенный launcher AUTO,4exe в Riot Games/Riot Client, только TCP443 native; <=2 DNS A перед общей verified LOCAL/RELAY ladder. Per-network/profile/host/IP отрицательный TTL10min, не Cloudflare blanket, no replay после origin byte. Riot не считается browser readiness.
+Diag.13 -Only riot: реальные выбранные route/bytes, installed exe names, actual vs foreignSNI<=2 A/host. SNI helper TLS1.2 (PS5.1), это не полная имитация Riot TLS1.3. Новый riot.status routed/club-readonly<=48KiB; поздний LOCAL retry правильно обновляет actual route.
+Каталог v1:10игр, встроенный JSON/SHA256, RSA-PSS verifier для будущего owner-pinned update; unsigned imports/network update выключены, production подпись каталога не выпускалась. Монограммы вместо внешних иконок. docs/GAME_CATALOG.md.
+Страница «Игры»: поиск/карточки, явные AUTO/DIRECT/DIRECT+/RELAY, копирование existing profile+metadata, repair только Riot. DIRECT+ лишь готовый gameudp с exactpath/guard; остальные не получают выдуманную стратегию. AUTO игр DIRECT; Vanguard/FACEIT/club permissions сохраняются. RELAY warning до выбора, без обещания ping.
+Go full race/vet/build Linux+Windows и Windows vet PASS после финального Go-fix; pinned DLL70filters/iSCSI/checksums PASS подWine,5Riot Windows EXE/Wine PASS. C#208/208 иWPF build0errors/4прежнихCS8604 PASS; PS7 fixtures/parser PASS. Native Windows/PS5.1/GUI runtime/Riot login+patch/ISP НЕ проверены.
+Pre-push: новые/использованные IPC routed; service.json readers/defaults не менялись; PS5.1-compatible diagnostics/BOM, quoted flags; owner block безgit switch, native exit/hash checks. Экономия: здоровый DIRECT DNS A раньше LOCAL/RELAY. Секреты/драйвер pin/фильтры/iSCSI/игровые guards/VPS/CA/коды/SSH/PR8 не менялись.
+Решение: каталог не обходит CLUB_ADMIN_MANAGED, гостевой ClubWindow остаётся прежним; внешний catalog update требует отдельного доверенного public key/release workflow. Обновить service+GUI, проверить обычный GUI/Riot безwinws и -Only riot,browser. Предыдущие итоги дословно вARCHIVE.
+
+Freeze follow-up24.10: старый Edge loadEdgeTransport держал read handle при atomic rename во время reapply. Wine baseline Edge20/20FAIL; close до reapply ->20/20PASS, ACL/foreign policy не ослаблялись. Строка с91d78c79(18.10), не новая cb4 regression. Native Windows ещё не проверен. Go full gates/pinnedDLL/PS7 текущего дерева PASS; CDN changes ещё в работе.
+
+
+---
+
 ## Последний итог — Riot launcher,24.10.2026
 Добавлен built-in Riot Client AUTO,4 launcher exe внутри Riot Games/Riot Client; games/vgc/vgk/anti-cheat не наследуют профиль. TCP443 new-TCP native/SNI/owner guards, без PAC.
 Riot hostname: сначала<=2 DNS IPv4, silent ClientHello -> другой адрес, лишь затем общая verified LOCAL/RELAY selection.10мин per-network/profile/host/IP negative, без permanent/subnet pin; после origin byte replay запрещён. Auth/CDN с рабочим DIRECT остаются DIRECT.

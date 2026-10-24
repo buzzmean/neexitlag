@@ -50,12 +50,14 @@ func (m *youtubeMeter) maybePromoteTrial(now time.Time) {
 	if !eligible {
 		return
 	}
+	promotedNow := false
 	// Same lock order as terminal finalization: once -> meter -> runtime.
 	m.trialDone.Do(func() {
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		if m.strongEvidenceLocked(now) && m.r.promoteRunning(m.key, m.strategy, m.rx, now) {
 			m.promoted = true
+			promotedNow = true
 			m.r.mu.Lock()
 			if v, ok := m.r.records[m.id]; ok {
 				v.TrialResult = "SUCCESS_RUNNING"
@@ -70,7 +72,11 @@ func (m *youtubeMeter) maybePromoteTrial(now time.Time) {
 			verdict = "FAILED"
 		}
 		m.r.finishTrialOutcome(m.key, m.strategy, verdict, m.rx > 0, now, m.rx)
+		m.trialFinalized = true
 	})
+	if promotedNow {
+		m.recordTrialEvidence(true)
+	}
 }
 func (r *youtubeRuntime) promoteRunning(k youtubeKey, id string, received uint64, now time.Time) bool {
 	r.mu.Lock()
@@ -106,15 +112,18 @@ func (m *youtubeMeter) noteSmallEOF() bool {
 		return false
 	}
 	inspection := m.currentInspection()
+	// Sequence overlap may also be reordering. Retransmit counters alone
+	// never prove a TLS or application failure. Known reset/alert/timeout wins.
+	retransmitted := inspection != nil && (inspection.TCPPackets.ClientRetransmits > 0 || inspection.TCPPackets.RemoteRetransmits > 0)
 	if inspection != nil {
 		t := inspection.TCPPackets
-		if t.RemoteRST > 0 || t.ClientRST > 0 || t.ClientRetransmits > 0 || t.RemoteRetransmits > 0 {
+		if t.RemoteRST > 0 || t.ClientRST > 0 {
 			return false
 		}
 	}
 	m.mu.Lock()
 	wire := m.wire.Snapshot().Origin
-	if m.failed || m.rx == 0 || m.rx >= 64*1024 || wire.AlertLevel != 0 || strings.Contains(wire.State, "INVALID") || wire.State == "NOT_OBSERVED" {
+	if m.failed || m.rx == 0 || m.rx >= cdnDataTrialBytes || wire.AlertLevel != 0 || strings.Contains(wire.State, "INVALID") || !wire.ServerHelloComplete {
 		m.mu.Unlock()
 		return false
 	}
@@ -132,7 +141,11 @@ func (m *youtubeMeter) noteSmallEOF() bool {
 	}
 	if v, ok := m.r.records[m.id]; ok {
 		v.Reason = "REMOTE_SMALL_EOF_INCONCLUSIVE"
-		v.IOFailure = "REMOTE_SMALL_EOF"
+		if retransmitted {
+			v.Reason = "REMOTE_SMALL_EOF_INCONCLUSIVE_TCP_RETRANSMITS_INFORMATIONAL"
+		}
+		v.IOFailure = "REMOTE_EOF"
+		v.TrialResult = "INCONCLUSIVE_SMALL_EOF"
 		m.r.records[m.id] = v
 	}
 	return true

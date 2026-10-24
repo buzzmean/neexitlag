@@ -45,22 +45,22 @@ func TestCDNTrialRequiresPrequalificationLivePeerCooldownAndThreeFlows(t *testin
 	now := time.Now()
 	k := youtubeKey{"net", "chrome", "googlevideo:sn-a", 443, false}
 	id := r.order[0]
-	if _, ok := r.takeTrial(k, now, true); ok {
+	if _, ok := r.takeTrial(k, now, testSibling(true)); ok {
 		t.Fatal("unqualified")
 	}
 	r.cache[k] = youtubeLearn{Stage: "RELAY", Qualified: id, Until: now.Add(youtubeLearnTTL)}
-	if _, ok := r.takeTrial(k, now, true); ok {
+	if _, ok := r.takeTrial(k, now, testSibling(true)); ok {
 		t.Fatal("no two-origin proof")
 	}
 	r.qualifications[youtubeQualification{k.Network, k.Profile, id, k.HintOnly}] = now.Add(youtubeLearnTTL)
-	if _, ok := r.takeTrial(k, now, false); ok {
+	if _, ok := r.takeTrial(k, now, testSibling(false)); ok {
 		t.Fatal("no active relay sibling")
 	}
 	for trial := 0; trial < 3; trial++ {
-		if _, ok := r.takeTrial(k, now, true); !ok {
+		if _, ok := r.takeTrial(k, now, testSibling(true)); !ok {
 			t.Fatal("trial not admitted", trial, r.cache[k])
 		}
-		if _, ok := r.takeTrial(k, now, true); ok {
+		if _, ok := r.takeTrial(k, now, testSibling(true)); ok {
 			t.Fatal("concurrent trial")
 		}
 		r.finishTrial(k, id, true, true, now)
@@ -68,7 +68,7 @@ func TestCDNTrialRequiresPrequalificationLivePeerCooldownAndThreeFlows(t *testin
 			t.Fatal("premature/missing promotion", trial, stage)
 		}
 		if trial < 2 {
-			if _, ok := r.takeTrial(k, now.Add(time.Minute), true); ok {
+			if _, ok := r.takeTrial(k, now.Add(time.Minute), testSibling(true)); ok {
 				t.Fatal("cooldown ignored")
 			}
 		}
@@ -89,7 +89,7 @@ func TestCDNTrialFailureAfterReplyIsVisibleAndNextCandidateEventuallyRetried(t *
 	id := r.order[0]
 	r.cache[k] = youtubeLearn{Stage: "RELAY", Qualified: id, Until: now.Add(youtubeLearnTTL)}
 	r.qualifications[youtubeQualification{k.Network, k.Profile, id, false}] = now.Add(youtubeLearnTTL)
-	if _, ok := r.takeTrial(k, now, true); !ok {
+	if _, ok := r.takeTrial(k, now, testSibling(true)); !ok {
 		t.Fatal("setup")
 	}
 	r.finishTrial(k, id, false, true, now)
@@ -111,24 +111,6 @@ func TestCDNTrialFailureAfterReplyIsVisibleAndNextCandidateEventuallyRetried(t *
 		r.endRecheck()
 		r.failed(k, "LOCAL", next, "probe failed", now)
 		now = now.Add(time.Hour)
-	}
-}
-func TestOnlyLiveMediaPeerAndSameProfileProtectTrial(t *testing.T) {
-	u := &browserRelayUsage{}
-	now := time.Now()
-	id := u.beginVideo(videoPerformance{Profile: "chrome", Domain: "r1.googlevideo.com", Started: now})
-	if u.workingVideo("chrome", now) {
-		t.Fatal("empty preconnect")
-	}
-	u.mu.Lock()
-	u.videoIO(id, 100, 70000, now)
-	u.mu.Unlock()
-	if !u.workingVideo("chrome", now) || u.workingVideo("edge", now) || u.workingVideo("chrome", now.Add(6*time.Second)) {
-		t.Fatal("stale/unrelated protected a trial")
-	}
-	u.videoClosed(id, false)
-	if u.workingVideo("chrome", now) {
-		t.Fatal("closed stream")
 	}
 }
 func TestRankingIsBoundedAndDoesNotBorrowNetworkOrHintOutcome(t *testing.T) {
@@ -222,15 +204,15 @@ func TestCDNPrefersSustainedScopedProofAndCannotResetTrialCooldown(t *testing.T)
 		t.Fatal("cross-network proof")
 	}
 	r.completeCDNQualification(k, strong, now)
-	if got, ok := r.takeTrial(k, now, true); !ok || got != strong {
+	if got, ok := r.takeTrial(k, now, testSibling(true)); !ok || got != strong {
 		t.Fatal("wrong admitted strategy", got, ok)
 	}
 	r.finishTrial(k, strong, true, true, now, 70000)
 	r.completeCDNQualification(k, strong, now.Add(time.Minute))
-	if _, ok := r.takeTrial(k, now.Add(time.Minute), true); ok {
+	if _, ok := r.takeTrial(k, now.Add(time.Minute), testSibling(true)); ok {
 		t.Fatal("requalification bypassed 3min cooldown")
 	}
-	if got, ok := r.takeTrial(k, now.Add(youtubeTrialCooldown), true); !ok || got != strong {
+	if got, ok := r.takeTrial(k, now.Add(youtubeTrialCooldown), testSibling(true)); !ok || got != strong {
 		t.Fatal("cooldown did not expire", got, ok)
 	}
 	r.finishTrial(k, strong, false, true, now.Add(youtubeTrialCooldown))
@@ -247,7 +229,7 @@ func TestBackgroundCompletionCannotRebindOrPoisonAnActiveCDNTrial(t *testing.T) 
 	first, second := r.order[0], r.order[1]
 	r.qualifications[youtubeQualification{k.Network, k.Profile, first, k.HintOnly}] = now.Add(youtubeLearnTTL)
 	r.completeCDNQualification(k, first, now)
-	if _, ok := r.takeTrial(k, now, true); !ok {
+	if _, ok := r.takeTrial(k, now, testSibling(true)); !ok {
 		t.Fatal("no trial")
 	}
 	r.sustained[youtubeQualification{k.Network, k.Profile, second, k.HintOnly}] = now.Add(youtubeLearnTTL)

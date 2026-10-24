@@ -11,6 +11,8 @@ const videoPerformanceCapacity = 128
 // encrypted HTTP requests, media segments and decoder FPS are not observable.
 type videoPerformance struct {
 	ID              uint64    `json:"id"`
+	Port            uint16    `json:"port,omitempty"`
+	Network         string    `json:"network,omitempty"`
 	Profile         string    `json:"profile_id"`
 	Domain          string    `json:"domain"`
 	Destination     string    `json:"destination"`

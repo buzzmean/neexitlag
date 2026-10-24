@@ -216,6 +216,12 @@ func (c *Controller) nativeSnapshot() nativeBrowserSnapshot {
 			break
 		}
 		switch {
+		case len(s.YoutubeLocal.Records) > 0:
+			s.YoutubeLocal.Records = s.YoutubeLocal.Records[:len(s.YoutubeLocal.Records)-1]
+			s.YoutubeLocal.RecordsOmitted++
+		case len(s.YoutubeLocal.Cache) > 0:
+			s.YoutubeLocal.Cache = s.YoutubeLocal.Cache[:len(s.YoutubeLocal.Cache)-1]
+			s.YoutubeLocal.CacheOmitted++
 		case len(s.Records) > 0:
 			s.Records = s.Records[:len(s.Records)-1]
 		case len(s.RelayUsage.VideoConnections) > 0:

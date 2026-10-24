@@ -37,6 +37,8 @@ type youtubeLearn struct {
 	TrialAfter                time.Time
 	TrialAdmission            string
 	TrialChecks, TrialDenials uint64
+	Sibling                   relaySiblingEvidence
+	SiblingWaits              uint64
 	LastTrialCheck            time.Time
 	Next                      int
 	Tried                     uint64
@@ -54,6 +56,7 @@ type youtubeStage struct {
 	Inconclusive, HelloSamples, HelloSumMS, HelloMaxMS uint64
 }
 type youtubeRecord struct {
+	DataTrial              bool                  `json:"data_trial"`
 	TrialResult            string                `json:"trial_result,omitempty"`
 	Failure                *localFailureEvidence `json:"-"`
 	OpenMS                 float64               `json:"open_ms"`
@@ -88,6 +91,8 @@ type youtubeCacheView struct {
 	TrialChecks, TrialDenials                         uint64
 	LastTrialCheck                                    time.Time
 	TrialAfter                                        time.Time
+	Sibling                                           relaySiblingEvidence
+	SiblingWaits                                      uint64
 }
 type youtubeSnapshot struct {
 	RecordsOmitted uint64                   `json:"records_omitted"`
@@ -107,6 +112,7 @@ type youtubeEngine struct {
 type youtubeRuntime struct {
 	probeEvidence  []localProbeEvidence
 	failures       []localFailureEvidence
+	trials         []cdnTrialEvidence
 	mu             sync.Mutex
 	cache          map[youtubeKey]youtubeLearn
 	engines        map[string]youtubeEngine
@@ -134,7 +140,7 @@ type youtubeRuntime struct {
 func newYoutubeRuntime() *youtubeRuntime {
 	r := &youtubeRuntime{cache: map[youtubeKey]youtubeLearn{}, engines: map[string]youtubeEngine{}, stats: map[string]youtubeStage{}, records: map[uint64]youtubeRecord{}, qualifications: map[youtubeQualification]time.Time{}, sustained: map[youtubeQualification]time.Time{}, scores: map[youtubeScoreKey]youtubeScore{}, pending: map[youtubeKey]youtubePending{}}
 	r.shared = newSharedLearning()
-	r.selection.Contract = "max1 unproven CDN trial; 3min/subgroup; live RELAY sibling required; same scoped transform; LOCAL10min after running >=1MiB/16 completed TLS type23 records/3s RX span, or 3 weaker closed sustained flows; late real failure revokes future LOCAL; no playback proof/replay"
+	r.selection.Contract = "max1 unproven CDN trial; 3min/subgroup; same network/profile live/recent30s RELAY media required; same scoped transform; LOCAL10min after running >=1MiB/16 completed TLS type23 records/3s RX span, or 3 weaker closed sustained flows; late real failure revokes future LOCAL; no playback proof/replay"
 	plans, _ := localstrategy.BundledCatalog().Compile()
 	r.setPlans(plans)
 	return r
@@ -215,7 +221,8 @@ func (r *youtubeRuntime) confirmed(k youtubeKey, stage, strategy string, now tim
 	if old := r.cache[k]; old.Confirmed && old.Stage == stage && old.Strategy == strategy && now.Before(old.Until) {
 		streak = old.Streak
 	}
-	r.cache[k] = youtubeLearn{Stage: stage, Strategy: strategy, Until: now.Add(youtubeLearnTTL), Retry: now.Add(youtubeRetryAfter), Confirmed: true, Streak: streak}
+	old := r.cache[k]
+	r.cache[k] = youtubeLearn{Stage: stage, Strategy: strategy, Until: now.Add(youtubeLearnTTL), Retry: now.Add(youtubeRetryAfter), Confirmed: true, Streak: streak, TrialChecks: old.TrialChecks, TrialDenials: old.TrialDenials, LastTrialCheck: old.LastTrialCheck, TrialAdmission: old.TrialAdmission, Sibling: old.Sibling, SiblingWaits: old.SiblingWaits}
 }
 func (r *youtubeRuntime) snapshot() youtubeSnapshot {
 	r.mu.Lock()
@@ -247,7 +254,7 @@ func (r *youtubeRuntime) snapshot() youtubeSnapshot {
 			if v.LastTrialCheck.IsZero() {
 				admission = "NO_ELIGIBLE_NEW_FLOW_CHECK"
 			}
-			s.Cache = append(s.Cache, youtubeCacheView{k.HintOnly, k.Network, k.Profile, k.Domain, v.Stage, v.Strategy, v.Reason, k.Port, v.Until, v.Retry, v.Tried, v.Streak, v.Qualified, admission, v.TrialChecks, v.TrialDenials, v.LastTrialCheck, v.TrialAfter})
+			s.Cache = append(s.Cache, youtubeCacheView{k.HintOnly, k.Network, k.Profile, k.Domain, v.Stage, v.Strategy, v.Reason, k.Port, v.Until, v.Retry, v.Tried, v.Streak, v.Qualified, admission, v.TrialChecks, v.TrialDenials, v.LastTrialCheck, v.TrialAfter, v.Sibling, v.SiblingWaits})
 		}
 	}
 	for _, v := range r.stats {
@@ -423,8 +430,11 @@ func (c *Controller) openYoutubeLadder(ctx context.Context, cur profilesResult, 
 	}
 	c.youtubeBackgroundRecheck(cur, q, p, key)
 	trial := false
+	trialPeer := relaySiblingEvidence{AgeMS: -1, Reason: "NOT_A_CDN_TRIAL"}
 	if stage == "RELAY" {
-		if candidate, ok := r.takeTrial(key, time.Now(), c.relayUsage().workingVideo(cur.profile.ID, time.Now())); ok {
+		peer := c.relayUsage().trialSibling(cur.profile.ID, cur.network, key.Domain, time.Now())
+		if candidate, ok := r.takeTrial(key, time.Now(), peer); ok {
+			trialPeer = peer
 			stage = "LOCAL"
 			strategy = candidate
 			trial = true
@@ -546,7 +556,8 @@ func (c *Controller) openYoutubeLadder(ctx context.Context, cur profilesResult, 
 			return conn, actual, err
 		}
 		ref.set(actual, conn)
-		observer := &youtubeMeter{trial: trial && stage == "LOCAL", Conn: conn, r: r, id: record, label: label, key: key, stage: stage, strategy: strategy, started: time.Now(), inspection: func() *localstrategy.Inspection { return c.localPacketInspection(q, actual) }, transform: func() bool { return c.browserTransform(q, actual) }}
+		observer := &youtubeMeter{trial: trial && stage == "LOCAL", Conn: conn, r: r, id: record, label: label, key: key, stage: stage, strategy: strategy, started: time.Now(), host: q.Host, destination: actual.Destination.String(), sibling: trialPeer, inspection: func() *localstrategy.Inspection { return c.localPacketInspection(q, actual) }, transform: func() bool { return c.browserTransform(q, actual) }}
+		observer.recordTrialEvidence(true)
 		if stage == "RELAY" {
 			return observer, actual, nil
 		}
@@ -590,6 +601,11 @@ type youtubeMeter struct {
 	trial                           bool
 	promoted                        bool
 	firstApplicationRX              time.Time
+	dataObserved                    bool
+	host, destination               string
+	failureReason                   string
+	trialFinalized                  bool
+	sibling                         relaySiblingEvidence
 	smallEOF                        bool
 	trialDone                       sync.Once
 	failed                          bool
@@ -608,8 +624,10 @@ func (m *youtubeMeter) failure(reason string) {
 			m.applied = m.transform()
 		}
 		m.failed = true
+		m.failureReason = reason
 		applied, known := m.applied, m.witnessChecked
 		promoted := m.promoted
+		finalized := m.trialFinalized
 		failure := m.failureEvidenceLocked(reason, time.Now())
 		m.mu.Unlock()
 		m.r.failed(m.key, m.stage, m.strategy, reason, time.Now())
@@ -619,6 +637,12 @@ func (m *youtubeMeter) failure(reason string) {
 			m.r.failures = append(m.r.failures, failure)
 			if len(m.r.failures) > 32 {
 				m.r.failures = append([]localFailureEvidence(nil), m.r.failures[len(m.r.failures)-32:]...)
+			}
+		}
+		if m.trial && finalized && !promoted {
+			m.r.selection.PostTrialFailures++
+			if failure.RX > 0 {
+				m.r.selection.FailedAfterReply++
 			}
 		}
 		if promoted {
@@ -646,6 +670,7 @@ func (m *youtubeMeter) failure(reason string) {
 			m.r.records[m.id] = v
 		}
 	})
+	m.recordTrialEvidence(true)
 }
 func (m *youtubeMeter) Write(p []byte) (int, error) {
 	m.mu.Lock()
@@ -679,6 +704,7 @@ func (m *youtubeMeter) Read(p []byte) (int, error) {
 		m.mu.Lock()
 		spoken := m.tx > 0 && !m.closing
 		healthy := m.healthy
+		failedAlready := m.failed
 		m.mu.Unlock()
 		if spoken && !healthy && errors.Is(e, io.EOF) && v.ServerHelloComplete && !m.trial {
 			m.r.mu.Lock()
@@ -693,7 +719,7 @@ func (m *youtubeMeter) Read(p []byte) (int, error) {
 			}
 			m.r.mu.Unlock()
 		}
-		if spoken && !healthy && (errors.Is(e, io.EOF) || !isYoutubeTimeout(e)) {
+		if spoken && (!healthy && errors.Is(e, io.EOF) || !errors.Is(e, io.EOF) && !isYoutubeTimeout(e)) {
 			code := "READ_IO_ERROR"
 			if errors.Is(e, io.EOF) {
 				code = "REMOTE_EOF"
@@ -701,7 +727,7 @@ func (m *youtubeMeter) Read(p []byte) (int, error) {
 				code = "REMOTE_RESET"
 			}
 			m.r.mu.Lock()
-			if record, ok := m.r.records[m.id]; ok {
+			if record, ok := m.r.records[m.id]; ok && !failedAlready {
 				record.IOFailure = code
 				m.r.records[m.id] = record
 			}
@@ -736,7 +762,7 @@ func (m *youtubeMeter) Read(p []byte) (int, error) {
 	}
 	if e != nil && !isYoutubeTimeout(e) {
 		trace := m.currentInspection()
-		if isTCPReset(e) || trace != nil && trace.TCPPackets.ClientFIN > 0 && trace.TCPPackets.RemoteFIN > 0 {
+		if isTCPReset(e) || errors.Is(e, io.EOF) && m.trial || trace != nil && trace.TCPPackets.ClientFIN > 0 && trace.TCPPackets.RemoteFIN > 0 {
 			m.finishObservation()
 			m.updateCloseRecord()
 		}
@@ -762,13 +788,18 @@ func (m *youtubeMeter) account(tx, rx uint64) {
 	}
 	timing := m.timingLocked(nil, time.Time{})
 	lastRX := m.lastReply
+	dataObserved := m.dataObserved
 	if m.stage == "LOCAL" && !m.witnessChecked && m.tx > 0 && rx > 0 {
 		m.witnessChecked = true
 		m.applied = m.transform()
 	}
 	transformed := m.stage != "LOCAL" || m.applied
 
-	confirmed := !m.healthy && hello && m.rx > 64*1024 && m.tx > 0 && m.postHelloWrite && transformed
+	dataStarted := m.trial && !m.dataObserved && !m.failed && m.applied && m.postHelloWrite && hello && snapshot.Origin.ApplicationBytes >= cdnDataTrialBytes
+	if dataStarted {
+		m.dataObserved = true
+	}
+	confirmed := !m.failed && !m.healthy && hello && m.rx > 64*1024 && m.tx > 0 && m.postHelloWrite && transformed
 	if confirmed {
 		m.healthy = true
 	}
@@ -782,6 +813,9 @@ func (m *youtubeMeter) account(tx, rx uint64) {
 	}
 	m.r.mu.Lock()
 	s := m.r.stats[m.label]
+	if dataStarted {
+		m.r.selection.DataTrials++
+	}
 	if firstHello && timing.ClientHelloToServerHelloMS >= 0 {
 		v := uint64(timing.ClientHelloToServerHelloMS)
 		s.HelloSamples++
@@ -802,6 +836,10 @@ func (m *youtubeMeter) account(tx, rx uint64) {
 		v.TX += tx
 		v.RX += rx
 		v.ServerHello = hello
+		v.DataTrial = dataObserved
+		if dataStarted {
+			v.TrialResult = "DATA_OBSERVED_WAITING_SUSTAINED"
+		}
 		v.Transform = m.stage == "LOCAL" && transformed
 		v.TransformKnown = m.stage != "LOCAL" || m.witnessChecked
 		if confirmed {

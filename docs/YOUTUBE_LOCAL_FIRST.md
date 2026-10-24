@@ -68,14 +68,14 @@ ServerHello, подтверждённый transform, последующая за
 не доказательство playback/HTTP. Простой после быстрого burst не набирает3с.
 TrialSuccesses/StrongPromotions увеличиваются один раз, scope сразу LOCAL10мин.
 Глобальный слот освобождён для следующей НЕПОДТВЕРЖДЁННОЙ пробы; established
-TLS остаётся на том же socket/egress. Max1 unproven/live RELAY sibling/3мин
+TLS остаётся на том же socket/egress. Max1 unproven/recent RELAY media<=30с (та же сеть/profile/HTTPS443)/3мин
 на повторные пробы той же подгруппы сохранены. Старый путь из3 более слабых
-закрытых sustained потоков (>64KiB каждый) оставлен как альтернатива.
+закрытых sustained потоков (>=64KiB завершённых type23 bytes +postSH write/transform каждый) оставлен как альтернатива.
 
 Реальный RST/TLS/IO/WatchMidstream timeout после running promotion отзывает LOCAL
 для будущих flows и учитывается PostPromotionFailures/FailedAfterReply; прошлый
 сильный успех не стирается. Это НЕ дополнительная TrialFailure уже завершённой
-пробы. Малый EOF с0<rx<64KiB, без известного failure, RST/ретрансмитов/alert/
+пробы. Малый EOF с0<rx<64KiB, без известного failure, RST/alert/
 invalid TLS нейтрален (RemoteSmallEOFInconclusive), не success и не bad score.
 Зашифрованный Google idle/abandon/alert без MITM не различим: нейтральный исход
 с3мин cooldown не утверждает исправность. EOF без ответа, reset и таймаут остаются
@@ -155,3 +155,49 @@ P0 Hostkey отдельно готовит сервер и автоматиче�
 Контрольные проверки явно OK_CONTROL_NOT_BULK, не bulk/page/login PASS.
 Googlevideo критерии >64KiB/3success/live sibling не меняются, shared flags OFF.
 Telegram/Meta/OpenAI/Anthropic RELAY_REQUIRED и VK/Яндекс DIRECT сохраняются.
+
+
+## Малые CDN EOF и sibling — послеcb4ee13
+Вcb4 retransmit counters были hard veto нейтральности, в том числе после
+полного ServerHello. Это воспроизведено rx2717/6579/7109, tx5791, FIN+ACK и
+ненулевые Client/RemoteRetransmits: ошибочно TrialFailure/FailedAfterReply.
+Serial overlap не отличает потерю/повтор от переупорядочивания; сам по себе не
+доказывает отказ. Теперь малый EOF0<rx<64KiB с fullSH, без known failure/RST/
+plaintextalert/invalidTLS нейтрален, даже с RTX. Early EOF безSH/байтов, reset,
+реальный watchdog timeout/известная ошибка сохраняются отрицательными.
+EOF освобождает slot до позднего Close; once остаётся привязан к конкретной
+пробе. Late data после зафиксированного failure не восстанавливают LOCAL-кэш.
+
+Guard sibling использует последние128 media records, тот же network/profile,
+HTTPS443 и googlevideo class, >64KiB RX с последним чтением<=30с. Открытый поток
+не обязателен; same sn-subgroup предпочтительнее class sibling. Это свежая
+история приёма, не гарантия живого рабочего сегмента/буфера плеера. После30с,
+на другой сети/profile, по page/ordinary Google или HTTP80 — допуска нет.
+Max1 unproven/cooldown>=3мин сохранены, историей они не обходятся. Age/reason и
+число ожиданий записываются в cache; обычный warm LOCAL не стирает эти счётчики.
+
+Ожидаемый размер ответа и тип HTTP-запроса за TLS неизвестны. rr5 не означает
+redirector: он может отдавать большие media segments. Без MITM нельзя заранее
+отделить preconnect/control/segment и обещать выбрать только сегментный flow.
+Поэтому Trials остаётся числом LOCAL-exposures (цена риска), DataTrials — новым
+отдельным числом потоков с fullSH/postSH write/committed и >=64KiB завершённых
+outer type23 bytes. Короткий EOF не data trial, не bad score и не success.
+Legacy weak success тоже требует этого data-признака; strong promotion по
+>=1MiB/16records/3s не менялась. Следующая eligible новая connection может стать
+пробой после cooldown. Принудительно разрывать работающий H2 для неё нельзя.
+
+Diag.14 (13 уже занята Riot): последние8 из32 trial observations независимо от
+кольца foreground records: exact rrN host, TX/RX, TrialResult, DataTrial,
+close-side/FIN/RST/RTX, Hello→close/lastRX→close, sibling reason/age_at_admission.
+Недостающая packet trace — NOT_OBSERVED, не выдуманное направление. Размер
+expected reply/HTTP status/redirect/playback не объявляются известными.
+RPC responses остаются bounded; header-only history без payload/URL/ключей.
+Контролируемые TLS/HTTP/race/Wine tests не заменяют ISP приёмку2160p.
+
+Поздний известный RST после уже нейтрального terminal исхода не теряется:
+PostTrialFailures/FailedAfterReply учитывают его отдельно, история обновляется
+наFAILED иfuture LOCAL отзывается. Исторический inconclusive не стирается.
+Hard read I/O после healthy также остаётся failure; обычный EOF после sustained
+не приравнивается автоматически к отказу. Outcome/failure синхронизированы,
+чтобы не считать один сбой дважды. Sibling row хранит снимок именно допуска,
+а не новый deny-check того же cache key, пришедший пока открывался upstream.

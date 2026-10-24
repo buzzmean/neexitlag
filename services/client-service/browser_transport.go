@@ -231,7 +231,7 @@ func (c *Controller) openBrowser(ctx context.Context, q browserproxy.Request, pl
 	release := func() {}
 	var videoID uint64
 	if observe && d.Route.RelayID != "" && isVideo(q) {
-		videoID = c.relayUsage().beginVideo(videoPerformance{Profile: current.profile.ID, Domain: q.Host, Destination: plan.Destination.String(), Ingress: q.Ingress, Started: time.Now()})
+		videoID = c.relayUsage().beginVideo(videoPerformance{Port: q.Port, Network: current.network, Profile: current.profile.ID, Domain: q.Host, Destination: plan.Destination.String(), Ingress: q.Ingress, Started: time.Now()})
 	}
 	opaqueGoogle := otherGoogleWebAdmission(q, plan) && (q.Host == "" || browserAuto(current.profile))
 	if observe && d.Route.RelayID != "" && (isVideo(q) || opaqueGoogle) {

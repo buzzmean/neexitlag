@@ -36,3 +36,13 @@ Write-YouTubeLocalEvidence ([pscustomobject]@{selection=[pscustomobject]@{Strong
 $text=$script:lines -join "`n"
 if($text -notmatch 'strong_promotions=1 post_promotion_failures=1 small_eof_inconclusive=2' -or $text -notmatch 'trial_result=SUCCESS_RUNNING'){throw 'Running promotion/revocation/inconclusive counters missing'}
 Write-Host 'PASS explicit running trial success and later revocation diagnostics'
+
+$script:lines=@()
+Write-YouTubeLocalEvidence ([pscustomobject]@{selection=[pscustomobject]@{DataTrials=0;Trials=1;TrialInconclusive=1};cache=@([pscustomobject]@{Domain='googlevideo:sn-test';TrialChecks=6;SiblingWaits=6;Sibling=[pscustomobject]@{Reason='RELAY_ACTIVITY_EXPIRED';AgeMS=31000}})})
+$s=$script:lines -join ' '
+if($s -notmatch 'data_trials=0' -or $s -notmatch 'sibling_waits=6 sibling_reason=RELAY_ACTIVITY_EXPIRED sibling_age_ms=31000'){throw 'Missing meaningful trial/sibling wait evidence'}
+Write-Host 'PASS distinct probe/data trial counters and sibling denials/age'
+
+$script:lines=@();Write-YouTubeLocalEvidence ([pscustomobject]@{selection=[pscustomobject]@{PostTrialFailures=1}})
+if(($script:lines -join ' ') -notmatch 'post_trial_failures=1'){throw 'Late failure counter missing'}
+Write-Host 'PASS late hard failures remain visible after neutral finalization'

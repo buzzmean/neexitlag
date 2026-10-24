@@ -358,7 +358,7 @@ func TestGuardedCDNRealTLSHTTPThreeTrialsThenWarmLOCAL(t *testing.T) {
 	r.cache[k] = youtubeLearn{Stage: "RELAY", Qualified: id, Until: now.Add(youtubeLearnTTL)}
 	r.qualifications[youtubeQualification{k.Network, k.Profile, id, k.HintOnly}] = now.Add(youtubeLearnTTL)
 	usage := c.relayUsage()
-	peer := usage.beginVideo(videoPerformance{Profile: cur.profile.ID, Domain: q.Host, Started: now})
+	peer := usage.beginVideo(videoPerformance{Port: q.Port, Network: cur.network, Profile: cur.profile.ID, Domain: q.Host, Started: now})
 	usage.mu.Lock()
 	usage.videoIO(peer, 100, 70000, now)
 	usage.mu.Unlock()

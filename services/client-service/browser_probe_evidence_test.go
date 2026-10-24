@@ -3,6 +3,7 @@ package clientservice
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/buzzmean/neexitlag/core/browserproxy"
 	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"strings"
@@ -38,8 +39,30 @@ func TestLocalProbeSnapshotBoundedBelowIPC(t *testing.T) {
 	for i := uint64(1); i <= 8; i++ {
 		c.browser.youtube.records[i] = youtubeRecord{ID: i, Stage: "LOCAL", Domain: strings.Repeat("d", 253), Reason: "EARLY_EOF_OR_IO_NO_REPLAY", Inspection: &localstrategy.Inspection{SentPackets: make([]localstrategy.SentPacket, 64)}}
 	}
+	for i := uint64(1); i <= 32; i++ {
+		c.browser.youtube.trials = append(c.browser.youtube.trials, cdnTrialEvidence{ID: i, Host: strings.Repeat("h", 253), Strategy: strings.Repeat("s", 96), Sibling: relaySiblingEvidence{Reason: "RECENT_CDN_CLASS", Subgroup: strings.Repeat("g", 63)}})
+	}
 	raw, e := json.Marshal(c.localProbeSnapshot())
 	if e != nil || len(raw) >= 49000 {
+		t.Fatal(len(raw), e)
+	}
+}
+
+func TestNativeSnapshotRetainsIPCHeadroomWithSiblingCache(t *testing.T) {
+	c := New(context.Background())
+	defer c.Close()
+	r := c.browser.youtube
+	for i := 0; i < 128; i++ {
+		label := fmt.Sprint(i)
+		r.stats[label] = youtubeStage{Service: "youtube-media", Stage: "LOCAL", Strategy: strings.Repeat("s", 64) + label}
+		k := youtubeKey{Network: "network", Profile: strings.Repeat("p", 128), Domain: strings.Repeat("d", 240) + label, Port: 443}
+		r.cache[k] = youtubeLearn{Reason: strings.Repeat("r", 100), Sibling: relaySiblingEvidence{Reason: "RECENT_SAME_SUBGROUP", Subgroup: strings.Repeat("g", 63)}, Stage: "RELAY"}
+	}
+	for i := uint64(1); i <= 24; i++ {
+		r.records[i] = youtubeRecord{ID: i, Profile: strings.Repeat("p", 128), Domain: strings.Repeat("d", 253), Strategy: strings.Repeat("s", 64), Reason: strings.Repeat("r", 100)}
+	}
+	raw, e := json.Marshal(c.nativeSnapshot())
+	if e != nil || len(raw) > 60*1024 {
 		t.Fatal(len(raw), e)
 	}
 }

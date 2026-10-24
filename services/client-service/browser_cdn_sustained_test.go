@@ -47,7 +47,7 @@ func TestStrongRunningCDNPromotionIsBoundedScopedAndLateFailureRevokes(t *testin
 	other := k
 	other.Domain = "googlevideo:sn-other"
 	r.completeCDNQualification(other, id, now)
-	if _, ok := r.takeTrial(other, now, true); !ok {
+	if _, ok := r.takeTrial(other, now, testSibling(true)); !ok {
 		t.Fatal("successful live connection blocked peer subgroup")
 	}
 	m.maybePromoteTrial(now.Add(time.Second))
@@ -135,15 +135,18 @@ func TestRunningCDNReleasesSlotBeforeCloseAndKeepsExactTLSConnection(t *testing.
 	now := time.Now()
 	r.qualifications[youtubeQualification{k.Network, k.Profile, id, k.HintOnly}] = now.Add(youtubeLearnTTL)
 	r.completeCDNQualification(k, id, now)
-	peer := c.relayUsage().beginVideo(videoPerformance{Profile: cur.profile.ID, Started: now})
+	peer := c.relayUsage().beginVideo(videoPerformance{Port: q.Port, Network: cur.network, Profile: cur.profile.ID, Domain: q.Host, Started: now})
 	c.relayUsage().mu.Lock()
 	c.relayUsage().videoIO(peer, 100, 70000, now)
 	c.relayUsage().mu.Unlock()
+	c.relayUsage().videoClosed(peer, false) // recent relay survives the handoff to its successor
 	open := func(ctx context.Context, _ browserproxy.Request, plan browserproxy.Plan) (net.Conn, error) {
 		if plan.Policy.Action != flowpolicy.DirectPlus {
 			t.Error("unexpected relay/direct route", plan.Policy)
 		}
 		opens.Add(1)
+		// Another connection may update the cache while this upstream opens.
+		r.takeTrial(k, time.Now(), relaySiblingEvidence{AgeMS: 99999, Reason: "CONCURRENT_DENIED_CHECK"})
 		return (&net.Dialer{}).DialContext(ctx, "tcp", server.Listener.Addr().String())
 	}
 	raw, _, e := c.openBrowserPlan(context.Background(), cur, q, p, open)
@@ -170,8 +173,11 @@ func TestRunningCDNReleasesSlotBeforeCloseAndKeepsExactTLSConnection(t *testing.
 			t.Fatal(e)
 		}
 		if i == 0 {
-			if len(body) != 5*256*1024 || r.selection.TrialSuccesses != 1 || r.selection.StrongPromotions != 1 || r.trialActive {
+			if len(body) != 5*256*1024 || r.selection.TrialSuccesses != 1 || r.selection.StrongPromotions != 1 || r.selection.DataTrials != 1 || r.trialActive {
 				t.Fatal("running success not recorded", r.snapshot())
+			}
+			if len(r.trials) == 0 || r.trials[0].Sibling.AgeMS == 99999 {
+				t.Fatal("trial lost original admission evidence", r.trials)
 			}
 			if stage, strategy := r.choose(k, time.Now()); stage != "LOCAL" || strategy != id {
 				t.Fatal(stage, strategy)
@@ -179,7 +185,7 @@ func TestRunningCDNReleasesSlotBeforeCloseAndKeepsExactTLSConnection(t *testing.
 			other := k
 			other.Domain = "googlevideo:sn-next"
 			r.completeCDNQualification(other, id, time.Now())
-			if _, ok := r.takeTrial(other, time.Now(), true); !ok {
+			if _, ok := r.takeTrial(other, time.Now(), testSibling(true)); !ok {
 				t.Fatal("live healthy flow holds global slot")
 			}
 		} else if string(body) != "same established TLS" {

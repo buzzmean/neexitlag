@@ -85,7 +85,7 @@ func (m *youtubeMeter) noteClientClose() bool {
 		return false
 	}
 	t := inspection.TCPPackets
-	clean := t.FirstClose == "CLIENT_PACKET" && t.FirstCloseFlags&1 != 0 && t.ClientRST == 0 && t.RemoteRST == 0 && t.ClientRetransmits == 0 && t.RemoteRetransmits == 0
+	clean := t.FirstClose == "CLIENT_PACKET" && t.FirstCloseFlags&1 != 0 && t.ClientRST == 0 && t.RemoteRST == 0
 	m.mu.Lock()
 	if !clean || m.rx == 0 || m.failed {
 		m.mu.Unlock()
@@ -123,7 +123,7 @@ func (m *youtubeMeter) finishObservation() {
 		verdict := "INCONCLUSIVE"
 		if m.failed {
 			verdict = "FAILED"
-		} else if m.healthy {
+		} else if m.healthy && m.dataObserved {
 			verdict = "SUCCESS"
 		} else if m.smallEOF {
 			verdict = "REMOTE_SMALL_EOF"
@@ -131,9 +131,13 @@ func (m *youtubeMeter) finishObservation() {
 			verdict = "CLIENT_INITIATED_CLOSE"
 		}
 		rx := m.rx
-		m.mu.Unlock()
+		// Finalize under the meter lock: a late hard error must be counted
+		// either in this outcome or explicitly after it, never lost/doubled.
 		m.r.finishTrialOutcome(m.key, m.strategy, verdict, rx > 0, time.Now(), rx)
+		m.trialFinalized = true
+		m.mu.Unlock()
 	})
+	m.recordTrialEvidence(false)
 }
 func (m *youtubeMeter) updateCloseRecord() {
 	inspection := m.currentInspection()

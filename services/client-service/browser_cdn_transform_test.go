@@ -31,10 +31,10 @@ func TestCDNCanTrialWithCommittedTransformDespiteSilentPublicTLS(t *testing.T) {
 		t.Fatal("committed transform should permit guarded trial despite failed public prerequisite")
 	}
 	r.completeCDNQualification(k, "candidate", time.Now())
-	if _, ok := r.takeTrial(k, time.Now(), false); ok {
+	if _, ok := r.takeTrial(k, time.Now(), testSibling(false)); ok {
 		t.Fatal("trial without live relay sibling")
 	}
-	if _, ok := r.takeTrial(k, time.Now(), true); !ok {
+	if _, ok := r.takeTrial(k, time.Now(), testSibling(true)); !ok {
 		t.Fatal("qualified CDN trial stayed stuck")
 	}
 	r.finishTrial(k, "candidate", false, true, time.Now())
@@ -69,7 +69,7 @@ func TestCDNBackgroundSelectsExactSustainedPublicProofInsteadOfCatalogPrior(t *t
 	c.recordLocalProbe(public, p, strong, browserproxy.ProbeResult{Status: 200, TLSVersion: 0x304, BodyBytes: 131073}, true)
 	r.completeCDNQualification(k, weak, time.Now())
 	c.youtubeBackgroundRecheck(cur, q, p, k)
-	id, ok := r.takeTrial(k, time.Now(), true)
+	id, ok := r.takeTrial(k, time.Now(), testSibling(true))
 	if !ok || id != strong {
 		t.Fatal("public proof was ignored", id, strong, r.cache[k])
 	}

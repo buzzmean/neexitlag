@@ -21,6 +21,8 @@ const youtubeTrialSuccesses = 3
 type youtubeSelectionSnapshot struct {
 	BackgroundAttempts, BackgroundFailures                              uint64 `json:",omitempty"`
 	Trials, TrialSuccesses, TrialFailures, FailedAfterReply             uint64
+	DataTrials                                                          uint64
+	PostTrialFailures                                                   uint64
 	TrialInconclusive                                                   uint64
 	ClientInitiatedTrialCloses                                          uint64
 	StrongPromotions, PostPromotionFailures, RemoteSmallEOFInconclusive uint64
@@ -281,7 +283,7 @@ func (r *youtubeRuntime) cdnCandidate(k youtubeKey, v youtubeLearn, now time.Tim
 	}
 	return best
 }
-func (r *youtubeRuntime) takeTrial(k youtubeKey, now time.Time, workingRelay bool) (string, bool) {
+func (r *youtubeRuntime) takeTrial(k youtubeKey, now time.Time, peer relaySiblingEvidence) (string, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	v := r.cache[k]
@@ -298,8 +300,12 @@ func (r *youtubeRuntime) takeTrial(k youtubeKey, now time.Time, workingRelay boo
 		reason = "NO_QUALIFIED_STRATEGY"
 	case !r.qualified(k, v.Qualified, now):
 		reason = "STRATEGY_PROOF_EXPIRED"
-	case !workingRelay:
-		reason = "LIVE_RELAY_SIBLING_NOT_OBSERVED"
+	case !peer.Eligible:
+		reason = "RECENT_RELAY_SIBLING_NOT_OBSERVED"
+	}
+	v.Sibling = peer
+	if reason == "RECENT_RELAY_SIBLING_NOT_OBSERVED" {
+		v.SiblingWaits++
 	}
 	v.TrialChecks++
 	v.LastTrialCheck = now
@@ -420,18 +426,6 @@ func (r *youtubeRuntime) finishTrialOutcome(k youtubeKey, strategy, verdict stri
 	r.cache[k] = v
 }
 
-// Only data-receiving, still-open media tunnels qualify. A preconnect or an
-// unrelated profile, www page or an old completed download does not protect a trial.
-func (u *browserRelayUsage) workingVideo(profile string, now time.Time) bool {
-	u.mu.Lock()
-	defer u.mu.Unlock()
-	for _, v := range u.videos {
-		if v.Profile == profile && v.Closed.IsZero() && v.Received > 64*1024 && !v.LastRead.IsZero() && now.Sub(v.LastRead) < 5*time.Second {
-			return true
-		}
-	}
-	return false
-}
 func youtubeTransferOK(p browserproxy.ProbeResult) bool {
 	return p.Failure == "" && p.TLSVersion >= 0x0303 && p.Status >= 200 && p.Status < 300 && p.BodyBytes > 64*1024
 }
