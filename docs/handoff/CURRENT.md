@@ -38,7 +38,7 @@ Pre-push: existing browser.local.probes/native.status routed иclub-readonly; se
 | Регрессия выключения A–E (6adefe5) | Детали — [ARCHIVE.md](ARCHIVE.md) | Codex / codex/work | ОСВОБОЖДЕНО; код готов, Windows/ISP gates см. ниже |
 | A1–A6, B1, C1–C2, D1–D2, E1–E2 | Детали — [ARCHIVE.md](ARCHIVE.md) | Codex / codex/work | ОСВОБОЖДЕНО; код готов, Windows/ISP gates см. ниже |
 | Закрытые работы до 21.10.2026; передачи Claude Code → Codex | [История и исходные строки](ARCHIVE.md) | Claude Code / Codex | История сохранена, активное владение не переносится |
-| Дизайн VELIQ / 24.10.2026 | `app-ui/` (макеты: экран активации, каталог игр), `brand/copy.md` | Claude Code | В РАБОТЕ: дорисовка макетов под текущие функции; код программы не трогаю. Перенос в WPF и новая иконка не сделаны |
+| Дизайн VELIQ / 24.10.2026 | `app-ui/` (макеты: экран активации, каталог игр), `brand/copy.md` | Claude Code | ГОТОВО 24.10.2026, область освобождена: в макетах есть экран активации (все состояния и коды ошибок) и каталог игр с режимами и лаунчером Riot; тексты в `brand/copy.md`. Код программы не менялся. Перенос в WPF и новая иконка не сделаны |
 
 ## Текущая очередь и открытые вопросы
 - Riot запуск/login/patch и фактические имена exe требуют Windows/ISP приёмки; каталог обычного GUI — тоже. Signed external game updates не включены; гостевой ClubWindow не менялся.

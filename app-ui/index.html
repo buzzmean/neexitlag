@@ -41,12 +41,37 @@
         <button data-set-state="off">Выключено</button>
         <button data-set-state="connecting">Подключение</button>
         <button data-set-state="on">Работает</button>
-        <button data-set-state="error" data-error="service">Ошибка: служба не запущена</button>
+        <button data-set-state="error" data-error="service">Ошибка: VELIQ не может запуститься</button>
         <button data-set-state="error" data-error="relay">Ошибка: нет связи с сервером</button>
-        <button data-set-state="error" data-error="browser">Ошибка: браузер не подключился</button>
-        <button data-set-state="error" data-error="identity">Ошибка: ключ устройства</button>
+        <button data-set-state="error" data-error="browser">Ошибка: часть сайтов не открывается</button>
+        <button data-set-state="error" data-error="identity">Ошибка: код активации не принят</button>
         <button data-set-state="on" data-warn="update">Работает + есть обновление</button>
         <button data-set-state="on" data-warn="fallback">Работает через запасной сервер</button>
+      </nav>
+    </div>
+
+    <div>
+      <h2>Активация</h2>
+      <nav data-proto-act>
+        <button data-act-set="code">Первый запуск: ввод кода</button>
+        <button data-act-set="busy">Проверяем код</button>
+        <button data-act-set="done">Код принят</button>
+        <button data-act-set="change">Смена кода из настроек</button>
+        <button data-act-set="expiring">Настройки: скоро истекает</button>
+      </nav>
+      <label class="proto-field">Ошибка активации
+        <select class="select select--sm" data-act-error-pick aria-label="Ошибка активации">
+          <option value="">— выбрать —</option>
+        </select>
+      </label>
+    </div>
+
+    <div>
+      <h2>Игры</h2>
+      <nav data-proto-games>
+        <button data-games-notice-set="">Обычный вид</button>
+        <button data-games-notice-set="service">Служба не отвечает</button>
+        <button data-games-notice-set="club">Клубный ПК: настройки у администратора</button>
       </nav>
     </div>
 
@@ -86,6 +111,29 @@
           <button tabindex="-1"><svg><use href="#i-minimize"/></svg></button>
           <button tabindex="-1"><svg><use href="#i-maximize"/></svg></button>
           <button tabindex="-1" class="close"><svg><use href="#i-close"/></svg></button>
+        </div>
+      </div>
+
+      <!-- ============ АКТИВАЦИЯ (поверх окна) ============ -->
+      <div class="activate" data-activate hidden role="dialog" aria-modal="true" aria-labelledby="act-title">
+        <div class="activate__box">
+          <img class="activate__mark" data-act-mark src="assets/img/veliq-symbol-reverse.svg" alt="" width="56" height="56">
+          <h1 id="act-title" data-act-title>Введите код активации</h1>
+          <p class="activate__lead" data-act-lead>Код выдаётся после заявки для клуба или отдельно для игрока.</p>
+          <form class="activate__form" data-act-form autocomplete="off">
+            <label class="sr-only" for="act-code">Код активации</label>
+            <input class="input activate__code" id="act-code" data-act-code spellcheck="false" autocapitalize="characters" placeholder="Код активации" maxlength="64">
+            <div class="activate__msg" data-act-msg role="alert" hidden></div>
+            <div class="activate__actions">
+              <button class="btn btn--ghost" type="button" data-act-cancel hidden>Отмена</button>
+              <button class="btn" type="submit" data-act-submit>Активировать</button>
+            </div>
+            <div class="activate__run" aria-hidden="true"><i></i></div>
+          </form>
+          <div class="activate__done" data-act-done hidden>
+            <button class="btn btn--lg" type="button" data-act-finish>Начать</button>
+          </div>
+          <p class="activate__help" data-act-help>Нет кода? Напишите на support@veliq.app</p>
         </div>
       </div>
 
@@ -182,48 +230,13 @@
           <!-- ============ ИГРЫ ============ -->
           <section class="screen" data-screen="games" aria-label="Игры">
             <div class="screen__head">
-              <div><h1 data-i18n="nav.games">Игры</h1><p>VELIQ сравнивает пути до сервера игры и сам выбирает самый быстрый. Можно закрепить путь вручную.</p></div>
-              <button class="btn btn--sm btn--ghost" data-measure><svg class="i i--sm"><use href="#i-refresh"/></svg>Замерить снова</button>
+              <div><h1 data-i18n="nav.games">Игры</h1><p>Выберите режим для игры. Пинг VELIQ пока не замеряет, поэтому режим «Через VELIQ» может его увеличить.</p></div>
+              <label class="search"><svg><use href="#i-search"/></svg><input class="input" type="search" placeholder="Игра или лаунчер" aria-label="Поиск игры или лаунчера" data-game-search></label>
             </div>
+            <div data-games-notice></div>
             <div class="games-grid">
-              <div class="game-list" role="group" aria-label="Игры на компьютере">
-                <button aria-pressed="true"><span class="mono">CS</span><span>Counter-Strike 2<small>запущена</small></span><span class="tag">авто</span></button>
-                <button aria-pressed="false"><span class="mono">D2</span><span>Dota 2<small>найдена</small></span><span class="tag">авто</span></button>
-                <button aria-pressed="false"><span class="mono">VA</span><span>Valorant<small>найдена</small></span><span class="tag">авто</span></button>
-                <button aria-pressed="false"><span class="mono">PB</span><span>PUBG<small>найдена</small></span><span class="tag">авто</span></button>
-                <button aria-pressed="false"><span class="mono">AP</span><span>Apex Legends<small>найдена</small></span><span class="tag">авто</span></button>
-                <button class="btn btn--quiet btn--sm" style="margin-top:6px;justify-content:flex-start" data-modal-open="add"><svg class="i i--sm"><use href="#i-plus"/></svg>Добавить игру</button>
-              </div>
-              <div style="display:grid;gap:14px;align-content:start">
-                <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
-                  <label class="field" style="grid-auto-flow:column;align-items:center;gap:10px"><span>Сервер игры</span>
-                    <select class="select select--sm"><option>Стокгольм (EU North)</option><option>Франкфурт (EU West)</option><option>Варшава (EU East)</option><option>Москва</option></select></label>
-                  <span class="faint" style="font-size:12px" data-measure-note>замер 20 пакетов, 14:32</span>
-                </div>
-                <div class="compare" role="group" aria-label="Маршрут для игры">
-                  <button class="cmp cmp--direct" aria-pressed="false" data-cmp>
-                    <span class="cmp__name"><i></i>Обычный</span>
-                    <span class="cmp__ping num">72 <small>мс</small></span>
-                    <span class="cmp__meta">разброс 4 мс, потери 0%</span>
-                  </button>
-                  <button class="cmp cmp--hel" aria-pressed="true" data-cmp>
-                    <span class="cmp__name"><i></i>Хельсинки<span class="cmp__best tag tag--ok">выбран</span></span>
-                    <span class="cmp__ping num">41 <small>мс</small></span>
-                    <span class="cmp__meta"><span class="delta-good">−31 мс</span>, разброс 1 мс, потери 0%</span>
-                  </button>
-                  <button class="cmp cmp--swe" aria-pressed="false" data-cmp>
-                    <span class="cmp__name"><i></i>Швеция</span>
-                    <span class="cmp__ping num">48 <small>мс</small></span>
-                    <span class="cmp__meta"><span class="delta-good">−24 мс</span>, разброс 2 мс, потери 0%</span>
-                  </button>
-                </div>
-                <div class="banner banner--info"><svg class="i"><use href="#i-route"/></svg><div><strong>Выбран путь через Хельсинки: на 31 мс быстрее обычного.</strong><p>VELIQ перепроверяет пути во время игры. Новый маршрут применяется к следующему матчу, текущий не прерывается.</p></div><div class="banner__actions"><button class="btn btn--sm btn--ghost" data-apply-route>Закрепить</button></div></div>
-                <div class="panel" style="padding:14px 16px">
-                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><strong style="font-size:14px">Пинг за последнюю минуту</strong>
-                    <ul class="legend" style="font-size:12px"><li><i class="direct"></i>обычный путь</li><li><i class="hel"></i>Хельсинки</li><li><i class="swe"></i>Швеция</li></ul></div>
-                  <div data-app-chart></div>
-                </div>
-              </div>
+              <div class="game-list" role="listbox" aria-label="Каталог игр" data-game-list></div>
+              <div class="game-detail" data-game-detail></div>
             </div>
           </section>
 
@@ -271,6 +284,9 @@
           <section class="screen" data-screen="settings" aria-label="Настройки">
             <div class="screen__head"><div><h1 data-i18n="nav.settings">Настройки</h1></div></div>
             <div class="settings">
+              <div class="setgroup"><h2>Активация</h2><div class="setlist">
+                <div class="setrow"><div><strong data-act-set-title>VELIQ активирован</strong><small data-act-set-sub>Действует до 24.01.2027</small></div><button class="btn btn--ghost btn--sm" data-act-change>Сменить код</button></div>
+              </div></div>
               <div class="setgroup"><h2 data-i18n="set.start">Запуск</h2><div class="setlist">
                 <div class="setrow"><div><strong data-i18n="set.autostart">Запускать вместе с Windows</strong><small data-i18n="set.autostart.d">Программа стартует свёрнутой в трей</small></div><label class="switch"><input type="checkbox" checked aria-label="Запускать вместе с Windows"><span class="switch__track"></span></label></div>
                 <div class="setrow"><div><strong data-i18n="set.autoopt">Оптимизировать при запуске</strong><small data-i18n="set.autoopt.d">Не нужно нажимать кнопку после включения компьютера</small></div><label class="switch"><input type="checkbox" checked aria-label="Оптимизировать при запуске"><span class="switch__track"></span></label></div>
