@@ -290,7 +290,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-24.4 (signed local catalog and actual primary relay status)'
+$ScriptVersion='2026-10-24.5 (signed local catalog and actual primary relay status)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -623,6 +623,16 @@ function Write-RelayOpenPerformance($pool) {
  Say 'acquire includes pool wait/new mTLS+ticket session; stream_origin_open includes OPEN wire round trip and VPS TCP connect, not separate origin TLS. Existing QUIC sessions are reused; application TCP/TLS streams are never pooled across browser sockets.'
 }
 
+function Write-TrafficEvidence($traffic) {
+ if($null -eq $traffic){Say 'Relay traffic: UNINSTRUMENTED; monthly usage UNKNOWN';return}
+ $client=Prop $traffic 'client';$server=Prop $traffic 'server'
+ Say ('Relay traffic client: state='+(Prop $client 'state')+' session_sent='+(Prop (Prop $client 'SessionTotal') 'Sent' 0)+' session_received='+(Prop (Prop $client 'SessionTotal') 'Received' 0)+' day_sent='+(Prop (Prop $client 'DayTotal') 'Sent' 0)+' day_received='+(Prop (Prop $client 'DayTotal') 'Received' 0)+' omitted='+(Prop $client 'DaysOmitted' 0)+' error='+(Prop $client 'error' '')+' scope='+(Prop $client 'scope'))
+ foreach($row in @(Prop $client 'days' @())){Say (' relay day='+(Prop $row 'day_utc')+' profile='+(Prop $row 'profile')+' service='+(Prop $row 'service')+' subgroup='+(Prop $row 'subgroup')+' reason='+(Prop $row 'reason')+' logical_relay='+(Prop $row 'logical_relay')+' tx='+(Prop $row 'Sent' 0)+' rx='+(Prop $row 'Received' 0))}
+ Say ('Relay traffic server: state='+(Prop $server 'state')+' checked='+(Prop $server 'checked')+' error='+(Prop $server 'error' '')+' scope='+(Prop $server 'scope'))
+ foreach($row in @(Prop $server 'relays' @())){Say (' relay month: id='+(Prop $row 'relay')+' month='+(Prop $row 'month_utc')+' known_bytes='+(Prop $row 'known_egress_bytes' 0)+' limit_bytes='+(Prop $row 'monthly_limit_bytes' 0)+' forecast_valid='+(Prop $row 'forecast_valid' $false)+' forecast_bytes='+(Prop $row 'forecast_bytes' 0)+' known_from='+(Prop $row 'known_from')+' partial='+(Prop $row 'partial_coverage' $true)+' warning='+(Prop $row 'warning'))}
+ Say 'Month is sampled NIC egress, not provider invoice. Partial/missing coverage is never unused quota; client bytes exclude transport overhead.'
+}
+
 function Write-LocalCatalogEvidence($catalog) {
  if($null -eq $catalog){Say 'local catalog: UNINSTRUMENTED';return}
  Say ('local catalog: source='+(Prop $catalog 'source')+' version='+(Prop $catalog 'version' 0)+' schema='+(Prop $catalog 'schema')+' rules='+(Prop $catalog 'rules' 0)+' unsupported='+(Prop $catalog 'unsupported' 0)+' available_plans='+@(Prop $catalog 'plans' @()).Count+' checked='+(Prop $catalog 'last_check')+' error='+(Prop $catalog 'error' '')+' activation='+(Prop $catalog 'activation'))
@@ -690,6 +700,9 @@ function Write-NativeFirewallEvidence($firewall) {
 }
 
 if((Want 'browser') -or ($Only -contains 'youtube')){
+Step 'relay_traffic' {
+ try{Write-TrafficEvidence (Invoke-IPC 'traffic.status')}catch{Say 'Relay traffic: UNINSTRUMENTED_OR_UNAVAILABLE; monthly usage UNKNOWN'}
+}
 Step 'local_catalog' {
  try{Write-LocalCatalogEvidence (Invoke-IPC 'local.catalog')}catch{Say 'local catalog: UNINSTRUMENTED_OR_UNAVAILABLE'}
 }

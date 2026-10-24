@@ -31,6 +31,7 @@ import (
 	"github.com/buzzmean/neexitlag/core/routing"
 	"github.com/buzzmean/neexitlag/core/security"
 	"github.com/buzzmean/neexitlag/core/telemetry"
+	"github.com/buzzmean/neexitlag/core/traffic"
 	"github.com/buzzmean/neexitlag/core/transport"
 	windowsplatform "github.com/buzzmean/neexitlag/platform/windows"
 )
@@ -86,6 +87,8 @@ type Snapshot struct {
 	ActiveApps       []string                      `json:"active_apps"`
 }
 type Controller struct {
+	traffic         *traffic.Client
+	remoteTraffic   remoteTrafficState
 	catalog         *clientCatalog
 	clubConfig      atomic.Pointer[clubConfiguration]
 	clubProbe       atomic.Pointer[ClubRelayCheck]
@@ -148,7 +151,7 @@ type Controller struct {
 
 func New(ctx context.Context) *Controller {
 	ctx, cancel := context.WithCancel(ctx)
-	c := &Controller{catalog: newClientCatalog(), relayPrimary: newRelayPrimary(), browser: newBrowserRuntime(), relayPools: map[string]*transport.Pool{}, AutoLearned: flowpolicy.NewLearning(), groupBindings: map[uint32]groupBinding{}, autoJobs: map[string]autoLease{}, discovery: windowsplatform.NewDiscovery(), Local: localstrategy.New(), Learned: localstrategy.NewCache(1024), Engine: routing.New(4096), Selector: optimizer.New(optimizer.DefaultParameters()), Measurements: measurement.New(measurement.Defaults()), Profiles: profiles.New(profiles.Defaults()), recentApps: make(map[string]time.Time), localProfiles: make(map[string]profiles.Profile), acceptanceRelays: make(map[string]acceptanceRelaySource), transportDrops: make(map[string]func() map[string]telemetry.Metric), settings: Settings{Automatic: true, Failover: "DIRECT", UpdateChannel: "stable"}, ctx: ctx, cancel: cancel}
+	c := &Controller{traffic: traffic.NewClient(), catalog: newClientCatalog(), relayPrimary: newRelayPrimary(), browser: newBrowserRuntime(), relayPools: map[string]*transport.Pool{}, AutoLearned: flowpolicy.NewLearning(), groupBindings: map[uint32]groupBinding{}, autoJobs: map[string]autoLease{}, discovery: windowsplatform.NewDiscovery(), Local: localstrategy.New(), Learned: localstrategy.NewCache(1024), Engine: routing.New(4096), Selector: optimizer.New(optimizer.DefaultParameters()), Measurements: measurement.New(measurement.Defaults()), Profiles: profiles.New(profiles.Defaults()), recentApps: make(map[string]time.Time), localProfiles: make(map[string]profiles.Profile), acceptanceRelays: make(map[string]acceptanceRelaySource), transportDrops: make(map[string]func() map[string]telemetry.Metric), settings: Settings{Automatic: true, Failover: "DIRECT", UpdateChannel: "stable"}, ctx: ctx, cancel: cancel}
 	c.games.items = map[string]*gameEntry{}
 	c.games.budget = &gameudp.Budget{}
 	c.selfExecutable, _ = os.Executable()
@@ -188,6 +191,7 @@ func New(ctx context.Context) *Controller {
 		p.Route = d.Route
 		return p
 	})
+	c.Engine.SetTrafficObserver(c.accountRelayTraffic)
 	c.syncPolicies()
 	return c
 }
@@ -226,6 +230,8 @@ func (c *Controller) syncPolicies() {
 	}
 }
 func (c *Controller) Start() {
+	c.wg.Add(1)
+	go func() { defer c.wg.Done(); c.watchTrafficAccounting() }()
 	c.wg.Add(1)
 	go func() { defer c.wg.Done(); c.watchLocalSelection() }()
 	if c.clubMode.Load() {
@@ -266,6 +272,7 @@ func (c *Controller) Close() {
 		c.Backend.Stop()
 	}
 	c.wg.Wait()
+	_ = c.traffic.Flush()
 }
 func (c *Controller) SetCustomPath(path string) error {
 	c.customPath = path
@@ -633,6 +640,8 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		}()
 	}
 	switch method {
+	case "traffic.status":
+		return c.trafficSnapshot(), nil
 	case "local.catalog":
 		return c.catalog.snapshot(), nil
 	case "gameudp.status", "gameudp.set", "pubg.status", "pubg.set":

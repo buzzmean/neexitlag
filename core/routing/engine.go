@@ -43,6 +43,7 @@ type Engine struct {
 	flows        map[Key]Flow
 	limit        int
 	selectPolicy func(Flow) Policy
+	onBytes      func(Flow, uint64, uint64)
 }
 
 func New(limit int) *Engine {
@@ -107,14 +108,28 @@ func (e *Engine) reserve(f Flow) (Key, Policy, Relay, error) {
 	return k, p, e.relays[p.Route.RelayID], nil
 }
 func (e *Engine) remove(k Key) { e.mu.Lock(); delete(e.flows, k); e.mu.Unlock() }
-func (e *Engine) touch(k Key) {
+
+// Observer runs AFTER releasing the engine lock; accounting cannot reenter or
+// stall routing while holding its critical section. It never chooses a route.
+func (e *Engine) SetTrafficObserver(fn func(Flow, uint64, uint64)) {
 	e.mu.Lock()
-	if f, ok := e.flows[k]; ok {
+	e.onBytes = fn
+	e.mu.Unlock()
+}
+func (e *Engine) account(k Key, tx, rx uint64) {
+	e.mu.Lock()
+	f, ok := e.flows[k]
+	callback := e.onBytes
+	if ok {
 		f.LastActivity = time.Now()
 		e.flows[k] = f
 	}
 	e.mu.Unlock()
+	if ok && callback != nil && f.Route.RelayID != "" {
+		callback(f, tx, rx)
+	}
 }
+
 func (e *Engine) pinRoute(k Key, r Route) {
 	e.mu.Lock()
 	f := e.flows[k]
@@ -264,14 +279,14 @@ type trackedUDP struct {
 func (f *trackedUDP) Send(b []byte) error {
 	err := f.Datagram.Send(b)
 	if err == nil {
-		f.e.touch(f.k)
+		f.e.account(f.k, uint64(len(b)), 0)
 	}
 	return err
 }
 func (f *trackedUDP) Receive(ctx context.Context) ([]byte, error) {
 	b, err := f.Datagram.Receive(ctx)
 	if err == nil {
-		f.e.touch(f.k)
+		f.e.account(f.k, 0, uint64(len(b)))
 	}
 	return b, err
 }
@@ -334,14 +349,14 @@ type trackedTCP struct {
 func (f *trackedTCP) Read(b []byte) (int, error) {
 	n, err := f.Conn.Read(b)
 	if n > 0 {
-		f.e.touch(f.k)
+		f.e.account(f.k, 0, uint64(n))
 	}
 	return n, err
 }
 func (f *trackedTCP) Write(b []byte) (int, error) {
 	n, err := f.Conn.Write(b)
 	if n > 0 {
-		f.e.touch(f.k)
+		f.e.account(f.k, uint64(n), 0)
 	}
 	return n, err
 }

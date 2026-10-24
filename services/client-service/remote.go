@@ -97,6 +97,11 @@ func (c *Controller) ConnectRemote(ctx context.Context, m Manifest) error {
 	c.TCPDiagnosticTarget = m.TCPProbeTarget
 	c.NetworkHostRoutes = []netip.Addr{target.Addr()}
 	c.mu.Unlock()
+	trafficPath := ""
+	if m.StateDirectory != "" {
+		trafficPath = filepath.Join(m.StateDirectory, "traffic-usage.json")
+	}
+	c.traffic.Configure(trafficPath, identity.ID)
 	remote := &remoteState{controller: c, cp: cp, tls: cfg, target: target, addresses: make(map[string]string), clients: make(map[string]*transport.Pool)}
 	if m.ProbeTokenFile != "" {
 		remote.echoKey, e = e2eprobe.Token(m.ProbeTokenFile)
@@ -112,11 +117,13 @@ func (c *Controller) ConnectRemote(ctx context.Context, m Manifest) error {
 	done := make(chan struct{})
 	c.remoteDone = done
 	var workers sync.WaitGroup
-	workers.Add(4)
+	workers.Add(5)
 	c.wg.Add(1)
 	go func() { defer c.wg.Done(); defer workers.Done(); c.catalog.run(remoteCtx, cp, keys, m.StateDirectory) }()
 	c.wg.Add(1)
 	go func() { defer c.wg.Done(); defer workers.Done(); c.runSharedLearning(remoteCtx, cp, keys) }()
+	c.wg.Add(1)
+	go func() { defer c.wg.Done(); defer workers.Done(); c.runRemoteTraffic(remoteCtx, cp, keys) }()
 	renewer.fetch = cp.RenewCertificate
 	c.wg.Add(1)
 	go func() { defer c.wg.Done(); defer workers.Done(); renewer.run(remoteCtx) }()

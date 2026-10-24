@@ -202,7 +202,7 @@ func (c *Controller) openBrowser(ctx context.Context, q browserproxy.Request, pl
 	d := applyFlowResult(current.profile, wp.Decision{}, plan.Policy, current.network, c.browserLocal(plan.Policy.Strategy))
 	d.OriginDomain = q.Host
 	d.OriginHintOnly = q.HintOnly
-	d.Flow = routing.Flow{Protocol: "tcp", Source: q.Source, Destination: plan.Destination, PID: q.Owner.PID, ProcessPath: q.Owner.Exe, ApplicationID: q.Owner.Profile, Network: current.network, PinnedPolicy: d.Flow.PinnedPolicy}
+	d.Flow = routing.Flow{OriginDomain: q.Host, OriginService: c.browserOriginPolicy(q.Host).Group, OriginReason: c.browserTrafficReason(current, q, plan), Protocol: "tcp", Source: q.Source, Destination: plan.Destination, PID: q.Owner.PID, ProcessPath: q.Owner.Exe, ApplicationID: q.Owner.Profile, Network: current.network, PinnedPolicy: d.Flow.PinnedPolicy}
 	if d.Block {
 		return nil, errors.New("browser route blocked")
 	}

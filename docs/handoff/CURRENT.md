@@ -9,7 +9,7 @@ de8e5d7/08a9eb5/a3ec712/77566d6. Обычный merge20d8bd8 разрешён в
 Пункт4 signed advisory coordination подготовлен и изолированно проверен;
 production CP ещё без endpoint, общего picker на40ПК там пока нет.
 Пункт5: общий HTTPS origin policy/selector проверен; HTTP80/Discord UDP LOCAL
-не реализованы, прежний voice не изменялся. Далее6–7 (учёт/hysteresis).
+не реализованы, прежний voice не изменялся. Пункт6 учёт подготовлен/проверен; далее7 (primary/standby hysteresis).
 Решение CDN принято: обе фоновые проверки www.youtube.com/i.ytimg.com >64KiB,
 затем max1 LOCAL trial при реально получающих данные RELAY googlevideo siblings,
 cooldown несколько минут/подгруппу;3успешных >64KiB потоков перед LOCAL,
@@ -3042,3 +3042,31 @@ catalog checksum13 PASS подWine. PS7+100Python PASS. Все result markers/lo
 repo; нативный WinDivertOpen/PS5.1/ISP/player не запускались. C# не менялся.
 TCP-часть5 готова к проверке, HTTP80/QUIC fake/Discord UDP LOCAL остаются явными
 ограничениями (не выключать прежнюю adaptive voice логику). Пункты6–7 следующие.
+
+### 6 — client payload и signed server NIC budget (24.10.2026 MSK; в проверке)
+Новый read-only traffic.status/relay-traffic.ps1/diag.5: session/UTC-day по profile,
+service/subgroup/reason, logical relay alias. Engine observer после release lock,
+DIRECT/LOCAL не считаются.512keys/day/session,2дня, overflow/omitted явные, файл
+atomic1MiB, flush вне packet lock, device epoch не в IPC; image counters другого
+устройства игнорируются. Root network/identity/профили не меняются.
+Server TCP metrics теперь live per Write (раньше только завершение io.Copy).
+Optional Linux NIC sampler и отдельный CP signed relay-traffic endpoint/TTL:
+relay-specific прежний heartbeat token bound кID, без health/config/schema writes.
+CP интегрирует raw counter deltas сам, duplicate report не удваивает; scopes32relay/
+2month до64rows. Hostkey3TB, old limitunknown; partial/reset/stale/boundary/gaps и
+неизвестная billing reset date явные, предупреждение80%/forecast, не route block.
+CP/relay flags defaultdisabled, units/production не менялись. Для server monthly
+нужны отдельное разрешённое обновление и собственные service state directories;
+клиентский day counter доступен без этого, monthly UNKNOWN не выдаётся за0used.
+Raw NIC включает overhead/SSH/другие процессы, payload totals не invoice.
+Документация/только read-only owner commands — docs/RELAY_TRAFFIC_BUDGET.md.
+Проверки/commit — после полного прохода. Пункт7 ещё не выполнялся.
+
+Пункт6 final gates: полный go test -race -p1 ./... PASS; Go vet и build Linux/
+Windows + Windows vet PASS; isolated PostgreSQL17 полный control-plane race
+12.462s PASS (после pg_isready, без production);100Python deployment PASS; PS7
+traffic/legacy/StrictMode fixtures PASS. Actual pinned DLL filters70/iSCSI30/
+catalog checksum13 повтор PASS подWine (EXE пункта5, capture source не менялся).
+C# не менялся. Нет native Windows/PS5.1/ISP/40ПК/monthly production proof.
+Учёт не пишет schema/config/identity и не меняет маршруты; optional server meter
+не включён. Переходим к7 без ожидания.

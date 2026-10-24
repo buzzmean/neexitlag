@@ -10,6 +10,7 @@ import (
 	"github.com/buzzmean/neexitlag/core/protocol"
 	"github.com/buzzmean/neexitlag/core/security"
 	"github.com/buzzmean/neexitlag/core/telemetry"
+	"github.com/buzzmean/neexitlag/core/traffic"
 	"github.com/buzzmean/neexitlag/core/transport"
 	"github.com/quic-go/quic-go"
 	"io"
@@ -62,6 +63,7 @@ type Metrics struct {
 	LocalDrops                                                                       telemetry.Counters
 }
 type Server struct {
+	Traffic     func() []traffic.MonthRow
 	listener    *quic.Listener
 	config      Config
 	Metrics     Metrics
@@ -367,12 +369,10 @@ func (x *session) open(s *quic.Stream) {
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			n, _ := io.Copy(activityWriter{s, &f.last}, c)
-			x.server.Metrics.TXBytes.Add(uint64(n))
+			_, _ = io.Copy(activityWriter{s, &f.last, &x.server.Metrics.TXBytes}, c)
 			s.Close()
 		}()
-		n, _ := io.Copy(activityWriter{c, &f.last}, s)
-		x.server.Metrics.RXBytes.Add(uint64(n))
+		_, _ = io.Copy(activityWriter{c, &f.last, &x.server.Metrics.RXBytes}, s)
 		if t, ok := c.(*net.TCPConn); ok {
 			t.CloseWrite()
 		}
@@ -382,13 +382,17 @@ func (x *session) open(s *quic.Stream) {
 
 type activityWriter struct {
 	io.Writer
-	last *atomic.Int64
+	last    *atomic.Int64
+	counter *atomic.Uint64
 }
 
 func (w activityWriter) Write(b []byte) (int, error) {
 	n, e := w.Writer.Write(b)
 	if n > 0 {
 		w.last.Store(time.Now().UnixNano())
+		if w.counter != nil {
+			w.counter.Add(uint64(n))
+		}
 	}
 	return n, e
 }
@@ -547,6 +551,11 @@ func (s *Server) Handler() http.Handler {
 	})
 	m.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+		if s.Traffic != nil {
+			for _, v := range s.Traffic() {
+				fmt.Fprintf(w, "neexitlag_interface_month_egress_bytes{relay=%q,month=%q} %d\nneexitlag_interface_month_forecast_bytes{relay=%q,month=%q} %d\n", v.Relay, v.Month, v.Bytes, v.Relay, v.Month, v.Forecast)
+			}
+		}
 		for code := byte(1); code < 8; code++ {
 			fmt.Fprintf(w, "neexitlag_open_rejected_total{reason=%q} %d\n", protocol.OpenRejection(code), s.Metrics.OpenRejected[code].Load())
 		}

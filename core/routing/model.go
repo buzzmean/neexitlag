@@ -34,6 +34,9 @@ func (r Route) Type() RouteKind {
 func (r Route) Direct() bool { return r.RelayID == "" }
 
 type Flow struct {
+	OriginDomain               string  `json:"origin_domain,omitempty"`
+	OriginService              string  `json:"origin_service,omitempty"`
+	OriginReason               string  `json:"origin_reason,omitempty"`
 	Network                    string  `json:"network_fingerprint,omitempty"`
 	PinnedPolicy               *Policy `json:"-"`
 	Protocol                   string

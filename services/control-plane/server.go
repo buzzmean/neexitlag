@@ -26,9 +26,11 @@ import (
 	"github.com/buzzmean/neexitlag/core/optimizer"
 	"github.com/buzzmean/neexitlag/core/profiles"
 	"github.com/buzzmean/neexitlag/core/security"
+	"github.com/buzzmean/neexitlag/core/traffic"
 )
 
 type Settings struct {
+	RelayTrafficFile     string
 	LocalCatalogFile     string
 	LocalLearningFile    string
 	EnrollmentProbeToken string
@@ -40,6 +42,8 @@ type Settings struct {
 	ServerCertificate    *x509.Certificate
 }
 type API struct {
+	relayTrafficMu                            sync.Mutex
+	traffic                                   *traffic.Month
 	localCatalogMu                            sync.Mutex
 	localLearningMu                           sync.Mutex
 	learning                                  *locallearning.Broker
@@ -111,6 +115,7 @@ func (a *API) Handler() http.Handler {
 	m.HandleFunc("GET /api/v1/config", a.config)
 	m.HandleFunc("/api/v1/local/catalog", a.localCatalog)
 	m.HandleFunc("POST /api/v1/local/learning", a.localLearning)
+	m.HandleFunc("/api/v1/relays/traffic", a.relayTraffic)
 	m.HandleFunc("GET /api/v1/version", func(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, map[string]string{"version": "0.3.0-dev", "ipc_version": "1"})
 	})

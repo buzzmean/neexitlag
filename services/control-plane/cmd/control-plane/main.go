@@ -58,6 +58,7 @@ func main() {
 	tlsCert := flag.String("tls-cert", "", "TLS server certificate; required for remote listener")
 	tlsKey := flag.String("tls-key", "", "TLS server private key")
 	version := flag.Bool("version-json", false, "print build and upgrade capabilities without reading credentials or connecting to DB")
+	relayTrafficFile := flag.String("relay-traffic-file", "", "optional persistent sampled NIC monthly accounting, not a routing quota")
 	localLearningFile := flag.String("local-learning-file", "", "optional persistent advisory network learning; no hardware identifiers")
 	localCatalogFile := flag.String("local-catalog-file", "", "optional writable reviewed catalog data file; no executable strategies")
 	publish := flag.Bool("publish-config-on-start", false, "publish a complete signed configuration after additive migrations; requires upgraded config consumers")
@@ -154,7 +155,7 @@ func main() {
 			fail(fmt.Errorf("invalid enrollment measurement credential"))
 		}
 	}
-	api, e := controlplane.New(store, controlplane.Settings{LocalCatalogFile: *localCatalogFile, LocalLearningFile: *localLearningFile, EnrollmentProbeToken: enrollProbeToken, AdminToken: adminToken, KeyID: *kid, SigningKey: key, CA: cert, CAKey: cak, ServerCertificate: serverLeaf})
+	api, e := controlplane.New(store, controlplane.Settings{LocalCatalogFile: *localCatalogFile, LocalLearningFile: *localLearningFile, RelayTrafficFile: *relayTrafficFile, EnrollmentProbeToken: enrollProbeToken, AdminToken: adminToken, KeyID: *kid, SigningKey: key, CA: cert, CAKey: cak, ServerCertificate: serverLeaf})
 	if e != nil {
 		fail(e)
 	}

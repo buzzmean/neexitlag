@@ -8,6 +8,7 @@ import (
 	"github.com/buzzmean/neexitlag/core/controlclient"
 	"github.com/buzzmean/neexitlag/core/protocol"
 	"github.com/buzzmean/neexitlag/core/security"
+	"github.com/buzzmean/neexitlag/core/traffic"
 	"github.com/buzzmean/neexitlag/core/transport"
 	"github.com/buzzmean/neexitlag/internal/releaseinfo"
 	"github.com/buzzmean/neexitlag/services/relay"
@@ -18,6 +19,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -33,6 +35,8 @@ func main() {
 	ticketKeys := flag.String("ticket-keys", "", "out-of-band Ed25519 trust JSON")
 	replayFile := flag.String("replay-cache", "relay-state/replay.json", "persistent replay cache")
 	cpURL := flag.String("control-plane", "", "signed config/revocation endpoint")
+	trafficState := flag.String("traffic-state-file", "", "optional persistent NIC monthly accounting; disabled when empty")
+	trafficInterface := flag.String("traffic-interface", "", "optional Linux egress NIC (default IPv4 route when empty)")
 	heartbeatFile := flag.String("heartbeat-token-file", "", "relay-specific heartbeat token")
 	allowHTTP := flag.Bool("allow-http-development", false, "allow HTTP on isolated development network")
 	cpCA := flag.String("control-plane-ca", "", "explicit private TLS CA for control plane")
@@ -108,6 +112,37 @@ func main() {
 	}
 	background, cancelBackground := context.WithCancel(context.Background())
 	defer cancelBackground()
+	var latestTraffic atomic.Pointer[traffic.Observation]
+	if *trafficState != "" {
+		tally, err := traffic.NewMonth(*trafficState)
+		if err != nil {
+			slog.Warn("optional traffic accounting unavailable; routing unchanged", "code", "TRAFFIC_STATE_LOAD_FAILED")
+		} else {
+			limit := uint64(0)
+			if *relayID == "VPS-PRIMARY" {
+				limit = 3000000000000
+			}
+			r.Traffic = func() []traffic.MonthRow { return tally.Snapshot(time.Now()) }
+			go func() {
+				timer := time.NewTicker(5 * time.Second)
+				defer timer.Stop()
+				for {
+					now := time.Now()
+					o, e := traffic.ReadInterface(*relayID, *trafficInterface, now)
+					if e == nil {
+						if e = tally.Observe(o, limit, now); e == nil {
+							latestTraffic.Store(&o)
+						}
+					}
+					select {
+					case <-background.Done():
+						return
+					case <-timer.C:
+					}
+				}
+			}()
+		}
+	}
 	if cp != nil {
 		go func() {
 			tick := time.NewTicker(30 * time.Second)
@@ -127,6 +162,9 @@ func main() {
 				}
 				if heartbeat != "" {
 					_ = cp.Heartbeat(request, *relayID, heartbeat, float64(r.Metrics.Sessions.Load())/128)
+					if o := latestTraffic.Load(); o != nil {
+						_ = cp.RelayTraffic(request, heartbeat, *o)
+					}
 				}
 				stop()
 				select {
