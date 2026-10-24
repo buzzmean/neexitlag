@@ -17,6 +17,7 @@ VPS/CA/activation/коды/CP flags/PR8 не трогали; браузеры н
 | Работа / дата | Файлы | Агент / ветка | Статус |
 |---|---|---|---|
 | LOCAL engine / 24.10.2026 | core/localstrategy; platform/windows native/DNS/TCP inject; services/client-service browser* и минимальный controller/club IPC dispatch; tools/windows diag; tests/workflow/docs | Codex / codex/work | ОСВОБОЖДЕНО: код/лаборатория готовы; Windows/ISP приёмка не доказана |
+| CDN LOCAL recovery / 24.10.2026 | core/localstrategy native recipes/inspection; platform/windows TCP evidence/buffer; services/client-service browser selection/probes; tools/windows diag; tests/docs | Codex / codex/work | В РАБОТЕ: точная стратегия CDN, post-reply close, fooling/probes |
 | Компактный handoff / 24.10.2026 | docs/handoff/*, docs/AGENT_RULES.md | Codex / codex/work | ОСВОБОЖДЕНО: архив и правила готовы; только документы |
 | Экономия VPS / LOCAL каталог и автоподбор 1–7 (23.10.2026) | Детали — [ARCHIVE.md](ARCHIVE.md) | Codex / codex/work | ОСВОБОЖДЕНО; код готов, Windows/ISP gates см. ниже |
 | Multi-relay/Hostkey P0 (23.10.2026) | Детали — [ARCHIVE.md](ARCHIVE.md) | Codex / codex/work | ОСВОБОЖДЕНО; код готов, Windows/ISP gates см. ниже |
