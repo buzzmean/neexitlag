@@ -32,34 +32,41 @@ type youtubeKey struct {
 	HintOnly                 bool
 }
 type youtubeLearn struct {
-	Stage, Strategy  string
-	Until, Retry     time.Time
-	TrialAfter       time.Time
-	Next             int
-	Tried            uint64
-	Failures, Streak uint32
-	Qualified        string
-	VerifiedBytes    uint64
-	Reason           string
-	Confirmed        bool
+	Stage, Strategy           string
+	Until, Retry              time.Time
+	TrialAfter                time.Time
+	TrialAdmission            string
+	TrialChecks, TrialDenials uint64
+	LastTrialCheck            time.Time
+	Next                      int
+	Tried                     uint64
+	Failures, Streak          uint32
+	Qualified                 string
+	VerifiedBytes             uint64
+	Reason                    string
+	Confirmed                 bool
 }
 type youtubeStage struct {
-	Service                                  string `json:"service,omitempty"`
-	Stage                                    string `json:"stage"`
-	Strategy                                 string `json:"strategy,omitempty"`
-	Connections, TX, RX, Failures, Confirmed uint64
+	Service                                            string `json:"service,omitempty"`
+	Stage                                              string `json:"stage"`
+	Strategy                                           string `json:"strategy,omitempty"`
+	Connections, TX, RX, Failures, Confirmed           uint64
+	Inconclusive, HelloSamples, HelloSumMS, HelloMaxMS uint64
 }
 type youtubeRecord struct {
-	IOFailure              string `json:"io_failure,omitempty"`
-	Service                string `json:"service,omitempty"`
-	Active                 bool   `json:"active"`
-	ID                     uint64 `json:"id"`
-	Profile                string `json:"profile"`
-	Domain                 string `json:"domain"`
-	Destination            string `json:"destination"`
-	Stage                  string `json:"stage"`
-	Strategy               string `json:"strategy,omitempty"`
-	Reason                 string `json:"reason"`
+	OpenMS                 float64        `json:"open_ms"`
+	Timing                 youtubeTimings `json:"-"`
+	LastRX                 time.Time      `json:"-"`
+	IOFailure              string         `json:"io_failure,omitempty"`
+	Service                string         `json:"service,omitempty"`
+	Active                 bool           `json:"active"`
+	ID                     uint64         `json:"id"`
+	Profile                string         `json:"profile"`
+	Domain                 string         `json:"domain"`
+	Destination            string         `json:"destination"`
+	Stage                  string         `json:"stage"`
+	Strategy               string         `json:"strategy,omitempty"`
+	Reason                 string         `json:"reason"`
 	TX, RX                 uint64
 	ServerHello, Transform bool
 	Trial                  bool                      `json:"trial"`
@@ -75,6 +82,9 @@ type youtubeCacheView struct {
 	Tried                                             uint64
 	Streak                                            uint32
 	Qualified                                         string
+	TrialAdmission                                    string
+	TrialChecks, TrialDenials                         uint64
+	LastTrialCheck                                    time.Time
 	TrialAfter                                        time.Time
 }
 type youtubeSnapshot struct {
@@ -106,6 +116,9 @@ type youtubeRuntime struct {
 	sustained      map[youtubeQualification]time.Time
 	selecting      bool
 	trialKey       youtubeKey
+	trialStrategy  string
+	trialStarted   time.Time
+	trialRecord    uint64
 	trialActive    bool
 	selection      youtubeSelectionSnapshot
 	scores         map[youtubeScoreKey]youtubeScore
@@ -199,9 +212,33 @@ func (r *youtubeRuntime) snapshot() youtubeSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	s := youtubeSnapshot{RecordsOmitted: r.seq - uint64(len(r.records)), CacheEntries: len(r.cache), Cache: []youtubeCacheView{}, Stages: []youtubeStage{}, Records: []youtubeRecord{}, Shared: r.shared.snapshot(), Selection: r.selection, Replays: "complete ClientHello only before ANY origin byte; established TLS pinned; transport health is not HTTP/playback PASS"}
+	if r.trialActive {
+		s.Selection.ActiveDomain = r.trialKey.Domain
+		s.Selection.ActiveAgeMS = time.Since(r.trialStarted).Milliseconds()
+		s.Selection.ActiveLastRXAgeMS = -1
+		s.Selection.ActiveState = "OPENING_TRIAL"
+		if v, ok := r.records[r.trialRecord]; ok {
+			s.Selection.ActiveState = "SHORT_REPLY_WAITING_TERMINAL"
+			if v.TX == 0 {
+				s.Selection.ActiveState = "PRECONNECT_NO_CLIENT_BYTES"
+			} else if v.RX == 0 {
+				s.Selection.ActiveState = "WAITING_ORIGIN_REPLY"
+			}
+			if v.Reason == "SUSTAINED_TLS_TRANSPORT_NOT_PLAYBACK_PROOF" {
+				s.Selection.ActiveState = "SUSTAINED_WAITING_TERMINAL"
+			}
+			if !v.LastRX.IsZero() {
+				s.Selection.ActiveLastRXAgeMS = time.Since(v.LastRX).Milliseconds()
+			}
+		}
+	}
 	for k, v := range r.cache {
 		if len(s.Cache) < 24 {
-			s.Cache = append(s.Cache, youtubeCacheView{k.HintOnly, k.Network, k.Profile, k.Domain, v.Stage, v.Strategy, v.Reason, k.Port, v.Until, v.Retry, v.Tried, v.Streak, v.Qualified, v.TrialAfter})
+			admission := v.TrialAdmission
+			if v.LastTrialCheck.IsZero() {
+				admission = "NO_ELIGIBLE_NEW_FLOW_CHECK"
+			}
+			s.Cache = append(s.Cache, youtubeCacheView{k.HintOnly, k.Network, k.Profile, k.Domain, v.Stage, v.Strategy, v.Reason, k.Port, v.Until, v.Retry, v.Tried, v.Streak, v.Qualified, admission, v.TrialChecks, v.TrialDenials, v.LastTrialCheck, v.TrialAfter})
 		}
 	}
 	for _, v := range r.stats {
@@ -421,6 +458,7 @@ func (c *Controller) openYoutubeLadder(ctx context.Context, cur profilesResult, 
 		if stage == "RELAY" {
 			budget = 5 * time.Second
 		}
+		openStarted := time.Now()
 		attempt, cancel := context.WithTimeout(work, budget)
 		var conn net.Conn
 		var err error
@@ -437,13 +475,16 @@ func (c *Controller) openYoutubeLadder(ctx context.Context, cur profilesResult, 
 		if len(r.records) >= 96 {
 			old := record
 			for id := range r.records {
-				if id < old {
+				if id < old && id != r.trialRecord {
 					old = id
 				}
 			}
 			delete(r.records, old)
 		}
-		r.records[record] = youtubeRecord{Service: service, Active: err == nil, ID: record, Profile: cur.profile.ID, Domain: q.Host, Destination: actual.Destination.String(), Stage: stage, Strategy: strategy, Reason: "OPEN", Trial: trial && stage == "LOCAL", Updated: time.Now()}
+		if trial && stage == "LOCAL" {
+			r.trialRecord = record
+		}
+		r.records[record] = youtubeRecord{OpenMS: float64(time.Since(openStarted)) / float64(time.Millisecond), Service: service, Active: err == nil, ID: record, Profile: cur.profile.ID, Domain: q.Host, Destination: actual.Destination.String(), Stage: stage, Strategy: strategy, Reason: "OPEN", Trial: trial && stage == "LOCAL", Updated: time.Now()}
 		label := service + ":" + stage + ":" + strategy
 		if _, exists := r.stats[label]; !exists && len(r.stats) >= 128 {
 			label = "other:" + stage + ":CATALOG_OVERFLOW"
@@ -514,30 +555,37 @@ func (c *Controller) openYoutubeLadder(ctx context.Context, cur profilesResult, 
 
 type youtubeMeter struct {
 	net.Conn
-	r                       *youtubeRuntime
-	id                      uint64
-	label                   string
-	key                     youtubeKey
-	stage, strategy         string
-	started                 time.Time
-	inspection              func() *localstrategy.Inspection
-	closing                 bool
-	transform               func() bool
-	mu                      sync.Mutex
-	wire                    browserproxy.TLSWireObserver
-	tx, rx                  uint64
-	healthy                 bool
-	postHelloWrite          bool
-	applied, witnessChecked bool
-	lastReply               time.Time
-	trial                   bool
-	trialDone               sync.Once
-	failed                  bool
-	gap                     sync.Once
-	bad                     sync.Once
+	r                               *youtubeRuntime
+	id                              uint64
+	label                           string
+	key                             youtubeKey
+	stage, strategy                 string
+	started                         time.Time
+	inspection                      func() *localstrategy.Inspection
+	closing                         bool
+	neutral                         bool
+	neutralCounted                  bool
+	halfClosed                      bool
+	firstClientWrite, serverHelloAt time.Time
+	transform                       func() bool
+	mu                              sync.Mutex
+	wire                            browserproxy.TLSWireObserver
+	tx, rx                          uint64
+	healthy                         bool
+	postHelloWrite                  bool
+	applied, witnessChecked         bool
+	lastReply                       time.Time
+	trial                           bool
+	trialDone                       sync.Once
+	failed                          bool
+	gap                             sync.Once
+	bad                             sync.Once
 }
 
 func (m *youtubeMeter) failure(reason string) {
+	if strings.Contains(reason, "EOF") && m.noteClientClose() {
+		return
+	}
 	m.bad.Do(func() {
 		m.mu.Lock()
 		if m.stage == "LOCAL" && !m.witnessChecked && m.tx > 0 && m.transform != nil {
@@ -558,6 +606,9 @@ func (m *youtubeMeter) failure(reason string) {
 				v.Inspection = m.inspection()
 			}
 			v.Reason = reason
+			if strings.Contains(reason, "STALL") || strings.Contains(reason, "TIMEOUT") || strings.Contains(reason, "SILENT") || strings.Contains(reason, "BUDGET") {
+				v.IOFailure = "TIMEOUT"
+			}
 			v.Transform = applied
 			v.TransformKnown = known
 			v.Updated = time.Now()
@@ -566,6 +617,11 @@ func (m *youtubeMeter) failure(reason string) {
 	})
 }
 func (m *youtubeMeter) Write(p []byte) (int, error) {
+	m.mu.Lock()
+	if len(p) > 0 && m.firstClientWrite.IsZero() {
+		m.firstClientWrite = time.Now()
+	}
+	m.mu.Unlock()
 	afterHello := m.wire.Snapshot().Origin.ServerHelloComplete
 	n, e := m.Conn.Write(p)
 	if afterHello && n > 0 {
@@ -619,7 +675,36 @@ func (m *youtubeMeter) Read(p []byte) (int, error) {
 				m.r.records[m.id] = record
 			}
 			m.r.mu.Unlock()
-			m.failure("EARLY_EOF_OR_IO_NO_REPLAY")
+			if errors.Is(e, io.EOF) && m.noteClientClose() { /* neither negative proof nor sustained success */
+			} else {
+				reason := "REMOTE_IO_ERROR"
+				if code == "REMOTE_RESET" {
+					reason = "REMOTE_RST"
+				} else if errors.Is(e, io.EOF) {
+					reason = "REMOTE_EOF_AFTER_REPLY"
+					m.mu.Lock()
+					if m.rx == 0 {
+						reason = "REMOTE_EOF_BEFORE_REPLY"
+					}
+					m.mu.Unlock()
+				}
+				m.failure(reason)
+			}
+		}
+	}
+	if isTCPReset(e) {
+		m.mu.Lock()
+		closing := m.closing
+		m.mu.Unlock()
+		if !closing {
+			m.failure("REMOTE_RST")
+		}
+	}
+	if e != nil && !isYoutubeTimeout(e) {
+		trace := m.currentInspection()
+		if isTCPReset(e) || trace != nil && trace.TCPPackets.ClientFIN > 0 && trace.TCPPackets.RemoteFIN > 0 {
+			m.finishObservation()
+			m.updateCloseRecord()
 		}
 	}
 	return n, e
@@ -632,7 +717,14 @@ func (m *youtubeMeter) account(tx, rx uint64) {
 	if rx > 0 {
 		m.lastReply = time.Now()
 	}
-	hello := m.wire.Snapshot().Origin.ServerHelloComplete
+	snapshot := m.wire.Snapshot()
+	hello := snapshot.Origin.ServerHelloComplete
+	firstHello := hello && m.serverHelloAt.IsZero()
+	if firstHello {
+		m.serverHelloAt = time.Now()
+	}
+	timing := m.timingLocked(nil, time.Time{})
+	lastRX := m.lastReply
 	if m.stage == "LOCAL" && !m.witnessChecked && m.tx > 0 && rx > 0 {
 		m.witnessChecked = true
 		m.applied = m.transform()
@@ -654,6 +746,14 @@ func (m *youtubeMeter) account(tx, rx uint64) {
 	m.r.mu.Lock()
 	defer m.r.mu.Unlock()
 	s := m.r.stats[m.label]
+	if firstHello && timing.ClientHelloToServerHelloMS >= 0 {
+		v := uint64(timing.ClientHelloToServerHelloMS)
+		s.HelloSamples++
+		s.HelloSumMS += v
+		if v > s.HelloMaxMS {
+			s.HelloMaxMS = v
+		}
+	}
 	s.TX += tx
 	s.RX += rx
 	if confirmed {
@@ -661,6 +761,8 @@ func (m *youtubeMeter) account(tx, rx uint64) {
 	}
 	m.r.stats[m.label] = s
 	if v, ok := m.r.records[m.id]; ok {
+		v.Timing = timing
+		v.LastRX = lastRX
 		v.TX += tx
 		v.RX += rx
 		v.ServerHello = hello
@@ -674,6 +776,9 @@ func (m *youtubeMeter) account(tx, rx uint64) {
 	}
 }
 func (m *youtubeMeter) CloseWrite() error {
+	m.mu.Lock()
+	m.halfClosed = true
+	m.mu.Unlock()
 	if c, ok := m.Conn.(interface{ CloseWrite() error }); ok {
 		return c.CloseWrite()
 	}
@@ -700,7 +805,17 @@ func (m *youtubeMeter) progressGap(now time.Time) {
 		return
 	}
 	m.gap.Do(func() {
-		m.r.failed(m.key, m.stage, m.strategy, "EARLY_PROGRESS_GAP_HINT_NOT_HTTP_FAILURE", now)
+		m.r.mu.Lock()
+		v := m.r.cache[m.key]
+		if v.Stage == "" {
+			v.Stage = "RELAY"
+			v.Until = now.Add(youtubeLearnTTL)
+		}
+		v.Reason = "EARLY_PROGRESS_GAP_HINT_NOT_HTTP_FAILURE"
+		if m.r.room(m.key, now) {
+			m.r.cache[m.key] = v
+		}
+		m.r.mu.Unlock()
 		m.r.mu.Lock()
 		if v, ok := m.r.records[m.id]; ok {
 			v.Reason = "EARLY_PROGRESS_GAP_HINT_NEXT_CONNECTION_ONLY"
@@ -711,30 +826,16 @@ func (m *youtubeMeter) progressGap(now time.Time) {
 }
 
 func (m *youtubeMeter) Close() error {
+	// Inspect before our own Close emits FIN, so that we cannot fabricate neutral proof.
+	if trace := m.currentInspection(); trace != nil && trace.TCPPackets.RemoteRST > 0 {
+		m.failure("REMOTE_RST")
+	}
+	m.noteClientClose()
 	m.mu.Lock()
 	m.closing = true
 	m.mu.Unlock()
 	err := m.Conn.Close()
-	if m.trial {
-		m.trialDone.Do(func() {
-			m.mu.Lock()
-			success, after, received := m.healthy && !m.failed, m.rx > 0, m.rx
-			m.mu.Unlock()
-			m.r.finishTrial(m.key, m.strategy, success, after, time.Now(), received)
-		})
-	}
-	m.r.mu.Lock()
-	if v, ok := m.r.records[m.id]; ok {
-		v.Active = false
-		if v.Reason == "OPEN" {
-			v.Reason = "CLIENT_CLOSED_BEFORE_SUSTAINED_PROOF"
-		}
-		if m.inspection != nil {
-			v.Inspection = m.inspection()
-		}
-		v.Updated = time.Now()
-		m.r.records[m.id] = v
-	}
-	m.r.mu.Unlock()
+	m.finishObservation()
+	m.updateCloseRecord()
 	return err
 }

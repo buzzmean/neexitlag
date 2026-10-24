@@ -135,6 +135,8 @@ func (c *localProbeConn) Write(p []byte) (int, error) {
 
 type localCloseEvidence struct {
 	Domain, Strategy, Reason, IOFailure string
+	Timing                              youtubeTimings
+	OpenMS, TransformSendMS             float64
 	TX, RX                              uint64
 	Updated                             time.Time
 	Packets                             localstrategy.TCPTrace
@@ -147,7 +149,7 @@ func (c *Controller) localProbeSnapshot() map[string]any {
 	closed := []localCloseEvidence{}
 	for _, v := range r.records {
 		if v.Stage == "LOCAL" && v.Inspection != nil && (!v.Active || v.IOFailure != "") {
-			closed = append(closed, localCloseEvidence{v.Domain, v.Strategy, v.Reason, v.IOFailure, v.TX, v.RX, v.Updated, v.Inspection.TCPPackets})
+			closed = append(closed, localCloseEvidence{Domain: v.Domain, Strategy: v.Strategy, Reason: v.Reason, IOFailure: v.IOFailure, TX: v.TX, RX: v.RX, Updated: v.Updated, Packets: v.Inspection.TCPPackets, Timing: v.Timing, OpenMS: v.OpenMS, TransformSendMS: v.Inspection.TransformSendMS})
 		}
 	}
 	sort.Slice(closed, func(i, j int) bool { return closed[i].Updated.After(closed[j].Updated) })
@@ -158,12 +160,21 @@ func (c *Controller) localProbeSnapshot() map[string]any {
 	if len(rows) > 32 {
 		rows = rows[len(rows)-32:]
 	}
-	for len(rows) > 0 {
-		raw, _ := json.Marshal(rows)
-		if len(raw) < 36000 {
-			break
+	result := map[string]any{"tcp_closures": closed, "probes": rows, "retained": len(r.probeEvidence), "retention_limit": 128, "scope": "bounded recent probes and closes; headers/timing only; TLS1.3 type23 is NOT HTTP content proof"}
+	for {
+		result["probes"] = rows
+		result["tcp_closures"] = closed
+		result["omitted_retained"] = len(r.probeEvidence) - len(rows)
+		raw, _ := json.Marshal(result)
+		if len(raw) < 48000 {
+			return result
 		}
-		rows = rows[1:]
+		if len(rows) > 0 {
+			rows = rows[1:]
+		} else if len(closed) > 0 {
+			closed = closed[:len(closed)-1]
+		} else {
+			return result
+		}
 	}
-	return map[string]any{"tcp_closures": closed, "probes": rows, "retained": len(r.probeEvidence), "omitted_retained": len(r.probeEvidence) - len(rows), "retention_limit": 128, "scope": "bounded recent probes; packet headers only; no payload; missing evidence is not success"}
 }

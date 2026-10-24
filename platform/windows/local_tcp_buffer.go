@@ -56,6 +56,7 @@ func (b *LocalTCPBuffer) deliver(d Decision, st *localstrategy.State, id Process
 	r := batch.Result
 	defer func() { l.RecordLocalInspection(id, t, r.Inspection) }()
 	if r.Modified {
+		sendStarted := time.Now()
 		r.Inspection.OutputPacketsPlanned = len(r.Packets)
 		for i, q := range r.Packets {
 			if err := sends[r.PacketOrigins[i]](q); err != nil {
@@ -73,6 +74,7 @@ func (b *LocalTCPBuffer) deliver(d Decision, st *localstrategy.State, id Process
 				r.Inspection.SentPackets = append(r.Inspection.SentPackets, item)
 			}
 		}
+		r.Inspection.TransformSendMS = float64(time.Since(sendStarted)) / float64(time.Millisecond)
 		if r.Modified {
 			r.Inspection.TransformApplied = true
 			total := 0

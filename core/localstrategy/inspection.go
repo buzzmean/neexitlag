@@ -31,11 +31,13 @@ type TCPTrace struct {
 	FirstCloseFlags                                                                    uint8     `json:"first_close_flags"`
 	FirstCloseTTL                                                                      uint8     `json:"first_close_ttl"`
 	FirstCloseAt                                                                       time.Time `json:"first_close_at"`
-	ClientNext, RemoteNext                                                             uint32    `json:"-"`
-	ClientSequenceSeen, RemoteSequenceSeen                                             bool      `json:"-"`
+	LastRemotePayloadAt, LastRemoteBeforeCloseAt                                       time.Time
+	ClientNext, RemoteNext                                                             uint32 `json:"-"`
+	ClientSequenceSeen, RemoteSequenceSeen                                             bool   `json:"-"`
 }
 
 type Inspection struct {
+	TransformSendMS          float64      `json:"transform_send_ms"`
 	TCPPackets               TCPTrace     `json:"tcp_packets"`
 	OriginalPacketBytes      int          `json:"original_packet_bytes"`
 	TCPHeaderBytes           int          `json:"tcp_header_bytes"`

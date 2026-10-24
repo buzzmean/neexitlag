@@ -174,3 +174,51 @@ proof, не >64KiB/видео; follow на другой origin не выполн
 EOF этого control потока не отменяет собственную свежую контрольную проверку;
 CDN trial по-прежнему провален при short EOF, отрицательный кеш сохраняется.
 i.ytimg.com404 остаётся SHORT_RESPONSE, не локальный transport PASS.
+
+## Нейтральное закрытие и admission — после57396ee,24.10.2026
+Данные владельца: короткие LOCAL потоки закрываются первым CLIENT FIN+ACK,
+без RST/ретрансмитов, peer FIN имеет тот же TTL, что SYN/ACK. Это не доказательство
+поломки стратегии. При rx>0 и таком наблюдении результат CLIENT_INITIATED_CLOSE:
+не failure, не failed_after_reply, не негативный score/backoff. Без sustained
+>64KiB/ServerHello/post-hello write/committed transform это также НЕ success.
+trial_inconclusive и client_initiated_trial_closes отдельны; neutral не увеличивает
+streak, не удаляет Qualified и не помечает plan как Tried. Старую уже известную
+ошибку/таймаут/TLS alert/RST нельзя нейтрализовать последующим клиентским FIN.
+REMOTE_RST, REMOTE_EOF_BEFORE_REPLY, REMOTE_EOF_AFTER_REPLY и TIMEOUT различаются.
+Один пассивный progress gap (возможно idle/preconnect) больше не портит score;
+настоящий WatchMidstream timeout по-прежнему отрицателен. Его callback вызывается
+ДО Close: собственный FIN watchdog не маскирует отказ нейтральным завершением.
+
+Терминальный Read с обоими FIN либо reset завершает учёт trial немедленно,
+не дожидаясь Close оболочки. TCP с обоими FIN уже не переносит новые данные.
+Закрытие учёта идемпотентно и связано с scope+strategy; поздний Close старого
+потока не освобождает новый slot. Не закрываем живой idle HTTP/2 ради второго
+trial: max1 сохранён. Активная проба показывает возраст/подгруппу/последний RX и
+состояние PRECONNECT_NO_CLIENT_BYTES/WAITING_ORIGIN_REPLY/SHORT_REPLY_WAITING_TERMINAL/
+SUSTAINED_WAITING_TERMINAL. Если такой socket остаётся жив, slot удерживается честно.
+
+Для реальных новых flows TrialAfter>=3мин остаётся gate; Retry фонового sweep
+больше не блокирует уже qualified trial. Каждый check записывает ADMITTED,
+GLOBAL_TRIAL_ACTIVE, SUBGROUP_COOLDOWN, NO_QUALIFIED_STRATEGY,
+STRATEGY_PROOF_EXPIRED либо LIVE_RELAY_SIBLING_NOT_OBSERVED и счётчики/время.
+NO_ELIGIBLE_NEW_FLOW_CHECK означает отсутствие наблюдённого admission check,
+а не доказательство отсутствия всего browser traffic. TRIAL_PENDING не создаёт
+новое Chrome TCP-соединение: HTTP/2 может пользоваться уже pinned RELAY. Перенос
+такого соединения, replay после origin byte и искусственный разрыв рабочего H2
+не добавляются. Live sibling прежний: тот же профиль, открыт, >64KiB, lastRX<5с.
+Почему на ПК было ровно1trial/12мин, без этих данных пока НЕ установлено;
+не назначаем причиной автоматически ни занятый slot, ни отсутствие нового flow.
+
+Diag.11 сравнивает ClientHello→ServerHello avg/max/samples по service/stage/strategy,
+показывает TCP open_ms, reassembly_ms, actual transform_send_ms, Hello→первый FIN/RST
+и lastRX→первый FIN/RST. Wire observer считает точный byte offset конца ServerHello
+даже через TLS records/Read boundaries; RX после него включает TLS handshake и
+ciphertext, это НЕ HTTP body. Время первого ClientHello — начало его forwarding
+Write, ServerHello — наблюдение завершённого handshake в Read, не timestamp NIC.
+TLS type23 — наличие outer application record; TLS1.3 шифрует также handshake/alert.
+Нельзя отличить Chrome abort/preconnect/H2 GOAWAY/HTTP-ошибку по этим bytes без
+MITM или браузерного NetLog. HalfCloseRequested отмечает клиентское направление
+copy→CloseWrite, но не доказывает намерение Chrome. Fake repeats/fooling/TTL не
+изменялись; влияние repeats6 и fakedsplit на реальном ПК измеряется новыми полями,
+лабораторный speed/Chrome-intent PASS не заявляется. NetLog с приватными URL не
+включается автоматически. Без restart/ручного policy reload; VPS/CA/SSH не нужны.

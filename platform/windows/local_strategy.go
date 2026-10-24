@@ -3,6 +3,7 @@ package windowsplatform
 import (
 	"encoding/binary"
 	"github.com/buzzmean/neexitlag/core/localstrategy"
+	"time"
 )
 
 // SendLocal shares the existing NETWORK send path, with no additional handles.
@@ -25,6 +26,7 @@ func SendLocal(d Decision, state *localstrategy.State, id ProcessIdentity, tuple
 		return nil
 	}
 	if r.Modified {
+		sendStarted := time.Now()
 		inspection := r.Inspection
 		if inspection != nil {
 			inspection.OutputPacketsPlanned = len(r.Packets)
@@ -48,6 +50,9 @@ func SendLocal(d Decision, state *localstrategy.State, id ProcessIdentity, tuple
 					inspection.SentPackets = append(inspection.SentPackets, item)
 				}
 			}
+		}
+		if inspection != nil {
+			inspection.TransformSendMS = float64(time.Since(sendStarted)) / float64(time.Millisecond)
 		}
 		if r.Modified {
 			if inspection != nil {

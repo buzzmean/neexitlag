@@ -22,6 +22,7 @@ type TLSWireRecord struct {
 	Complete bool   `json:"complete"`
 }
 type TLSWireSide struct {
+	ServerHelloEndBytes uint64          `json:"server_hello_end_bytes,omitempty"`
 	ServerHelloComplete bool            `json:"server_hello_complete,omitempty"`
 	Bytes               uint64          `json:"bytes"`
 	Records             []TLSWireRecord `json:"records"`
@@ -47,6 +48,7 @@ type tlsWireDirection struct {
 	metaN            int
 	hello            uint32
 	handshakeSeen    uint32
+	serverHelloEnd   uint64
 	invalid, bounded bool
 	firstHeader      [5]byte
 	alert            [2]byte
@@ -105,6 +107,7 @@ func (d *tlsWireDirection) observe(p []byte, client bool) {
 			n = d.remaining
 		}
 		if d.firstHeader[0] == 22 && d.records[d.count-1].Type == 22 {
+			beforeHandshake := d.handshakeSeen
 			d.handshakeSeen += uint32(n)
 			for i := 0; i < n && d.metaN < 4; i++ {
 				d.meta[d.metaN] = p[i]
@@ -112,6 +115,12 @@ func (d *tlsWireDirection) observe(p []byte, client bool) {
 			}
 			if client && d.metaN == 4 && d.meta[0] == 1 {
 				d.hello = 4 + (uint32(d.meta[1]) << 16) + (uint32(d.meta[2]) << 8) + uint32(d.meta[3])
+			}
+			if !client && d.metaN == 4 && d.meta[0] == 2 && d.serverHelloEnd == 0 {
+				expected := 4 + (uint32(d.meta[1]) << 16) + (uint32(d.meta[2]) << 8) + uint32(d.meta[3])
+				if expected >= 42 && beforeHandshake < expected && d.handshakeSeen >= expected {
+					d.serverHelloEnd = d.bytes - uint64(len(p)) + uint64(expected-beforeHandshake)
+				}
 			}
 		}
 		if d.count == 1 {
@@ -136,6 +145,7 @@ func (d *tlsWireDirection) snapshot() TLSWireSide {
 		// ServerHello has at least version(2), random(32), session-id length(1),
 		// cipher suite(2), compression(1). A zero/tiny handshake is not progress.
 		s.ServerHelloComplete = expected >= 42 && d.handshakeSeen >= expected
+		s.ServerHelloEndBytes = d.serverHelloEnd
 	}
 	if d.bytes == 0 {
 		return s

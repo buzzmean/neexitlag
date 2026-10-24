@@ -21,6 +21,12 @@ const youtubeTrialSuccesses = 3
 type youtubeSelectionSnapshot struct {
 	BackgroundAttempts, BackgroundFailures                  uint64 `json:",omitempty"`
 	Trials, TrialSuccesses, TrialFailures, FailedAfterReply uint64
+	TrialInconclusive                                       uint64
+	ClientInitiatedTrialCloses                              uint64
+	ActiveDomain                                            string `json:"active_domain,omitempty"`
+	ActiveAgeMS                                             int64  `json:"active_age_ms"`
+	ActiveLastRXAgeMS                                       int64  `json:"active_last_rx_age_ms"`
+	ActiveState                                             string `json:"active_state,omitempty"`
 	ActiveTrial                                             bool   `json:"active_trial"`
 	BackgroundActive                                        bool   `json:"background_active"`
 	Contract                                                string `json:"contract"`
@@ -278,11 +284,38 @@ func (r *youtubeRuntime) takeTrial(k youtubeKey, now time.Time, workingRelay boo
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	v := r.cache[k]
-	if !youtubeCDN(k) || !workingRelay || r.trialActive || now.Before(v.Retry) || now.Before(v.TrialAfter) || v.Qualified == "" || !r.qualified(k, v.Qualified, now) {
+	if !youtubeCDN(k) {
 		return "", false
 	}
+	reason := "ADMITTED"
+	switch {
+	case r.trialActive:
+		reason = "GLOBAL_TRIAL_ACTIVE"
+	case now.Before(v.TrialAfter):
+		reason = "SUBGROUP_COOLDOWN"
+	case v.Qualified == "":
+		reason = "NO_QUALIFIED_STRATEGY"
+	case !r.qualified(k, v.Qualified, now):
+		reason = "STRATEGY_PROOF_EXPIRED"
+	case !workingRelay:
+		reason = "LIVE_RELAY_SIBLING_NOT_OBSERVED"
+	}
+	v.TrialChecks++
+	v.LastTrialCheck = now
+	v.TrialAdmission = reason
+	if reason != "ADMITTED" {
+		v.TrialDenials++
+		if r.room(k, now) {
+			r.cache[k] = v
+		}
+		return "", false
+	}
+	// Retry is a BACKGROUND probe deadline; only TrialAfter gates real trials.
 	r.trialActive = true
 	r.trialKey = k
+	r.trialStrategy = v.Qualified
+	r.trialStarted = now
+	r.trialRecord = 0
 	r.selection.ActiveTrial = true
 	r.selection.Trials++
 	v.Retry = now.Add(youtubeTrialCooldown)
@@ -291,11 +324,45 @@ func (r *youtubeRuntime) takeTrial(k youtubeKey, now time.Time, workingRelay boo
 	return v.Qualified, true
 }
 func (r *youtubeRuntime) finishTrial(k youtubeKey, strategy string, success, afterReply bool, now time.Time, received ...uint64) {
+	n := uint64(0)
+	if len(received) > 0 {
+		n = received[0]
+	}
+	verdict := "FAILED"
+	if success {
+		verdict = "SUCCESS"
+	}
+	r.finishTrialOutcome(k, strategy, verdict, afterReply, now, n)
+}
+func (r *youtubeRuntime) finishTrialOutcome(k youtubeKey, strategy, verdict string, afterReply bool, now time.Time, received uint64) {
+	success := verdict == "SUCCESS"
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if !r.trialActive || r.trialKey != k || r.trialStrategy != strategy {
+		return
+	}
 	r.trialActive = false
 	r.trialKey = youtubeKey{}
+	r.trialStrategy = ""
+	r.trialRecord = 0
 	r.selection.ActiveTrial = false
+	if verdict == "INCONCLUSIVE" || verdict == "CLIENT_INITIATED_CLOSE" {
+		r.selection.TrialInconclusive++
+		if verdict == "CLIENT_INITIATED_CLOSE" {
+			r.selection.ClientInitiatedTrialCloses++
+		}
+		v := r.cache[k]
+		v.Retry = now.Add(youtubeTrialCooldown)
+		v.TrialAfter = v.Retry
+		v.Reason = "CDN_TRIAL_INCONCLUSIVE"
+		if verdict == "CLIENT_INITIATED_CLOSE" {
+			v.Reason = "CDN_TRIAL_CLIENT_CLOSE_INCONCLUSIVE"
+		}
+		if r.room(k, now) {
+			r.cache[k] = v
+		}
+		return
+	}
 	if !r.room(k, now) {
 		r.selection.TrialFailures++
 		if afterReply {
@@ -307,8 +374,8 @@ func (r *youtubeRuntime) finishTrial(k youtubeKey, strategy string, success, aft
 	if success && v.Qualified == strategy && r.qualified(k, strategy, now) {
 		r.score(k, strategy, true, now)
 		r.selection.TrialSuccesses++
-		if len(received) > 0 && received[0] > 64*1024 {
-			v.VerifiedBytes = received[0]
+		if received > 64*1024 {
+			v.VerifiedBytes = received
 		}
 		v.Streak++
 		if v.Streak >= youtubeTrialSuccesses {

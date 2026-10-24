@@ -1,3 +1,15 @@
+## Последний итог — CDN trial/EOF,24.10.2026
+Владелец6df8a42 подтвердил www.youtube.com/discord.com128KiB LOCAL(c0aa53…), но CDN0/4/3post-reply failures: успех googlevideo всё ещё НЕ доказан.
+Исправлен selector: same network/profile/hint-mode sustained YouTube proof выше transform-only/catalog prior; точный Qualified ID виден в diag; failed CDN candidate не форсируется снова в текущем sweep.
+Фон не меняет binding/health активного trial; TrialAfter отдельно сохраняет >=3мин независимо от requalification; max1/live RELAY sibling/3sustained CDN success сохранены. Existing TCP pinned, после origin byte replay запрещён.
+Diag.10: фактические ACK/TS deltas/MD5; bounded LOCAL close table с EOF/reset, FIN/RST направлением/первым TTL/SYNACK TTL/ретрансмитами, отдельно от active RELAY records и в пределах IPC budget.
+Для fooling=ts seq_delta0/1 и original TTL128 ожидаемы: badseq/badack неактивны; ts_delta должен быть-600000. Генерация fake/old-sequence legacy не менялась.
+16PNG давали~21KiB: теперь≤64 GET/один TLS/4с/256KiB до >64KiB. Пустой301 не IO failure; canonical youtube.com redirect — CONTROL_NOT_BULK, не CDN/video PASS. i.ytimg404 не успех.
+A: конкретный EARLY_EOF на ПК пока НЕ объяснён; новая packet evidence нужна, чтобы отличить remote FIN/RST/локальное закрытие/короткий ответ. TTL не доказывает DPI, HTTP CDN без MITM не виден.
+Полные Go race/vet/build Linux+Windows и Windows vet PASS; обе Windows fixture EXE собраны, pinned DLL70filters/iSCSI30/checksum44plans подWine PASS; PS7 PASS. Windows kernel/PS5.1/ISP CDN не выполнялись здесь. GUI/CP/shared flags/VPS/CA/коды/SSH/PR8 не трогали.
+Аудит: docs/LOCAL_ENGINE_AUDIT.md (CDN приёмка6df8a42); прежний итог дословно в ARCHIVE. IPC использует прежний browser.local.probes dispatch; manifest/defaults не менялись, DIAG read-only, RELAY не форсируется вместо рабочего LOCAL.
+
+
 ## Последний итог — LOCAL native engine,24.10.2026
 `5319850`: точная strategy×host диагностика; `4568dd4`: LOCAL owner race guard и CDN trial по scoped transform.
 `1cdb650`:64 Flowseal TCP443 rules реально исполняются в fixtures,44 уникальных плана+9legacy;49 HTTP/QUIC/прочих rules явно unsupported.

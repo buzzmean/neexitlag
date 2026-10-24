@@ -24,3 +24,9 @@ Write-YouTubeLocalEvidence ([pscustomobject]@{shared_learning=[pscustomobject]@{
 $text=$script:lines -join "`n"
 if($text -notmatch 'SIGNED_SHARED_LEARNING' -or $text -notmatch 'candidate=catalog-x' -or $text -match 'HIDDEN_PROOF'){throw 'Unsafe or missing shared learning projection'}
 Write-Host 'PASS shared learning candidate is diagnostic data, no proof/identity output'
+
+$script:lines=@()
+Write-YouTubeLocalEvidence ([pscustomobject]@{selection=[pscustomobject]@{TrialInconclusive=1;ClientInitiatedTrialCloses=1;active_trial=$true;active_domain='googlevideo:sn-x';active_age_ms=300;active_last_rx_age_ms=200;active_state='SHORT_REPLY_WAITING_TERMINAL'};cache=@([pscustomobject]@{Domain='googlevideo:sn-b';TrialAdmission='GLOBAL_TRIAL_ACTIVE';TrialChecks=4;TrialDenials=4});stages=@([pscustomobject]@{service='youtube-media';stage='LOCAL';HelloSamples=2;HelloSumMS=400;HelloMaxMS=300;Inconclusive=1})})
+$text=$script:lines -join "`n"
+if($text -notmatch 'trial_inconclusive=1' -or $text -notmatch 'client_initiated_trial_closes=1' -or $text -notmatch 'admission=GLOBAL_TRIAL_ACTIVE checks=4 denials=4' -or $text -notmatch 'hello_avg_ms=200'){throw 'Missing neutral/admission/timing evidence'}
+Write-Host 'PASS neutral trial, admission reason and LOCAL/RELAY hello latency aggregation'

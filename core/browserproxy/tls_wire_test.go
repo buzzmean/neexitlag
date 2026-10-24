@@ -101,3 +101,20 @@ func TestTLSWireTinyServerHelloCannotConfirmHealth(t *testing.T) {
 		}
 	}
 }
+
+func TestServerHelloEndOffsetAcrossReadsAndRecords(t *testing.T) {
+	hello := append([]byte{2, 0, 0, 38}, make([]byte, 38)...)
+	first := append([]byte{22, 3, 3, 0, 10}, hello[:10]...)
+	second := append([]byte{22, 3, 3, 0, 32}, hello[10:]...)
+	wire := append(first, second...)
+	wire = append(wire, 23, 3, 3, 0, 1, 0)
+	for split := 1; split < len(wire); split++ {
+		var o TLSWireObserver
+		o.ObserveOrigin(wire[:split])
+		o.ObserveOrigin(wire[split:])
+		s := o.Snapshot().Origin
+		if !s.ServerHelloComplete || s.ServerHelloEndBytes != 52 || s.Bytes != 58 {
+			t.Fatal(split, s)
+		}
+	}
+}

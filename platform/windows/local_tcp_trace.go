@@ -35,6 +35,7 @@ func (l *EvidenceLedger) RecordLocalTCPPacket(id ProcessIdentity, t Tuple, p []b
 			trace.SYNACKTTL = p[8]
 		}
 		if len(p) > h {
+			trace.LastRemotePayloadAt = time.Now()
 			trace.RemotePayloadPackets++
 			trace.RemotePayloadBytes += uint64(len(p) - h)
 		}
@@ -68,6 +69,7 @@ func (l *EvidenceLedger) RecordLocalTCPPacket(id ProcessIdentity, t Tuple, p []b
 		trace.FirstCloseFlags = flags
 		trace.FirstCloseTTL = p[8]
 		trace.FirstCloseAt = time.Now()
+		trace.LastRemoteBeforeCloseAt = trace.LastRemotePayloadAt
 	}
 	// Relative TCP serial arithmetic stays private; never export absolute seq/ack.
 	seq := binary.BigEndian.Uint32(p[24:])

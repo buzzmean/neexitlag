@@ -89,7 +89,9 @@ func (c *midstreamConn) Read(p []byte) (int, error) {
 		c.mu.Unlock()
 		if !pending.IsZero() && time.Since(pending) >= c.timeout {
 			c.once.Do(func() {
-				c.Conn.Close()
+				// Record the timeout before Close finalizes observers; otherwise
+				// our own FIN can look like a neutral client shutdown.
+				defer c.Conn.Close()
 				if c.onStall != nil {
 					c.onStall()
 				}
