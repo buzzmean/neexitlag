@@ -9,6 +9,12 @@ try {
  try{Resolve-OwnerPython | Out-Null}catch{$rejected=$_.Exception.Message -match 'PYTHON_3_REQUIRED.*winget install --exact --id Python.Python.3.12'}
  if(!$rejected){throw 'Store alias accepted or missing installation instruction'}
  if($null -ne $pythonReal){$script:candidates=@($pythonReal);$found=Resolve-OwnerPython;if($found.File -ne $pythonReal.Source){throw 'Real Python missing'}}
+ $script:probeArgs=@()
+ function Invoke-PythonFixture {$script:probeArgs=@($args);$global:LASTEXITCODE=0;'VELIQ_PYTHON_READY'}
+ $script:candidates=@([pscustomobject]@{Source='Invoke-PythonFixture'})
+ Resolve-OwnerPython | Out-Null
+ if($script:probeArgs.Count -ne 2 -or $script:probeArgs[0] -ne '-c' -or $script:probeArgs[1].Contains('"') -or !$script:probeArgs[1].Contains("'VELIQ_PYTHON_READY'")){throw 'Unsafe PS5.1 native quote marshalling'}
+ Remove-Item Function:\Invoke-PythonFixture
 } finally {Remove-Item Function:\Get-Command}
 $temp=Join-Path ([IO.Path]::GetTempPath()) ('veliq-checkout-fixture-'+[Guid]::NewGuid().ToString('N'))
 [void][IO.Directory]::CreateDirectory($temp)

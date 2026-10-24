@@ -30,4 +30,8 @@ tests/desktop-native/bin/
 # Owner diagnostics are private output, never release inputs or source changes.
 diag-result*.txt
 cs-diag*.txt
-observe-result*
+observe-result*.txt
+observe-result*.json
+observe-result*.csv
+observe-result*.zip
+observe-result*.log

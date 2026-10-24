@@ -2,10 +2,10 @@
 
 Текущая работа Codex (24.10.2026 MSK): экономия VPS, очередь1–7.
 Владелец подтвердил P0 Hostkey/1080p relay на27f2a8f; LOCAL video НЕ подтверждён.
-Пункт1 исправлен и PUSHED: b213fa5 (IPC),c84f7c1 (общий manifest),3799f75
-(tracked checkout/Python/diag вне repo). Главный принцип в AGENT_RULES: aa10a2f.
+Пункт1 PUSHED: b213fa5 (IPC),c84f7c1 (общий manifest),3799f75
+(tracked checkout/Python/diag вне repo); PS5.1 quote supplemental пока LOCAL. Главный принцип в AGENT_RULES: aa10a2f.
 Пункт2: каталог119rules/22general/4MIT sources,13unique собственных TCP plans,
-seqovl и signed data delivery готовы локально (de8e5d7,08a9eb5 + этот commit).
+seqovl и signed data delivery готовы локально (de8e5d7,08a9eb5,a3ec712).
 Это НЕ полный winws,81rules explicit unsupported и новые планы ещё не в AUTO.
 Пункты3–7 НЕ выполнены. Никакой экономии YouTube на ISP этим этапом не заявлено.
 PUSH пункта2 BLOCKED: remote20d8bd8 меняет толькоCLAUDE.md; normal push rejected.
@@ -2924,3 +2924,20 @@ Invoke-ServiceIPC 'local.catalog' | ConvertTo-Json -Depth 7
 Discord/Instagram/X/TelegramWeb/rutracker/VK/Яндекс. Требовать реальные LOCAL/RELAY
 bytes и >64KiB health, не только страницы/ACK; monthly VPS budget пока не реализован,
 команды выдумывать нельзя. Интернет/новую стабильность без owner ISP не объявлять.
+
+### 1c supplemental — PS5.1 native argv (24.10.2026 MSK)
+Python -c preflight больше не содержит embedded double quotes: Python string
+literals используют single quotes внутри PS double-quoted аргумента. Это исключает
+известное удаление внутренних double quotes legacy PS5.1 native marshaller.
+Fixture проверяет фактический -c argv и отсутствие опасных quotes; PS7 real Python
++Store alias/tracked-only checks PASS. Native PS5.1 всё ещё не исполнялся.
+Дополнение пока локальное до разрешённого merge;3799f75 на origin содержит
+предыдущую quote-форму. Повторный deployment VPS не нужен.
+
+Дополнительная проверка публикации: read-only git merge-tree для local HEAD и
+remote20d8bd8 показывает чистое объединение, но actual merge НЕ выполнялся.
+CI уже pushed3799f75: https://github.com/buzzmean/neexitlag/actions/runs/40022209321
+core/windows failure со steps=[]; не исполнилось, не CI PASS. Для локального
+каталога CI ещё нет, потому что push заблокирован. Последний supplemental PS7
+preflight/argv/каталог/browser fixtures и Go IPC inventory PASS; C# не менялся.
+Ignore observe-result ограничен форматами отчётов, не скрывает будущие .ps1/.go.

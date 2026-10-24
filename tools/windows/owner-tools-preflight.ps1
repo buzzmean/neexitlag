@@ -11,7 +11,9 @@ function Resolve-OwnerPython {
    # Do not invoke the Microsoft Store application execution alias.
    if($candidate.Source -match '(?i)[\\/]Microsoft[\\/]WindowsApps[\\/]'){continue}
    $prefix=@();if($name -eq 'py'){$prefix=@('-3')}
-   $probe=@($prefix)+@('-c','import sys; print("VELIQ_PYTHON_READY" if sys.version_info >= (3,9) else "PYTHON_TOO_OLD")')
+   # PS5.1 legacy native argv strips embedded double quotes. Python single
+   # quotes survive CommandLineToArgvW without an extra shell/escape layer.
+   $probe=@($prefix)+@('-c',"import sys; print('VELIQ_PYTHON_READY' if sys.version_info >= (3,9) else 'PYTHON_TOO_OLD')")
    try {
     $answer=@(& $candidate.Source @probe 2>$null)
     if($LASTEXITCODE -eq 0 -and ($answer -contains 'VELIQ_PYTHON_READY')){
