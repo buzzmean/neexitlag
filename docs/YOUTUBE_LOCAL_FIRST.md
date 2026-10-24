@@ -39,27 +39,44 @@ Vanguard/FACEIT, WinDivert filters и private iSCSI3260 не меняются.
 явные пользовательские правила, private destinations, DNS53, disabled и другие
 приложения остаются вне неё. Обычный Google/VK остаётся DIRECT.
 
-Холодный поток: DIRECT → LOCAL → authenticated RELAY. Не более одной LOCAL
-стратегии на клиентский handshake; следующий кандидат проверяется в фоне после
-cooldown. DIRECT/LOCAL connect budget650ms; ожидание первого TLS ответа400/900ms.
-Пока первый ответ не пришёл, повторяется только полный ClientHello (+dummy CCS),
-максимум64KiB. TLS early data, application records и partial hello не повторяются.
-RELAY шаг сохраняет существующие per-IP recovery, video12 admission и fail-closed.
-Флаг старого relay-first предпочтения не запрещает последнюю ступень fallback.
+С 24.10.2026 неподтверждённая подгруппа идёт сразу через authenticated RELAY:
+foreground не ждёт нерабочую DIRECT/LOCAL попытку. Подбор выполняется в фоне,
+один worker на ПК, max12s на кандидат, не чаще cooldown подгруппы. Worker
+проверяет живого owner/текущий профиль/сеть/отсутствие конфликтов, останавливается
+при shutdown. Очередь наблюдаемых подгрупп ограничена64, кеш256, plans<=57,
+score2048. Независимый тик15s продолжает подбор при долгом RELAY HTTP/2 потоке,
+без необходимости нового клиентского handshake. Pause30s→1m→2m→4m→5m max,
+после полного sweep продолжается следующий, без permanent RELAY/сброса к первому.
 
-Кэш: network fingerprint + profile + CDN/domain family + port + режим SNI/hint-only, TTL10min,
-максимум256 entries. LOCAL подтверждается не TCP ACK/ServerHello: нужны фактический
-committed transform, ServerHello, >=64KiB входящих и >=250ms наблюдения. Это только
-sustained TLS transport, не HTTP/page/playback PASS. На cache hit новая сессия
-сразу использует выученную ступень. Independent probes раз в минуту: real verified
-TLS+bounded HTTP GET, без credentials/cookies, отдельный source tuple, shared
-четыре browser probe slots; foreground не ждёт. Verified TLS + GET с CDN root
-403/404/405 разрешает лишь минутную пробу LOCAL, а не media success: длительный
-кэш требует подтверждения реальным потоком. Engine и learning для видимого
-SNI/CONNECT и exact-IP ECH/DNS hints разделены, чтобы не заимствовать несовместимую
-стратегию. После конечной лестницы кандидатов
-— cooldown до TTL. Неподготовленный/conflicting/VPN backend пропускает LOCAL с
-явным reason, не выдавая отправку обычных пакетов за desync.
+Подгруппы разделены: точный account/page/image host; CDN по sn-пулу googlevideo,
+profile/network/port/hint-only остаются в ключе. Этот ключ НЕ меняет общий
+DIRECT timeout cache.13 catalog plans +9 legacy кандидатов подключены к AUTO;
+порядок по измеренным исходам этой сети/подгруппы. Истёкшие данные не являются
+подтверждённым LOCAL. Signed catalog остаётся данными, не удалённой командой.
+
+Фоновый GET с полной проверкой TLS/certificate, без cookies/credentials,
+читает до128KiB+1 body. 403/404/204, TCP ACK, certificate/handshake bytes,
+частичный body и заморозка16KiB НЕ проходят критерий >64KiB body. Для CDN
+та же стратегия должна пройти ОБА www.youtube.com/ и публичную большую картинку
+на i.ytimg.com; если картинка недоступна/короче порога, CDN остаётся RELAY.
+Это косвенные prerequisites, не проверка подписанного video URL.
+
+Затем max1 LOCAL CDN trial одновременно на весь ПК, только при открытом
+получающем данные >64KiB RELAY video tunnel того же профиля (последний RX <5s),
+не чаще1раза/3мин на подгруппу. Три последовательных trial-потока с ServerHello,
+последующей записью браузера, >64KiB RX, committed transform и без наблюдаемого
+сбоя до закрытия переводят новые потоки на LOCAL с TTL10мин. Очень быстрый
+настоящий ответ не замедляется искусственной паузой. Долгий trial держит слот
+до своего закрытия; это сознательное ограничение риска и может замедлить подбор.
+Ошибки→следующий кандидат/RELAY новых потоков/backoff, счётчик failed_after_reply
+показывает цену проб. Свежий CDN не станет LOCAL за2мин: только cooldown требует
+не менее6мин на3пробы плюс время закрытия потоков. Длительный ручной тест не
+нужен для unit/integration; реальную работу стратегий доказывает только ISP.
+
+Граница повтора прежняя: только полный ClientHello(+dummy CCS)<=64KiB до ЛЮБОГО
+origin byte; early-data/application/partial hello и TLS alert не переигрываются.
+LOCAL→RELAY при нулевом ответе укладывается в900ms first-flight timeout; после
+ServerHello текущий TLS не переносится. Video12/other4 admission не меняется.
 
 Для ECH однозначная DNS association привязывает LOCAL к точному IP, процессу и
 порту с TTL; `TrustedOrigin=false`, segmentation по абсолютным offsets. Это
@@ -78,12 +95,13 @@ outbound midstream stall помечает ступень для нового с�
 
 ## Статус проверок
 
-Контролируемый TLS+HTTP fixture (самостоятельно созданный сертификат с проверкой
-SAN, GET200/128KiB, DIRECT blackhole → LOCAL, повтор из cache) прошёл3 раза: холодный
-~0.72–0.75s, warm~0.32–0.34s, RELAY payload0. Transform eligibility в этом portable
-тесте задаётся backend seam: это не WinDivert injection/ISP proof. Также проверяются
-finite first-flight, TLS alert/early-data no replay, TTL/scope/cache/guard и packet
-checksum/old-sequence/output/cutoff. Windows/ISP2мин1080p ещё не проверены.
+Контролируемые тесты проверяют настоящий TLS с SAN/certificate validation и
+GET200/128KiB, три guarded CDN trial и warm LOCAL; холодный foreground сразу
+RELAY. Transform и live-relay counters в portable fixture задаются seam: это
+не WinDivert injection/ISP proof. Отдельно проверяются оба public prerequisites,
+16KiB stall/truncation, short403/404, TTL/isolation/sweeps/ranking/cooldown/max1,
+shutdown worker, mixed shared-IP hints до diagnostic truncation, no replay после
+origin byte. Native Windows/PS5.1/реальный player/1080p LOCAL не проверены.
 
 ## Обновление и короткая приёмка владельца
 

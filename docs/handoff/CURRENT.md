@@ -5,7 +5,8 @@
 Пункты1a–1c и каталог2 сохранены коммитами b213fa5/c84f7c1/3799f75,
 de8e5d7/08a9eb5/a3ec712/77566d6. Обычный merge20d8bd8 разрешён владельцем
 и выполнен9135519: только9строк CLAUDE.md, конфликтов нет, без rebase/force.
-Новые packet plans ещё не в AUTO; следующие пункты3–7 в работе, не PASS.
+Пункт3 подключает catalog plans к bounded selection и guarded CDN trials;
+пункты4–7 ещё в работе, общий club learning/budget/hysteresis не готовы.
 Решение CDN принято: обе фоновые проверки www.youtube.com/i.ytimg.com >64KiB,
 затем max1 LOCAL trial при реально получающих данные RELAY googlevideo siblings,
 cooldown несколько минут/подгруппу;3успешных >64KiB потоков перед LOCAL,
@@ -2952,3 +2953,30 @@ next strategy/backoff. Считать сорвавшиеся после отве
 каталог и browser-path fixtures PASS; pinned DLL70filters/iSCSI30/catalog13checksum
 PASS подWine. Linux/Windows сборки и vet после merge PASS. Native Windows,
 PS5.1 и ISP этим не подтверждены. Код Chrome/Edge GUI не менялся.
+
+### 3 — subgroup selection и согласованные CDN trials (24.10.2026 MSK)
+Пункт2 опубликован43c7917 после разрешённого merge9135519. Пункт3: отдельные
+account/page/image host и sn-CDN ключи, network/profile/port/hint-only isolation.
+13own catalog +9legacy plans включены в background selection; статистика этой
+сети/подгруппы ранжирует prior. Cold foreground RELAY сразу, не ждёт таймаут.
+Worker max1/ПК, max12s/candidate, timer15s продолжает recheck без новых flows,
+backoff30s..5m, полный sweep повторяется, owner/policy/network/guard rechecked.
+Кеш256, pending64, engines256, scores2048, qualifications256, stats128+overflow.
+Transfer GET separate API: TLS/cert/HTTP2/1.1, body<=128KiB+1, >64KiB actual body,
+short403/404/204/16KiB-freeze не успех. Для CDN обязателен same-strategy проход
+ОБОИХ www.youtube.com и i.ytimg.com (отдельные source tuple/evidence). Затем max1
+live LOCAL trial при data-receiving RELAY video sibling того же профиля,
+min3m/subgroup;3consecutive >64KiB+ServerHello+posthello write+transform/no failure
+до Close→LOCAL. Поломка сразу RELAY для новых flows, after-reply failures считаются.
+Смешанные YT hints разных подгрупп не разрешают LOCAL; uniform test до truncation.
+TLS после origin byte не replay/migrate; video12/other4, games/anti-cheat/iSCSI и
+WinDivert filters не меняются. Три trial требуют минимум6мин плюс длительность
+их потоков, нельзя обещать cold2min LOCAL PASS или отсутствие цены проб.
+Проверки пункта3: полный повтор Go race PASS (включая unchanged replay/lease/game
+regressions), Go vet/Linux build/Windows build+vet PASS. Три controlled real
+TLS+HTTP128KiB CDN trial→warm LOCAL PASS; short/16KiB stall/cert/204 rejected,
+max1/cooldown/streak/mixed ninth hint/worker shutdown PASS; повтор subset3x PASS.
+PS7 diag trial-cost/StrictMode и legacy browser fixtures PASS. Pinned DLL helper
+filters70/iSCSI30/catalog checksum13 повторяется без packet/filter source changes.
+Native Windows/PS5.1/WinDivertOpen/owner ISP/actual new strategy LOCAL video НЕ
+проверены. Пункты4–7 ещё НЕ выполнены, текущее обучение локально этому ПК.

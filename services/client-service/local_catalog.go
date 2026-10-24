@@ -42,7 +42,7 @@ func (c *clientCatalog) use(data localstrategy.Catalog, version uint64, source s
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.status = catalogStatus{Source: source, Version: version, Schema: data.Version, Rules: len(data.Rules), Unsupported: unsupported, Plans: plans, LastCheck: c.status.LastCheck, Activation: "AVAILABLE_DATA_ONLY; route selection confirms actual transformed TLS separately"}
+	c.status = catalogStatus{Source: source, Version: version, Schema: data.Version, Rules: len(data.Rules), Unsupported: unsupported, Plans: plans, LastCheck: c.status.LastCheck, Activation: "BOUNDED_SELECTION_CANDIDATES; availability is not transformed TLS health"}
 }
 func (c *clientCatalog) snapshot() catalogStatus { c.mu.Lock(); defer c.mu.Unlock(); return c.status }
 func (c *clientCatalog) check(err string) {

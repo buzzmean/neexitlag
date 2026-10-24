@@ -14,13 +14,14 @@ import (
 )
 
 type browserDomainEvidence struct {
-	YoutubeOnly bool     `json:"youtube_only_hint_set,omitempty"`
-	Source      string   `json:"source"`
-	Domain      string   `json:"domain,omitempty"`
-	Outer       string   `json:"outer_sni,omitempty"`
-	Candidates  []string `json:"candidates"`
-	Restricted  bool     `json:"restricted"`
-	Ambiguous   bool     `json:"ambiguous"`
+	YoutubeSubgroup string   `json:"youtube_uniform_subgroup,omitempty"`
+	YoutubeOnly     bool     `json:"youtube_only_hint_set,omitempty"`
+	Source          string   `json:"source"`
+	Domain          string   `json:"domain,omitempty"`
+	Outer           string   `json:"outer_sni,omitempty"`
+	Candidates      []string `json:"candidates"`
+	Restricted      bool     `json:"restricted"`
+	Ambiguous       bool     `json:"ambiguous"`
 	// DNS/outer metadata is a routing hint, never authenticated inner SNI.
 	Confidence string `json:"confidence"`
 }
@@ -155,6 +156,15 @@ func (x *browserDomainIndex) profileEvidence(network, profile string, destinatio
 	}
 	if browserproxy.ValidPublicDNSName(outer) && restrictiveBrowserDomain(outer) && !youtubeRelayDomain(outer) {
 		out.YoutubeOnly = false
+	}
+	if out.YoutubeOnly && len(out.Candidates) > 0 {
+		out.YoutubeSubgroup = youtubeSubgroup(out.Candidates[0])
+		for _, h := range out.Candidates[1:] {
+			if youtubeSubgroup(h) != out.YoutubeSubgroup {
+				out.YoutubeSubgroup = ""
+				break
+			}
+		}
 	}
 	if len(out.Candidates) > 8 {
 		out.Candidates = out.Candidates[:8]

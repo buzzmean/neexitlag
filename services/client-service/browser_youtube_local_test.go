@@ -30,37 +30,33 @@ func TestYouTubeLocalCacheScopeTTLAndBoundedRecheck(t *testing.T) {
 	r := newYoutubeRuntime()
 	now := time.Now()
 	k := youtubeKey{"net", "chrome", "googlevideo.com", 443, false}
-	if stage, _ := r.choose(k, now); stage != "DIRECT" {
-		t.Fatal(stage)
-	}
-	r.failed(k, "DIRECT", "", "silent", now)
-	if stage, strategy := r.choose(k, now); stage != "LOCAL" || strategy != youtubeOrder[0] {
-		t.Fatal(stage, strategy)
-	}
-	r.failed(k, "LOCAL", youtubeOrder[0], "silent", now)
 	if stage, _ := r.choose(k, now); stage != "RELAY" {
 		t.Fatal(stage)
 	}
-	if v, ok := r.takeRecheck(k, now.Add(youtubeRetryAfter)); !ok || v.Next != 1 {
+	r.failed(k, "LOCAL", youtubeLegacyOrder[0], "silent", now)
+	if stage, _ := r.choose(k, now); stage != "RELAY" {
+		t.Fatal(stage)
+	}
+	if v, ok := r.takeRecheck(k, now.Add(2*youtubeRetryAfter)); !ok || v.Next == 0 {
 		t.Fatal(v, ok)
 	}
-	if _, ok := r.takeRecheck(k, now.Add(youtubeRetryAfter)); ok {
+	if _, ok := r.takeRecheck(k, now.Add(2*youtubeRetryAfter)); ok {
 		t.Fatal("unbounded simultaneous rechecks")
 	}
 	if stage, _ := r.choose(k, now.Add(youtubeRetryAfter)); stage != "RELAY" {
 		t.Fatal("foreground waits for background recheck", stage)
 	}
 
-	r.confirmed(k, "LOCAL", youtubeOrder[1], now)
-	if stage, strategy := r.choose(k, now); stage != "LOCAL" || strategy != youtubeOrder[1] {
+	r.confirmed(k, "LOCAL", youtubeLegacyOrder[1], now)
+	if stage, strategy := r.choose(k, now); stage != "LOCAL" || strategy != youtubeLegacyOrder[1] {
 		t.Fatal(stage, strategy)
 	}
 	for _, other := range []youtubeKey{{"other", "chrome", "googlevideo.com", 443, false}, {"net", "edge", "googlevideo.com", 443, false}, {"net", "chrome", "youtube.com", 443, false}, {"net", "chrome", "googlevideo.com", 8443, false}, {"net", "chrome", "googlevideo.com", 443, true}} {
-		if stage, _ := r.choose(other, now); stage != "DIRECT" {
+		if stage, _ := r.choose(other, now); stage != "RELAY" {
 			t.Fatal("borrowed result", other)
 		}
 	}
-	if stage, _ := r.choose(k, now.Add(youtubeLearnTTL)); stage != "DIRECT" {
+	if stage, _ := r.choose(k, now.Add(youtubeLearnTTL)); stage != "RELAY" {
 		t.Fatal("TTL pin")
 	}
 }
@@ -76,12 +72,12 @@ func youtubeFixture(t *testing.T) (*Controller, profilesResult, browserproxy.Req
 func TestYouTubeAutomaticLocalEngineExactScopeAndHintsAreNotTrustedSNI(t *testing.T) {
 	c, cur, q, p := youtubeFixture(t)
 	q.HintOnly = true
-	id, e := c.youtubeEngine(cur, q, p, youtubeOrder[0])
+	id, e := c.youtubeEngine(cur, q, p, youtubeLegacyOrder[0])
 	if e == nil || id == "" {
 		t.Fatal("automatic engine absent")
 	}
 	q.HintOnly = false
-	visibleID, _ := c.youtubeEngine(cur, q, p, youtubeOrder[0])
+	visibleID, _ := c.youtubeEngine(cur, q, p, youtubeLegacyOrder[0])
 	if visibleID == id {
 		t.Fatal("ECH/IP hint reused an SNI-scoped engine")
 	}
@@ -115,11 +111,11 @@ func TestYouTubeAutomaticLocalEngineExactScopeAndHintsAreNotTrustedSNI(t *testin
 		}
 	}
 	c.network.Store(&wp.NetworkContext{Fingerprint: cur.network, ObservedAt: time.Now(), ConflictsObservedAt: time.Now(), Conflicts: []string{"winws"}})
-	if id, e = c.youtubeEngine(cur, q, p, youtubeOrder[0]); id != "" || e != nil {
+	if id, e = c.youtubeEngine(cur, q, p, youtubeLegacyOrder[0]); id != "" || e != nil {
 		t.Fatal("conflict guard bypass")
 	}
 }
-func TestYouTubeFailedOpenLadderUsesLocalBeforeRelayIndependentOfPreference(t *testing.T) {
+func TestYouTubeUnprovenForegroundDoesNotWaitForDirectOrLocal(t *testing.T) {
 	c, cur, q, p := youtubeFixture(t)
 	c.settings.YouTubeViaRelay = false
 	var actions []flowpolicy.Action
@@ -127,7 +123,7 @@ func TestYouTubeFailedOpenLadderUsesLocalBeforeRelayIndependentOfPreference(t *t
 		actions = append(actions, plan.Policy.Action)
 		return nil, errors.New("injected open failure")
 	})
-	if err == nil || len(actions) != 3 || actions[0] != flowpolicy.Direct || actions[1] != flowpolicy.DirectPlus || actions[2] != flowpolicy.RelayRequired {
+	if err == nil || len(actions) != 1 || actions[0] != flowpolicy.RelayRequired {
 		t.Fatal(actions, err)
 	}
 	if stage, _ := c.browser.youtube.choose(youtubeScope(cur, q), time.Now()); stage != "RELAY" {
@@ -141,7 +137,7 @@ func TestYouTubeACKHelloAndUntransformedTrafficCannotLearnLocalSuccess(t *testin
 	key := youtubeKey{"net", "chrome", "googlevideo.com", 443, false}
 	r.stats["LOCAL:fake5"] = youtubeStage{Stage: "LOCAL", Strategy: "fake5"}
 	r.records[1] = youtubeRecord{ID: 1, Stage: "LOCAL"}
-	m := &youtubeMeter{r: r, id: 1, label: "LOCAL:fake5", key: key, stage: "LOCAL", strategy: "fake5", started: time.Now().Add(-time.Second), transform: func() bool { return false }}
+	m := &youtubeMeter{r: r, id: 1, label: "LOCAL:fake5", key: key, stage: "LOCAL", strategy: "fake5", postHelloWrite: true, started: time.Now().Add(-time.Second), transform: func() bool { return false }}
 	hello := append([]byte{22, 3, 3, 0, 42, 2, 0, 0, 38}, make([]byte, 38)...)
 	m.wire.ObserveOrigin(hello)
 	m.account(2000, uint64(len(hello)))
@@ -152,7 +148,7 @@ func TestYouTubeACKHelloAndUntransformedTrafficCannotLearnLocalSuccess(t *testin
 	if len(r.cache) != 0 {
 		t.Fatal("unapplied local strategy learned success")
 	}
-	m = &youtubeMeter{r: r, id: 1, label: "LOCAL:fake5", key: key, stage: "LOCAL", strategy: "fake5", started: time.Now().Add(-time.Second), transform: func() bool { return true }}
+	m = &youtubeMeter{r: r, id: 1, label: "LOCAL:fake5", key: key, stage: "LOCAL", strategy: "fake5", postHelloWrite: true, started: time.Now().Add(-time.Second), transform: func() bool { return true }}
 	m.wire.ObserveOrigin(hello)
 	m.account(2000, 70*1024)
 	if v := r.cache[key]; v.Stage != "LOCAL" || v.Strategy != "fake5" {
@@ -167,7 +163,7 @@ func TestYouTubeSixteenKBGapIsHintForNextFlowAndDoesNotCloseOrReplay(t *testing.
 	r := newYoutubeRuntime()
 	key := youtubeKey{"net", "chrome", "googlevideo.com", 443, false}
 	r.records[1] = youtubeRecord{ID: 1}
-	m := &youtubeMeter{r: r, id: 1, key: key, stage: "LOCAL", strategy: youtubeOrder[0], tx: 2000, rx: 20 * 1024, lastReply: time.Now().Add(-5 * time.Second)}
+	m := &youtubeMeter{r: r, id: 1, key: key, stage: "LOCAL", strategy: youtubeLegacyOrder[0], tx: 2000, rx: 20 * 1024, lastReply: time.Now().Add(-5 * time.Second)}
 	m.progressGap(time.Now())
 	if r.cache[key].Stage != "RELAY" {
 		t.Fatal("gap ignored")
@@ -183,32 +179,10 @@ func (*youtubeTransformFixture) BrowserTransformApplied(wp.ProcessIdentity, neti
 	return true
 }
 
-func TestYouTubeColdTLSHTTPExchangeThroughLocalAndWarmCache(t *testing.T) {
+func TestYouTubeSelectedTLSHTTPExchangeThroughLocalAndWarmCache(t *testing.T) {
 	c, cur, q, p := youtubeFixture(t)
 	c.Backend = &youtubeTransformFixture{}
-	pub, key, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	template := &x509.Certificate{SerialNumber: big.NewInt(1), DNSNames: []string{q.Host}, NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
-	der, err := x509.CreateCertificate(rand.Reader, template, template, pub, key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cert, err := x509.ParseCertificate(der)
-	if err != nil {
-		t.Fatal(err)
-	}
-	roots := x509.NewCertPool()
-	roots.AddCert(cert)
-	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(280 * time.Millisecond)
-		w.Header().Set("Content-Length", "131072")
-		w.Write(bytes.Repeat([]byte("v"), 131072))
-	}))
-	server.TLS = &tls.Config{Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}}}
-	server.StartTLS()
-	defer server.Close()
+	server, roots := youtubeTLSHTTPFixture(t, q.Host)
 	var direct, local, relay atomic.Int32
 	open := func(ctx context.Context, _ browserproxy.Request, p browserproxy.Plan) (net.Conn, error) {
 		switch p.Policy.Action {
@@ -226,6 +200,7 @@ func TestYouTubeColdTLSHTTPExchangeThroughLocalAndWarmCache(t *testing.T) {
 		var d net.Dialer
 		return d.DialContext(ctx, "tcp", server.Listener.Addr().String())
 	}
+	c.browser.youtube.confirmed(youtubeScope(cur, q), "LOCAL", youtubeLegacyOrder[0], time.Now())
 	for trial := 0; trial < 2; trial++ {
 		start := time.Now()
 		conn, _, err := c.openBrowserPlan(context.Background(), cur, q, p, open)
@@ -258,7 +233,7 @@ func TestYouTubeColdTLSHTTPExchangeThroughLocalAndWarmCache(t *testing.T) {
 			t.Logf("trial=%d verified TLS+HTTP+128KiB elapsed=%v", trial, elapsed)
 		}
 	}
-	if direct.Load() != 1 || local.Load() != 2 || relay.Load() != 0 {
+	if direct.Load() != 0 || local.Load() != 2 || relay.Load() != 0 {
 		t.Fatal("warm route not learned", direct.Load(), local.Load(), relay.Load())
 	}
 	s := c.browser.youtube.snapshot()
@@ -326,29 +301,109 @@ func TestYouTubePreservesVerifiedConfiguredBaselineAsFirstLocalStrategy(t *testi
 	conn.Close()
 }
 
-func TestYouTubeCDNRootGET404PermitsOnlyProvisionalLocalTrial(t *testing.T) {
-	for _, status := range []int{200, 204, 403, 404, 405} {
-		result := browserproxy.ProbeResult{Status: status, TLSVersion: 0x0304, Bytes: 1400, Phase: "ORIGIN_RESPONSE"}
-		if status == 404 {
-			result.Failure = "CONNECTION_FAILED"
-			result.Detail = "EMPTY_BODY"
-		}
-		if !youtubeProbeReachable(result) {
-			t.Fatal("valid verified CDN root response rejected", status)
+func TestYouTubeShortCDNRootsNeverQualify(t *testing.T) {
+	for _, status := range []int{200, 204, 403, 404, 405, 451} {
+		if youtubeTransferOK(browserproxy.ProbeResult{Status: status, TLSVersion: 0x0304, Bytes: 100 * 1024, BodyBytes: 1400}) {
+			t.Fatal("short response authorized LOCAL", status)
 		}
 	}
-	for _, result := range []browserproxy.ProbeResult{{Status: 200, Bytes: 2000}, {Status: 404, TLSVersion: 0x0304, Bytes: 2000, Failure: "TLS_CERTIFICATE_ERROR"}, {Status: 404, TLSVersion: 0x0304, Bytes: 2000, Failure: "CONNECTION_FAILED", Detail: "PEER_CLOSED"}, {Status: 451, TLSVersion: 0x0304, Bytes: 2000}} {
-		if youtubeProbeReachable(result) {
-			t.Fatal("unverified/failed response allowed trial", result)
-		}
+	if youtubeTransferOK(browserproxy.ProbeResult{Status: 200, TLSVersion: 0x0304, BodyBytes: 65536}) {
+		t.Fatal("strict >64KiB not enforced")
 	}
-	r := newYoutubeRuntime()
-	key := youtubeKey{"net", "chrome", "googlevideo.com", 443, false}
+	if !youtubeTransferOK(browserproxy.ProbeResult{Status: 200, TLSVersion: 0x0304, BodyBytes: 65537}) {
+		t.Fatal("real response rejected")
+	}
+}
+
+func youtubeTLSHTTPFixture(t *testing.T, host string) (*httptest.Server, *x509.CertPool) {
+	t.Helper()
+	pub, key, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{SerialNumber: big.NewInt(1), DNSNames: []string{host}, NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, pub, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots := x509.NewCertPool()
+	roots.AddCert(cert)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(280 * time.Millisecond)
+		w.Header().Set("Content-Length", "131072")
+		w.Write(bytes.Repeat([]byte("v"), 131072))
+	}))
+	server.TLS = &tls.Config{Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}}}
+	server.StartTLS()
+	t.Cleanup(server.Close)
+	return server, roots
+}
+
+func TestGuardedCDNRealTLSHTTPThreeTrialsThenWarmLOCAL(t *testing.T) {
+	c, cur, q, p := youtubeFixture(t)
+	c.Backend = &youtubeTransformFixture{}
+	server, roots := youtubeTLSHTTPFixture(t, q.Host)
+	r := c.browser.youtube
+	k := youtubeScope(cur, q)
+	id := r.order[0]
 	now := time.Now()
-	r.failed(key, "LOCAL", youtubeOrder[0], "silent", now)
-	r.provisional(key, youtubeOrder[1], now)
-	v := r.cache[key]
-	if v.Stage != "LOCAL" || v.Confirmed || v.Until.Sub(now) != time.Minute {
-		t.Fatal("HTTP root promoted to confirmed media", v)
+	r.cache[k] = youtubeLearn{Stage: "RELAY", Qualified: id, Until: now.Add(youtubeLearnTTL)}
+	r.qualifications[youtubeQualification{k.Network, k.Profile, id, k.HintOnly}] = now.Add(youtubeLearnTTL)
+	usage := c.relayUsage()
+	peer := usage.beginVideo(videoPerformance{Profile: cur.profile.ID, Domain: q.Host, Started: now})
+	usage.mu.Lock()
+	usage.videoIO(peer, 100, 70000, now)
+	usage.mu.Unlock()
+	local := 0
+	open := func(ctx context.Context, _ browserproxy.Request, plan browserproxy.Plan) (net.Conn, error) {
+		if plan.Policy.Action != flowpolicy.DirectPlus {
+			t.Fatal("unexpected route", plan.Policy)
+		}
+		local++
+		var d net.Dialer
+		return d.DialContext(ctx, "tcp", server.Listener.Addr().String())
+	}
+	for trial := 0; trial < 4; trial++ {
+		// Virtual expiry of the tested cooldown; no wall-clock three-minute sleeps.
+		r.mu.Lock()
+		v := r.cache[k]
+		v.Retry = time.Time{}
+		r.cache[k] = v
+		r.mu.Unlock()
+		conn, _, err := c.openBrowserPlan(context.Background(), cur, q, p, open)
+		if err != nil {
+			t.Fatal(err)
+		}
+		secure := tls.Client(conn, &tls.Config{RootCAs: roots, ServerName: q.Host, MinVersion: tls.VersionTLS12})
+		secure.SetDeadline(time.Now().Add(3 * time.Second))
+		if err = secure.Handshake(); err != nil {
+			t.Fatal(err)
+		}
+		req, _ := http.NewRequest("GET", "https://"+q.Host+"/video-fixture", nil)
+		req.Close = true
+		if err = req.Write(secure); err != nil {
+			t.Fatal(err)
+		}
+		resp, err := http.ReadResponse(bufio.NewReader(secure), req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		secure.Close()
+		if err != nil || resp.StatusCode != 200 || len(body) != 131072 {
+			t.Fatal("not real TLS+HTTP body", len(body), err)
+		}
+		stage, _ := r.choose(k, time.Now())
+		if (stage == "LOCAL") != (trial >= 2) {
+			t.Fatal("wrong promotion", trial, stage, r.snapshot())
+		}
+	}
+	if local != 4 || r.snapshot().Selection.Trials != 3 || r.snapshot().Selection.TrialSuccesses != 3 {
+		t.Fatal(local, r.snapshot())
 	}
 }

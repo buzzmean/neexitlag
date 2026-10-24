@@ -290,7 +290,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-24.1 (signed local catalog and actual primary relay status)'
+$ScriptVersion='2026-10-24.2 (signed local catalog and actual primary relay status)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -633,11 +633,13 @@ function Write-LocalCatalogEvidence($catalog) {
 function Write-YouTubeLocalEvidence($ladder) {
  if($null -eq $ladder){Say 'YouTube local ladder: UNINSTRUMENTED (service update required)';return}
  Say ('YouTube local ladder: cache_entries='+(Prop $ladder 'cache_entries' 0)+' recent_records_omitted='+(Prop $ladder 'records_omitted' 0)+' cache_entries_omitted='+(Prop $ladder 'cache_entries_omitted' 0)+' contract='+(Prop $ladder 'replay_contract' 'UNKNOWN'))
+ $selection=Prop $ladder 'selection'
+ if($null -ne $selection){Say ('YouTube selection: background='+(Prop $selection 'BackgroundAttempts' 0)+' background_fail='+(Prop $selection 'BackgroundFailures' 0)+' trials='+(Prop $selection 'Trials' 0)+' trial_success='+(Prop $selection 'TrialSuccesses' 0)+' trial_fail='+(Prop $selection 'TrialFailures' 0)+' failed_after_reply='+(Prop $selection 'FailedAfterReply' 0)+' active='+(Prop $selection 'active_trial' $false)+' contract='+(Prop $selection 'contract'))}
  foreach($stage in @(Prop $ladder 'stages' @())){
   Say (' youtube-media stage='+(Prop $stage 'stage')+' strategy='+(Prop $stage 'strategy' '-')+' connections='+(Prop $stage 'Connections' 0)+' tx='+(Prop $stage 'TX' 0)+' rx='+(Prop $stage 'RX' 0)+' failures='+(Prop $stage 'Failures' 0)+' transport_confirmed='+(Prop $stage 'Confirmed' 0))
  }
  foreach($entry in @(Prop $ladder 'cache' @())){
-  Say (' youtube cache: profile='+(Prop $entry 'Profile')+' domain='+(Prop $entry 'Domain')+' hint_only='+(Prop $entry 'HintOnly' $false)+' stage='+(Prop $entry 'Stage')+' strategy='+(Prop $entry 'Strategy')+' until='+(Prop $entry 'Until')+' recheck='+(Prop $entry 'Retry')+' reason='+(Prop $entry 'Reason'))
+  Say (' youtube cache: profile='+(Prop $entry 'Profile')+' domain='+(Prop $entry 'Domain')+' hint_only='+(Prop $entry 'HintOnly' $false)+' stage='+(Prop $entry 'Stage')+' strategy='+(Prop $entry 'Strategy')+' until='+(Prop $entry 'Until')+' recheck='+(Prop $entry 'Retry')+' streak='+(Prop $entry 'Streak' 0)+' reason='+(Prop $entry 'Reason'))
  }
  foreach($flow in @(Prop $ladder 'records' @())){
   Say (' youtube step #'+(Prop $flow 'id')+' profile='+(Prop $flow 'profile')+' domain='+(Prop $flow 'domain')+' destination='+(Prop $flow 'destination')+' stage='+(Prop $flow 'stage')+' strategy='+(Prop $flow 'strategy' '-')+' tx='+(Prop $flow 'TX' 0)+' rx='+(Prop $flow 'RX' 0)+' server_hello='+(Prop $flow 'ServerHello' $false)+' committed_transform_confirmed='+$(if(Prop $flow 'TransformKnown' $false){if(Prop $flow 'Transform' $false){'YES'}else{'NOT_CONFIRMED'}}else{'UNKNOWN_NOT_QUERIED'})+' reason='+(Prop $flow 'reason'))

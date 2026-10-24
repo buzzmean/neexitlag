@@ -21,7 +21,7 @@ const youtubeLadderSource = "youtube_local_ladder"
 const youtubeLearnTTL = 10 * time.Minute
 const youtubeRetryAfter = time.Minute
 
-var youtubeOrder = []string{"fake5x2-disorder", "fake8x2-disorder", "fake5", "fake8-disorder", "fake2", "disorder", "sni", "split1", "fake5-only"}
+var youtubeLegacyOrder = []string{"fake5x2-disorder", "fake8x2-disorder", "fake5", "fake8-disorder", "fake2", "disorder", "sni", "split1", "fake5-only"}
 
 type youtubeKey struct {
 	Network, Profile, Domain string
@@ -29,12 +29,14 @@ type youtubeKey struct {
 	HintOnly                 bool
 }
 type youtubeLearn struct {
-	Stage, Strategy string
-	Until, Retry    time.Time
-	Next            int
-	Tried           uint16
-	Reason          string
-	Confirmed       bool
+	Stage, Strategy  string
+	Until, Retry     time.Time
+	Next             int
+	Tried            uint64
+	Failures, Streak uint32
+	Qualified        string
+	Reason           string
+	Confirmed        bool
 }
 type youtubeStage struct {
 	Stage                                    string `json:"stage"`
@@ -52,6 +54,7 @@ type youtubeRecord struct {
 	Reason                 string `json:"reason"`
 	TX, RX                 uint64
 	ServerHello, Transform bool
+	Trial                  bool `json:"trial"`
 	TransformKnown         bool
 	Updated                time.Time `json:"updated_at"`
 }
@@ -60,32 +63,49 @@ type youtubeCacheView struct {
 	Network, Profile, Domain, Stage, Strategy, Reason string
 	Port                                              uint16
 	Until, Retry                                      time.Time
-	Tried                                             uint16
+	Tried                                             uint64
+	Streak                                            uint32
+	Qualified                                         string
 }
 type youtubeSnapshot struct {
-	RecordsOmitted uint64             `json:"records_omitted"`
-	CacheOmitted   int                `json:"cache_entries_omitted"`
-	Cache          []youtubeCacheView `json:"cache"`
-	CacheEntries   int                `json:"cache_entries"`
-	Stages         []youtubeStage     `json:"stages"`
-	Records        []youtubeRecord    `json:"records"`
-	Replays        string             `json:"replay_contract"`
+	RecordsOmitted uint64                   `json:"records_omitted"`
+	CacheOmitted   int                      `json:"cache_entries_omitted"`
+	Cache          []youtubeCacheView       `json:"cache"`
+	CacheEntries   int                      `json:"cache_entries"`
+	Stages         []youtubeStage           `json:"stages"`
+	Records        []youtubeRecord          `json:"records"`
+	Selection      youtubeSelectionSnapshot `json:"selection"`
+	Replays        string                   `json:"replay_contract"`
 }
 type youtubeEngine struct {
 	Engine *localstrategy.LocalStrategyEngine
 	Until  time.Time
 }
 type youtubeRuntime struct {
-	mu      sync.Mutex
-	cache   map[youtubeKey]youtubeLearn
-	engines map[string]youtubeEngine
-	stats   map[string]youtubeStage
-	records map[uint64]youtubeRecord
-	seq     uint64
+	mu             sync.Mutex
+	cache          map[youtubeKey]youtubeLearn
+	engines        map[string]youtubeEngine
+	stats          map[string]youtubeStage
+	records        map[uint64]youtubeRecord
+	seq            uint64
+	plans          map[string]localstrategy.CatalogPlan
+	order          []string
+	qualifications map[youtubeQualification]time.Time
+	selecting      bool
+	trialActive    bool
+	selection      youtubeSelectionSnapshot
+	scores         map[youtubeScoreKey]youtubeScore
+	pending        map[youtubeKey]youtubePending
+	workers        sync.WaitGroup
+	stopped        bool
 }
 
 func newYoutubeRuntime() *youtubeRuntime {
-	return &youtubeRuntime{cache: map[youtubeKey]youtubeLearn{}, engines: map[string]youtubeEngine{}, stats: map[string]youtubeStage{}, records: map[uint64]youtubeRecord{}}
+	r := &youtubeRuntime{cache: map[youtubeKey]youtubeLearn{}, engines: map[string]youtubeEngine{}, stats: map[string]youtubeStage{}, records: map[uint64]youtubeRecord{}, qualifications: map[youtubeQualification]time.Time{}, scores: map[youtubeScoreKey]youtubeScore{}, pending: map[youtubeKey]youtubePending{}}
+	r.selection.Contract = "max1 CDN trial globally; 3min/subgroup; live RELAY sibling required; both public prerequisites >64KiB; 3 sustained CDN flows; failures after reply are NOT guaranteed invisible"
+	plans, _ := localstrategy.BundledCatalog().Compile()
+	r.setPlans(plans)
+	return r
 }
 func youtubeLadderEligible(q browserproxy.Request, p browserproxy.Plan) bool {
 	return !(p.Policy.Action == flowpolicy.RelayRequired && p.Policy.Source == "") && p.Enabled && !q.OriginAmbiguous && q.Secure && q.Port == 443 && youtubeRelayDomain(q.Host) && !protectedBrowserDomain(q.Host) && flowpolicy.KnownBrowserRelayGroup(q.Host) == "" && p.Policy.Source != "rule" && p.Policy.Action != flowpolicy.Block && p.Destination.Addr().Is4() && p.Destination.Addr().IsGlobalUnicast() && !p.Destination.Addr().IsPrivate()
@@ -95,59 +115,48 @@ func (c *Controller) youtubeLocalAllowed(network string) bool {
 	return network != "" && n != nil && n.Fingerprint == network && n.Error == "" && time.Since(n.ObservedAt) < 45*time.Second && len(n.VPN) == 0 && len(n.Conflicts) == 0 && !n.ConflictsObservedAt.IsZero() && time.Since(n.ConflictsObservedAt) < 3*time.Minute
 }
 func youtubeScope(cur profilesResult, q browserproxy.Request) youtubeKey {
-	return youtubeKey{Network: cur.network, Profile: cur.profile.ID, Domain: cacheHost(q.Host), Port: q.Port, HintOnly: q.HintOnly}
+	return youtubeKey{Network: cur.network, Profile: cur.profile.ID, Domain: youtubeSubgroup(q.Host), Port: q.Port, HintOnly: q.HintOnly}
 }
 func (r *youtubeRuntime) choose(k youtubeKey, now time.Time) (string, string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for key, v := range r.cache {
-		if !now.Before(v.Until) {
-			delete(r.cache, key)
-		}
-	}
 	if k.Network != "" {
-		if v, ok := r.cache[k]; ok {
-
-			if v.Stage == "LOCAL" {
+		if v, ok := r.cache[k]; ok && now.Before(v.Until) {
+			if v.Stage == "LOCAL" || v.Stage == "DIRECT" {
 				return v.Stage, v.Strategy
 			}
-			return v.Stage, ""
 		}
 	}
-	return "DIRECT", ""
+	return "RELAY", ""
 }
 func (r *youtubeRuntime) failed(k youtubeKey, stage, strategy, reason string, now time.Time) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if k.Network == "" {
+	if k.Network == "" || stage == "RELAY" {
 		return
 	}
-	if len(r.cache) >= 256 {
-		if _, ok := r.cache[k]; !ok {
-			return
-		}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.room(k, now) {
+		return
 	}
 	v := r.cache[k]
 	if stage == "LOCAL" {
-		for i, id := range youtubeOrder {
+		r.score(k, strategy, false, now)
+		for i, id := range r.order {
 			if id == strategy {
-				v.Next = (i + 1) % len(youtubeOrder)
+				v.Next = (i + 1) % len(r.order)
 				v.Tried |= 1 << uint(i)
 			}
 		}
-		v.Stage = "RELAY"
-		v.Strategy = ""
-		v.Retry = now.Add(youtubeRetryAfter)
-	} else if stage == "DIRECT" {
-		v.Stage = "LOCAL"
-		v.Strategy = youtubeOrder[v.Next%len(youtubeOrder)]
+		v.Failures++
 	}
+	v.Stage = "RELAY"
+	v.Strategy = ""
+	v.Qualified = ""
+	v.Streak = 0
+	v.Confirmed = false
+	v.Retry = now.Add(youtubeBackoff(v.Failures))
 	v.Until = now.Add(youtubeLearnTTL)
 	v.Reason = reason
-	v.Confirmed = false
-	if v.Tried == (1<<uint(len(youtubeOrder)))-1 {
-		v.Retry = v.Until
-	}
 	r.cache[k] = v
 }
 func (r *youtubeRuntime) confirmed(k youtubeKey, stage, strategy string, now time.Time) {
@@ -156,20 +165,21 @@ func (r *youtubeRuntime) confirmed(k youtubeKey, stage, strategy string, now tim
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if len(r.cache) >= 256 {
-		if _, ok := r.cache[k]; !ok {
-			return
-		}
+	if !r.room(k, now) {
+		return
+	}
+	if stage == "LOCAL" {
+		r.score(k, strategy, true, now)
 	}
 	r.cache[k] = youtubeLearn{Stage: stage, Strategy: strategy, Until: now.Add(youtubeLearnTTL), Retry: now.Add(youtubeRetryAfter), Confirmed: true}
 }
 func (r *youtubeRuntime) snapshot() youtubeSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	s := youtubeSnapshot{RecordsOmitted: r.seq - uint64(len(r.records)), CacheEntries: len(r.cache), Cache: []youtubeCacheView{}, Stages: []youtubeStage{}, Records: []youtubeRecord{}, Replays: "complete ClientHello only before ANY origin byte; established TLS pinned; transport health is not HTTP/playback PASS"}
+	s := youtubeSnapshot{RecordsOmitted: r.seq - uint64(len(r.records)), CacheEntries: len(r.cache), Cache: []youtubeCacheView{}, Stages: []youtubeStage{}, Records: []youtubeRecord{}, Selection: r.selection, Replays: "complete ClientHello only before ANY origin byte; established TLS pinned; transport health is not HTTP/playback PASS"}
 	for k, v := range r.cache {
 		if len(s.Cache) < 24 {
-			s.Cache = append(s.Cache, youtubeCacheView{k.HintOnly, k.Network, k.Profile, k.Domain, v.Stage, v.Strategy, v.Reason, k.Port, v.Until, v.Retry, v.Tried})
+			s.Cache = append(s.Cache, youtubeCacheView{k.HintOnly, k.Network, k.Profile, k.Domain, v.Stage, v.Strategy, v.Reason, k.Port, v.Until, v.Retry, v.Tried, v.Streak, v.Qualified})
 		}
 	}
 	for _, v := range r.stats {
@@ -202,6 +212,14 @@ func (c *Controller) youtubeEngine(cur profilesResult, q browserproxy.Request, p
 		return c.browserScopedLocal(cur.profile, q.Host, cur.network, q.Port)
 	}
 	var actions []localstrategy.Action
+	preset := "youtube"
+	c.browser.youtube.mu.Lock()
+	cp, catalog := c.browser.youtube.plans[candidate]
+	c.browser.youtube.mu.Unlock()
+	if catalog {
+		actions = append(actions, cp.Actions...)
+		preset = "browser-catalog"
+	}
 	for _, v := range localstrategy.BrowserYouTubeCandidates() {
 		if v.ID == candidate {
 			actions = append([]localstrategy.Action(nil), v.Actions...)
@@ -221,6 +239,7 @@ func (c *Controller) youtubeEngine(cur profilesResult, q browserproxy.Request, p
 		for i := range actions {
 			if actions[i].Kind == "tcp-multisplit" {
 				actions[i].Anchor = ""
+				actions[i].Markers = nil
 				actions[i].Positions = []uint16{1, 5}
 			}
 		}
@@ -249,7 +268,7 @@ func (c *Controller) youtubeEngine(cur profilesResult, q browserproxy.Request, p
 		return "", nil
 	}
 	engine := localstrategy.New()
-	profile := localstrategy.Profile{ID: id, Name: "YouTube local / " + candidate, Version: 1, Application: q.Owner.Exe, Protocol: "tcp", Ports: []uint16{443}, Domains: domains, IPs: ips, Strategy: "chain", Actions: actions, Preset: "youtube", PresetVersion: localstrategy.PresetVersion, Cutoff: 1, Enabled: true}
+	profile := localstrategy.Profile{ID: id, Name: "YouTube local / " + candidate, Version: 1, Application: q.Owner.Exe, Protocol: "tcp", Ports: []uint16{443}, Domains: domains, IPs: ips, Strategy: "chain", Actions: actions, Preset: preset, PresetVersion: localstrategy.PresetVersion, Cutoff: 1, Enabled: true}
 	if engine.Reload(localstrategy.Config{Version: 1, Enabled: true, User: []localstrategy.Profile{profile}}) != nil {
 		return "", nil
 	}
@@ -315,18 +334,25 @@ func (c *youtubePlanConn) CloseWrite() error {
 
 func (c *Controller) openYoutubeLadder(ctx context.Context, cur profilesResult, q browserproxy.Request, p browserproxy.Plan, open func(context.Context, browserproxy.Request, browserproxy.Plan) (net.Conn, error)) (net.Conn, browserproxy.Plan, error) {
 	r := c.browser.youtube
+	if c.catalog != nil {
+		r.setPlans(c.catalog.snapshot().Plans)
+	}
 	ref := &youtubePlanRef{}
 	key := youtubeScope(cur, q)
+	r.register(key, cur, q, p, time.Now())
 	stage, strategy := r.choose(key, time.Now())
-	if stage == "DIRECT" && p.Policy.Source == "configured_baseline" && p.Policy.Action == flowpolicy.DirectPlus {
+	if stage == "RELAY" && p.Policy.Source == "configured_baseline" && p.Policy.Action == flowpolicy.DirectPlus {
 		stage = "LOCAL"
 		strategy = "baseline"
 	}
 	c.youtubeBackgroundRecheck(cur, q, p, key)
-	// A prior DIRECT timeout is a hint to try LOCAL, never an instruction to skip it.
-	if stage == "DIRECT" && cur.network != "" && c.directAddressFailed(cur, q, p) {
-		stage = "LOCAL"
-		strategy = youtubeOrder[0]
+	trial := false
+	if stage == "RELAY" {
+		if candidate, ok := r.takeTrial(key, time.Now(), c.relayUsage().workingVideo(cur.profile.ID, time.Now())); ok {
+			stage = "LOCAL"
+			strategy = candidate
+			trial = true
+		}
 	}
 	var step func(context.Context, string, string, int) (net.Conn, browserproxy.Plan, error)
 	step = func(work context.Context, stage, strategy string, depth int) (net.Conn, browserproxy.Plan, error) {
@@ -335,11 +361,15 @@ func (c *Controller) openYoutubeLadder(ctx context.Context, cur profilesResult, 
 		actual.DirectCandidates = nil
 		actual.DirectDeadline = time.Time{}
 		actual.Probe = "YOUTUBE_LOCAL_LADDER"
-		actual.Policy = flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailBlock, Source: youtubeLadderSource, Reason: "YouTube DIRECT → bounded LOCAL → authenticated RELAY; no replay after origin bytes"}
+		actual.Policy = flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailBlock, Source: youtubeLadderSource, Reason: "Unproven subgroup uses authenticated RELAY; LOCAL only after bounded verified selection; no replay after origin bytes"}
 		if stage == "LOCAL" {
 			id, _ := c.youtubeEngine(cur, q, actual, strategy)
 			if id == "" {
 				r.failed(key, "LOCAL", strategy, "LOCAL_GUARD_OR_CAPACITY", time.Now())
+				if trial {
+					r.finishTrial(key, strategy, false, false, time.Now())
+					trial = false
+				}
 				r.mu.Lock()
 				v, exists := r.cache[key]
 				if exists {
@@ -386,8 +416,11 @@ func (c *Controller) openYoutubeLadder(ctx context.Context, cur profilesResult, 
 			}
 			delete(r.records, old)
 		}
-		r.records[record] = youtubeRecord{Active: err == nil, ID: record, Profile: cur.profile.ID, Domain: q.Host, Destination: actual.Destination.String(), Stage: stage, Strategy: strategy, Reason: "OPEN", Updated: time.Now()}
+		r.records[record] = youtubeRecord{Active: err == nil, ID: record, Profile: cur.profile.ID, Domain: q.Host, Destination: actual.Destination.String(), Stage: stage, Strategy: strategy, Reason: "OPEN", Trial: trial && stage == "LOCAL", Updated: time.Now()}
 		label := stage + ":" + strategy
+		if _, exists := r.stats[label]; !exists && len(r.stats) >= 128 {
+			label = stage + ":CATALOG_OVERFLOW"
+		}
 		stats := r.stats[label]
 		stats.Stage = stage
 		stats.Strategy = strategy
@@ -405,18 +438,20 @@ func (c *Controller) openYoutubeLadder(ctx context.Context, cur profilesResult, 
 				return nil, errors.New("YOUTUBE_LADDER_EXHAUSTED")
 			}
 			nextStage, nextStrategy := "RELAY", ""
-			if stage == "DIRECT" {
-				nextStage = "LOCAL"
-				nextStrategy = youtubeOrder[0]
-			}
 			n, _, e := step(nextCtx, nextStage, nextStrategy, depth+1)
 			return n, e
 		}
 		if err != nil {
+			if trial && stage == "LOCAL" && work.Err() != nil {
+				r.finishTrial(key, strategy, false, false, time.Now())
+			}
 			if work.Err() != nil {
 				return nil, actual, work.Err()
 			}
 			r.failed(key, stage, strategy, "OPEN_FAILED", time.Now())
+			if trial && stage == "LOCAL" {
+				r.finishTrial(key, strategy, false, false, time.Now())
+			}
 			if stage == "RELAY" {
 				return nil, actual, err
 			}
@@ -429,7 +464,7 @@ func (c *Controller) openYoutubeLadder(ctx context.Context, cur profilesResult, 
 			return conn, actual, err
 		}
 		ref.set(actual, conn)
-		observer := &youtubeMeter{Conn: conn, r: r, id: record, label: label, key: key, stage: stage, strategy: strategy, started: time.Now(), transform: func() bool { return c.browserTransform(q, actual) }}
+		observer := &youtubeMeter{trial: trial && stage == "LOCAL", Conn: conn, r: r, id: record, label: label, key: key, stage: stage, strategy: strategy, started: time.Now(), transform: func() bool { return c.browserTransform(q, actual) }}
 		if stage == "RELAY" {
 			return observer, actual, nil
 		}
@@ -461,8 +496,12 @@ type youtubeMeter struct {
 	wire                    browserproxy.TLSWireObserver
 	tx, rx                  uint64
 	healthy                 bool
+	postHelloWrite          bool
 	applied, witnessChecked bool
 	lastReply               time.Time
+	trial                   bool
+	trialDone               sync.Once
+	failed                  bool
 	gap                     sync.Once
 	bad                     sync.Once
 }
@@ -474,6 +513,7 @@ func (m *youtubeMeter) failure(reason string) {
 			m.witnessChecked = true
 			m.applied = m.transform()
 		}
+		m.failed = true
 		applied, known := m.applied, m.witnessChecked
 		m.mu.Unlock()
 		m.r.failed(m.key, m.stage, m.strategy, reason, time.Now())
@@ -492,7 +532,13 @@ func (m *youtubeMeter) failure(reason string) {
 	})
 }
 func (m *youtubeMeter) Write(p []byte) (int, error) {
+	afterHello := m.wire.Snapshot().Origin.ServerHelloComplete
 	n, e := m.Conn.Write(p)
+	if afterHello && n > 0 {
+		m.mu.Lock()
+		m.postHelloWrite = true
+		m.mu.Unlock()
+	}
 	m.wire.ObserveClient(p[:n])
 	m.account(uint64(n), 0)
 	return n, e
@@ -534,12 +580,12 @@ func (m *youtubeMeter) account(tx, rx uint64) {
 	}
 	transformed := m.stage != "LOCAL" || m.applied
 
-	confirmed := !m.healthy && hello && m.rx >= 64*1024 && m.tx > 0 && time.Since(m.started) >= 250*time.Millisecond && transformed
+	confirmed := !m.healthy && hello && m.rx > 64*1024 && m.tx > 0 && m.postHelloWrite && transformed
 	if confirmed {
 		m.healthy = true
 	}
 	m.mu.Unlock()
-	if confirmed && m.stage != "RELAY" {
+	if confirmed && m.stage != "RELAY" && !m.trial {
 		m.r.confirmed(m.key, m.stage, m.strategy, time.Now())
 	}
 	m.r.mu.Lock()
@@ -601,95 +647,16 @@ func (m *youtubeMeter) progressGap(now time.Time) {
 	})
 }
 
-// takeRecheck is single-flight per scope/cooldown. Admission remains globally
-// bounded by browser.probes. A busy foreground never waits for this probe.
-func (r *youtubeRuntime) takeRecheck(k youtubeKey, now time.Time) (youtubeLearn, bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	v, ok := r.cache[k]
-	if !ok || now.Before(v.Retry) || !now.Before(v.Until) {
-		return youtubeLearn{}, false
-	}
-	v.Retry = now.Add(youtubeRetryAfter)
-	r.cache[k] = v
-	return v, true
-}
-func (c *Controller) youtubeBackgroundRecheck(cur profilesResult, q browserproxy.Request, p browserproxy.Plan, key youtubeKey) {
-	if !q.Source.IsValid() || q.Source.Addr().IsUnspecified() {
-		return
-	}
-	learned, ok := c.browser.youtube.takeRecheck(key, time.Now())
-	if !ok {
-		return
-	}
-	select {
-	case c.browser.probes <- struct{}{}:
-	default:
-		return
-	}
-	go func() {
-		defer func() { <-c.browser.probes }()
-		ctx, cancel := context.WithTimeout(c.ctx, 3*time.Second)
-		defer cancel()
-		if cur.network == "" || !c.youtubeLocalAllowed(cur.network) {
-			return
-		}
-		// Reserve a separate source tuple: never collide with or borrow the live
-		// application's Engine reservation/evidence while probing in the background.
-		socket, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IP(q.Source.Addr().AsSlice())})
-		if err != nil {
-			return
-		}
-		defer socket.Close()
-		probeQ := q
-		probeQ.Source = socket.LocalAddr().(*net.UDPAddr).AddrPort()
-		probeQ.Ingress = "YOUTUBE_BACKGROUND_RECHECK"
-		for _, stage := range []string{"DIRECT", "LOCAL"} {
-			if stage == "LOCAL" && learned.Stage == "LOCAL" {
-				return
-			}
-			candidate := p
-			candidate.Policy = flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailBlock, Source: youtubeLadderSource}
-			strategy := ""
-			if stage == "LOCAL" {
-				strategy = youtubeOrder[learned.Next%len(youtubeOrder)]
-				id, _ := c.youtubeEngine(cur, probeQ, p, strategy)
-				if id == "" {
-					return
-				}
-				candidate.Policy.Action = flowpolicy.DirectPlus
-				candidate.Policy.Strategy = id
-			}
-			budget := 800 * time.Millisecond
-			if stage == "LOCAL" {
-				budget = 1500 * time.Millisecond
-			}
-			trial, stop := context.WithTimeout(ctx, budget)
-			result := browserproxy.ProbeOriginDetailed(trial, q.Host, q.Port, true, c.BrowserProbeRoots, func(work context.Context) (net.Conn, error) { return c.browserOpenUnobserved(work, probeQ, candidate) })
-			stop()
-			if youtubeProbeReachable(result) && (stage != "LOCAL" || c.browserTransform(probeQ, candidate)) {
-				// Root GET on a video CDN commonly returns 403/404/405. This
-				// permits a short LOCAL trial, never a claimed media success.
-				// A small DIRECT response must not displace confirmed LOCAL.
-				if stage == "LOCAL" {
-					c.browser.youtube.provisional(key, strategy, time.Now())
-					return
-				}
-				if result.Status < 400 && result.Bytes >= 32*1024 {
-					c.browser.youtube.provisionalStage(key, "DIRECT", "", time.Now())
-					return
-				}
-			}
-
-			if stage == "LOCAL" {
-				c.browser.youtube.failed(key, stage, strategy, "BACKGROUND_TLS_HTTP_GET_FAILED", time.Now())
-			}
-		}
-	}()
-}
-
 func (m *youtubeMeter) Close() error {
 	err := m.Conn.Close()
+	if m.trial {
+		m.trialDone.Do(func() {
+			m.mu.Lock()
+			success, after := m.healthy && !m.failed, m.rx > 0
+			m.mu.Unlock()
+			m.r.finishTrial(m.key, m.strategy, success, after, time.Now())
+		})
+	}
 	m.r.mu.Lock()
 	if v, ok := m.r.records[m.id]; ok {
 		v.Active = false
@@ -698,27 +665,4 @@ func (m *youtubeMeter) Close() error {
 	}
 	m.r.mu.Unlock()
 	return err
-}
-
-func youtubeProbeReachable(r browserproxy.ProbeResult) bool {
-	emptyRoot := r.Failure == "CONNECTION_FAILED" && r.Detail == "EMPTY_BODY" && (r.Status == 403 || r.Status == 404 || r.Status == 405)
-	return r.TLSVersion >= 0x0303 && r.Status >= 200 && r.Status < 500 && r.Status != 451 && r.Bytes > 0 && (r.Failure == "" || emptyRoot)
-}
-func (r *youtubeRuntime) provisional(k youtubeKey, strategy string, now time.Time) {
-	r.provisionalStage(k, "LOCAL", strategy, now)
-}
-func (r *youtubeRuntime) provisionalStage(k youtubeKey, stage, strategy string, now time.Time) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	v, ok := r.cache[k]
-	if k.Network == "" || !ok {
-		return
-	}
-	v.Stage = stage
-	v.Strategy = strategy
-	v.Confirmed = false
-	v.Until = now.Add(time.Minute)
-	v.Retry = v.Until
-	v.Reason = "VERIFIED_TLS_HTTP_GET_TRIAL_NOT_MEDIA_CONFIRMATION"
-	r.cache[k] = v
 }

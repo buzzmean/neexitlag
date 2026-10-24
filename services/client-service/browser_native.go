@@ -559,7 +559,7 @@ func (c *Controller) openNativeBrowser(ctx context.Context, p profiles.Profile, 
 		if q.Host == "" && evidence.YoutubeOnly && len(evidence.Candidates) > 0 {
 			q.Host = evidence.Candidates[0]
 		}
-		q.OriginAmbiguous = evidence.Ambiguous && !evidence.YoutubeOnly
+		q.OriginAmbiguous = evidence.Ambiguous && !youtubeSameHintSubgroup(evidence)
 		plan = c.nativeOpaquePlan(current.profile, t, current.network, evidence)
 		if q.Host != "" {
 			if steered, ok := c.steerTimedOutOrigin(plan, current, q, time.Now()); ok {

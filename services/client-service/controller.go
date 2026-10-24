@@ -226,6 +226,8 @@ func (c *Controller) syncPolicies() {
 	}
 }
 func (c *Controller) Start() {
+	c.wg.Add(1)
+	go func() { defer c.wg.Done(); c.watchLocalSelection() }()
 	if c.clubMode.Load() {
 		c.wg.Add(1)
 		go func() { defer c.wg.Done(); c.watchClubStatus() }()
@@ -246,6 +248,7 @@ func (c *Controller) Close() {
 		_ = c.CleanupOwnedBrowserPolicies() // Before listeners, relay workers or capture stop.
 	}
 	c.cancel()
+	c.browser.youtube.stop()
 	c.activation.mu.Lock()
 	activationDone := c.activation.done
 	c.activation.mu.Unlock()

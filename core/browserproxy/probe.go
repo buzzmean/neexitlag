@@ -24,6 +24,7 @@ type ProbeResult struct {
 	Detail     string `json:"detail,omitempty"`
 	ALPN       string `json:"alpn,omitempty"`
 	TLSVersion uint16 `json:"tls_version,omitempty"`
+	BodyBytes  uint64 `json:"body_bytes"`
 }
 
 // ProbeOrigin retains the original caller contract.
@@ -82,13 +83,27 @@ func probeError(r ProbeResult, err error) ProbeResult {
 // A bounded GET body is required; neither a TCP ACK nor HEAD headers is success.
 // Redirects are not followed (a different origin must get its own route plan).
 func ProbeOriginDetailed(ctx context.Context, host string, port uint16, secure bool, roots *x509.CertPool, open func(context.Context) (net.Conn, error)) (r ProbeResult) {
+	return probeOrigin(ctx, host, port, secure, "/", 32769, 1500*time.Millisecond, roots, open)
+}
+
+// ProbeOriginTransfer samples a bounded public GET with verified TLS. It does
+// not follow redirects, send credentials, or infer that a video CDN root works.
+// BodyBytes (not TLS framing or certificate bytes) must exceed 64KiB at callers.
+func ProbeOriginTransfer(ctx context.Context, host, path string, roots *x509.CertPool, open func(context.Context) (net.Conn, error)) ProbeResult {
+	if path == "" || path[0] != '/' || len(path) > 256 {
+		return ProbeResult{Failure: "INVALID_PROBE_PATH"}
+	}
+	return probeOrigin(ctx, host, 443, true, path, 128*1024+1, 4*time.Second, roots, open)
+}
+
+func probeOrigin(ctx context.Context, host string, port uint16, secure bool, path string, bodyLimit int64, budget time.Duration, roots *x509.CertPool, open func(context.Context) (net.Conn, error)) (r ProbeResult) {
 	r = ProbeResult{Phase: "RELAY_OR_TCP_OPEN"}
 	conn, err := open(ctx)
 	if err != nil {
 		return probeError(r, err)
 	}
 	defer conn.Close()
-	deadline := time.Now().Add(1500 * time.Millisecond)
+	deadline := time.Now().Add(budget)
 	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
 		deadline = d
 	}
@@ -119,7 +134,7 @@ func ProbeOriginDetailed(ctx context.Context, host string, port uint16, secure b
 	if secure {
 		scheme = "https"
 	}
-	req, err := http.NewRequestWithContext(ctx, "GET", scheme+"://"+authority+"/", nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", scheme+"://"+authority+path, nil)
 	if err != nil {
 		return probeError(r, err)
 	}
@@ -141,7 +156,8 @@ func ProbeOriginDetailed(ctx context.Context, host string, port uint16, secure b
 	r.Phase = "ORIGIN_BODY"
 	// Complete small responses; bound sampling of large documents. This is origin
 	// availability only, not complete-page acceptance. Truncated declared bodies fail.
-	b, err := io.ReadAll(io.LimitReader(resp.Body, 32769))
+	b, err := io.ReadAll(io.LimitReader(resp.Body, bodyLimit))
+	r.BodyBytes = uint64(len(b))
 	r.Bytes = counter.received.Load()
 	if err != nil {
 		return probeError(r, err)
