@@ -691,8 +691,23 @@ function Write-CdnTrialEvidence($ladder) {
  Say 'Sibling history: same network/profile, googlevideo media, recent RX <=30s including closed tunnels; same subgroup preferred. It does NOT guarantee a concurrent playable relay segment. Max1 unproven trial; up to 3 neutral short probes/subgroup without 3min wait, then >=3min cooldown. Real failure retains cooldown.'
 }
 
+function Write-OrdinaryAddressEvidence($ladder) {
+ if($null -eq $ladder -or -not $ladder.PSObject.Properties['ordinary']){Say 'Ordinary address retries: UNINSTRUMENTED (service update required)';return}
+ $rows=@(Prop $ladder 'ordinary' @() | Where-Object {$null -ne $_})
+ if($rows.Count -eq 0){Say 'Ordinary address retries: NONE_RECORDED; healthy ordinary origins stay DIRECT, see native records';return}
+ Say ('Ordinary retries: retained='+(Prop $ladder 'ordinary_retained' $rows.Count)+' omitted='+(Prop $ladder 'ordinary_omitted' 0)+'; host | profile | stage/reason | DNS address | TCP/TLS first flight | tx/rx')
+ foreach($row in $rows | Select-Object -Last 16){
+  Say (' ordinary host='+(Prop $row 'Host')+' profile='+(Prop $row 'Profile')+' stage='+(Prop $row 'Stage')+' reason='+(Prop $row 'Reason')+' dns='+(Prop $row 'DNS'))
+  foreach($address in @(Prop $row 'Addresses' @()) | Select-Object -First 4){
+   Say ('  ordinary address='+(Prop $address 'Address')+' stage='+(Prop $address 'Stage')+' first_flight='+(Prop $address 'Result')+' tx='+(Prop $address 'TX' 0)+' rx='+(Prop $address 'RX' 0))
+  }
+ }
+ Say 'Ordinary: at most two public DNS IPv4; per-network/profile/host/IP negative TTL10min; no subnet inference. TLS ServerHello is not HTTP/page proof; any origin byte forbids replay.'
+}
+
 function Write-LocalProbeEvidence($ladder) {
  Write-CdnTrialEvidence $ladder
+ Write-OrdinaryAddressEvidence $ladder
  foreach($closed in @(Prop $ladder 'tcp_closures' @())){
   $t=Prop $closed 'Packets';$timing=Prop $closed 'Timing'
   Say (' LOCAL close: domain='+(Prop $closed 'Domain')+' strategy='+(Prop $closed 'Strategy')+' reason='+(Prop $closed 'Reason')+' io='+(Prop $closed 'IOFailure')+' tx='+(Prop $closed 'TX')+' rx='+(Prop $closed 'RX')+' first='+(Prop $t 'first_close' 'NOT_OBSERVED')+' flags='+(Prop $t 'first_close_flags' 0)+' first_ttl='+(Prop $t 'first_close_ttl' 0)+' client_fin='+(Prop $t 'ClientFIN' 0)+' client_rst='+(Prop $t 'ClientRST' 0)+' remote_fin='+(Prop $t 'RemoteFIN' 0)+' remote_rst='+(Prop $t 'RemoteRST' 0)+' synack_ttl='+(Prop $t 'SYNACKTTL' 0)+' remote_terminal_ttl='+(Prop $t 'RemoteTerminalTTL' 0)+' hello_to_close_ms='+(Prop $timing 'hello_to_close_ms' -1)+' last_rx_to_close_ms='+(Prop $timing 'last_rx_to_close_ms' -1)+' hello_to_server_hello_ms='+(Prop $timing 'hello_to_server_hello_ms' -1)+' rx_after_hello_observed='+(Prop $timing 'rx_after_server_hello_observed' 0)+' client_application_record='+(Prop $timing 'ClientApplicationRecord' $false)+' origin_application_record='+(Prop $timing 'OriginApplicationRecord' $false)+' application_records='+(Prop $timing 'ApplicationRecords' 0)+' application_bytes='+(Prop $timing 'ApplicationBytes' 0)+' application_span_ms='+(Prop $timing 'ApplicationSpanMS' 0)+' app_evidence_bounded='+(Prop $timing 'ApplicationEvidenceBounded' $false)+' half_close_requested='+(Prop $timing 'HalfCloseRequested' $false)+' open_ms='+(Prop $closed 'OpenMS' -1)+' transform_send_ms='+(Prop $closed 'TransformSendMS' -1)+' client_retransmits='+(Prop $t 'ClientRetransmits' 0)+' remote_retransmits='+(Prop $t 'RemoteRetransmits' 0))

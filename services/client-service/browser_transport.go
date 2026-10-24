@@ -356,7 +356,7 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 	} else if !current.enabled && !protectedBrowserDomain(q.Host) {
 		result = flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailOpen, Source: "profile_direct", Reason: "ordinary origin in DIRECT profile"}
 	}
-	plan := browserproxy.Plan{RelayCandidates: relayCandidates, Network: current.network, Enabled: current.enabled, Policy: result, Destination: dest, Probe: "NOT_PROBED"}
+	plan := browserproxy.Plan{DirectCandidates: candidates, RelayCandidates: relayCandidates, Network: current.network, Enabled: current.enabled, Policy: result, Destination: dest, Probe: "NOT_PROBED"}
 	if riotAuto(current.profile) && riotHost(q.Host) && !protectedBrowserDomain(q.Host) && result.Source != "rule" {
 		plan.Policy = flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailBlock, Source: "riot_direct_first", Reason: "Launcher: bounded TLS first flight; prefer healthy DNS address before LOCAL/RELAY"}
 		plan.DirectCandidates = candidates
@@ -383,6 +383,12 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 		return plan, nil
 	}
 
+	// Ordinary AUTO never needs a speculative relay GET to authorize DIRECT.
+	// The finite address stepper handles actual failures before any relay open.
+	if q.Secure && q.Port == 443 && browserAuto(current.profile) && c.browserOriginPolicy(q.Host).Kind == "" && plan.Policy.Action == flowpolicy.Direct && browserproxy.PublicDNSAddress(dest.Addr()) {
+		plan.Probe = "ORDINARY_DIRECT_FIRST"
+		return plan, nil
+	}
 	if dest.Addr().IsPrivate() || dest.Addr().IsLoopback() || dest.Addr().IsLinkLocalUnicast() {
 		if c.BrowserResolver == nil {
 			plan.Probe = "PRIVATE_ORIGIN_NO_AUTOPROBE"

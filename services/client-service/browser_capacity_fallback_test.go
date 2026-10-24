@@ -13,12 +13,12 @@ import (
 	"github.com/buzzmean/neexitlag/core/profiles"
 )
 
-func TestOrdinaryRelayCapacityReturnsActualDIRECTPlanBeforeAnyApplicationBytes(t *testing.T) {
+func TestOrdinaryKnownHostDirectBeforeRelayAndOpaqueCapacityFallback(t *testing.T) {
 	c, cur := timeoutFixture(t)
 	cur.profile = profiles.Profile{ID: "chrome", Executables: []string{`C:\Apps\chrome.exe`}, Mode: profiles.Auto, BrowserTransport: "native"}
 	for _, host := range []string{"chromewebstore.google.com", "www.google.com", "vk.ru", "ordinary-test.net", ""} {
 		calls := 0
-		p := browserproxy.Plan{Enabled: true, Network: cur.network, Destination: netip.MustParseAddrPort("74.125.111.131:443"), OrdinaryCapacityDirect: true, Policy: flowpolicy.Result{Action: flowpolicy.RelayRequired, RelayID: "VPS-01", Fallback: flowpolicy.Required, Source: "browser_opaque_google_failure_cache"}}
+		p := browserproxy.Plan{DirectCandidates: []netip.AddrPort{netip.MustParseAddrPort("74.125.111.131:443"), netip.MustParseAddrPort("87.240.137.208:443")}, Enabled: true, Network: cur.network, Destination: netip.MustParseAddrPort("74.125.111.131:443"), OrdinaryCapacityDirect: true, Policy: flowpolicy.Result{Action: flowpolicy.RelayRequired, RelayID: "VPS-01", Fallback: flowpolicy.Required, Source: "browser_opaque_google_failure_cache"}}
 		a, b := net.Pipe()
 		conn, actual, err := c.openBrowserPlan(context.Background(), cur, browserproxy.Request{Host: host, Port: 443, Secure: true}, p, func(_ context.Context, _ browserproxy.Request, plan browserproxy.Plan) (net.Conn, error) {
 			calls++
@@ -27,13 +27,21 @@ func TestOrdinaryRelayCapacityReturnsActualDIRECTPlanBeforeAnyApplicationBytes(t
 			}
 			return a, nil
 		})
-		if err != nil || calls != 2 || conn != a || actual.Policy.Action != flowpolicy.Direct || actual.Policy.Source != "browser_ordinary_capacity_direct" {
+		wantCalls, wantSource := 1, "ordinary_direct_first"
+		if host == "" {
+			wantCalls = 2
+			wantSource = "browser_ordinary_capacity_direct"
+		}
+		if err != nil || calls != wantCalls || actual.Policy.Action != flowpolicy.Direct || actual.Policy.Source != wantSource {
 			t.Fatal(host, err, calls, actual)
+		}
+		if host == "" && conn != a {
+			t.Fatal("opaque fallback lost actual DIRECT connection")
 		}
 		conn.Close()
 		b.Close()
 	}
-	if c.relayUsage().snapshot().CapacityDirectFallbacks != 5 {
+	if c.relayUsage().snapshot().CapacityDirectFallbacks != 1 {
 		t.Fatal("missing fallback evidence")
 	}
 }

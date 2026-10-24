@@ -186,8 +186,16 @@ func (c *Controller) localProbeSnapshot() map[string]any {
 	if len(trialRows) > 8 {
 		trialRows = trialRows[:8]
 	}
-	result := map[string]any{"trials": trialRows, "failures": recentFailures, "tcp_closures": closed, "probes": rows, "retained": len(r.probeEvidence), "retention_limit": 128, "scope": "bounded recent probes and closes; headers/timing only; TLS1.3 type23 is NOT HTTP content proof"}
+	ordinary := append([]ordinaryFlowEvidence(nil), r.ordinary...)
+	for i := range ordinary {
+		ordinary[i].Addresses = append([]ordinaryAddressEvidence(nil), ordinary[i].Addresses...)
+	}
+	if len(ordinary) > 16 {
+		ordinary = ordinary[len(ordinary)-16:]
+	}
+	result := map[string]any{"ordinary_retained": len(r.ordinary), "ordinary": ordinary, "trials": trialRows, "failures": recentFailures, "tcp_closures": closed, "probes": rows, "retained": len(r.probeEvidence), "retention_limit": 128, "scope": "bounded recent probes and closes; headers/timing only; TLS1.3 type23 is NOT HTTP content proof"}
 	for {
+		result["ordinary_omitted"] = len(r.ordinary) - len(ordinary)
 		result["probes"] = rows
 		result["tcp_closures"] = closed
 		result["omitted_retained"] = len(r.probeEvidence) - len(rows)
@@ -195,7 +203,10 @@ func (c *Controller) localProbeSnapshot() map[string]any {
 		if len(raw) < 48000 {
 			return result
 		}
-		if len(rows) > 0 {
+		if len(ordinary) > 0 {
+			ordinary = ordinary[1:]
+			result["ordinary"] = ordinary
+		} else if len(rows) > 0 {
 			rows = rows[1:]
 		} else if len(closed) > 0 {
 			closed = closed[:len(closed)-1]

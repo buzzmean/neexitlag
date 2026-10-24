@@ -116,6 +116,8 @@ type youtubeEngine struct {
 	Until  time.Time
 }
 type youtubeRuntime struct {
+	ordinary       []ordinaryFlowEvidence
+	ordinarySeq    uint64
 	probeEvidence  []localProbeEvidence
 	failures       []localFailureEvidence
 	trials         []cdnTrialEvidence

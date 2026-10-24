@@ -42,6 +42,9 @@ func TestLocalProbeSnapshotBoundedBelowIPC(t *testing.T) {
 	for i := uint64(1); i <= 32; i++ {
 		c.browser.youtube.trials = append(c.browser.youtube.trials, cdnTrialEvidence{ID: i, Host: strings.Repeat("h", 253), Strategy: strings.Repeat("s", 96), Sibling: relaySiblingEvidence{Reason: "RECENT_CDN_CLASS", Subgroup: strings.Repeat("g", 63)}})
 	}
+	for i := uint64(0); i < 32; i++ {
+		c.browser.youtube.ordinary = append(c.browser.youtube.ordinary, ordinaryFlowEvidence{ID: i, Host: strings.Repeat("h", 253), Profile: strings.Repeat("p", 128), Reason: strings.Repeat("r", 512), Addresses: []ordinaryAddressEvidence{{Address: "87.240.137.208:443", Stage: "DIRECT", Result: strings.Repeat("d", 512)}}})
+	}
 	raw, e := json.Marshal(c.localProbeSnapshot())
 	if e != nil || len(raw) >= 49000 {
 		t.Fatal(len(raw), e)

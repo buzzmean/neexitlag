@@ -2,17 +2,17 @@
 
 # CURRENT
 
-## Последний итог — CDN neutral callback/быстрые пробы,24.10.2026
-Задача1: failure(...EOF...) callback помечал малый EOF нейтральным без finishObservation; wrapper мог не вызвать новый meter.Read/Close — слот зависал. Новый callback-only тест воспроизвёл ActiveTrial=true/counters0 дофикса. Теперь немедленная once-finalization, slot_released_at/reason; late Close не освобождает новую пробу даже той же подгруппы/стратегии.
-До3 последовательных нейтральных коротких fullSH/0<rx<64KiB допускают следующий НОВЫЙ flow без3мин; после третьего ALL_SMALL_NO_DATA_LIMIT_COOLDOWN>=3мин. Не success/не data trial. Max1 иscoped RELAY media<=30s прикаждом допуске прежние. RST/alert/timeout/real post-reply failure→обычный cooldown/откат; no-replay послеorigin byte.
-Diag.15: per-trial slot_active/released_at/reason, neutral_short_attempt; cache streak/cooldown_wait_ms/deny reason. История bounded, новыеRPC не добавлены. Подробнее docs/YOUTUBE_LOCAL_FIRST.md. Задача2 ordinary идёт следующей, текущие9хостов неизвестны безrecords владельца.
-Проверки: полный Go race/vet/build Linux+Windows ицелевые CDN race; pinnedDLL70filters/iSCSI подWine, PS7 diagnostics PASS. Native Windows/PS5.1/реальный ISP LOCAL/экономия не проверены. GUI/игры/guards/Riot/каталог/VPS/CA/SSH/коды/PR8 не менялись.
-Pre-push: existing browser.local.probes/native.status routed иclub-readonly; service.json readers/defaults не менялись; PS args/BOM/legacy-safe projections сохранены, owner tracked-only/native exit/hash checks. Подписи/TLS/mTLS/owner/SID/ACL/profiles не ослаблялись. Решение24.10: ограниченное исключение cooldown только коротким neutral поразрешению владельца; прежний LF итог дословно вARCHIVE.
+## Последний итог — CDN retry и ordinary DNS DIRECT,24.10.2026
+CDN40a8a00 (merge9a7fd92): EOF callback без meter.Read/Close держал max1; regression воспроизведён иисправлен once-finalization/slot release. До3 fullSH/0<rx<64KiB нейтральных подряд разрешают следующий НОВЫЙ flow без3мин; затем ALL_SMALL_NO_DATA_LIMIT_COOLDOWN. Max1/scoped recent RELAY media<=30s обязательны каждый раз. RST/alert/timeout/post-reply errors→cooldown/откат, не success; послеorigin byte replay запрещён. LateClose не освобождает новую пробу той же группы.
+Ordinary: один DIRECT_ADDRESS_FAILED ранее отправлял вобщую лестницу/RELAY до второгоDNS. Тестakashi воспроизвёл. Теперь failed ordinary AUTO сначала<=2 publicIPv4 DIRECT (900ms TLS flights/общий3s; missing native candidates→DNS<=500ms), через неизменённый address stepper Riot. Per-network/profile/host/IP negativeTTL10min; без подсетей. Second verified TLS/HTTP DIRECT иno-replay послеalert/байта покрыты. Только после адресных failures/negative TTL→LOCAL/RELAY. Холодный ordinary DIRECT безspeculative relayGET; действующий LOCAL/явные rules/RELAY floors/DoH/ambiguous/приватные IP не ослаблялись.
+Diag.15: trial slot_active/released_at/reason/neutral attempt/streak/cooldown/deny; ordinary recent16из32 retryflows host/address/TCP/TLS/route/reason/TX/RX/retained/omitted всуществующем browser.local.probes<48KB. ServerHello не HTTP PASS; domain negative снимает только прежний verified background probe. Прежние9 ordinary хостов изагрегата не восстановить, нужна новаяdiag.
+Проверки: полный Go race/vet иbuild Linux+Windows PASS. Один ранний полныйrace упал наdemo route25s timeout, повторполного прогона PASS (demo21.8s), demo не менялся. PinnedDLL70filters/iSCSI PASS подWine; PS7 diagnostics/legacy/secret allowlist PASS. WindowsEXE CDN/ordinary подWine PASS. Native Windows/PS5.1/ISP экономия иLOCAL2160p послеправок НЕ проверены. C#/WPF/GUI не менялись/не собирались.
+Pre-push: existing browser.local.probes/native.status routed/club-readonly; no newIPC/manifest readers/defaults. PS5.1 quotedflags/BOM/nullable fields, tracked-only/native exit/hash owner block сохранены. Игры/guards/Riot-profile/catalog/TLS/mTLS/owner/SID/ACL/profiles/VPS/CA/SSH/коды/PR8 не менялись. Разрешённый merge8a7d70a безконфликтов; af1795e/12652c3 подтянуты ff-only, только app-ui/brand/design/handoff, кодслужбы/клиента не меняют. Предыдущий CDN итог дословно вARCHIVE; область освобождена.
 
 ## Таблица работ
 | Работа / дата | Файлы | Агент / ветка | Статус |
 |---|---|---|---|
-| CDN neutral retry + ordinary DIRECT /24.10.2026 | services/client-service browser selection/meter/origin/native; core/browserproxy; tools/windows diag; tests/docs | Codex/codex/work | В РАБОТЕ: задача1 готова; задача2 ordinary DIRECT следующая |
+| CDN neutral retry + ordinary DIRECT /24.10.2026 | services/client-service browser selection/meter/origin/native; core/browserproxy; tools/windows diag; tests/docs | Codex/codex/work | ОСВОБОЖДЕНО: CDN retry + ordinary DNS DIRECT/diag готовы; native Windows/ISP приёмка впереди |
 | Game catalog LF integrity /24.10.2026 | .gitattributes; tests/desktop и windows-tools; verify workflow; docs/handoff | Codex/codex/work | ОСВОБОЖДЕНО: LF/hash/CRLF fixture/C#/WPF готовы; native Windows/PS5.1 впереди |
 | CDN small EOF/sibling /24.10.2026 | services/client-service browser meter/selection/video usage/probe/native evidence + edge_transport.go/freeze fixture audit; tools/windows diag; tests/docs | Codex/codex/work | ОСВОБОЖДЕНО: код/лаборатория готовы; Windows/ISP приёмка впереди |
 | Riot launcher / 24.10.2026 | core/profiles/localstrategy; services/client-service launcher/native/origin; platform/windows discovery; tools/windows diag; tests/docs | Codex / codex/work | ОСВОБОЖДЕНО: launcher/alternate DNS/LOCAL/diag; owner acceptance впереди |
@@ -42,7 +42,7 @@ Pre-push: existing browser.local.probes/native.status routed иclub-readonly; se
 
 ## Текущая очередь и открытые вопросы
 - Riot запуск/login/patch и фактические имена exe требуют Windows/ISP приёмки; каталог обычного GUI — тоже. Signed external game updates не включены; гостевой ClubWindow не менялся.
-- Ordinary akashi: per-IP DIRECT_ADDRESS_FAILED вовлекает ladder раньше второго A; отдельный policy coupling, не исправлен, реальный TCP отказ неизвестен.
+- Ordinary akashi: порядок второго DNS DIRECT исправлен; реальный TCP отказ и остальные9 хостов требуют новой diag. При доказанном отказе обоих адресов временный LOCAL/RELAY допустим, не обещать DIRECT при недоступном origin.
 - Приёмка CDN: small_eof_inconclusive растёт безfailures; sibling_age/waits иdata_trials показывают допуск; strong_promotions доClose -> LOCAL10min. Нужен новый eligible flow, старый HTTP/2 не переносим. Terminal neutral EOF освобождает max1 сразу; live preconnect безEOF/данных может удерживать его до завершения, не разрываем ради пробы.
 - HTTP80, QUIC fake и Discord voice UDP LOCAL не реализованы; fakedsplit TCP443 реализован, весь Flowseal не заявляется.
 - Подбор DPI продолжается ограниченно; пока нет proof — временный authenticated RELAY. Short response не доказывает >64KiB.
@@ -118,4 +118,4 @@ PowerShell5.1 администратора под прежним owner SID, ко
     & .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube
 }
 ```
-Смотреть .15: terminal neutral active=False/slot_released_at; neutral_short_attempt<=3, дальше cooldown>=3мин; data_trials/strong_promotions/LOCAL RX. Новыеeligible TCP нужны дляподбора, старые HTTP/2 не переносим. Экономию/стабильность подтверждает только ISP приёмка. Ordinary второйDNS DIRECT пока вработе.
+Смотреть .15: terminal neutral active=False/slot_released_at; neutral_short_attempt<=3, дальше cooldown>=3мин; data_trials/strong_promotions/LOCAL RX. Ordinary host/address table: второй A DIRECT доRELAY, TLS/negative TTL reason; VK/Яндекс DIRECT вnative records. Новыеeligible TCP нужны, старые HTTP/2 не переносим. Экономию/стабильность подтверждает только ISP приёмка. GUI пересобирать не нужно.

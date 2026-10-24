@@ -366,3 +366,40 @@ Close теперь до reapply, bounded read/parse/ACL/owner/foreign policy с�
 с отзывом будущего LOCAL. Завершение синхронизировано с failure, без двойного
 учёта. Admission sibling snapshot неизменяем для trial (соседний check может
 обновлять cache, но не историю уже принятой пробы). C# иWPF не менялись.
+
+
+## 24.10.2026 — ordinary: проверить DNS peer перед RELAY
+Старый `localLadderEligible` считал один `DIRECT_ADDRESS_FAILED` достаточным
+поводом передать ordinary в openYoutubeLadder. Неподтверждённый cache выбирал
+RELAY и очищал DirectCandidates, поэтому живой второй A не проверялся.
+Тест с akashi.vk-portal.net и отрицательным первым IP воспроизвёл RELAY первым
+OPEN до исправления. Из агрегата9failures нельзя восстановить остальные хосты.
+
+Теперь failed ordinary AUTO обрабатывается до общей LOCAL-лестницы: максимум
+два публичных IPv4 из DNS/текущего browser destination, 900ms первые flights
+в общем3s бюджете; для native без списка — bounded500ms системный lookup.
+Используется уже тестированный address stepper лаунчера без изменения Riot
+профиля/кода: per-network/profile/host/IP negative TTL10min, без подсетей.
+Полный ClientHello (+допустимый CCS) повторяется только до ЛЮБОГО origin-байта.
+TLS alert/частичный ответ не выбрасывается: текущий flow не replay, negative
+подсказывает новый. ServerHello не объявляется HTTP/page успехом и не снимает
+отрицательный verdict без прежней bounded TLS/HTTP background revalidation.
+
+Только после проверенных/кэшированных отрицательных адресов включается общая
+LOCAL/RELAY-лестница; пригодный scoped LOCAL сохраняется. Успешный второй DIRECT
+остаётся DIRECT в PlanReporter/native records; established TLS не мигрирует.
+Холодные HTTPS443 ordinary AUTO сразу DIRECT: предварительный speculative
+relay GET больше не нужен для разрешения незаблокированного сайта. DNS candidates
+сохраняются planner. Protected/DPI группы, DoH resolvers, ambiguous origins,
+явные правила, частные адреса и configured DIRECT+ обходом не переопределяются.
+Игры/античит guards/профиль Riot/GUI не менялись.
+
+Diag.15 в существующем browser.local.probes: последние16 из32 ordinary retry
+flows, host/profile, DIRECT/LOCAL/RELAY ипричина, DNS source, максимум4 адресных
+observations (до2DIRECT иLOCAL/RELAY), TCP/TLS first flight/TX/RX. Poll timeout
+не считается доказанным отказом без negative verdict stepper; TLS ServerHello
+не доказывает HTTP. Retained/omitted различают пустую историю иусечение; JSON
+bounded<48KB. Payload/URL/cookies/tokens не сохраняются/не выводятся.
+Лабораторный verified TLS/HTTP с молчащим первым иработающим вторым IP прошёл,
+сохранены no-replay послеalert/первого байта иscope TTL/сеть/profile.
+Реальный Windows/ISP результат akashi ивсе прежние9хостов требуют новой diag.
