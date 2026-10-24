@@ -5,7 +5,7 @@ Non-interactive, read-only diagnostics to run with the VPN OFF, as a normal user
 Writes %LOCALAPPDATA%\VELIQ\Diagnostics\diag-result.txt (falls back to %TEMP%). Changes nothing on the machine. Reads no token/identity/certificate into the
 report; the whole report is scrubbed of secret-shaped values before the run ends.
 Self-contained: does not need common.ps1. -Only limits the run to some sections:
-  env, service, ipc, tcp, udp, mtu, dns, sites, sni, browser, apps, youtube, game
+  env, service, ipc, tcp, udp, mtu, dns, sites, sni, browser, apps, youtube, game, riot
   (youtube = SNI table for www.youtube.com + status flag + stall counters + YouTube records; run: & .\tools\windows\diag-no-vpn.ps1 -Only youtube)
 #>
 param(
@@ -290,7 +290,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-24.12 (running CDN promotion, small EOF and midstream evidence)'
+$ScriptVersion='2026-10-24.13 (Riot launcher address/TLS diagnostics)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -463,6 +463,43 @@ foreach($site in @('chatgpt.com','claude.ai','www.youtube.com','web.telegram.org
   }
  }
 }}
+
+function Write-RiotEvidence($snapshot) {
+ Say ('Riot: '+(Prop $snapshot 'scope' 'UNINSTRUMENTED'))
+ foreach($row in @(Prop $snapshot 'records' @())) {
+  $policy=Prop $row 'policy';$owner=Prop $row 'owner'
+  Say (' Riot flow: exe='+(Prop $owner 'exe')+' domain='+(Prop $row 'domain')+' destination='+(Prop $row 'upstream_destination')+' stage='+(Prop $policy 'action')+' reason='+(Prop $policy 'reason')+' tx='+(Prop $row 'sent_bytes' 0)+' rx='+(Prop $row 'received_bytes' 0)+' result='+(Prop $row 'result'))
+ }
+ foreach($row in @(Prop $snapshot 'stages' @())) {Say (' Riot LOCAL/RELAY: stage='+(Prop $row 'stage')+' strategy='+(Prop $row 'strategy')+' connections='+(Prop $row 'Connections' 0)+' tx='+(Prop $row 'TX' 0)+' rx='+(Prop $row 'RX' 0)+' failures='+(Prop $row 'Failures' 0))}
+ Say ('Riot address policy: '+(Prop $snapshot 'address_policy' 'UNINSTRUMENTED'))
+}
+
+if(Want 'riot'){
+ Section 'Riot launcher: real SNI vs foreign SNI; read-only DIRECT probes'
+ Step 'riot-installed-exe' {
+  foreach($base in @($env:LOCALAPPDATA,$env:ProgramFiles,${env:ProgramFiles(x86)},($env:SystemDrive+'\'))){
+   if(-not $base){continue};$folder=Join-Path $base 'Riot Games\Riot Client'
+   if(Test-Path -LiteralPath $folder){Get-ChildItem -LiteralPath $folder -Filter 'RiotClient*.exe' -File -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object -First 12 | ForEach-Object {Say (' Riot installed executable: '+$_.FullName)}}
+  }
+ }
+
+ Step 'riot-status' { Write-RiotEvidence (Invoke-IPC 'riot.status') }
+ Step 'riot-tls' {
+  $timer=[Diagnostics.Stopwatch]::StartNew()
+  foreach($riotHost in @('sieve.services.riotcdn.net','auth.riotgames.com','clientconfig.rpg.riotgames.com','data.riotgames.com','authenticate.riotgames.com','lol.secure.dyn.riotcdn.net','valorant.secure.dyn.riotcdn.net','eas-prod.pp.sgp.pvp.net','telemetry.sgp.pvp.net')){
+   if($timer.Elapsed.TotalSeconds -ge 45){Say (' Riot '+$riotHost+': PROBE_BUDGET_EXHAUSTED');continue}
+   $addresses=@();try{$addresses=@(Resolve-DnsName $riotHost -Type A -DnsOnly -ErrorAction Stop | Where-Object {$_.Type -eq 'A'} | Select-Object -ExpandProperty IPAddress -Unique | Select-Object -First 2)}catch{Say (' Riot '+$riotHost+': DNS_FAILED')}
+   foreach($ip in $addresses){
+    foreach($sni in @($riotHost,'example.com')){
+     if($timer.Elapsed.TotalSeconds -ge 45){Say (' Riot '+$riotHost+' '+$ip+': PROBE_BUDGET_EXHAUSTED');break}
+     $probe=Test-TlsSni $ip $sni 443 1500
+     Say (' Riot '+$riotHost+' ip='+$ip+' sni='+$sni+' tcp='+$probe.Tcp+' tcp_ms='+$probe.TcpMs+' tls='+$probe.Tls)
+    }
+   }
+  }
+  Say 'Both names silent is evidence for this endpoint, not proof for an entire Cloudflare subnet. Foreign certificate mismatch is ANSWERED, not TLS/HTTP PASS. No credentials/patch URLs are used.'
+ }
+}
 
 if(Want 'sni'){
 Section 'YouTube: TCP + TLS per IP with different SNI (is it SNI blocking?)'

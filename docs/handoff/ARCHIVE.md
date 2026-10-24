@@ -1,3 +1,19 @@
+## Последний итог — running CDN success/release,24.10.2026
+Наd28 владелец получил196MB реального googlevideo LOCAL(c0aa53), но success ждал Close и держал slot331s. Исправлено: сильный sustained proof засчитывается на живом потоке, слот свободен для другой пробы, established TLS не переносится.
+Критерий: fullSH/committed/postSH write, >=1MiB после SH и в>=16 завершённых outer type23 records, RX-span>=3s и freshRX<=3s. Scope сразу LOCAL10min; max1 НОВАЯ неподтверждённая проба/live RELAY sibling/3min cooldown сохранены. Это transport, не playback proof.
+Поздний настоящий failure отзывает будущий LOCAL: PostPromotionFailures/FailedAfterReply и SUCCESS_REVOKED_AFTER_FAILURE отдельно от уже засчитанного успеха. Поздний Close не освобождает чужой новый slot.
+Малый EOF(0<rx<64KiB) без known failure/RST/retransmits/alert/invalidTLS нейтрален: не bad score/Tried/failed_after_reply и не success. Намерение Google без MITM не установлено; реальные RST/timeout/alert отрицательны.
+Diag.12: strong_promotions/post_promotion_failures/small_eof_inconclusive/trial_result; completed app records/bytes/span; отдельные последние LOCAL failure timings/volume, включая midstream stall6s. Такой timeout закрывает socket, browser retry/rebuffer возможен, replay запрещён.
+Ordinary akashi: один per-IP DIRECT failure включает общую ladder до проверки второго адреса, defaultRELAY без LOCAL proof. Отдельный policy coupling, не исправлялся; реальная причина TCP-отказа без трассы неизвестна.
+P0 typed-nil fixture не имела PID/path/appID, поэтому игнорировала pinnedRELAY и зависела от доступности1.1.1.1. На57396ee с доступным loopback FAIL10/10 Linux+Wine; исправленная identity/sentinel PASS20/20 Linux race+Windows EXE/Wine. Go1.27/native Windows здесь не запускались.
+Полные Go race/vet/build Linux+Windows и Windows vet PASS; обе Windows fixture EXE собраны. PinnedDLL70filters/iSCSI30/checksum44plans PASS подWine; новые CDN Windows EXE/Wine и PS7 fixtures PASS; Native Windows/PS5.1/новый ISP promotion/TTL/revoke/multi-subgroup НЕ проверены. VPS/CA/SSH/коды/CP flags/пакетные рецепты/фильтры/игры не менялись.
+Тест реального TLS с certificate validation:1.25MiB/3.4s -> promotion безClose, допуск другой группы, второй GET по тому же TLS (opens=1). Transform portable seam — не WinDivert/ISP proof.
+Pre-push: существующие IPC dispatch проверены; новых методов/manifest readers нет; PS5.1 syntax/BOM/quoted native flags сохранены, JSON/внешние tools не менялись. Команды безgit switch, с exit/hash checks. DIRECT/LOCAL передRELAY, protected/games без изменений.
+Аудит: docs/LOCAL_ENGINE_AUDIT.md; прежний итог перенесён дословно в ARCHIVE. Решение24.10 владельца: сильный running proof заменяет ожидание terminal/3weak successes;3weak closed success остаются альтернативой.
+
+
+---
+
 ## Последний итог — neutral close/admission,24.10.2026
 Владелец57396ee: все first-close CLIENT FIN+ACK, без RST/ретрансмитов; CDN1trial/12мин,0success. Это не доказанный отказ LOCAL.
 CLIENT_INITIATED_CLOSE с rx>0 теперь neutral, не failure/failed_after_reply/negative score; без sustained не success. TrialInconclusive/ClientInitiatedTrialCloses отдельно; реальные RST/timeout/TLS failures сохраняются.

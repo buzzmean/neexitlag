@@ -652,6 +652,8 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		return c.nativeBrowserAttribution(), nil
 	case "browser.native.firewall":
 		return windowsplatform.InspectNativeFirewall(ctx), nil
+	case "riot.status":
+		return c.riotStatus(), nil
 	case "browser.local.probes":
 		return c.localProbeSnapshot(), nil
 	case "browser.native.enable", "browser.native.status":

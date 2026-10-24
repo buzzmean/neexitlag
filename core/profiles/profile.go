@@ -115,6 +115,7 @@ var BuiltInRelayFirstIDs = []string{"claude-desktop", "chatgpt-desktop", "telegr
 
 func Defaults() []Profile {
 	return []Profile{
+		{ID: "riot-client", Name: "Riot Client (launcher)", Executables: RiotLauncherExecutables(), Mode: Auto, AppPreset: "riot-client", ProtocolHints: []string{"tcp"}, PortHints: []uint16{443}},
 		{ID: "cs2", Name: "Counter-Strike 2", Executables: []string{"cs2.exe"}, Mode: Direct, ProtocolHints: []string{"udp", "tcp"}},
 		{ID: "discord", Name: "Discord", Executables: []string{"Discord.exe"}, Mode: Auto},
 		{ID: "steam", Name: "Steam", Executables: []string{"steam.exe"}, Mode: Direct},
@@ -137,6 +138,9 @@ type Identity struct {
 
 func normalize(s string) string { return strings.ToLower(strings.ReplaceAll(s, "\\", "/")) }
 func (p Profile) Matches(i Identity) bool {
+	if p.ID == "riot-client" && !RiotLauncherPath(i.Path) {
+		return false
+	}
 	if p.Trial != nil && (i.PID != p.Trial.PID || i.CreationTime != p.Trial.CreationTime || !time.Now().Before(p.Trial.Expires)) {
 		return false
 	}

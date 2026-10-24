@@ -533,10 +533,13 @@ func (c *Controller) openNativeBrowser(ctx context.Context, p profiles.Profile, 
 	}
 	q := browserproxy.Request{Ingress: "NATIVE_TCP", Owner: browserproxy.Owner{PID: id.PID, Birth: id.CreationTime, Exe: id.Path, Profile: p.ID}, Source: t.Source, Host: d.OriginDomain, Port: t.Destination.Port(), Secure: reason != "HTTP_HOST"}
 	current, err := c.browserProfile(q.Owner)
-	if err != nil || !current.enabled || !nativeBrowserProfile(current.profile) || c.policyRevision(p) != c.policyRevision(current.profile) {
+	if err != nil || !current.enabled || !(nativeBrowserProfile(current.profile) || riotAuto(current.profile)) || c.policyRevision(p) != c.policyRevision(current.profile) {
 		return nil, d, errors.New("NATIVE_PROFILE_CHANGED")
 	}
 	n := &c.browser.native
+	if riotAuto(current.profile) {
+		n = &c.browser.riot
+	}
 	n.activate(p.ID, false)
 	record, err := n.begin(q, t)
 	if err != nil {

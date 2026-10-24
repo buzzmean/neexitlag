@@ -52,6 +52,9 @@ func (c *Controller) browserOpenPlan(ctx context.Context, q browserproxy.Request
 	return c.openBrowserPlan(ctx, cur, q, p, c.browserOpen)
 }
 func (c *Controller) openBrowserPlan(ctx context.Context, current profilesResult, q browserproxy.Request, p browserproxy.Plan, open func(context.Context, browserproxy.Request, browserproxy.Plan) (net.Conn, error)) (net.Conn, browserproxy.Plan, error) {
+	if current.enabled && riotAuto(current.profile) && riotHost(q.Host) && p.Policy.Source == "riot_direct_first" {
+		return c.openRiotPlan(ctx, current, q, p, open)
+	}
 	if current.enabled && browserAuto(current.profile) && !current.routingDisabled && c.localLadderEligible(current, q, p) {
 		if _, explicit := flowpolicy.Evaluate(current.profile.Rules, flowpolicy.Input{Protocol: "tcp", Destination: p.Destination, Domain: q.Host, Network: current.network}); !explicit {
 			return c.openYoutubeLadder(ctx, current, q, p, open)

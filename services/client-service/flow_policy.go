@@ -194,7 +194,7 @@ func (c *Controller) scopedDecision(p profiles.Profile, id wp.ProcessIdentity, t
 			}
 		}
 		d := c.evaluateFlow(p, id, t, base, domain, network)
-		if nativeBrowserProfile(p) && t.Protocol == "tcp" && t.Destination.Port() != 53 {
+		if (nativeBrowserProfile(p) || riotAuto(p) && t.Destination.Port() == 443) && t.Protocol == "tcp" && t.Destination.Port() != 53 {
 			d.OriginDomain = domain
 			d.NewConnectionsOnly = true
 			d.OpenDeferred = func(ctx context.Context, decision wp.Decision, reason string) (net.Conn, wp.Decision, error) {
@@ -207,7 +207,7 @@ func (c *Controller) scopedDecision(p profiles.Profile, id wp.ProcessIdentity, t
 	if nativeBrowserProfile(p) && t.Destination.Port() == 53 {
 		return c.browserDNSDecision(p, id, t, out, network)
 	}
-	if t.Protocol == "tcp" && out.Policy.Source != "browser_dns" && (browserAuto(p) || flowpolicy.NeedsDomain(p.Rules, "tcp") || p.Mode == profiles.Auto && !c.hasBaseline(p, network) && c.AutoLearned.HasApplication(network, applicationKey(p), "tcp", time.Now())) {
+	if t.Protocol == "tcp" && out.Policy.Source != "browser_dns" && (browserAuto(p) || riotAuto(p) && t.Destination.Port() == 443 || flowpolicy.NeedsDomain(p.Rules, "tcp") || p.Mode == profiles.Auto && !c.hasBaseline(p, network) && c.AutoLearned.HasApplication(network, applicationKey(p), "tcp", time.Now())) {
 		// The existing redirect accepts the app connection before any upstream is
 		// opened. The closure captures a profile snapshot; edits affect new flows.
 		out.Deferred = true

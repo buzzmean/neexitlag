@@ -282,3 +282,40 @@ GET по тому же TLS (opens=1). Transform в portable seam, не raw ISP p
 Owner новый зачёт/TTL/revoke/multi-subgroup и2160p нужно подтвердить на ПК;
 старые196MB владельца — факт дляd28, не приёмка нового кода. VPS/CA/SSH/коды/
 CP flags/фильтры/пакетные рецепты/игры не менялись, внешние winws не применялись.
+
+
+## Riot launcher /24.10.2026
+Отсутствовал built-in профиль, потому RiotClientServices TCP443 шёл DIRECT без
+общего native deferred origin planner. Добавлен riot-client AUTO и LOCAL preset
+riotgames.com/riotcdn.net/pvp.net. Только четыре launcher exe внутри Riot Games/
+Riot Client (включая UX-подкаталог); не цепочка всех потомков. VALORANT, League of
+Legends, vgc/vgk/драйверы и guard Vanguard/FACEIT не получают этот профиль.
+Установочные диски могут быть любыми; имя и родительский каталог проверяются.
+Реальные installed files/подписи на ПК здесь не проверены — названия allowlisted,
+несовпавшее имя не захватывается. Профиль доступен без установки игры и ничего
+не делает, если таких процессов нет. Пользовательский DIRECT override сохранён.
+
+Riot TCP443 использует ту же WinDivert new-TCP reflection/owner SID/birth check,
+SNI и DNS-подсказки; PAC не устанавливает. Для известного Riot hostname сначала
+до двух public IPv4 адресов из DNS, bounded TCP+TLS first-flight; при молчании
+полный ClientHello можно повторить на второй адрес, но после любого origin byte
+(даже alert) нельзя. Negative key сеть/profile/hostname/port/IP,10мин, по expiry
+повторная проверка. Другие имена/IP/сеть не заимствуют отказ. TCP ACK не success.
+После отказа адресов включается общая LOCAL selection: cached verified LOCAL
+предпочтителен; пока proof нет — authenticated RELAY и фоновый TLS/certificate/
+GET подбор. Auth/clientconfig/CDN с рабочим DIRECT не вовлекаются в relay.
+Одного silent SNI недостаточно для вывода о Cloudflare: subnet verdict не вводим.
+Diag.13 -Only riot сравнивает actualSNI/example.com по<=2 A на9 основных хостах;
+certificate validation сохраняется, foreign cert mismatch = ANSWERED, не PASS;
+45с общий soft budget (DNS системный API может длиться дольше), без cookies/URL
+авторизации/токенов. Одинаковое молчание двух SNI — endpoint evidence, не доказано
+для всей подсети. Никаких постоянных IP-пинов и подключения к VPS по SSH.
+
+riot.status — отдельный readonly handler, club allowlist, <=48KiB; последние
+native записи и stage bytes LOCAL/RELAY. Riot никогда не засчитывается как
+Chrome/Edge readiness. При изменении egress только новые TCP; stream policy
+после безопасного zero-origin first-flight retry виден через PlanReporter.
+Лабораторный TLS/certificate+HTTP: первый A silent, второй200; cache изолирован,
+TTL ограничен; alert не replay. Эти фикстуры не ISP acceptance и не тест patch
+manifest/login. На ПК проверить запуск Riot без winws и diag -Only riot,browser;
+Vanguard/игры должны оставаться DIRECT. VPS/CA/SSH/activation не менялись.

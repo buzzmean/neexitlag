@@ -2,24 +2,19 @@
 
 # CURRENT
 
-## Последний итог — running CDN success/release,24.10.2026
-Наd28 владелец получил196MB реального googlevideo LOCAL(c0aa53), но success ждал Close и держал slot331s. Исправлено: сильный sustained proof засчитывается на живом потоке, слот свободен для другой пробы, established TLS не переносится.
-Критерий: fullSH/committed/postSH write, >=1MiB после SH и в>=16 завершённых outer type23 records, RX-span>=3s и freshRX<=3s. Scope сразу LOCAL10min; max1 НОВАЯ неподтверждённая проба/live RELAY sibling/3min cooldown сохранены. Это transport, не playback proof.
-Поздний настоящий failure отзывает будущий LOCAL: PostPromotionFailures/FailedAfterReply и SUCCESS_REVOKED_AFTER_FAILURE отдельно от уже засчитанного успеха. Поздний Close не освобождает чужой новый slot.
-Малый EOF(0<rx<64KiB) без known failure/RST/retransmits/alert/invalidTLS нейтрален: не bad score/Tried/failed_after_reply и не success. Намерение Google без MITM не установлено; реальные RST/timeout/alert отрицательны.
-Diag.12: strong_promotions/post_promotion_failures/small_eof_inconclusive/trial_result; completed app records/bytes/span; отдельные последние LOCAL failure timings/volume, включая midstream stall6s. Такой timeout закрывает socket, browser retry/rebuffer возможен, replay запрещён.
-Ordinary akashi: один per-IP DIRECT failure включает общую ladder до проверки второго адреса, defaultRELAY без LOCAL proof. Отдельный policy coupling, не исправлялся; реальная причина TCP-отказа без трассы неизвестна.
-P0 typed-nil fixture не имела PID/path/appID, поэтому игнорировала pinnedRELAY и зависела от доступности1.1.1.1. На57396ee с доступным loopback FAIL10/10 Linux+Wine; исправленная identity/sentinel PASS20/20 Linux race+Windows EXE/Wine. Go1.27/native Windows здесь не запускались.
-Полные Go race/vet/build Linux+Windows и Windows vet PASS; обе Windows fixture EXE собраны. PinnedDLL70filters/iSCSI30/checksum44plans PASS подWine; новые CDN Windows EXE/Wine и PS7 fixtures PASS; Native Windows/PS5.1/новый ISP promotion/TTL/revoke/multi-subgroup НЕ проверены. VPS/CA/SSH/коды/CP flags/пакетные рецепты/фильтры/игры не менялись.
-Тест реального TLS с certificate validation:1.25MiB/3.4s -> promotion безClose, допуск другой группы, второй GET по тому же TLS (opens=1). Transform portable seam — не WinDivert/ISP proof.
-Pre-push: существующие IPC dispatch проверены; новых методов/manifest readers нет; PS5.1 syntax/BOM/quoted native flags сохранены, JSON/внешние tools не менялись. Команды безgit switch, с exit/hash checks. DIRECT/LOCAL передRELAY, protected/games без изменений.
-Аудит: docs/LOCAL_ENGINE_AUDIT.md; прежний итог перенесён дословно в ARCHIVE. Решение24.10 владельца: сильный running proof заменяет ожидание terminal/3weak successes;3weak closed success остаются альтернативой.
+## Последний итог — Riot launcher,24.10.2026
+Добавлен built-in Riot Client AUTO,4 launcher exe внутри Riot Games/Riot Client; games/vgc/vgk/anti-cheat не наследуют профиль. TCP443 new-TCP native/SNI/owner guards, без PAC.
+Riot hostname: сначала<=2 DNS IPv4, silent ClientHello -> другой адрес, лишь затем общая verified LOCAL/RELAY selection.10мин per-network/profile/host/IP negative, без permanent/subnet pin; после origin byte replay запрещён. Auth/CDN с рабочим DIRECT остаются DIRECT.
+Отдельный riot.status/club read handler и diag.13 -Only riot: выбранный путь/bytes LOCAL/RELAY, actualSNI vs foreignSNI<=2 A/host, TLS verification ON, без credentials. Riot не считается Browser ready.
+Go race/vet/build Linux+Windows и Windows vet PASS; PS7 Riot formatter PASS; pinned DLL70filters/iSCSI/checksums PASS подWine; Riot Windows EXE/Wine PASS. Native Windows/PS5.1/Riot login/manifest/ISP НЕ проверены. VPS/CA/коды/SSH не использовались.
+Решение: не обобщать один silent IP на Cloudflare subnet; вместо этого пробовать другой DNS A и хранить ограниченный отрицательный endpoint verdict. Подробности docs/LOCAL_ENGINE_AUDIT.md.
+Следующий этап: каталог игр/минимальный UI; C#-изменения ещё не входят в Riot commit. Pre-push: riot.status routed/readonly allowlist, manifest readers не менялись, PS5.1-compatible formatter/BOM/quoted flags; существующие ограничения сохранены.
 
 ## Таблица работ
 | Работа / дата | Файлы | Агент / ветка | Статус |
 |---|---|---|---|
-| Riot launcher / 24.10.2026 | core/profiles/localstrategy; services/client-service launcher/native/origin; platform/windows discovery; tools/windows diag; tests/docs | Codex / codex/work | В РАБОТЕ: AUTO launcher, bounded alternate-IP/local/relay, diagnostics |
-| Game catalog / 24.10.2026 | apps/desktop-core/GameCatalog* и Resources; apps/desktop Games/MainWindow/VM integration; tests/desktop; docs | Codex / codex/work | В ОЧЕРЕДИ: после Riot, встроенные данные/страница/профили |
+| Riot launcher / 24.10.2026 | core/profiles/localstrategy; services/client-service launcher/native/origin; platform/windows discovery; tools/windows diag; tests/docs | Codex / codex/work | ОСВОБОЖДЕНО: launcher/alternate DNS/LOCAL/diag; owner acceptance впереди |
+| Game catalog / 24.10.2026 | apps/desktop-core/GameCatalog* и Resources; apps/desktop Games/MainWindow/VM integration; tests/desktop; docs | Codex / codex/work | В РАБОТЕ: встроенные данные/страница/профили, после Riot commit |
 | LOCAL engine / 24.10.2026 | core/localstrategy; platform/windows native/DNS/TCP inject; services/client-service browser* и минимальный controller/club IPC dispatch; tools/windows diag; tests/workflow/docs | Codex / codex/work | ОСВОБОЖДЕНО: код/лаборатория готовы; Windows/ISP приёмка не доказана |
 | CDN LOCAL recovery / 24.10.2026 | core/localstrategy inspection; core/browserproxy/probe.go; platform/windows TCP evidence; services/client-service browser selection/probes; tools/windows diag; tests/docs | Codex / codex/work | ОСВОБОЖДЕНО: selector/probes/telemetry готовы; требуется owner trace для EOF и CDN success |
 | CDN neutral close / 24.10.2026 | services/client-service browser meter/selection/evidence; core/browserproxy TLS metadata/midstream; core/localstrategy inspection; platform/windows TCP evidence; tools/windows diag; tests/docs | Codex / codex/work | ОСВОБОЖДЕНО: реализация/тесты готовы; ISP/Chrome intent и CDN success требуют приёмки |
@@ -44,6 +39,7 @@ Pre-push: существующие IPC dispatch проверены; новых �
 | Дизайн VELIQ / 20.10.2026 | site/, brand/, design/; будущие WPF/assets | Claude Code | Сайт согласован; перенос в WPF и новая иконка не сделаны |
 
 ## Текущая очередь и открытые вопросы
+- Ordinary akashi: per-IP DIRECT_ADDRESS_FAILED вовлекает ladder раньше второго A; отдельный policy coupling, не исправлен, реальный TCP отказ неизвестен.
 - Приёмка CDN: strong_promotions/trial_success растут ДО Close, active slot свободен/занят новой группой; LOCAL TTL10min и новый LOCAL RX основной; поздний failure отзывает будущие opens.2160p/seek, игры DIRECT.
 - HTTP80, QUIC fake и Discord voice UDP LOCAL не реализованы; fakedsplit TCP443 реализован, весь Flowseal не заявляется.
 - Подбор DPI продолжается ограниченно; пока нет proof — временный authenticated RELAY. Short response не доказывает >64KiB.

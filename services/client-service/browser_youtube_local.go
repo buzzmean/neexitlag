@@ -407,6 +407,9 @@ func (c *Controller) openYoutubeLadder(ctx context.Context, cur profilesResult, 
 	}
 	ref := &youtubePlanRef{}
 	service := c.browserOriginPolicy(q.Host).Group
+	if riotAuto(cur.profile) && riotHost(q.Host) {
+		service = "riot-client"
+	}
 	if service == "" {
 		service = "ordinary"
 	}

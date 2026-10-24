@@ -42,6 +42,7 @@ func candidates() []Candidate {
 }
 func Presets() []Preset {
 	return []Preset{
+		{"riot-client", "Riot Client (launcher)", PresetVersion, []string{"riotgames.com", "riotcdn.net", "pvp.net"}, []uint16{443}, candidates()},
 		{"discord", "Discord", PresetVersion, []string{"discord.com", "discordapp.com", "discordapp.net", "discordcdn.com", "discord.gg", "discord.media", "discordstatus.com", "discord.gift", "discordactivities.com", "discord-activities.com", "discord-attachments-uploads-prd.storage.googleapis.com"}, []uint16{443, 2053, 2083, 2087, 2096, 8443}, candidates()},
 		{"youtube", "YouTube", PresetVersion, []string{"youtube.com", "googlevideo.com", "ytimg.com", "youtube-nocookie.com", "youtubei.googleapis.com", "youtube.googleapis.com", "youtubeembeddedplayer.googleapis.com", "youtubekids.com", "youtu.be", "yt3.ggpht.com", "yt4.ggpht.com", "yt3.googleusercontent.com", "wide-youtube.l.google.com", "youtube-ui.l.google.com", "ytimg.l.google.com", "jnn-pa.googleapis.com"}, []uint16{443}, candidates()},
 	}

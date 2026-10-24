@@ -36,6 +36,7 @@ type browserRuntime struct {
 	chromeActive    func(string, string) bool
 	origins         *browserproxy.OriginHealth
 	native          nativeBrowserRuntime
+	riot            nativeBrowserRuntime
 	usage           *browserRelayUsage
 	edge            *edgeRuntime // Independent Edge transport; Chrome fields stay unchanged.
 	dns             *browserproxy.DNSRecovery
@@ -74,6 +75,9 @@ func (c *Controller) browserOwner(ctx context.Context, source, local netip.AddrP
 	return browserproxy.Owner{PID: id.PID, Birth: id.CreationTime, Exe: id.Path, Profile: p.ID}, nil
 }
 func (c *Controller) browserProfile(owner browserproxy.Owner) (profilesResult, error) {
+	if profiles.RiotLauncherPath(owner.Exe) {
+		return c.riotOwnerProfile(owner)
+	}
 	if edgeExecutable(owner.Exe) {
 		return c.edgeOwnerProfile(owner)
 	}
@@ -203,6 +207,9 @@ func (c *Controller) openBrowser(ctx context.Context, q browserproxy.Request, pl
 	d.OriginDomain = q.Host
 	d.OriginHintOnly = q.HintOnly
 	d.Flow = routing.Flow{OriginDomain: q.Host, OriginService: c.browserOriginPolicy(q.Host).Group, OriginReason: c.browserTrafficReason(current, q, plan), Protocol: "tcp", Source: q.Source, Destination: plan.Destination, PID: q.Owner.PID, ProcessPath: q.Owner.Exe, ApplicationID: q.Owner.Profile, Network: current.network, PinnedPolicy: d.Flow.PinnedPolicy}
+	if riotAuto(current.profile) && riotHost(q.Host) {
+		d.Flow.OriginService = "riot-client"
+	}
 	if d.Block {
 		return nil, errors.New("browser route blocked")
 	}
@@ -350,6 +357,11 @@ func (c *Controller) browserPlan(ctx context.Context, q browserproxy.Request) (b
 		result = flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailOpen, Source: "profile_direct", Reason: "ordinary origin in DIRECT profile"}
 	}
 	plan := browserproxy.Plan{RelayCandidates: relayCandidates, Network: current.network, Enabled: current.enabled, Policy: result, Destination: dest, Probe: "NOT_PROBED"}
+	if riotAuto(current.profile) && riotHost(q.Host) && !protectedBrowserDomain(q.Host) && result.Source != "rule" {
+		plan.Policy = flowpolicy.Result{Action: flowpolicy.Direct, Fallback: flowpolicy.FailBlock, Source: "riot_direct_first", Reason: "Launcher: bounded TLS first flight; prefer healthy DNS address before LOCAL/RELAY"}
+		plan.DirectCandidates = candidates
+		return plan, nil
+	}
 	if !current.enabled || protectedBrowserDomain(q.Host) || result.Source == "rule" {
 		return plan, nil
 	}
