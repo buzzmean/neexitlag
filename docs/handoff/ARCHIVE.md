@@ -1,3 +1,28 @@
+## LOCAL диагностика — 24.10.2026 (работа продолжается)
+Владелец f0e181a:2160p RELAY работает, LOCAL0/CDN trials0; ordinary тоже имеет отказы. Исправления общие для DPI групп, IP/GEO relay и VK/Яндекс DIRECT сохраняются.
+Пункт1: browser.local.probes (отдельный read-only IPC из-за64KiB лимита), bounded128 recent/<=48KiB выдача, strategy×host/group/result/TX/RX/body/commit/SYN/handshake/TTL/actual packet headers. Payload не сохраняется.
+Diag.7 — таблица всех групп; новые PS7/PS5.1 CI gates. Это диагностика, не LOCAL PASS; PS5.1 и ISP здесь не выполнялись.
+Пункты2–5 в работе: raw WinDivert send уже есть; проверить owner race LOCAL delegation, actual catalog semantics и допуск CDN по реальному transform. CP/shared flags не включать.
+Пункт1 проверки: полный Go race/vet/build Linux+Windows PASS; actual pinned DLL filters70/iSCSI30/catalog checksum13 подWine PASS, не kernel. PS7 probes/legacy allowlist PASS; native PS5.1 НЕ проверен. IPC inventory/общая нормализация не менялись; новый метод включён в dispatch и club read-only.
+Пункт2/5: LOCAL reserved SYN теперь требует owner proof как native; прежний DIRECT self bypass при owner lookup race запрещён. CDN trial допущен по committed transform того же scoped плана, критерий3успеха/>64KiB и live relay sibling сохранён. Пункт3 (все TCP443 семантики) ещё не реализован; аудит docs/LOCAL_ENGINE_AUDIT.md.
+Пункты2/5 gates: полный Go race/vet/build Linux+Windows+Windows vet PASS; DLL70filters/iSCSI30/checksums13 подWine PASS, PS7 PASS. Старые delegation-close тесты сохранены. На ISP root cause/LOCAL2160p и native PS5.1 НЕ доказаны.
+
+
+## Сжатие handoff — 24.10.2026
+Было3163строки/392819байт (2813 в задании — прежний размер); история закрытых этапов и старые итоги перенесены дословно в ARCHIVE.md.
+Новые блоки сверху; предыдущий технический итог тоже архивирован; действующие ограничения/открытые вопросы перенесены в краткий статус.
+Только документы, тестовые прогоны не запускались. Правила завершения задачи и pre-push checklist добавлены; код/скрипты не менялись.
+Итоговый размер CURRENT: 105строк (≤150). Команд владельцу для этой docs-задачи нет.
+
+
+## Последний итог — документы, 24.10.2026
+Архив `46c0b97`: CURRENT3163строки/392819байт →118строк;185исторических блоков перенесены дословно, новые сверху.
+Эта задача: правила короткого handoff, обязательный pre-push checklist и соразмерные проверки; код/CLAUDE.md не менялись.
+Предыдущий технический итог теперь тоже в ARCHIVE. Тестовые прогоны не запускались: только документы, проверены diff/сохранность истории/лимит строк.
+Последний код `6f0312d`, учёт `aac01db`; Hostkey relay/1080p принят владельцем, LOCAL video НЕ подтверждён.
+Подробные текущие ограничения/очередь/доказательства ниже; на VPS ничего не выполнялось.
+
+
 # ARCHIVE — дословная история handoff
 
 Последний итог Codex (24.10.2026 MSK): очередь экономии VPS, код опубликован по этапам; область освобождена.

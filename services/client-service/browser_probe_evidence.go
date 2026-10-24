@@ -12,6 +12,9 @@ import (
 )
 
 type localProbeEvidence struct {
+	Failure        string                    `json:"failure,omitempty"`
+	HTTPStatus     int                       `json:"http_status"`
+	TLSVersion     uint16                    `json:"tls_version"`
 	PlannedActions []localstrategy.Action    `json:"planned_actions,omitempty"`
 	Sent           uint64                    `json:"sent_bytes"`
 	At             time.Time                 `json:"at"`
@@ -34,6 +37,12 @@ func localProbeOutcome(p browserproxy.ProbeResult, applied bool) string {
 	if p.Phase == "LOCAL_GUARD" {
 		return "LOCAL_GUARD"
 	}
+	if p.Failure == "" && (p.Phase == "PUBLIC_WS_CONTROL" || p.Phase == "PUBLIC_REDIRECT_CONTROL") {
+		if applied {
+			return "OK_CONTROL_NOT_BULK"
+		}
+		return "NO_TRANSFORM"
+	}
 	if p.Detail == "PEER_RESET" {
 		return "RST"
 	}
@@ -41,7 +50,13 @@ func localProbeOutcome(p browserproxy.ProbeResult, applied bool) string {
 		return "ORIGIN_SILENT"
 	}
 	if p.BodyBytes > 0 && p.Failure != "" {
-		return "FREEZE_AFTER_N"
+		if p.Failure == "NETWORK_TIMEOUT" {
+			return "FREEZE_AFTER_N"
+		}
+		if p.Detail == "PEER_CLOSED" {
+			return "EOF_AFTER_N"
+		}
+		return "ORIGIN_PROTOCOL_OR_BODY_FAILED"
 	}
 	if p.BodyBytes > 0 && p.BodyBytes <= 64*1024 {
 		return "SHORT_RESPONSE"
@@ -61,7 +76,7 @@ func (c *Controller) recordLocalProbe(q browserproxy.Request, p browserproxy.Pla
 	}); ok {
 		inspection = b.BrowserLocalInspection(browserIdentity(q), q.Source, p.Destination)
 	}
-	row := localProbeEvidence{At: time.Now(), Strategy: strategy, Host: q.Host, Service: c.browserOriginPolicy(q.Host).Group, Result: localProbeOutcome(result, applied), Phase: result.Phase, Detail: result.Detail, Received: result.Bytes, Body: result.BodyBytes, Committed: applied, Inspection: inspection}
+	row := localProbeEvidence{Failure: result.Failure, HTTPStatus: result.Status, TLSVersion: result.TLSVersion, At: time.Now(), Strategy: strategy, Host: q.Host, Service: c.browserOriginPolicy(q.Host).Group, Result: localProbeOutcome(result, applied), Phase: result.Phase, Detail: result.Detail, Received: result.Bytes, Body: result.BodyBytes, Committed: applied, Inspection: inspection}
 	if len(sent) > 0 {
 		row.Sent = sent[0]
 	}

@@ -8,10 +8,11 @@ import (
 	"strings"
 )
 
-// Actions are a finite packet plan, not a scripting language. At most two old-sequence fakes,
-// one segmentation and one reversal. Legacy <=5; explicit browser-catalog <=20.
+// Actions are a finite packet plan, not a scripting language. Legacy <=5;
+// legacy browser-catalog <=20/input; typed native TCP443 <=64/first flight.
 type Action struct {
-	SequenceOverlap uint16 `json:"seq_overlap,omitempty"`
+	Native          *NativeTCPPlan `json:"native_tcp,omitempty"`
+	SequenceOverlap uint16         `json:"seq_overlap,omitempty"`
 	// Catalog-only options. Legacy DIRECT+ retains its original five-packet ceiling.
 	Markers   []string `json:"markers,omitempty"`
 	FakeModel string   `json:"fake_model,omitempty"`
@@ -25,6 +26,23 @@ type Action struct {
 }
 
 func validateChain(p Profile) error {
+	if len(p.Actions) == 1 && p.Actions[0].Kind == "native-tcp443" {
+		if p.Preset != "browser-catalog" || !catalogProfile(p) || p.Actions[0].Native == nil {
+			return errors.New("native recipe requires bounded browser catalog")
+		}
+		for _, port := range p.Ports {
+			if port != 443 {
+				return errors.New("native recipe is TCP443 only")
+			}
+		}
+		return p.Actions[0].Native.validate()
+	}
+	for _, a := range p.Actions {
+		if a.Native != nil {
+			return errors.New("native recipe mixed with legacy actions")
+		}
+	}
+
 	if p.Protocol != "tcp" || len(p.Actions) < 1 || len(p.Actions) > 3 || p.SplitPosition != 0 {
 		return errors.New("invalid TCP chain")
 	}

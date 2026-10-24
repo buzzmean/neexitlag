@@ -315,7 +315,7 @@ func TestYouTubeShortCDNRootsNeverQualify(t *testing.T) {
 	}
 }
 
-func youtubeTLSHTTPFixture(t *testing.T, host string) (*httptest.Server, *x509.CertPool) {
+func youtubeTLSHTTPFixture(t *testing.T, host string, handlers ...http.Handler) (*httptest.Server, *x509.CertPool) {
 	t.Helper()
 	pub, key, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -332,11 +332,15 @@ func youtubeTLSHTTPFixture(t *testing.T, host string) (*httptest.Server, *x509.C
 	}
 	roots := x509.NewCertPool()
 	roots.AddCert(cert)
-	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(280 * time.Millisecond)
 		w.Header().Set("Content-Length", "131072")
 		w.Write(bytes.Repeat([]byte("v"), 131072))
 	}))
+	if len(handlers) > 0 {
+		handler = handlers[0]
+	}
+	server := httptest.NewUnstartedServer(handler)
 	server.TLS = &tls.Config{Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}}}
 	server.StartTLS()
 	t.Cleanup(server.Close)

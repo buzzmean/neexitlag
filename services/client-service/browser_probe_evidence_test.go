@@ -19,6 +19,8 @@ func TestLocalProbeFailuresAreNotAllNoTransform(t *testing.T) {
 		{browserproxy.ProbeResult{Detail: "PEER_RESET"}, true, "RST"},
 		{browserproxy.ProbeResult{BodyBytes: 16000, Bytes: 18000, Failure: "NETWORK_TIMEOUT"}, true, "FREEZE_AFTER_N"},
 		{browserproxy.ProbeResult{Status: 200, TLSVersion: 0x304, BodyBytes: 70000}, false, "NO_TRANSFORM"},
+		{browserproxy.ProbeResult{Bytes: 1000, BodyBytes: 200, Failure: "WRONG_WEBSOCKET_NONCE"}, true, "ORIGIN_PROTOCOL_OR_BODY_FAILED"},
+		{browserproxy.ProbeResult{Bytes: 1000, BodyBytes: 200, Failure: "NETWORK_ERROR", Detail: "PEER_CLOSED"}, true, "EOF_AFTER_N"},
 		{browserproxy.ProbeResult{Status: 200, TLSVersion: 0x304, BodyBytes: 70000}, true, "OK"},
 	} {
 		if got := localProbeOutcome(tc.p, tc.applied); got != tc.want {

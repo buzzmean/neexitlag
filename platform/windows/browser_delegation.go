@@ -1,6 +1,9 @@
 package windowsplatform
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // Full close of a planned CONNECT frontend owns both halves of this native
 // mapping. A TCP FIN alone is insufficient: a silent origin can retain the
@@ -35,4 +38,21 @@ func (s *tcpState) closePlannedDelegation(bound Tuple, owner *tcpEntry) {
 // Does not authorize any arbitrary service socket or change established flows.
 func delegatedOwnerPending(d Decision, ownerPID, servicePID uint32, ownerError error) bool {
 	return (d.OpenDeferred != nil || d.Route.Local()) && (ownerError != nil || ownerPID != servicePID)
+}
+
+func browserTimestampPlan(d Decision) bool {
+	if !d.Route.Local() || d.Local == nil {
+		return false
+	}
+	for _, p := range d.Local.Config().User {
+		if p.ID != d.LocalStrategyID || p.Preset != "browser-catalog" {
+			continue
+		}
+		for _, a := range p.Actions {
+			if a.Native != nil && strings.Contains(a.Native.Fooling, "ts") && !strings.Contains(a.Native.Fooling, "md5sig") {
+				return true
+			}
+		}
+	}
+	return false
 }

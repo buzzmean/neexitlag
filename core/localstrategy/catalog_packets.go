@@ -103,10 +103,13 @@ func catalogFake(p []byte, s *State, a Action) []byte {
 // Own TLS1.3-shaped model, no upstream binary/template or client session data.
 func ownCatalogHello(host string) []byte { return ownCatalogHelloSize(host, 1250) }
 func ownCatalogHelloSize(host string, total int) []byte {
+	return ownCatalogHelloRandom(host, total, rand.Read)
+}
+func ownCatalogHelloRandom(host string, total int, fill func([]byte) (int, error)) []byte {
 	body := make([]byte, 0, 1300)
 	body = append(body, 3, 3)
 	random := make([]byte, 64)
-	if _, err := rand.Read(random); err != nil {
+	if _, err := fill(random); err != nil {
 		return nil
 	}
 	body = append(body, random[:32]...)
@@ -125,7 +128,7 @@ func ownCatalogHelloSize(host string, total int) []byte {
 	add(10, []byte{0, 2, 0, 29})
 	add(13, []byte{0, 4, 8, 4, 4, 3})
 	public := make([]byte, 32)
-	if _, err := rand.Read(public); err != nil {
+	if _, err := fill(public); err != nil {
 		return nil
 	}
 	share := append([]byte{0, 36, 0, 29, 0, 32}, public...)

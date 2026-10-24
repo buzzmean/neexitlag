@@ -21,9 +21,9 @@ Fake лежит целиком в старом TCP sequence space (old-sequence 
 попадание fake в настоящий TLS stream даже при достаточном TTL. Handshake/ACK/
 sequence/checksum проверяются. Payload fake свой, example.org, без заимствованных
 файлов. Существующий preset —7 кандидатов, cutoff1 логического ClientHello.
-Полного Flowseal general нет: autottl, TCP MD5 signature, timestamp/badsum,
-полноценный fakedsplit/hostfakesplit не реализованы. Называть текущие кандидаты
-эквивалентом winws нельзя. Новые browser-only кандидаты добавляют2 old-sequence
+Это исторический аудит исходного движка. С24.10 все64 TCP443 Flowseal rules
+имеют native recipes (fakedsplit/hostfakesplit/SYN-data/TS/MD5 и др.); HTTP/QUIC
+остаются unsupported, fake templates свои. Полная эквивалентность winws не заявляется. Новые browser-only кандидаты добавляют2 old-sequence
 fake +3 настоящих сегмента с disorder, сохраняя потолок5 пакетов на входной.
 Сохранённые пресеты и их версия не изменяются.
 
@@ -50,7 +50,7 @@ score2048. Независимый тик15s продолжает подбор п
 
 Подгруппы разделены: точный account/page/image host; CDN по sn-пулу googlevideo,
 profile/network/port/hint-only остаются в ключе. Этот ключ НЕ меняет общий
-DIRECT timeout cache.13 catalog plans +9 legacy кандидатов подключены к AUTO;
+DIRECT timeout cache.44 catalog plans +9 legacy кандидатов подключены к AUTO;
 порядок по измеренным исходам этой сети/подгруппы. Истёкшие данные не являются
 подтверждённым LOCAL. Signed catalog остаётся данными, не удалённой командой.
 
@@ -136,3 +136,11 @@ pinned DLL под Wine — компиляция/CRC, не WinDivertOpen/kernel/I
 P0 Hostkey отдельно готовит сервер и автоматически обновляет существующую службу
 на ПК запуска (без переустановки/новой identity): docs/RELAY_HOSTKEY_P0.md. Не
 запускайте эту remote mutation как обязательный шаг проверки LOCAL-first.
+
+## Общий движок24.10: публичные протоколы Discord
+Исправления raw delegation/LSO/native recipes относятся ко всем DPI группам.
+Для cdn.discordapp.com — PNG GET по одному TLS до >64KiB; gateway.discord.gg —
+публичный WSS Hello+3пары nonce ping/pong; discord.gg — точный HTTPS redirect.
+Контрольные проверки явно OK_CONTROL_NOT_BULK, не bulk/page/login PASS.
+Googlevideo критерии >64KiB/3success/live sibling не меняются, shared flags OFF.
+Telegram/Meta/OpenAI/Anthropic RELAY_REQUIRED и VK/Яндекс DIRECT сохраняются.

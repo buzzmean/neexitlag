@@ -8,6 +8,7 @@ import (
 // Inspection is passive metadata from the first eligible payload, never retained
 // packet bytes. A reason is not evidence that a packet was successfully sent.
 type SentPacket struct {
+	Fake           bool  `json:"fake"`
 	SequenceOffset int32 `json:"sequence_offset"`
 	Flags          uint8 `json:"tcp_flags"`
 	Length         int   `json:"length"`
@@ -16,6 +17,9 @@ type SentPacket struct {
 }
 
 type Inspection struct {
+	OriginalPacketBytes      int          `json:"original_packet_bytes"`
+	TCPHeaderBytes           int          `json:"tcp_header_bytes"`
+	TimestampOption          bool         `json:"timestamp_option"`
 	SYNSeen                  bool         `json:"syn_seen"`
 	HandshakeConfirmed       bool         `json:"handshake_confirmed"`
 	ServerTTL                uint8        `json:"server_ttl"`

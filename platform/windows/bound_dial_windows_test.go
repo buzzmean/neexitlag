@@ -5,6 +5,7 @@ package windowsplatform
 import (
 	"context"
 	"errors"
+	"golang.org/x/sys/windows"
 	"io"
 	"net"
 	"net/netip"
@@ -109,5 +110,31 @@ func TestNativeBoundDialRetriesOnlyPreSYNPortCollision(t *testing.T) {
 	defer c.Close()
 	if calls != 2 {
 		t.Fatal("collision did not receive one bounded retry", calls)
+	}
+}
+
+func TestLocalSocketTimestampOptionDoesNotRequireBrowserRestart(t *testing.T) {
+	listener, e := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer listener.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	c, e := dialBoundIPv4Options(ctx, netip.MustParseAddr("127.0.0.1"), listener.Addr().(*net.TCPAddr).AddrPort(), func(netip.AddrPort) error { return nil }, true)
+	if e != nil {
+		t.Fatal("per-socket TCP_TIMESTAMPS unavailable", e)
+	}
+	defer c.Close()
+	raw, e := c.(*net.TCPConn).SyscallConn()
+	if e != nil {
+		t.Fatal(e)
+	}
+	enabled := 0
+	var optionError error
+	if e = raw.Control(func(fd uintptr) {
+		enabled, optionError = windows.GetsockoptInt(windows.Handle(fd), windows.IPPROTO_TCP, 10)
+	}); e != nil || optionError != nil || enabled != 1 {
+		t.Fatal("per-socket timestamp option not effective", e, optionError, enabled)
 	}
 }

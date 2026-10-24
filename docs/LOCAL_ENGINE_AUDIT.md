@@ -16,25 +16,56 @@ ClientHello этого собственного сокета по явной del
 новый драйвер/внешний winws для этого не нужен. Неинъецированный план не является
 успехом: counters commit появляются после успешной отправки всего плана.
 
-Реализованы свои fake TLS, split/disorder, old-sequence, TS/MD5 options, bounded
-seqovl и autoTTL estimate. Текущий каталог НЕ эквивалентен всем Flowseal general:
-из64Flowseal TCP443 rules (75с учётом остальных источников) есть hostfakesplit/fakedsplit/fakeddisorder/SYN-data, которые старый
-compiler отвергал. Даже поддержанный mode использует свои fake templates и
-обязательный old-sequence safety, отличающийся от чистого ts/md5sig winws. Нельзя
-назвать перечисление параметров фактическим исполнением всех75правил.
+## Исправления исполнения TCP443
+
+Старый compiler исполнял13 уникальных планов и навязывал old-sequence даже чистым
+TS/MD5 стратегиям. Теперь все64 Flowseal TCP443 rules из22 general*.bat имеют
+типизированный исполняемый рецепт: fake, multisplit/multidisorder, fakedsplit,
+fakeddisorder, hostfakesplit/altorder, SYN-data и их комбинации. Дедупликация всего
+каталога даёт44 плана;49 HTTP/QUIC/прочих rules остаются явно unsupported.
+С9 legacy кандидатами это53 варианта, помещающихся в64-битную маску подбора.
+
+Raw injection выполняет собственный WinDivertSend; сохраняются реальные байты
+TLS, ACK/window/options и относительные sequence original-потока. Fake packet
+помечается отдельно, включая interleaved fake/real, с корректными checksum.
+Параметры repeats, cutoff1, split markers, zero IP ID, fake list order,
+badseq(-10000/override) и badack(-66000), TS delta(-600000), MD5 option19 и seqovl
+обрабатываются собственным кодом. При отсутствии исходного TTL/autottl в правиле
+не добавляем скрытый TTL2: native fake сохраняет TTL original. Legacy autoTTL
+по SYN/ACK остаётся отдельным кандидатом. Это адаптация параметров, не побитовая
+копия winws: TLS/STUN/zero модели свои, upstream fake binaries не копируются.
+
+TS/MD5 больше не означают скрытый badseq: fake может иметь текущий sequence;
+защита от принятия peer зависит от реально согласованных TS/PAWS либо TCP MD5.
+Чистый TS без timestamp option → TIMESTAMP_OPTION_REQUIRED, fake не отправляется.
+Только собственный LOCAL socket перед connect включает Winsock TCP_TIMESTAMPS=10;
+неподдерживаемая ОС → LOCAL_SOCKET_OPTION_FAILED/TCP_TIMESTAMPS_UNAVAILABLE.
+Никаких netsh/global/browser настроек. И это не обещает, что peer примет LOCAL:
+истинный TLS/HTTP или WSS probe всё ещё обязателен. SYN-data применяется только
+к новому пустому SYN без TFO,16 своих нулевых байт, original sequence; established
+потоки не изменяются. MD5 не добавляется, если options не помещаются в TCP header.
+
+LSO first-flight ранее >1500B обходил buffer без transform. Native recipe теперь
+принимает bounded ClientHello до MaxHelloBytes, делит оригинальный stream на
+≤1500B IP packets, резервирует MD5 header и сохраняет точные wire offsets.
+SNI, заканчивающийся точно на конце ClientHello, не отвергается hostfakesplit.
+Неподходящий план/размер/бюджет не отправляется частично. Только native browser
+TCP443 имеет отдельный потолок64 выходных пакета на первый logical flight;
+legacy catalog20/input и обычный DIRECT+5 сохранены. Дальше cutoff: pass-through.
 
 ## Диагностика первого этапа
 
-`youtube_local_ladder.probes`: последние128 strategy×host результатов ВСЕХ групп,
+`browser.local.probes`: retained128 strategy×host результатов ВСЕХ групп; отдельный
+read-only IPC возвращает последние32 в бюджете48KiB, сообщает omitted_retained.
 wire application TX/RX (включая origin TLS), HTTP body bytes, commit, phase/detail,
-SYN seen/handshake/server TTL и до20 реально отправленных packet headers:
-length/TTL/protocol/TCP flags/relative sequence offset. Ни payload, ни абсолютные
+SYN seen/handshake/server TTL и до64 реально отправленных packet headers:
+fake/length/TTL/protocol/TCP flags/relative sequence offset. Ни payload, ни абсолютные
 sequence numbers, ни приватные TLS значения не экспортируются. Raw fake bytes
 в wire application TX не входят: их видит отдельный список реальных sends.
-ORIGIN_SILENT/RST/FREEZE_AFTER_N/SHORT_RESPONSE/NO_TRANSFORM/OK разделены;
+ORIGIN_SILENT/RST/FREEZE_AFTER_N/EOF_AFTER_N/SHORT_RESPONSE/NO_TRANSFORM/OK разделены;
 короткий корректный ответ не назван freeze. OK — проверка собственного HTTPS GET,
 не гарантия playback. Отсутствие ledger — неизвестное наблюдение, не успешный send.
-Диагностика только наблюдает; routing/criteria этим этапом не ослаблены.
+Неверный публичный протокол имеет отдельный failure, не выдаётся за freeze.
 
 ## Проверяемые риски, ещё не доказанная причина на ПК
 
@@ -45,9 +76,12 @@ ORIGIN_SILENT/RST/FREEZE_AFTER_N/SHORT_RESPONSE/NO_TRANSFORM/OK разделен
 Также фактический commit может отсутствовать из-за handshake/TTL/sequence/guard,
 а TLS/HTTP отказ возможен уже после правильно отправленного transform.
 
-QUIC: нынешний native browser guard отклоняет selected UDP443 для TCP fallback;
-это не fake QUIC и не подтверждённый LOCAL TCP. После fallback TCP проходит тот
-же origin selector. IP/GEO группы не становятся LOCAL, VK/Яндекс остаются DIRECT.
+QUIC: native browser guard отклоняет selected UDP443 для TCP fallback;
+это не fake QUIC. RFC9001 Initial с криптографически верными полями здесь не
+реализован; PUBG-shaped fake не доказывает пригодность для браузера. Разрешённый
+владельцем fallback сохранён: после него TCP проходит общий DIRECT/LOCAL/RELAY
+selector и может использовать подтверждённый LOCAL. Unit проверяет именно
+решение fallback, не успешный новый Chrome HTTP/3 → TCP на провайдере. IP/GEO группы не становятся LOCAL, VK/Яндекс остаются DIRECT.
 Подробный transport proof и Windows/ISP acceptance ещё нужны.
 
 ## Что не проверено
@@ -67,4 +101,31 @@ cooldown>=3мин/subgroup. LOCAL по-прежнему требует3успе�
 
 Полный Go race/vet/build Linux+Windows и Windows vet PASS; checksum/filter DLL
 подWine PASS. PS7 diagnostic fixtures PASS. Настоящие Windows capture/PS5.1/ISP
-и2160p LOCAL НЕ проверены. Все TCP443 режимы каталога пока НЕ реализованы.
+и2160p LOCAL НЕ проверены. Все64 Flowseal TCP443 rules проходят исполнение в packet fixtures; это не proof ISP.
+
+## Общие DPI группы, не только YouTube
+Один compiler, LOCAL delegation, buffer, счётчики и кеш применяются ко всем DPI
+origins. Discord CDN проверяется несколькими credential-free PNG GET по одному
+TLS до >64KiB (≤16 запросов/4с/256KiB, signature PNG+200). Gateway — публичный
+TLS WSS Upgrade, проверка RFC6455 accept, Hello и3 свежих nonce ping/pong.
+Точный discord.gg допускает ожидаемый HTTPS redirect на discord.com. Последние
+два критерия помечены OK_CONTROL_NOT_BULK/BACKGROUND_PUBLIC_*_NOT_BULK_PROOF:
+они подтверждают контрольный протокол, не >64KiB, логин, приватный WebSocket или
+страницу целиком. Это не ослабляет64KiB Googlevideo и не публикуется как bulk
+shared proof. Серверные CP/shared flags не включаются.
+Telegram/Meta/OpenAI/Anthropic immutable RELAY floors сохранены; VK/Яндекс DIRECT.
+
+## Лаборатория и границы результата
+64 Flowseal recipes: actual packet output, split/order/fooling/checksum/cutoff,
+точная сборка оригинального1955B TLS,12KiB offload segmentation, MTU/MD5 и scope
+(browser443, не игры/iSCSI). Реальные локальные TLS fixtures: >64KiB CDN PNG,
+public WSS nonce-подтверждение, отказ неверного nonce/certificate/redirect.
+Pinned DLL compiler/evaluator/checksum запускается под Wine, не в ядре Windows.
+Первоначальный owner race и LSO gap — конкретные дефекты кода; что именно
+вызывало отказ у владельца, без новой таблицы probe evidence не установлено.
+Если остаются TIMESTAMP_OPTION_REQUIRED/LOCAL_SOCKET_OPTION_FAILED — чистый TS
+на этой ОС/peer недоступен, подбираются другие варианты. Если transform committed,
+но ORIGIN_SILENT/FREEZE_AFTER_N — нужен ISP trace/другая стратегия, не фиктивный PASS.
+Нет гарантии, что собственные fake templates дадут ту же реакцию ТСПУ, что winws.
+На Windows/провайдере владельца LOCAL2160p, Discord, PS5.1 и новый socket option
+пока НЕ проверены. Цель relay RX≈0 для новых googlevideo flows ещё не доказана.

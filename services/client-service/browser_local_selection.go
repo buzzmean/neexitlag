@@ -2,8 +2,10 @@ package clientservice
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/netip"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -396,6 +398,7 @@ func (c *Controller) youtubeBackgroundRecheck(cur profilesResult, q browserproxy
 		// For a CDN no signed media URL is visible without MITM. These are necessary
 		// prerequisites only, never a claim that the actual CDN has been validated.
 		var verifiedBytes uint64
+		var controlClass string
 		passed := youtubePrerequisites(key, q.Host, func(origin [2]string) bool {
 			// Separate held source reservations prevent the second origin from borrowing
 			// the first origin's committed-transform evidence on a shared CDN address.
@@ -444,14 +447,28 @@ func (c *Controller) youtubeBackgroundRecheck(cur profilesResult, q browserproxy
 			}
 			candidate.Policy = flowpolicy.Result{Action: flowpolicy.DirectPlus, Strategy: id, Fallback: flowpolicy.FailBlock, Source: youtubeLadderSource}
 			var wire *localProbeConn
-			result := browserproxy.ProbeOriginTransfer(work, probeQ.Host, origin[1], c.BrowserProbeRoots, func(ctx context.Context) (net.Conn, error) {
+			var probeOpenError error
+			probe := func(ctx context.Context) (net.Conn, error) {
 				conn, err := c.browserOpenUnobserved(ctx, probeQ, candidate)
+				probeOpenError = err
 				if err != nil {
 					return nil, err
 				}
 				wire = &localProbeConn{Conn: conn}
 				return wire, nil
-			})
+			}
+			var result browserproxy.ProbeResult
+			if publicProbeHost(probeQ.Host) {
+				result = probePublicService(work, probeQ.Host, c.BrowserProbeRoots, probe)
+			} else {
+				result = browserproxy.ProbeOriginTransfer(work, probeQ.Host, origin[1], c.BrowserProbeRoots, probe)
+			}
+			var socketError *os.SyscallError
+			if result.Phase == "RELAY_OR_TCP_OPEN" && errors.As(probeOpenError, &socketError) && socketError.Syscall == "LOCAL_TCP_TIMESTAMPS_UNAVAILABLE" {
+				result.Phase = "LOCAL_GUARD"
+				result.Failure = "LOCAL_SOCKET_OPTION_FAILED"
+				result.Detail = "TCP_TIMESTAMPS_UNAVAILABLE"
+			}
 			applied := c.browserTransform(probeQ, candidate)
 			sent := uint64(0)
 			if wire != nil {
@@ -459,11 +476,14 @@ func (c *Controller) youtubeBackgroundRecheck(cur profilesResult, q browserproxy
 			}
 			c.recordLocalProbe(probeQ, candidate, strategy, result, applied, sent)
 			stop()
-			if !youtubeTransferOK(result) || !applied {
+			if !localProbeSuccess(probeQ.Host, result) || !applied {
 				r.backgroundFailure(key, strategy, "BACKGROUND_NOT_SUSTAINED_OR_NO_TRANSFORM")
 				return false
 			}
 			verifiedBytes = result.BodyBytes
+			if result.Phase == "PUBLIC_WS_CONTROL" || result.Phase == "PUBLIC_REDIRECT_CONTROL" {
+				controlClass = result.Phase
+			}
 			return true
 		})
 		if !passed {
@@ -476,6 +496,13 @@ func (c *Controller) youtubeBackgroundRecheck(cur profilesResult, q browserproxy
 		} else {
 			r.confirmed(key, "LOCAL", strategy, now)
 			r.recordVerification(key, verifiedBytes)
+			if controlClass != "" {
+				r.mu.Lock()
+				v := r.cache[key]
+				v.Reason = "BACKGROUND_" + controlClass + "_NOT_BULK_PROOF"
+				r.cache[key] = v
+				r.mu.Unlock()
+			}
 		}
 	}()
 }

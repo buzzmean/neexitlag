@@ -29,7 +29,7 @@ func SendLocal(d Decision, state *localstrategy.State, id ProcessIdentity, tuple
 		if inspection != nil {
 			inspection.OutputPacketsPlanned = len(r.Packets)
 		}
-		for _, q := range r.Packets {
+		for i, q := range r.Packets {
 			if err := send(q); err != nil {
 				if inspection != nil {
 					inspection.SendFailed = true
@@ -42,8 +42,10 @@ func SendLocal(d Decision, state *localstrategy.State, id ProcessIdentity, tuple
 			}
 			if inspection != nil {
 				inspection.OutputPacketsSent++
-				if len(q) >= 20 && len(inspection.SentPackets) < 20 {
-					inspection.SentPackets = append(inspection.SentPackets, localstrategy.DescribeSentPacket(q, p))
+				if len(q) >= 20 && len(inspection.SentPackets) < localstrategy.NativeTCPPacketLimit {
+					item := localstrategy.DescribeSentPacket(q, p)
+					item.Fake = r.FakeAt(i)
+					inspection.SentPackets = append(inspection.SentPackets, item)
 				}
 			}
 		}

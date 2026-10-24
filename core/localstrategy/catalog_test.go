@@ -28,7 +28,7 @@ func TestCatalogInventoryAllGeneralAndUnsupportedAreExplicit(t *testing.T) {
 	}
 	for _, plan := range plans {
 		for _, a := range plan.Actions {
-			highRepeats = highRepeats || a.Repeats >= 11
+			highRepeats = highRepeats || a.Repeats >= 11 || a.Native != nil && a.Native.Repeats >= 11
 		}
 	}
 	if unsupported == 0 || !highRepeats {
@@ -53,11 +53,14 @@ func catalogTestEngine(t *testing.T, actions []Action) (*LocalStrategyEngine, Me
 	st.ConfirmHandshake(1000, 99)
 	return e, m, st
 }
-func TestCatalogPacketsPreserveTLSAndCannotEnterSequenceSpace(t *testing.T) {
+func TestLegacyCatalogPacketsPreserveTLSAndCannotEnterSequenceSpace(t *testing.T) {
 	plans, _ := BundledCatalog().Compile()
 	for _, plan := range plans {
 		t.Run(plan.ID, func(t *testing.T) {
 			e, m, st := catalogTestEngine(t, plan.Actions)
+			if len(plan.Actions) == 1 && plan.Actions[0].Native != nil {
+				return
+			} // Native recipes have separate PAWS/MD5/sequence shape tests below.
 			data := largeHello(1955)
 			inputs := parts(data, 2, 1000)
 			var buf HelloBuffer

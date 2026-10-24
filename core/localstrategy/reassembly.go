@@ -101,7 +101,15 @@ func (e *LocalStrategyEngine) BufferTCP(p []byte, st *State, b *HelloBuffer, m M
 	b.seen++
 	// Enforce the bound BEFORE copying. On limit the current packet was not
 	// accepted; the caller flushes the old originals then sends this one directly.
-	if len(b.packets) >= MaxHelloSegments || b.bytes+len(data) > MaxHelloBytes || len(p) > 1500 {
+	maxPacket := 1500
+	s := e.current.Load()
+	for i := range s.profiles {
+		c := &s.profiles[i]
+		if c.ID == m.StrategyID && c.Match(m) && len(c.Actions) == 1 && c.Actions[0].Native != nil {
+			maxPacket = MaxHelloBytes
+		}
+	}
+	if len(b.packets) >= MaxHelloSegments || b.bytes+len(data) > MaxHelloBytes || len(p) > maxPacket {
 		v := b.Flush(st, "REASSEMBLY_LIMIT", now)
 		return false, &v
 	}
@@ -185,6 +193,12 @@ func (e *LocalStrategyEngine) BufferTCP(p []byte, st *State, b *HelloBuffer, m M
 	d.Detail = "ClientHello assembled; outer SNI only; original segment boundaries retained"
 	d.ReassemblyMS = now.Sub(b.started).Milliseconds()
 	if r.Inspection != nil {
+		d.OriginalPacketBytes = r.Inspection.OriginalPacketBytes
+		d.TCPHeaderBytes = r.Inspection.TCPHeaderBytes
+		d.TimestampOption = r.Inspection.TimestampOption
+		d.SYNSeen = r.Inspection.SYNSeen
+		d.HandshakeConfirmed = r.Inspection.HandshakeConfirmed
+		d.ServerTTL = r.Inspection.ServerTTL
 		d.Domain = r.Inspection.Domain
 		if !r.Modified {
 			d.Detail = r.Inspection.Detail

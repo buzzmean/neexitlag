@@ -856,7 +856,7 @@ func (t *tcpRedirect) dialDelegatedFrom(ctx context.Context, e *tcpEntry, d Deci
 		wireDestination = t.b.nativeDelegationDestination(wireDestination)
 	}
 	var bound Tuple
-	c, err := dialBoundIPv4(ctx, bind, wireDestination, func(source netip.AddrPort) error {
+	c, err := dialBoundIPv4Options(ctx, bind, wireDestination, func(source netip.AddrPort) error {
 		if bound.Source.IsValid() {
 			t.releaseDelegated(bound, e.identity)
 		}
@@ -873,7 +873,7 @@ func (t *tcpRedirect) dialDelegatedFrom(ctx context.Context, e *tcpEntry, d Deci
 		}
 		t.delegated[bound] = delegatedTCP{owner: e, decision: d}
 		return nil
-	})
+	}, !deferred && browserTimestampPlan(d))
 	if err != nil {
 		if deferred {
 			t.abortUnacceptedDelegated(bound, e.identity)

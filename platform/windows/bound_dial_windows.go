@@ -22,6 +22,12 @@ import (
 // retried at most twice with a new port; other errors are never retried. Go owns
 // the socket, IOCP, cancellation, half-close and all resource cleanup normally.
 func dialBoundIPv4(parent context.Context, source netip.Addr, dest netip.AddrPort, bound func(netip.AddrPort) error) (net.Conn, error) {
+	return dialBoundIPv4Options(parent, source, dest, bound, false)
+}
+
+// TCP_TIMESTAMPS=10 is a documented Winsock per-socket option. Only explicitly
+// selected LOCAL catalog sockets request it, before connect; no netsh/global change.
+func dialBoundIPv4Options(parent context.Context, source netip.Addr, dest netip.AddrPort, bound func(netip.AddrPort) error, timestamps bool) (net.Conn, error) {
 	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
 	defer cancel()
 	if !source.Is4() || !dest.Addr().Is4() {
@@ -38,6 +44,15 @@ func dialBoundIPv4(parent context.Context, source netip.Addr, dest netip.AddrPor
 		dialer := net.Dialer{LocalAddr: net.TCPAddrFromAddrPort(local), ControlContext: func(ctx context.Context, network, address string, raw syscall.RawConn) error {
 			if err := ctx.Err(); err != nil {
 				return err
+			}
+			if timestamps {
+				var optionError error
+				if e := raw.Control(func(fd uintptr) { optionError = windows.SetsockoptInt(windows.Handle(fd), windows.IPPROTO_TCP, 10, 1) }); e != nil {
+					return e
+				}
+				if optionError != nil {
+					return os.NewSyscallError("LOCAL_TCP_TIMESTAMPS_UNAVAILABLE", optionError)
+				}
 			}
 			return bound(local)
 		}}

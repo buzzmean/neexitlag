@@ -122,7 +122,7 @@ func (c Catalog) Compile() ([]CatalogPlan, []CatalogCapability) {
 			capability.Reason = "OWN_TCP_ADAPTATION_NOT_UPSTREAM_BINARY_EQUIVALENCE"
 			if !seen[id] {
 				seen[id] = true
-				plans = append(plans, CatalogPlan{Candidate: Candidate{ID: id, Actions: actions}, Source: r.Source, Rule: r.ID, Adaptation: "own TLS1.3 model; old-sequence safety; browser-only <=20 outputs/input, cutoff1"})
+				plans = append(plans, CatalogPlan{Candidate: Candidate{ID: id, Actions: actions}, Source: r.Source, Rule: r.ID, Adaptation: "own payloads; typed TCP recipes; browser-only bounded first flight; wire proof required"})
 			}
 		}
 		caps = append(caps, capability)
@@ -141,6 +141,9 @@ func (r CatalogRule) actions() ([]Action, string) {
 	}
 	if !tcp {
 		return nil, "HTTP_OR_QUIC_NOT_IMPLEMENTED; QUIC_USES_TCP_FALLBACK"
+	}
+	if r.Source == "flowseal" {
+		return compileNativeTCP(r)
 	}
 	get := func(k string) string {
 		vs := r.Options[k]

@@ -86,6 +86,7 @@ type State struct {
 	failed                                         bool
 }
 type Result struct {
+	PacketFake      []bool
 	PacketOrigins   []int
 	ModifiedOrigins []bool
 	InputPackets    int
@@ -333,6 +334,22 @@ func (e *LocalStrategyEngine) Process(p []byte, st *State, m Metadata) (r Result
 	}
 	if m.Protocol == "tcp" {
 		observeSYN(p, st)
+		if len(p) >= 40 && p[33]&0x3f == 2 && !excluded(s, m) && m.StrategyID != "" {
+			for i := range s.profiles {
+				c := &s.profiles[i]
+				if c.ID != m.StrategyID || !c.Match(m) || len(c.Actions) != 1 || c.Actions[0].Native == nil {
+					continue
+				}
+				if e.Guard != nil && !e.Guard(m) {
+					return Result{}
+				}
+				if r := nativeTCPSYN(p, st, c, c.Actions[0].Native); r.Modified {
+					r.Revision = s.digest
+					return r
+				}
+			}
+		}
+
 		if st.synSeen && st.generation == 0 {
 			st.generation = s.generation
 		}
@@ -370,6 +387,11 @@ func (e *LocalStrategyEngine) Process(p []byte, st *State, m Metadata) (r Result
 			inspectionPayload = st.logicalHello
 		}
 		r.Inspection = inspectHello(inspectionPayload)
+		r.Inspection.OriginalPacketBytes = len(p)
+		if len(p) >= 40 {
+			r.Inspection.TCPHeaderBytes = int(p[32]>>4) * 4
+			r.Inspection.TimestampOption = nativeHasTimestamp(p)
+		}
 		r.Inspection.SYNSeen = st.synSeen
 		r.Inspection.HandshakeConfirmed = st.handshakeConfirmed
 		r.Inspection.ServerTTL = st.serverTTL
@@ -427,13 +449,20 @@ func (e *LocalStrategyEngine) Process(p []byte, st *State, m Metadata) (r Result
 	}
 	st.splitPosition = c.SplitPosition
 	var processed Result
-	if st.logicalHello != nil {
+	if len(c.Actions) == 1 && c.Actions[0].Native != nil {
+		processed = nativeTCPData(p, st, c, c.Actions[0].Native)
+	} else if st.logicalHello != nil {
 		processed = chainStream(st, c)
 	} else if c.Strategy == "chain" {
 		processed = chainPackets(p, st, c)
 	} else {
 		processed = mechanisms[c.Strategy].Process(p, st)
 	}
+	if processed.Inspection != nil && r.Inspection != nil {
+		r.Inspection.Reason = processed.Inspection.Reason
+		r.Inspection.Detail = processed.Inspection.Detail
+	}
+	r.PacketFake = processed.PacketFake
 	r.Packets = processed.Packets
 	r.PacketOrigins = processed.PacketOrigins
 	r.ModifiedOrigins = processed.ModifiedOrigins
@@ -453,7 +482,7 @@ func (e *LocalStrategyEngine) Process(p []byte, st *State, m Metadata) (r Result
 		r.Inspection.Reason = "TRANSFORM_PLANNED"
 		r.Inspection.Detail = "not yet committed to wire"
 	}
-	if r.Inspection != nil && !r.Modified && r.Inspection.Domain != "" {
+	if r.Inspection != nil && processed.Inspection == nil && !r.Modified && r.Inspection.Domain != "" {
 		r.Inspection.Detail = "matched profile but packet plan not eligible (handshake/sequence/TTL/size/flags/positions); native pass-through"
 	}
 	return r
@@ -571,4 +600,14 @@ func (e *LocalStrategyEngine) ApplicationRevision(apps []string) string {
 	}{s.config.Enabled, matched})
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
+}
+
+func (r Result) FakeAt(i int) bool {
+	if i < 0 || i >= len(r.Packets) {
+		return false
+	}
+	if len(r.PacketFake) == len(r.Packets) {
+		return r.PacketFake[i]
+	}
+	return uint64(i) < r.FakePackets
 }

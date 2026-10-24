@@ -2,17 +2,21 @@
 
 # CURRENT
 
-## Последний итог — документы, 24.10.2026
-Архив `46c0b97`: CURRENT3163строки/392819байт →118строк;185исторических блоков перенесены дословно, новые сверху.
-Эта задача: правила короткого handoff, обязательный pre-push checklist и соразмерные проверки; код/CLAUDE.md не менялись.
-Предыдущий технический итог теперь тоже в ARCHIVE. Тестовые прогоны не запускались: только документы, проверены diff/сохранность истории/лимит строк.
-Последний код `6f0312d`, учёт `aac01db`; Hostkey relay/1080p принят владельцем, LOCAL video НЕ подтверждён.
-Подробные текущие ограничения/очередь/доказательства ниже; на VPS ничего не выполнялось.
+## Последний итог — LOCAL native engine,24.10.2026
+`5319850`: точная strategy×host диагностика; `4568dd4`: LOCAL owner race guard и CDN trial по scoped transform.
+Этот коммит:64 Flowseal TCP443 rules реально исполняются в fixtures,44 уникальных плана+9legacy;49 HTTP/QUIC/прочих rules явно unsupported.
+Raw WinDivertSend уже существовал; исправлены LSO>1500, native TS/MD5/badseq semantics, fake/split/disorder/host/SYN-data и bounded64 outputs/flight. Без external winws/глобальных настроек.
+Pure TS требует timestamp negotiation; собственный LOCAL socket включает Winsock option10, отказ виден в diag. Templates свои, побитовая эквивалентность winws НЕ заявлена.
+Общие DPI группы: Discord CDN PNG >64KiB/один TLS; публичный gateway WSS nonce ping/pong и .gg redirect — отдельный CONTROL_NOT_BULK proof, не login/page/voice PASS.
+Diag.9/browser.local.probes: actual fake/TTL/seq delta/headers, TX/RX/body, status/failure и отдельные silence/RST/freeze/EOF/protocol/NO_TRANSFORM причины; все service groups.
+Полные Go race/vet/build Linux+Windows+Windows vet PASS; обе Windows fixture EXE собраны; DLL70filters/iSCSI30/checksums всех catalog plans подWine PASS; PS7 fixtures PASS.
+Нативные Windows/PS5.1/новый socket option/ISP2160p/Discord LOCAL НЕ проверены; видео RELAY RX≈0 ещё НЕ доказано. CI не выдавать за PASS без job steps.
+VPS/CA/activation/коды/CP flags/PR8 не трогали; браузеры не закрывали. Аудит/ограничения: docs/LOCAL_ENGINE_AUDIT.md; предыдущие итоги дословно в ARCHIVE.
 
 ## Таблица работ
 | Работа / дата | Файлы | Агент / ветка | Статус |
 |---|---|---|---|
-| LOCAL engine / 24.10.2026 | core/localstrategy; platform/windows native/DNS/TCP inject; services/client-service browser* и минимальный controller/club IPC dispatch; tools/windows diag; tests/workflow/docs | Codex / codex/work | В РАБОТЕ: диагностика, инъекция, каталог, CDN, все DPI группы |
+| LOCAL engine / 24.10.2026 | core/localstrategy; platform/windows native/DNS/TCP inject; services/client-service browser* и минимальный controller/club IPC dispatch; tools/windows diag; tests/workflow/docs | Codex / codex/work | ОСВОБОЖДЕНО: код/лаборатория готовы; Windows/ISP приёмка не доказана |
 | Компактный handoff / 24.10.2026 | docs/handoff/*, docs/AGENT_RULES.md | Codex / codex/work | ОСВОБОЖДЕНО: архив и правила готовы; только документы |
 | Экономия VPS / LOCAL каталог и автоподбор 1–7 (23.10.2026) | Детали — [ARCHIVE.md](ARCHIVE.md) | Codex / codex/work | ОСВОБОЖДЕНО; код готов, Windows/ISP gates см. ниже |
 | Multi-relay/Hostkey P0 (23.10.2026) | Детали — [ARCHIVE.md](ARCHIVE.md) | Codex / codex/work | ОСВОБОЖДЕНО; код готов, Windows/ISP gates см. ниже |
@@ -34,7 +38,7 @@
 
 ## Текущая очередь и открытые вопросы
 - Приёмка LOCAL на ПК владельца: новые browser flows, 1080p2мин с перемоткой после подтверждения LOCAL; игры остаются DIRECT.
-- HTTP80/QUIC fake/fakedsplit и Discord voice UDP LOCAL не реализованы; TCP443 каталог не равен всему Flowseal.
+- HTTP80, QUIC fake и Discord voice UDP LOCAL не реализованы; fakedsplit TCP443 реализован, весь Flowseal не заявляется.
 - Подбор DPI продолжается ограниченно; пока нет proof — временный authenticated RELAY. Short response не доказывает >64KiB.
 - Общий клубный picker и server NIC month/forecast подготовлены, production endpoints/flags выключены: per-PC fallback и monthly UNKNOWN.
 - Их включение требует отдельного разрешения на CP/relay и отдельные приватные state dirs; client LOCAL не требует нового deployment.
@@ -75,11 +79,13 @@
 - Video12/other4 клиентские пределы и8×48/probe reserve сохранять; деньги/ресурсы: DIRECT/LOCAL перед VPS, без искусственного page PASS.
 - CLAUDE.md20d8bd8 не откатывать/не дублировать; авто-порядок Claude относится к Claude Code.
 
-## Последние команды владельцу (историческая приёмка клиента; в этой docs-задаче запуск не нужен)
-PowerShell администратора под прежним owner SID, из корня клона; Git/Go в PATH, установленный pinned driver. Только VELIQ GUI закрывается.
+## Последние команды владельцу — обновление клиента, без VPS deployment
+PowerShell администратора под прежним owner SID, из корня клона; Git/Go в PATH и установленный pinned driver. Только GUI VELIQ закрывается; Chrome/Edge не закрывать.
 ```powershell
 & {
     $ErrorActionPreference='Stop'
+    & go version
+    if ($LASTEXITCODE) { throw 'Install Go: winget install GoLang.Go' }
     git switch codex/work
     if ($LASTEXITCODE) { throw 'git switch failed' }
     git pull --ff-only origin codex/work
@@ -90,26 +96,14 @@ PowerShell администратора под прежним owner SID, из к
     & .\tools\windows\update-service.ps1
     . .\tools\windows\common.ps1
     Invoke-ServiceIPC 'status' | Select-Object build,connected,optimizing,capture_active
+    Read-Host 'В уже открытом браузере: YouTube2160p2мин с перемоткой; Discord/.gg/CDN/gateway, X/rutracker, Telegram/IG/FB/ChatGPT/Claude, VK/Яндекс; затем Enter'
     & .\tools\windows\relay-status.ps1
     & .\tools\windows\relay-traffic.ps1
     & .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube
 }
 ```
-Нужны READY/optimizing и реальные новые browser flows. YouTube/Discord/Instagram/X/Telegram/ChatGPT/Claude/rutracker/VK/Яндекс;
-VK/Яндекс DIRECT, IP/GEO группы RELAY_REQUIRED, DPI LOCAL только после подтверждения; затем отключение → обычный сайт без restart.
+Нужны READY/optimizing и новые flows. DPI LOCAL только после proof; VK/Яндекс DIRECT; Telegram/IG/FB/OpenAI/Anthropic RELAY_REQUIRED.
+Холодный CDN:3trial/>64KiB с cooldown>=3мин (≥6мин+закрытие),2мин просмотра недостаточно для гарантии LOCAL. После обучения —2мин2160p/seek и новый googlevideo LOCAL RX основной.
+В diag смотреть LOCAL probes commit/actual packets/ошибки, group stage/strategy/LOCAL-RELAY RX и failed_after_reply; старые pinned RELAY flows не считать регрессией.
+Discord public WSS/redirect CONTROL_NOT_BULK не доказывают авторизованный gateway/voice. Затем выключить оптимизацию → VK без restart, игры DIRECT.
 Monthly data пока UNKNOWN; серверные read-only команды — docs/RELAY_TRAFFIC_BUDGET.md, deployment здесь не разрешён.
-
-## Сжатие handoff — 24.10.2026
-Было3163строки/392819байт (2813 в задании — прежний размер); история закрытых этапов и старые итоги перенесены дословно в ARCHIVE.md.
-Новые блоки сверху; предыдущий технический итог тоже архивирован; действующие ограничения/открытые вопросы перенесены в краткий статус.
-Только документы, тестовые прогоны не запускались. Правила завершения задачи и pre-push checklist добавлены; код/скрипты не менялись.
-Итоговый размер CURRENT: 105строк (≤150). Команд владельцу для этой docs-задачи нет.
-
-## LOCAL диагностика — 24.10.2026 (работа продолжается)
-Владелец f0e181a:2160p RELAY работает, LOCAL0/CDN trials0; ordinary тоже имеет отказы. Исправления общие для DPI групп, IP/GEO relay и VK/Яндекс DIRECT сохраняются.
-Пункт1: browser.local.probes (отдельный read-only IPC из-за64KiB лимита), bounded128 recent/<=48KiB выдача, strategy×host/group/result/TX/RX/body/commit/SYN/handshake/TTL/actual packet headers. Payload не сохраняется.
-Diag.7 — таблица всех групп; новые PS7/PS5.1 CI gates. Это диагностика, не LOCAL PASS; PS5.1 и ISP здесь не выполнялись.
-Пункты2–5 в работе: raw WinDivert send уже есть; проверить owner race LOCAL delegation, actual catalog semantics и допуск CDN по реальному transform. CP/shared flags не включать.
-Пункт1 проверки: полный Go race/vet/build Linux+Windows PASS; actual pinned DLL filters70/iSCSI30/catalog checksum13 подWine PASS, не kernel. PS7 probes/legacy allowlist PASS; native PS5.1 НЕ проверен. IPC inventory/общая нормализация не менялись; новый метод включён в dispatch и club read-only.
-Пункт2/5: LOCAL reserved SYN теперь требует owner proof как native; прежний DIRECT self bypass при owner lookup race запрещён. CDN trial допущен по committed transform того же scoped плана, критерий3успеха/>64KiB и live relay sibling сохранён. Пункт3 (все TCP443 семантики) ещё не реализован; аудит docs/LOCAL_ENGINE_AUDIT.md.
-Пункты2/5 gates: полный Go race/vet/build Linux+Windows+Windows vet PASS; DLL70filters/iSCSI30/checksums13 подWine PASS, PS7 PASS. Старые delegation-close тесты сохранены. На ISP root cause/LOCAL2160p и native PS5.1 НЕ доказаны.

@@ -290,7 +290,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-24.7 (LOCAL evidence, traffic budget and primary/standby hysteresis)'
+$ScriptVersion='2026-10-24.9 (native TCP recipes and protocol-specific LOCAL proof)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -645,11 +645,11 @@ function Write-LocalProbeEvidence($ladder) {
  Say 'LOCAL probes: service | host | strategy | result | wire_tx | wire_rx | body_rx | committed | inspection | sent packets(length/TTL/protocol)'
  foreach($probe in @(Prop $ladder 'probes' @())){
   $inspection=Prop $probe 'inspection'
-  $actions=@(Prop $probe 'planned_actions' @() | ForEach-Object {((Prop $_ 'kind')+'/ttl='+(Prop $_ 'ttl' 0)+'/repeats='+(Prop $_ 'repeats' 0)+'/fooling='+(Prop $_ 'fooling' ''))}) -join ','
+  $actions=@(Prop $probe 'planned_actions' @() | ForEach-Object {$native=Prop $_ 'native_tcp';if($null -ne $native){'native:'+(Prop $native 'mode')+'/repeats='+(Prop $native 'repeats')+'/fooling='+(Prop $native 'fooling')+'/badseq='+(Prop $native 'bad_sequence')+'/badack='+(Prop $native 'bad_ack')+'/ts_delta='+(Prop $native 'timestamp_delta')}else{((Prop $_ 'kind')+'/ttl='+(Prop $_ 'ttl' 0)+'/repeats='+(Prop $_ 'repeats' 0)+'/fooling='+(Prop $_ 'fooling' ''))}}) -join ','
   Say (' planned (not wire proof): '+$actions)
 
-  $packets=@(Prop $inspection 'sent_packets' @() | ForEach-Object {('len='+(Prop $_ 'length')+'/ttl='+(Prop $_ 'ttl')+'/proto='+(Prop $_ 'protocol')+'/seq_delta='+(Prop $_ 'sequence_offset')+'/flags='+(Prop $_ 'tcp_flags'))}) -join ','
-  Say ((Prop $probe 'service')+' | '+(Prop $probe 'host')+' | '+(Prop $probe 'strategy')+' | '+(Prop $probe 'result')+' | '+(Prop $probe 'sent_bytes' 0)+' | '+(Prop $probe 'received_bytes' 0)+' | '+(Prop $probe 'body_bytes' 0)+' | '+(Prop $probe 'committed' $false)+' | '+(Prop $inspection 'reason' 'NO_LEDGER_OBSERVATION')+' '+(Prop $inspection 'detail' '')+' syn='+(Prop $inspection 'syn_seen' 'UNKNOWN')+' handshake='+(Prop $inspection 'handshake_confirmed' 'UNKNOWN')+' server_ttl='+(Prop $inspection 'server_ttl' 'UNKNOWN')+' | '+$packets)
+  $packets=@(Prop $inspection 'sent_packets' @() | ForEach-Object {('fake='+(Prop $_ 'fake' $false)+'/len='+(Prop $_ 'length')+'/ttl='+(Prop $_ 'ttl')+'/proto='+(Prop $_ 'protocol')+'/seq_delta='+(Prop $_ 'sequence_offset')+'/flags='+(Prop $_ 'tcp_flags'))}) -join ','
+  Say ((Prop $probe 'service')+' | '+(Prop $probe 'host')+' | '+(Prop $probe 'strategy')+' | '+(Prop $probe 'result')+'/failure='+(Prop $probe 'failure' '')+'/http='+(Prop $probe 'http_status' 0)+' | '+(Prop $probe 'sent_bytes' 0)+' | '+(Prop $probe 'received_bytes' 0)+' | '+(Prop $probe 'body_bytes' 0)+' | '+(Prop $probe 'committed' $false)+' | '+(Prop $inspection 'reason' 'NO_LEDGER_OBSERVATION')+' '+(Prop $inspection 'detail' '')+' syn='+(Prop $inspection 'syn_seen' 'UNKNOWN')+' handshake='+(Prop $inspection 'handshake_confirmed' 'UNKNOWN')+' server_ttl='+(Prop $inspection 'server_ttl' 'UNKNOWN')+' original_packet_bytes='+(Prop $inspection 'original_packet_bytes' 'UNKNOWN')+' tcp_header='+(Prop $inspection 'tcp_header_bytes' 'UNKNOWN')+' timestamp_option='+(Prop $inspection 'timestamp_option' 'UNKNOWN')+' | '+$packets)
  }
 
 }

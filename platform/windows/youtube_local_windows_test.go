@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"net/netip"
+	"strings"
 	"testing"
 	"unsafe"
 
@@ -61,18 +62,32 @@ func TestCatalogFakeChecksumsWithPinnedDLL(t *testing.T) {
 		if err := engine.Reload(localstrategy.Config{Version: 1, Enabled: true, User: []localstrategy.Profile{p}}); err != nil {
 			t.Fatal(err)
 		}
-		metadata := localstrategy.Metadata{Application: "chrome.exe", Protocol: "tcp", Destination: netip.MustParseAddrPort("203.0.113.9:443")}
+		metadata := localstrategy.Metadata{Application: "chrome.exe", StrategyID: "catalog-test", Protocol: "tcp", Destination: netip.MustParseAddrPort("203.0.113.9:443")}
 		state := &localstrategy.State{}
 		syn := localTCPPacket(2, nil)
 		binary.BigEndian.PutUint32(syn[24:], 99)
-		engine.Process(syn, state, metadata)
+		if plan.Actions[0].Native != nil && strings.Contains(plan.Actions[0].Native.Fooling, "ts") {
+			syn = localTimestampFixturePacket(syn)
+		}
+		synResult := engine.Process(syn, state, metadata)
+		for _, packet := range synResult.Packets {
+			before := append([]byte(nil), packet...)
+			var address [80]byte
+			checksum.Call(uintptr(unsafe.Pointer(&packet[0])), uintptr(len(packet)), uintptr(unsafe.Pointer(&address[0])), 0)
+			if !bytes.Equal(before, packet) {
+				t.Fatal("SYN-data checksum mismatch")
+			}
+		}
 		state.ConfirmHandshake(100, 199)
 		state.ObserveServerTTL(56)
 		raw := localTCPPacket(24, localTestHello(t))
 		binary.BigEndian.PutUint32(raw[24:], 100)
 		binary.BigEndian.PutUint32(raw[28:], 200)
+		if plan.Actions[0].Native != nil && strings.Contains(plan.Actions[0].Native.Fooling, "ts") {
+			raw = localTimestampFixturePacket(raw)
+		}
 		result := engine.Process(raw, state, metadata)
-		if !result.Modified || len(result.Packets) > 20 {
+		if (!result.Modified && !(len(plan.Actions) == 1 && plan.Actions[0].Native != nil && strings.HasPrefix(plan.Actions[0].Native.Mode, "syndata"))) || len(result.Packets) > localstrategy.NativeTCPPacketLimit {
 			t.Fatal("missing/unbounded catalog plan", plan.ID)
 		}
 		for _, packet := range result.Packets {
@@ -84,4 +99,15 @@ func TestCatalogFakeChecksumsWithPinnedDLL(t *testing.T) {
 			}
 		}
 	}
+}
+
+func localTimestampFixturePacket(p []byte) []byte {
+	h := 20 + int(p[32]>>4)*4
+	q := make([]byte, len(p)+12)
+	copy(q, p[:h])
+	copy(q[h:], []byte{1, 1, 8, 10, 0, 15, 66, 64, 0, 0, 0, 1})
+	copy(q[h+12:], p[h:])
+	q[32] += 3 << 4
+	binary.BigEndian.PutUint16(q[2:], uint16(len(q)))
+	return q // engine recalculates every emitted packet; input is deliberately offload-style.
 }

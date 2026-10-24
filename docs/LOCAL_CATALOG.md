@@ -17,28 +17,26 @@ commit176f56dc3f11ce5915c26abcdde903f93d835b64. Всего119 параметри
 
 ## Что исполняется собственным движком
 
-После добавления seqovl компиляция даёт13 уникальных TCP-планов из38 совместимых rules. Остальные81
-rules явно unsupported, в том числе HTTP/QUIC и не реализованные SYN-data,
-fakedsplit/hostfakesplit. Нельзя называть их рабочими, запускать внешнюю
-программу или молча заменять другим методом. Каталог сохраняет их для аудита.
+С24.10 все64 TCP443 rules Flowseal имеют собственный исполняемый native recipe;
+всего44 дедуплицированных плана из70 совместимых rules (119 всего). Остальные49,
+включая HTTP/QUIC и неподдержанные правила других источников, явно unsupported.
+Проверка инвентаря не считается рабочим обходом: каждый новый plan проходит
+пакетный тест, а LOCAL требует отдельной transport/service проверки на этой сети.
 
-Новые собственные возможности: TLS1.3-shaped1250B fake с Google/Yandex SNI,
-случайными полями, mixed split markers 1/midsld/sni/sniext и disorder, repeats1–16,
-old-sequence badseq, split-seqovl256–1024 с собственным старым TLS-префиксом,
-timestamp/MD5-option fooling и bounded autottl по TTL точного
-SYN/ACK. Fake независимо от TTL/options всегда целиком в OLD sequence space;
-никакой его байт не может попасть в TLS stream origin. TCP receiver отбрасывает ровно объявленный seqovl prefix; standalone fake всё ещё
-целиком старый. Original stream/ACK/window/
-options сохраняются, IP/TCP checksum пересчитываются. Нет MITM/подмены сертификатов.
-Это независимая адаптация параметров, не побитовая копия поведения winws.
+Типизированные modes: fake, multisplit/multidisorder, fakedsplit/fakeddisorder,
+hostfakesplit/altorder, SYN-data; markers/repeats/fooling/list order/seqovl.
+Fake TLS/STUN payload собственный, не upstream binary; параметры адаптированы,
+побитовая эквивалентность winws не заявляется. Native TS/MD5 не подменяются badseq;
+при чистом TS необходимы реально согласованные timestamps. Свой LOCAL socket
+запрашивает их перед connect; global TCP/browser настройки не меняются.
 
-Повышенный предел разрешён только явному `browser-catalog` профилю выбранного
-браузерного EXE, TCP80/443, cutoff1: максимум16 fake на логический ClientHello и
-20 выходных пакетов на входной в сумме. Обычно11fake+3real=14. Обычные DIRECT+
-профили и игры сохраняют старый предел5; античит policy не меняется.
-С 24.10.2026 новые планы включены в bounded background подбор; наличие плана
-само по себе не разрешает LOCAL пользователю. См. YOUTUBE_LOCAL_FIRST.md.
-QUIC fake не заявлен; сохраняется разрешённый QUIC→TCP fallback.
+Native TCP443: max64 output packets/first logical flight, repeats≤16, cutoff1,
+полностью планируется перед send. Legacy catalog≤20/input, fake≤16 и всегда
+old-sequence; обычный DIRECT+≤5. Игры/античит/iSCSI scope неизменны.
+LSO Hello делится по MTU с точными original TLS bytes; raw WinDivertSend,
+а не одна лишь сегментация socket Write. Подробности/ограничения — LOCAL_ENGINE_AUDIT.md.
+QUIC fake не реализован: сохраняется разрешённый QUIC→TCP fallback, затем тот же
+DIRECT/LOCAL/RELAY selector. Catalog availability не является LOCAL PASS.
 
 ## Проверено
 
@@ -55,9 +53,10 @@ WinDivertOpen/kernel/Windows/ISP proof. Фильтры, driver/pins не мен�
 заморозки16–20KiB. Native capture без MITM не видит HTTP path и подписанный video
 URL; заново открытый TLS имеет другие ключи и не может воспроизвести ciphertext
 прикладного запроса. Поэтому строго фоновая передача >64KiB на том же CDN требует
-подходящего тестового URL; короткий root не должен подтверждать LOCAL. Вопрос
-владельцу: ограниченная проба реального нового LOCAL потока (возможен видимый
-post-ServerHello stall) либо RELAY до появления полноценной фоновой пробы.
+подходящего тестового URL; короткий root не должен подтверждать LOCAL. Решение владельца: ограниченная проба реального нового LOCAL потока с живым
+RELAY-соседом, max1 глобально, >=3мин/подгруппу;3успеха >64KiB до LOCAL. С24.10
+допуск пробы — committed transform того же scoped плана на любом YouTube-хосте,
+даже если public body не прошёл порог. Не означает успешный CDN.
 Без любого origin byte можно безопасно повторить только полный ClientHello;
 после первого ответа существующий TLS остаётся pinned, replay запрещён.
 
@@ -106,5 +105,5 @@ body, applied transform, TLS и отсутствия freeze. Короткий CD
 
 Пункт3 теперь разделяет subgroups, использует отдельный transfer GET >64KiB,
 продолжает подбор с bounded backoff и допускает CDN только по решению владельца:
-оба public prerequisites, один trial при live RELAY sibling,3success/cooldown.
+scoped transform на любом YouTube host, один trial при live RELAY sibling,3success/cooldown.
 Аудит выше описывает прежний дефект, не текущий route contract.
