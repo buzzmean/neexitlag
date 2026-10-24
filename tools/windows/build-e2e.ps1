@@ -9,7 +9,7 @@ $Output=(Resolve-Path $Output).Path
 if((Get-Item -LiteralPath $Output).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'BUILD_OUTPUT_REPARSE_POINT_REFUSED'}
 if((Test-Path -LiteralPath (Join-Path $Output 'service.json')) -or (Test-Path -LiteralPath (Join-Path $Output 'identity.json'))){throw 'BUILD_OUTPUT_LOOKS_INSTALLED; use a separate build directory'}
 function Remove-E2EGeneratedBinaries {
- foreach($name in @('neexitlag-service.exe','capture-acceptance.exe','lease-acceptance.exe','browser-recovery-acceptance.exe','test-game.exe','control-client.exe','udp-plus.exe','tcp-selected.exe','tcp-control.exe','tcp-plus.exe','enroll.exe','vps-provision.exe')){
+ foreach($name in @('network-check.exe','neexitlag-service.exe','capture-acceptance.exe','lease-acceptance.exe','browser-recovery-acceptance.exe','test-game.exe','control-client.exe','udp-plus.exe','tcp-selected.exe','tcp-control.exe','tcp-plus.exe','enroll.exe','vps-provision.exe')){
   $path=Join-Path $Output $name
   if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path -Force -ErrorAction Stop}
  }
@@ -34,6 +34,7 @@ try {
  if($LASTEXITCODE){throw 'Native capture acceptance build failed'}
  & (Join-Path $PSScriptRoot 'test-windivert-filters.ps1') -TestExecutable (Join-Path $Output 'capture-acceptance.exe') -DriverDirectory $DriverDirectory
  $targets=@{
+  'network-check.exe'='./tools/network-check';
   'neexitlag-service.exe'='./services/client-service/cmd/service';'test-game.exe'='./tools/windows-test-client';
   'tcp-selected.exe'='./tools/tcp-test-client';'enroll.exe'='./tools/enroll';'vps-provision.exe'='./tools/vps-provision'
  }

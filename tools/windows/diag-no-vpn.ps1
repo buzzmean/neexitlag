@@ -5,7 +5,7 @@ Non-interactive, read-only diagnostics to run with the VPN OFF, as a normal user
 Writes %LOCALAPPDATA%\VELIQ\Diagnostics\diag-result.txt (falls back to %TEMP%). Changes nothing on the machine. Reads no token/identity/certificate into the
 report; the whole report is scrubbed of secret-shaped values before the run ends.
 Self-contained: does not need common.ps1. -Only limits the run to some sections:
-  env, service, ipc, tcp, udp, mtu, dns, sites, sni, browser, apps, youtube, game, riot
+  env, service, ipc, tcp, udp, mtu, dns, sites, sni, browser, apps, youtube, game, riot, layers
   (youtube = SNI table for www.youtube.com + status flag + stall counters + YouTube records; run: & .\tools\windows\diag-no-vpn.ps1 -Only youtube)
 #>
 param(
@@ -16,7 +16,8 @@ param(
  [string]$BuildDirectory='',
  [string[]]$Only=@(),
  [string]$ProxyAddress='',   # host:port of the local browser proxy; default: taken from browser.status
- [string]$OutputFile=''
+ [string]$OutputFile='',
+ [string[]]$LayerHosts=@('www.youtube.com','discord.com')
 )
 $ErrorActionPreference='Continue'
 Set-StrictMode -Version 2
@@ -290,7 +291,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-25.16 (bulk-scoped CDN admission, exposure identity, endpoint failures and retained ordinary evidence)'
+$ScriptVersion='2026-10-25.16 (measurement revision 1: relay sessions, layered DNS/TLS, timestamp/early failure audit)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -299,7 +300,7 @@ Step 'repo' {
  if((Test-Path (Join-Path $repo '.git')) -and (Get-Command git -ErrorAction SilentlyContinue)){
   $head=(& git -C $repo rev-parse --short=12 HEAD 2>&1|Out-String).Trim()
   $branch=(& git -C $repo branch --show-current 2>&1|Out-String).Trim()
-  $dirty=(& git -C $repo status --porcelain 2>&1|Out-String).Trim().Length -gt 0
+  $dirty=(& git -C $repo status --porcelain --untracked-files=no 2>&1|Out-String).Trim().Length -gt 0
   Say "Repository: $repo branch $branch commit $head$(if($dirty){' (+local changes)'})  <- compare with the commit you expect"
  }else{Say "Repository: not a git checkout here ($repo): this script file may be a stray copy"}
 }
@@ -653,6 +654,10 @@ function Write-BrowserDNSEvidence($native) {
 }
 
 function Write-RelayOpenPerformance($pool) {
+ $creation=Prop $pool 'session_creation'
+ Say ('relay sessions60s: attempts='+(Prop $creation 'Attempts60s' 'UNINSTRUMENTED')+' created='+(Prop $creation 'NewSessions60s' 'UNINSTRUMENTED')+' max_attempts='+(Prop $creation 'MaxAttempts60s' 'UNINSTRUMENTED')+' max_created='+(Prop $creation 'MaxNewSessions60s' 'UNINSTRUMENTED')+' creating='+(Prop $creation 'Concurrent' 'UNINSTRUMENTED')+' max_concurrent='+(Prop $creation 'MaxConcurrent' 'UNINSTRUMENTED'))
+ foreach($event in @(Prop $creation 'Recent' @())|Select-Object -Last 16){Say (' session creation: at='+(Prop $event 'at')+' reason='+(Prop $event 'reason')+' success='+(Prop $event 'success')+' factory_ms='+(Prop $event 'factory_ms' -1)+' QUIC_handshake_ms='+(Prop $event 'quic_handshake_ms' -1))}
+ Say ('session window: '+(Prop $creation 'Window' 'UNINSTRUMENTED')+'; successful handshake only; no SNI/parallelism DPI verdict from counts')
  Say ('relay OPEN: active_sessions='+(Prop $pool 'active_sessions' 'UNINSTRUMENTED')+' waiting='+(Prop $pool 'waiting_opens' 'UNINSTRUMENTED')+' failures='+(Prop $pool 'open_failures' 'UNINSTRUMENTED'))
  foreach($v in @(Prop $pool 'recent_opens' @())|Select-Object -Last 16){
   Say ('relay OPEN sample: session='+(Prop $v 'session_id')+' protocol='+(Prop $v 'protocol')+' destination='+(Prop $v 'destination')+' total_ms='+(Prop $v 'duration_ms' -1)+' acquire_ms='+(Prop $v 'acquire_ms' 'UNINSTRUMENTED')+' stream_origin_open_ms='+(Prop $v 'stream_open_ms' 'UNINSTRUMENTED')+' session_age_ms='+(Prop $v 'session_age_ms' 'UNINSTRUMENTED')+' failure='+(Prop $v 'failure_reason' 'NONE'))
@@ -713,11 +718,14 @@ function Write-OrdinaryAddressEvidence($ladder) {
 }
 
 function Write-LocalProbeEvidence($ladder) {
+ $audit=Prop $ladder 'layer_audit'
+ Say ('LOCAL layer audit: retained='+(Prop $audit 'RetainedFlows' 'UNINSTRUMENTED')+' pure_ts='+(Prop $audit 'PureTS' 'UNINSTRUMENTED')+' missing_payload_ts='+(Prop $audit 'PureTSMissingPayloadTimestamp' 'UNINSTRUMENTED')+' negotiation_unknown='+(Prop $audit 'PureTSNegotiationUnknown' 'UNINSTRUMENTED')+' not_negotiated='+(Prop $audit 'PureTSNotNegotiated' 'UNINSTRUMENTED')+' timestamp_option_required='+(Prop $audit 'TimestampOptionRequired' 'UNINSTRUMENTED')+' timestamp_required_probes='+(Prop $audit 'TimestampOptionRequiredProbes' 'UNINSTRUMENTED')+' inspection_unknown='+(Prop $audit 'InspectionUnavailable' 'UNINSTRUMENTED')+' pure_ts_inspection_unknown='+(Prop $audit 'PureTSInspectionUnavailable' 'UNINSTRUMENTED')+' plan_unknown='+(Prop $audit 'PlanUnavailable' 'UNINSTRUMENTED')+' early_retrans_candidates='+(Prop $audit 'EarlyRetransmitCandidates' 'UNINSTRUMENTED')+' small_RST_candidates='+(Prop $audit 'SmallRSTCandidates' 'UNINSTRUMENTED')+' late_after_reply='+(Prop $audit 'LateFailuresAfterReply' 'UNINSTRUMENTED')+' freeze_16_20KiB='+(Prop $audit 'Freeze16To20KiB' 'UNINSTRUMENTED'))
+ Say ('audit scope: '+(Prop $audit 'Scope' 'UNINSTRUMENTED'))
  Write-CdnTrialEvidence $ladder
  Write-OrdinaryAddressEvidence $ladder
  foreach($closed in @(Prop $ladder 'tcp_closures' @())){
   $t=Prop $closed 'Packets';$timing=Prop $closed 'Timing'
-  Say (' LOCAL close: domain='+(Prop $closed 'Domain')+' strategy='+(Prop $closed 'Strategy')+' reason='+(Prop $closed 'Reason')+' io='+(Prop $closed 'IOFailure')+' tx='+(Prop $closed 'TX')+' rx='+(Prop $closed 'RX')+' first='+(Prop $t 'first_close' 'NOT_OBSERVED')+' flags='+(Prop $t 'first_close_flags' 0)+' first_ttl='+(Prop $t 'first_close_ttl' 0)+' client_fin='+(Prop $t 'ClientFIN' 0)+' client_rst='+(Prop $t 'ClientRST' 0)+' remote_fin='+(Prop $t 'RemoteFIN' 0)+' remote_rst='+(Prop $t 'RemoteRST' 0)+' synack_ttl='+(Prop $t 'SYNACKTTL' 0)+' remote_terminal_ttl='+(Prop $t 'RemoteTerminalTTL' 0)+' hello_to_close_ms='+(Prop $timing 'hello_to_close_ms' -1)+' last_rx_to_close_ms='+(Prop $timing 'last_rx_to_close_ms' -1)+' hello_to_server_hello_ms='+(Prop $timing 'hello_to_server_hello_ms' -1)+' rx_after_hello_observed='+(Prop $timing 'rx_after_server_hello_observed' 0)+' client_application_record='+(Prop $timing 'ClientApplicationRecord' $false)+' origin_application_record='+(Prop $timing 'OriginApplicationRecord' $false)+' application_records='+(Prop $timing 'ApplicationRecords' 0)+' application_bytes='+(Prop $timing 'ApplicationBytes' 0)+' application_span_ms='+(Prop $timing 'ApplicationSpanMS' 0)+' app_evidence_bounded='+(Prop $timing 'ApplicationEvidenceBounded' $false)+' half_close_requested='+(Prop $timing 'HalfCloseRequested' $false)+' open_ms='+(Prop $closed 'OpenMS' -1)+' transform_send_ms='+(Prop $closed 'TransformSendMS' -1)+' client_retransmits='+(Prop $t 'ClientRetransmits' 0)+' remote_retransmits='+(Prop $t 'RemoteRetransmits' 0))
+  Say (' LOCAL close: domain='+(Prop $closed 'Domain')+' strategy='+(Prop $closed 'Strategy')+' reason='+(Prop $closed 'Reason')+' io='+(Prop $closed 'IOFailure')+' tx='+(Prop $closed 'TX')+' rx='+(Prop $closed 'RX')+' first='+(Prop $t 'first_close' 'NOT_OBSERVED')+' flags='+(Prop $t 'first_close_flags' 0)+' first_ttl='+(Prop $t 'first_close_ttl' 0)+' client_fin='+(Prop $t 'ClientFIN' 0)+' client_rst='+(Prop $t 'ClientRST' 0)+' remote_fin='+(Prop $t 'RemoteFIN' 0)+' remote_rst='+(Prop $t 'RemoteRST' 0)+' synack_ttl='+(Prop $t 'SYNACKTTL' 0)+' remote_terminal_ttl='+(Prop $t 'RemoteTerminalTTL' 0)+' hello_to_close_ms='+(Prop $timing 'hello_to_close_ms' -1)+' last_rx_to_close_ms='+(Prop $timing 'last_rx_to_close_ms' -1)+' hello_to_server_hello_ms='+(Prop $timing 'hello_to_server_hello_ms' -1)+' rx_after_hello_observed='+(Prop $timing 'rx_after_server_hello_observed' 0)+' client_application_record='+(Prop $timing 'ClientApplicationRecord' $false)+' origin_application_record='+(Prop $timing 'OriginApplicationRecord' $false)+' application_records='+(Prop $timing 'ApplicationRecords' 0)+' application_bytes='+(Prop $timing 'ApplicationBytes' 0)+' application_span_ms='+(Prop $timing 'ApplicationSpanMS' 0)+' app_evidence_bounded='+(Prop $timing 'ApplicationEvidenceBounded' $false)+' half_close_requested='+(Prop $timing 'HalfCloseRequested' $false)+' open_ms='+(Prop $closed 'OpenMS' -1)+' transform_send_ms='+(Prop $closed 'TransformSendMS' -1)+' client_retransmits='+(Prop $t 'ClientRetransmits' 0)+' remote_retransmits='+(Prop $t 'RemoteRetransmits' 0)+' early_retransmits='+(Prop $t 'client_early_retransmits' 'UNKNOWN')+' rst_relative_known='+(Prop $t 'remote_rst_relative_known' $false)+' rst_relative='+(Prop $t 'remote_rst_relative' 'UNKNOWN'))
  }
  foreach($failure in @(Prop $ladder 'failures' @())){
   Say (' LOCAL failure: at='+(Prop $failure 'At')+' domain='+(Prop $failure 'Domain')+' strategy='+(Prop $failure 'Strategy')+' reason='+(Prop $failure 'Reason')+' tx='+(Prop $failure 'TX' 0)+' rx='+(Prop $failure 'RX' 0)+' hello_to_failure_ms='+(Prop $failure 'SinceClientHelloMS' -1)+' server_hello_to_failure_ms='+(Prop $failure 'SinceServerHelloMS' -1)+' last_rx_to_failure_ms='+(Prop $failure 'SinceLastRXMS' -1)+' rx_after_hello='+(Prop $failure 'ReceivedAfterHello' 0)+' application_records='+(Prop $failure 'ApplicationRecords' 0)+' promoted='+(Prop $failure 'Promoted' $false)+' post_hello_write='+(Prop $failure 'PostHelloWrite' $false))
@@ -1051,6 +1059,24 @@ Say ''
 if($Only -contains 'browser' -or $Only -contains 'youtube'){
  Section 'LOCAL strategy x host probes (all groups)'
  Step 'local-probes' { Write-LocalProbeEvidence (Invoke-IPC 'browser.local.probes') }
+}
+
+if(Want 'layers'){
+ Section 'Read-only DNS -> TCP -> verified TLS -> bounded public HTTP controls'
+ Step 'layers' {
+  $probe=Join-Path $BuildDirectory 'network-check.exe'
+  if(!(Test-Path -LiteralPath $probe)){Say 'NETWORK_CHECK_NOT_BUILT: run build-e2e.ps1 with installed pinned driver; no resolver or machine setting changed';return}
+  $dnsIPs=@('8.8.8.8','1.1.1.1','9.9.9.9','77.88.8.8')
+  if($isWin){$dnsIPs+=@(Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue|ForEach-Object{$_.ServerAddresses})}
+  $dnsIPs=@($dnsIPs|Select-Object -Unique -First 8)
+  foreach($layerHost in @($LayerHosts|Select-Object -First 3)){
+   # Helper only accepts existing public controls; no private URLs, tokens, redirects or TLS bypass.
+   $probeLines=@(& $probe '-host' $layerHost '-resolvers' ($dnsIPs -join ','))
+   if($LASTEXITCODE){Say ('NETWORK_CHECK_FAILED exit='+$LASTEXITCODE);continue}
+   foreach($line in $probeLines){Say (Scrub ([string]$line))}
+  }
+  Say 'NXDOMAIN+aa is evidence, not proof of spoofing; compare verified encrypted DNS. TCP connect failure is not packet proof of SYN DROP. HTTPS redirects are not visible inside browser TLS. No routing or machine settings changed.'
+ }
 }
 
 Say "Finished $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))."

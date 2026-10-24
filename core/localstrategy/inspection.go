@@ -22,6 +22,12 @@ type SentPacket struct {
 }
 
 type TCPTrace struct {
+	ClientSYNSeen, RemoteSYNSeen, ClientSYNTimestamp, RemoteSYNTimestamp               bool
+	ClientEarlyRetransmits                                                             uint64 `json:"client_early_retransmits"`
+	RemoteRSTRelative                                                                  uint32 `json:"remote_rst_relative"`
+	RemoteRSTRelativeKnown                                                             bool   `json:"remote_rst_relative_known"`
+	ClientBase, RemoteBase                                                             uint32 `json:"-"`
+	ClientBaseKnown, RemoteBaseKnown                                                   bool   `json:"-"`
 	Observed                                                                           uint64 `json:"observed"`
 	ClientPayloadPackets, ClientPayloadBytes, RemotePayloadPackets, RemotePayloadBytes uint64
 	ClientFIN, ClientRST, RemoteFIN, RemoteRST                                         uint64

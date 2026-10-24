@@ -215,7 +215,7 @@ func (c *Controller) localProbeSnapshot() map[string]any {
 	if len(ordinaryLadder) > 16 {
 		ordinaryLadder = ordinaryLadder[:16]
 	}
-	result := map[string]any{"ordinary_dns_direct_attempts": r.ordinaryDirectAttempts, "ordinary_scope_denials": r.ordinaryDenials, "ordinary_ladder": ordinaryLadder, "cdn_endpoint_negatives": endpointNegatives, "ordinary_retained": len(r.ordinary), "ordinary": ordinary, "trials": trialRows, "failures": recentFailures, "tcp_closures": closed, "probes": rows, "retained": len(r.probeEvidence), "retention_limit": 128, "scope": "bounded recent probes and closes; headers/timing only; TLS1.3 type23 is NOT HTTP content proof"}
+	result := map[string]any{"layer_audit": r.layerAuditLocked(), "ordinary_dns_direct_attempts": r.ordinaryDirectAttempts, "ordinary_scope_denials": r.ordinaryDenials, "ordinary_ladder": ordinaryLadder, "cdn_endpoint_negatives": endpointNegatives, "ordinary_retained": len(r.ordinary), "ordinary": ordinary, "trials": trialRows, "failures": recentFailures, "tcp_closures": closed, "probes": rows, "retained": len(r.probeEvidence), "retention_limit": 128, "scope": "bounded recent probes and closes; headers/timing only; TLS1.3 type23 is NOT HTTP content proof"}
 	for {
 		result["ordinary_omitted"] = len(r.ordinary) - len(ordinary)
 		result["probes"] = rows

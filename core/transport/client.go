@@ -23,6 +23,7 @@ var ErrRelayRejected = errors.New("relay rejected flow")
 type sessionEnd struct{ reason string }
 
 type Client struct {
+	handshakeMS    float64
 	endReason      atomic.Pointer[sessionEnd]
 	controlReplies chan []byte
 	controlSend    chan struct{}
@@ -51,6 +52,7 @@ type UDPFlow struct {
 }
 
 func Dial(ctx context.Context, addr string, t *tls.Config) (*Client, error) {
+	start := time.Now()
 	c, e := quic.DialAddr(ctx, addr, t, ClientQUICConfig())
 	if e != nil {
 		return nil, e
@@ -59,7 +61,7 @@ func Dial(ctx context.Context, addr string, t *tls.Config) (*Client, error) {
 		c.CloseWithError(1, "datagrams required")
 		return nil, errors.New("relay lacks QUIC DATAGRAM")
 	}
-	x := &Client{conn: c, flows: make(map[uint32]*UDPFlow), done: make(chan struct{})}
+	x := &Client{handshakeMS: float64(time.Since(start)) / float64(time.Millisecond), conn: c, flows: make(map[uint32]*UDPFlow), done: make(chan struct{})}
 	go x.receive()
 	return x, nil
 }

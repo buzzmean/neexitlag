@@ -1,6 +1,7 @@
 package windowsplatform
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"net/netip"
 	"strings"
@@ -35,5 +36,27 @@ func TestLocalTCPTraceSeparatesRemoteResetAndClientCloseWithoutPayload(t *testin
 	raw, _ := json.Marshal(trace)
 	if strings.Contains(string(raw), "Next") || strings.Contains(string(raw), "SequenceSeen") {
 		t.Fatal("sequence state exported")
+	}
+}
+
+func TestEarlyFailureEvidenceNeedsSYNRelativeSequence(t *testing.T) {
+	l := NewEvidenceLedger()
+	id := ProcessIdentity{PID: 12, CreationTime: 1, Path: "chrome.exe"}
+	tu := Tuple{Protocol: "tcp", Source: netip.MustParseAddrPort("192.0.2.1:6000"), Destination: netip.MustParseAddrPort("198.51.100.1:443")}
+	l.BeginFlow(id, tu)
+	p := localTCPPacket(0x14, nil)
+	l.RecordLocalTCPPacket(id, tu, p, true)
+	k := evidenceKey{id.PID, id.CreationTime, tu}
+	if l.flows[k].LocalTCP.RemoteRSTRelativeKnown {
+		t.Fatal("hot attach inferred seq")
+	}
+	syn := localTCPPacket(0x12, nil)
+	l.RecordLocalTCPPacket(id, tu, syn, true)
+	rst := localTCPPacket(0x14, nil)
+	binary.BigEndian.PutUint32(rst[24:], binary.BigEndian.Uint32(syn[24:])+2)
+	l.RecordLocalTCPPacket(id, tu, rst, true)
+	tr := l.flows[k].LocalTCP
+	if !tr.RemoteRSTRelativeKnown || tr.RemoteRSTRelative != 1 {
+		t.Fatal(tr)
 	}
 }

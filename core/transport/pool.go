@@ -95,6 +95,7 @@ type PoolSessionEnd struct {
 	Lease  LeaseSnapshot `json:"lease"`
 }
 type PoolSnapshot struct {
+	SessionCreationMetrics     CreationMetrics   `json:"session_creation"`
 	RecentSessionEnds          []PoolSessionEnd  `json:"recent_session_ends"`
 	ApplicationMaximumCapacity int               `json:"application_maximum_capacity"`
 	ProbeReservePerSession     int               `json:"probe_reserve_per_session"`
@@ -151,6 +152,7 @@ type Pool struct {
 	onFailure        func(string)
 	wg               sync.WaitGroup
 	stats            PoolSnapshot
+	creation         creationTelemetry
 	retiredDrops     map[string]telemetry.Metric
 }
 
@@ -247,11 +249,16 @@ func (p *Pool) maintain() {
 }
 func (p *Pool) create(reason string, factory SessionFactory) {
 	defer p.wg.Done()
+	start := time.Now()
+	p.mu.Lock()
+	p.creation.begin(start, reason)
+	p.mu.Unlock()
 	ctx, cancel := context.WithTimeout(p.ctx, p.cfg.CreateTimeout)
 	c, err := factory(ctx)
 	cancel()
 	p.mu.Lock()
 	p.creating = false
+	p.creation.finish(time.Now(), start, reason, c, err)
 	if p.closed || p.ctx.Err() != nil {
 		if c != nil {
 			c.Close()
@@ -534,6 +541,7 @@ func (p *Pool) Snapshot() PoolSnapshot {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	out := p.stats
+	out.SessionCreationMetrics = p.creation.snapshot(time.Now())
 	out.Sessions = []PoolSession{}
 	out.RecentSessionEnds = append([]PoolSessionEnd(nil), p.stats.RecentSessionEnds...)
 	out.RecentOpens = append([]PoolOpenEvent(nil), p.stats.RecentOpens...)

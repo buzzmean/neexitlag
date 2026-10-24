@@ -13,10 +13,12 @@ import (
 func DialWithTicket(ctx context.Context, addr string, t *tls.Config, ticket []byte) (*Client, error) {
 	cfg := t.Clone()
 	cfg.NextProtos = []string{protocol.LeaseALPN, protocol.TicketALPN}
+	start := time.Now()
 	conn, e := quic.DialAddr(ctx, addr, cfg, ClientQUICConfig())
 	if e != nil {
 		return nil, e
 	}
+	handshakeMS := float64(time.Since(start)) / float64(time.Millisecond)
 	fail := func(e error) (*Client, error) { conn.CloseWithError(1, "authentication failed"); return nil, e }
 	if !conn.ConnectionState().SupportsDatagrams {
 		return fail(errors.New("relay lacks datagrams"))
@@ -38,7 +40,7 @@ func DialWithTicket(ctx context.Context, addr string, t *tls.Config, ticket []by
 	if e = protocol.WriteTicket(s, ticket); e != nil {
 		return fail(e)
 	}
-	c := &Client{conn: conn, flows: make(map[uint32]*UDPFlow), done: make(chan struct{})}
+	c := &Client{handshakeMS: handshakeMS, conn: conn, flows: make(map[uint32]*UDPFlow), done: make(chan struct{})}
 	if conn.ConnectionState().TLS.NegotiatedProtocol == protocol.LeaseALPN {
 		ack, err := protocol.ReadLeaseAck(s)
 		if err != nil {
