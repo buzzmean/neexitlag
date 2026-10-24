@@ -1,5 +1,23 @@
 # ARCHIVE — дословная история handoff
 
+Последний итог Codex (24.10.2026 MSK): очередь экономии VPS, код опубликован по этапам; область освобождена.
+Владелец подтвердил Hostkey relay/1080p; LOCAL video пока НЕ подтверждён.
+Пункты1a–1c и каталог2 сохранены коммитами b213fa5/c84f7c1/3799f75,
+de8e5d7/08a9eb5/a3ec712/77566d6. Обычный merge20d8bd8 разрешён владельцем
+и выполнен9135519: только9строк CLAUDE.md, конфликтов нет, без rebase/force.
+Пункт3 подключает catalog plans к bounded selection и guarded CDN trials;
+Пункт4 signed advisory coordination подготовлен и изолированно проверен;
+production CP ещё без endpoint, общего picker на40ПК там пока нет.
+Пункт5: общий HTTPS origin policy/selector проверен; HTTP80/Discord UDP LOCAL
+не реализованы, прежний voice не изменялся. Пункт6 aac01db: учёт проверен; пункт7 (этот коммит): primary/standby hysteresis и live diagnostics.
+Решение CDN принято: обе фоновые проверки www.youtube.com/i.ytimg.com >64KiB,
+затем max1 LOCAL trial при реально получающих данные RELAY googlevideo siblings,
+cooldown несколько минут/подгруппу;3успешных >64KiB потоков перед LOCAL,
+сбой→RELAY новых соединений, экспоненциальная пауза, post-reply failures в diag.
+Это ограничение риска, не гарантия незаметного повтора сегмента плеером.
+Production/CA/activation/credentials/PR8 агентом не запускались. Windows/PS5.1/
+WinDivertOpen/ISP/LOCAL1080p не проверены; проверки merge записаны ниже.
+
 Исторические блоки: новые сверху; устаревшие инструкции не являются текущим разрешением.
 Искать точечно через rg; актуальные ограничения — CURRENT.md и AGENT_RULES.md.
 
