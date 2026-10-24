@@ -42,9 +42,15 @@ func SendLocal(d Decision, state *localstrategy.State, id ProcessIdentity, tuple
 			}
 			if inspection != nil {
 				inspection.OutputPacketsSent++
+				if len(q) >= 20 && len(inspection.SentPackets) < 20 {
+					inspection.SentPackets = append(inspection.SentPackets, localstrategy.DescribeSentPacket(q, p))
+				}
 			}
 		}
 		if r.Modified {
+			if inspection != nil {
+				inspection.TransformApplied = true
+			}
 			d.Local.Commit(r, len(p))
 			evidence.RecordLocalResult(id, tuple, r, uint64(len(p)))
 			return nil

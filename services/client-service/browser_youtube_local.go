@@ -87,6 +87,7 @@ type youtubeEngine struct {
 	Until  time.Time
 }
 type youtubeRuntime struct {
+	probeEvidence  []localProbeEvidence
 	mu             sync.Mutex
 	cache          map[youtubeKey]youtubeLearn
 	engines        map[string]youtubeEngine

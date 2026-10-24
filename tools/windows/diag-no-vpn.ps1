@@ -290,7 +290,7 @@ function Find-PathMtu([string]$Address){
  }finally{$ping.Dispose()}
 }
 
-$ScriptVersion='2026-10-24.6 (LOCAL evidence, traffic budget and primary/standby hysteresis)'
+$ScriptVersion='2026-10-24.7 (LOCAL evidence, traffic budget and primary/standby hysteresis)'
 Say "VELIQ diag-no-vpn, started $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))"
 Say "Script version: $ScriptVersion"
 Say "Script file: $(if($PSCommandPath){$PSCommandPath}else{'(unknown)'})"
@@ -641,6 +641,16 @@ function Write-LocalCatalogEvidence($catalog) {
  Say 'Catalog availability/signature is NOT local bypass confirmation; unsupported modes are never executed.'
 }
 
+function Write-LocalProbeEvidence($ladder) {
+ Say 'LOCAL probes: service | host | strategy | result | wire_tx | wire_rx | body_rx | committed | inspection | sent packets(length/TTL/protocol)'
+ foreach($probe in @(Prop $ladder 'probes' @())){
+  $inspection=Prop $probe 'inspection'
+  $packets=@(Prop $inspection 'sent_packets' @() | ForEach-Object {('len='+(Prop $_ 'length')+'/ttl='+(Prop $_ 'ttl')+'/proto='+(Prop $_ 'protocol')+'/seq_delta='+(Prop $_ 'sequence_offset')+'/flags='+(Prop $_ 'tcp_flags'))}) -join ','
+  Say ((Prop $probe 'service')+' | '+(Prop $probe 'host')+' | '+(Prop $probe 'strategy')+' | '+(Prop $probe 'result')+' | '+(Prop $probe 'sent_bytes' 0)+' | '+(Prop $probe 'received_bytes' 0)+' | '+(Prop $probe 'body_bytes' 0)+' | '+(Prop $probe 'committed' $false)+' | '+(Prop $inspection 'reason' 'NO_LEDGER_OBSERVATION')+' '+(Prop $inspection 'detail' '')+' syn='+(Prop $inspection 'syn_seen' 'UNKNOWN')+' handshake='+(Prop $inspection 'handshake_confirmed' 'UNKNOWN')+' server_ttl='+(Prop $inspection 'server_ttl' 'UNKNOWN')+' | '+$packets)
+ }
+
+}
+
 function Write-YouTubeLocalEvidence($ladder) {
  if($null -eq $ladder){Say 'YouTube local ladder: UNINSTRUMENTED (service update required)';return}
  Say ('YouTube local ladder: cache_entries='+(Prop $ladder 'cache_entries' 0)+' recent_records_omitted='+(Prop $ladder 'records_omitted' 0)+' cache_entries_omitted='+(Prop $ladder 'cache_entries_omitted' 0)+' contract='+(Prop $ladder 'replay_contract' 'UNKNOWN'))
@@ -946,6 +956,12 @@ Step 'apps' {
 }}
 
 Say ''
+
+if($Only -contains 'browser' -or $Only -contains 'youtube'){
+ Section 'LOCAL strategy x host probes (all groups)'
+ Step 'local-probes' { Write-LocalProbeEvidence (Invoke-IPC 'browser.local.probes') }
+}
+
 Say "Finished $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))."
 try{$all=[IO.File]::ReadAllText($result);[IO.File]::WriteAllText($result,(Scrub $all),$utf8Bom)}catch{}
 Write-Host "`nSaved: $result"

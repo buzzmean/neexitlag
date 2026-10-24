@@ -7,17 +7,29 @@ import (
 
 // Inspection is passive metadata from the first eligible payload, never retained
 // packet bytes. A reason is not evidence that a packet was successfully sent.
+type SentPacket struct {
+	SequenceOffset int32 `json:"sequence_offset"`
+	Flags          uint8 `json:"tcp_flags"`
+	Length         int   `json:"length"`
+	TTL            uint8 `json:"ttl"`
+	Protocol       uint8 `json:"protocol"`
+}
+
 type Inspection struct {
-	ObservedSNI              string `json:"observed_sni,omitempty"`
-	SNIStatus                string `json:"sni_status,omitempty"`
-	SegmentsSeen             int    `json:"segments_seen,omitempty"`
-	SegmentsBuffered         int    `json:"segments_buffered,omitempty"`
-	BytesBuffered            int    `json:"bytes_buffered,omitempty"`
-	ExpectedClientHelloBytes int    `json:"expected_clienthello_bytes,omitempty"`
-	ReassemblyMS             int64  `json:"reassembly_ms"`
-	OutOfOrder               bool   `json:"out_of_order,omitempty"`
-	ReassembledSNI           bool   `json:"reassembled_sni,omitempty"`
-	TransformApplied         bool   `json:"transform_applied"`
+	SYNSeen                  bool         `json:"syn_seen"`
+	HandshakeConfirmed       bool         `json:"handshake_confirmed"`
+	ServerTTL                uint8        `json:"server_ttl"`
+	SentPackets              []SentPacket `json:"sent_packets,omitempty"`
+	ObservedSNI              string       `json:"observed_sni,omitempty"`
+	SNIStatus                string       `json:"sni_status,omitempty"`
+	SegmentsSeen             int          `json:"segments_seen,omitempty"`
+	SegmentsBuffered         int          `json:"segments_buffered,omitempty"`
+	BytesBuffered            int          `json:"bytes_buffered,omitempty"`
+	ExpectedClientHelloBytes int          `json:"expected_clienthello_bytes,omitempty"`
+	ReassemblyMS             int64        `json:"reassembly_ms"`
+	OutOfOrder               bool         `json:"out_of_order,omitempty"`
+	ReassembledSNI           bool         `json:"reassembled_sni,omitempty"`
+	TransformApplied         bool         `json:"transform_applied"`
 
 	OutputPacketsPlanned int  `json:"output_packets_planned,omitempty"`
 	OutputPacketsSent    int  `json:"output_packets_sent,omitempty"`
@@ -118,4 +130,18 @@ func inspectHello(p []byte) *Inspection {
 	d.Reason = "SNI_NOT_FOUND"
 	d.Detail = "complete ClientHello has no server_name extension"
 	return d
+}
+
+// Packet headers only, never payload or absolute sequence numbers.
+func DescribeSentPacket(p, original []byte) SentPacket {
+	v := SentPacket{Length: len(p)}
+	if len(p) >= 20 {
+		v.TTL = p[8]
+		v.Protocol = p[9]
+	}
+	if len(p) >= 40 && len(original) >= 40 && p[0] == 0x45 && original[0] == 0x45 && p[9] == 6 {
+		v.SequenceOffset = int32(binary.BigEndian.Uint32(p[24:]) - binary.BigEndian.Uint32(original[24:]))
+		v.Flags = p[33]
+	}
+	return v
 }

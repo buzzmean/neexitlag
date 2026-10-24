@@ -3,6 +3,7 @@ package windowsplatform
 import (
 	"encoding/json"
 	"errors"
+	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"sort"
 	"time"
 )
@@ -39,6 +40,7 @@ func cloneFlow(v FlowEvidence) FlowEvidence {
 	}
 	if v.LocalInspection != nil {
 		copy := *v.LocalInspection
+		copy.SentPackets = append([]localstrategy.SentPacket(nil), copy.SentPackets...)
 		v.LocalInspection = &copy
 	}
 	if v.RelayOpen != nil {

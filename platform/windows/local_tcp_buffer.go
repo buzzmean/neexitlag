@@ -67,6 +67,9 @@ func (b *LocalTCPBuffer) deliver(d Decision, st *localstrategy.State, id Process
 				break
 			}
 			r.Inspection.OutputPacketsSent++
+			if len(q) >= 20 && len(r.Inspection.SentPackets) < 20 {
+				r.Inspection.SentPackets = append(r.Inspection.SentPackets, localstrategy.DescribeSentPacket(q, batch.Originals[r.PacketOrigins[i]]))
+			}
 		}
 		if r.Modified {
 			r.Inspection.TransformApplied = true

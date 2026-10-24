@@ -401,6 +401,7 @@ func (c *Controller) youtubeBackgroundRecheck(cur profilesResult, q browserproxy
 			answer, e := c.knownOriginResolve(work, cur, probeQ, relay)
 			if e != nil {
 				stop()
+				c.recordLocalProbe(probeQ, p, strategy, browserproxy.ProbeResult{Phase: "ORIGIN_DNS", Failure: "DNS_FAILED", Detail: "RESOLVE_FAILED"}, false)
 				r.backgroundFailure(key, strategy, "BACKGROUND_DNS_FAILED")
 				return false
 			}
@@ -415,6 +416,7 @@ func (c *Controller) youtubeBackgroundRecheck(cur profilesResult, q browserproxy
 			}
 			if !dst.IsValid() {
 				stop()
+				c.recordLocalProbe(probeQ, p, strategy, browserproxy.ProbeResult{Phase: "ORIGIN_DNS", Failure: "DNS_FAILED", Detail: "NO_PUBLIC_IPV4"}, false)
 				r.backgroundFailure(key, strategy, "BACKGROUND_NO_PUBLIC_IPV4")
 				return false
 			}
@@ -425,12 +427,26 @@ func (c *Controller) youtubeBackgroundRecheck(cur profilesResult, q browserproxy
 			id, _ := c.youtubeEngine(cur, probeQ, candidate, strategy)
 			if id == "" {
 				stop()
+				c.recordLocalProbe(probeQ, candidate, strategy, browserproxy.ProbeResult{Phase: "LOCAL_GUARD", Failure: "LOCAL_GUARD", Detail: "NETWORK_OR_PROFILE_GUARD"}, false)
 				r.backgroundFailure(key, strategy, "BACKGROUND_LOCAL_GUARD")
 				return false
 			}
 			candidate.Policy = flowpolicy.Result{Action: flowpolicy.DirectPlus, Strategy: id, Fallback: flowpolicy.FailBlock, Source: youtubeLadderSource}
-			result := browserproxy.ProbeOriginTransfer(work, probeQ.Host, origin[1], c.BrowserProbeRoots, func(ctx context.Context) (net.Conn, error) { return c.browserOpenUnobserved(ctx, probeQ, candidate) })
+			var wire *localProbeConn
+			result := browserproxy.ProbeOriginTransfer(work, probeQ.Host, origin[1], c.BrowserProbeRoots, func(ctx context.Context) (net.Conn, error) {
+				conn, err := c.browserOpenUnobserved(ctx, probeQ, candidate)
+				if err != nil {
+					return nil, err
+				}
+				wire = &localProbeConn{Conn: conn}
+				return wire, nil
+			})
 			applied := c.browserTransform(probeQ, candidate)
+			sent := uint64(0)
+			if wire != nil {
+				sent = wire.sent.Load()
+			}
+			c.recordLocalProbe(probeQ, candidate, strategy, result, applied, sent)
 			stop()
 			if !youtubeTransferOK(result) || !applied {
 				r.backgroundFailure(key, strategy, "BACKGROUND_NOT_SUSTAINED_OR_NO_TRANSFORM")

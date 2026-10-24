@@ -370,6 +370,9 @@ func (e *LocalStrategyEngine) Process(p []byte, st *State, m Metadata) (r Result
 			inspectionPayload = st.logicalHello
 		}
 		r.Inspection = inspectHello(inspectionPayload)
+		r.Inspection.SYNSeen = st.synSeen
+		r.Inspection.HandshakeConfirmed = st.handshakeConfirmed
+		r.Inspection.ServerTTL = st.serverTTL
 	}
 	if !st.matched {
 		if m.Protocol == "tcp" && !m.TrustedOrigin {

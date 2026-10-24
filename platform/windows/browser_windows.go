@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/buzzmean/neexitlag/core/localstrategy"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 	"net"
@@ -86,6 +87,24 @@ func (b *WinDivertBackend) BrowserTransformApplied(id ProcessIdentity, source, d
 		}
 	}
 	return false
+}
+
+func (b *WinDivertBackend) BrowserLocalInspection(id ProcessIdentity, source, dest netip.AddrPort) *localstrategy.Inspection {
+	if b.evidence == nil {
+		return nil
+	}
+	ev, err := b.evidence.SnapshotQuery(EvidenceQuery{PID: id.PID, CreationTime: id.CreationTime, Source: source.String(), Destination: dest.String()}, nil)
+	if err != nil || ev.Truncated || ev.EvidenceLost {
+		return nil
+	}
+	for _, f := range ev.Flows {
+		if f.LocalInspection != nil {
+			v := *f.LocalInspection
+			v.SentPackets = append([]localstrategy.SentPacket(nil), v.SentPackets...)
+			return &v
+		}
+	}
+	return nil
 }
 
 func ProcessUserSID(id ProcessIdentity) (string, error) {

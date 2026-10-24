@@ -12,7 +12,7 @@
 ## Таблица работ
 | Работа / дата | Файлы | Агент / ветка | Статус |
 |---|---|---|---|
-| LOCAL engine / 24.10.2026 | core/localstrategy; platform/windows native/DNS/TCP inject; services/client-service browser*; tools/windows diag; tests/docs | Codex / codex/work | В РАБОТЕ: диагностика, инъекция, каталог, CDN, все DPI группы |
+| LOCAL engine / 24.10.2026 | core/localstrategy; platform/windows native/DNS/TCP inject; services/client-service browser* и минимальный controller/club IPC dispatch; tools/windows diag; tests/workflow/docs | Codex / codex/work | В РАБОТЕ: диагностика, инъекция, каталог, CDN, все DPI группы |
 | Компактный handoff / 24.10.2026 | docs/handoff/*, docs/AGENT_RULES.md | Codex / codex/work | ОСВОБОЖДЕНО: архив и правила готовы; только документы |
 | Экономия VPS / LOCAL каталог и автоподбор 1–7 (23.10.2026) | Детали — [ARCHIVE.md](ARCHIVE.md) | Codex / codex/work | ОСВОБОЖДЕНО; код готов, Windows/ISP gates см. ниже |
 | Multi-relay/Hostkey P0 (23.10.2026) | Детали — [ARCHIVE.md](ARCHIVE.md) | Codex / codex/work | ОСВОБОЖДЕНО; код готов, Windows/ISP gates см. ниже |
@@ -104,3 +104,10 @@ Monthly data пока UNKNOWN; серверные read-only команды — d
 Новые блоки сверху; предыдущий технический итог тоже архивирован; действующие ограничения/открытые вопросы перенесены в краткий статус.
 Только документы, тестовые прогоны не запускались. Правила завершения задачи и pre-push checklist добавлены; код/скрипты не менялись.
 Итоговый размер CURRENT: 105строк (≤150). Команд владельцу для этой docs-задачи нет.
+
+## LOCAL диагностика — 24.10.2026 (работа продолжается)
+Владелец f0e181a:2160p RELAY работает, LOCAL0/CDN trials0; ordinary тоже имеет отказы. Исправления общие для DPI групп, IP/GEO relay и VK/Яндекс DIRECT сохраняются.
+Пункт1: browser.local.probes (отдельный read-only IPC из-за64KiB лимита), bounded128 recent/<=48KiB выдача, strategy×host/group/result/TX/RX/body/commit/SYN/handshake/TTL/actual packet headers. Payload не сохраняется.
+Diag.7 — таблица всех групп; новые PS7/PS5.1 CI gates. Это диагностика, не LOCAL PASS; PS5.1 и ISP здесь не выполнялись.
+Пункты2–5 в работе: raw WinDivert send уже есть; проверить owner race LOCAL delegation, actual catalog semantics и допуск CDN по реальному transform. CP/shared flags не включать.
+Пункт1 проверки: полный Go race/vet/build Linux+Windows PASS; actual pinned DLL filters70/iSCSI30/catalog checksum13 подWine PASS, не kernel. PS7 probes/legacy allowlist PASS; native PS5.1 НЕ проверен. IPC inventory/общая нормализация не менялись; новый метод включён в dispatch и club read-only.
