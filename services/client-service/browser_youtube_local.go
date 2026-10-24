@@ -116,6 +116,11 @@ type youtubeEngine struct {
 	Until  time.Time
 }
 type youtubeRuntime struct {
+	ordinaryDirectAttempts, ordinaryDenials uint64
+	trialID, trialSeq                       uint64
+	trialEndpoint                           cdnEndpoint
+	endpointNegative                        map[cdnEndpointKey]cdnEndpointFailure
+
 	ordinary       []ordinaryFlowEvidence
 	ordinarySeq    uint64
 	probeEvidence  []localProbeEvidence
@@ -238,11 +243,18 @@ func (r *youtubeRuntime) snapshot() youtubeSnapshot {
 	defer r.mu.Unlock()
 	s := youtubeSnapshot{RecordsOmitted: r.seq - uint64(len(r.records)), CacheEntries: len(r.cache), Cache: []youtubeCacheView{}, Stages: []youtubeStage{}, Records: []youtubeRecord{}, Shared: r.shared.snapshot(), Selection: r.selection, Replays: "complete ClientHello only before ANY origin byte; established TLS pinned; transport health is not HTTP/playback PASS"}
 	if r.trialActive {
+		s.Selection.ActiveTrialID = r.trialID
+		s.Selection.ActiveRecordID = r.trialRecord
+		s.Selection.ActiveHost = r.trialEndpoint.Host
+		s.Selection.ActiveDestination = r.trialEndpoint.Address
+		s.Selection.ActiveStartedAt = r.trialStarted
 		s.Selection.ActiveDomain = r.trialKey.Domain
 		s.Selection.ActiveAgeMS = time.Since(r.trialStarted).Milliseconds()
 		s.Selection.ActiveLastRXAgeMS = -1
 		s.Selection.ActiveState = "OPENING_TRIAL"
 		if v, ok := r.records[r.trialRecord]; ok {
+			s.Selection.ActiveRecordMatches = v.TrialID == r.trialID
+			s.Selection.ActiveRecordResult = v.TrialResult
 			s.Selection.ActiveState = "SHORT_REPLY_WAITING_TERMINAL"
 			if v.TX == 0 {
 				s.Selection.ActiveState = "PRECONNECT_NO_CLIENT_BYTES"
@@ -432,17 +444,19 @@ func (c *Controller) openYoutubeLadder(ctx context.Context, cur profilesResult, 
 	key := youtubeScope(cur, q)
 	r.register(key, cur, q, p, time.Now())
 	r.shared.notify()
-	stage, strategy := r.choose(key, time.Now())
+	stage, strategy := r.chooseEndpoint(key, cdnEndpoint{q.Host, p.Destination.String()}, time.Now())
 	if stage == "RELAY" && p.Policy.Source == "configured_baseline" && p.Policy.Action == flowpolicy.DirectPlus {
 		stage = "LOCAL"
 		strategy = "baseline"
 	}
 	c.youtubeBackgroundRecheck(cur, q, p, key)
 	trial := false
+	trialID := uint64(0)
 	trialPeer := relaySiblingEvidence{AgeMS: -1, Reason: "NOT_A_CDN_TRIAL"}
 	if stage == "RELAY" {
-		peer := c.relayUsage().trialSibling(cur.profile.ID, cur.network, key.Domain, time.Now())
-		if candidate, ok := r.takeTrial(key, time.Now(), peer); ok {
+		peer := c.relayUsage().mediaTrialSibling(cur.profile.ID, cur.network, q.Host, time.Now())
+		if candidate, token, ok := r.takeEndpointTrial(key, time.Now(), peer, cdnEndpoint{q.Host, p.Destination.String()}); ok {
+			trialID = token
 			trialPeer = peer
 			stage = "LOCAL"
 			strategy = candidate
@@ -462,7 +476,7 @@ func (c *Controller) openYoutubeLadder(ctx context.Context, cur profilesResult, 
 			if id == "" {
 				r.failed(key, "LOCAL", strategy, "LOCAL_GUARD_OR_CAPACITY", time.Now())
 				if trial {
-					r.finishTrial(key, strategy, false, false, time.Now())
+					r.finishTrialOutcomeFor(trialID, key, strategy, "FAILED", false, time.Now(), 0)
 					trial = false
 				}
 				r.mu.Lock()
@@ -515,7 +529,7 @@ func (c *Controller) openYoutubeLadder(ctx context.Context, cur profilesResult, 
 		if trial && stage == "LOCAL" {
 			r.trialRecord = record
 		}
-		r.records[record] = youtubeRecord{cdnTrialSlot: cdnTrialSlot{NeutralShortAttempt: r.cache[key].NeutralShortStreak + 1}, OpenMS: float64(time.Since(openStarted)) / float64(time.Millisecond), Service: service, Active: err == nil, ID: record, Profile: cur.profile.ID, Domain: q.Host, Destination: actual.Destination.String(), Stage: stage, Strategy: strategy, Reason: "OPEN", Trial: trial && stage == "LOCAL", Updated: time.Now()}
+		r.records[record] = youtubeRecord{cdnTrialSlot: cdnTrialSlot{TrialID: trialID, NeutralShortAttempt: r.cache[key].NeutralShortStreak + 1}, OpenMS: float64(time.Since(openStarted)) / float64(time.Millisecond), Service: service, Active: err == nil, ID: record, Profile: cur.profile.ID, Domain: q.Host, Destination: actual.Destination.String(), Stage: stage, Strategy: strategy, Reason: "OPEN", Trial: trial && stage == "LOCAL", Updated: time.Now()}
 		label := service + ":" + stage + ":" + strategy
 		if _, exists := r.stats[label]; !exists && len(r.stats) >= 128 {
 			label = "other:" + stage + ":CATALOG_OVERFLOW"
@@ -544,14 +558,16 @@ func (c *Controller) openYoutubeLadder(ctx context.Context, cur profilesResult, 
 		}
 		if err != nil {
 			if trial && stage == "LOCAL" && work.Err() != nil {
-				r.finishTrial(key, strategy, false, false, time.Now())
+				r.finishTrialOutcomeFor(trialID, key, strategy, "FAILED", false, time.Now(), 0)
 			}
 			if work.Err() != nil {
 				return nil, actual, work.Err()
 			}
-			r.failed(key, stage, strategy, "OPEN_FAILED", time.Now())
+			if stage != "LOCAL" || !r.endpointFailed(key, strategy, cdnEndpoint{q.Host, actual.Destination.String()}, "OPEN_FAILED", time.Now()) {
+				r.failed(key, stage, strategy, "OPEN_FAILED", time.Now())
+			}
 			if trial && stage == "LOCAL" {
-				r.finishTrial(key, strategy, false, false, time.Now())
+				r.finishTrialOutcomeFor(trialID, key, strategy, "FAILED", false, time.Now(), 0)
 			}
 			if stage == "RELAY" {
 				return nil, actual, err
@@ -565,8 +581,9 @@ func (c *Controller) openYoutubeLadder(ctx context.Context, cur profilesResult, 
 			return conn, actual, err
 		}
 		ref.set(actual, conn)
-		observer := &youtubeMeter{trial: trial && stage == "LOCAL", Conn: conn, r: r, id: record, label: label, key: key, stage: stage, strategy: strategy, started: time.Now(), host: q.Host, destination: actual.Destination.String(), sibling: trialPeer, inspection: func() *localstrategy.Inspection { return c.localPacketInspection(q, actual) }, transform: func() bool { return c.browserTransform(q, actual) }}
+		observer := &youtubeMeter{trialID: trialID, trial: trial && stage == "LOCAL", Conn: conn, r: r, id: record, label: label, key: key, stage: stage, strategy: strategy, started: time.Now(), host: q.Host, destination: actual.Destination.String(), sibling: trialPeer, inspection: func() *localstrategy.Inspection { return c.localPacketInspection(q, actual) }, transform: func() bool { return c.browserTransform(q, actual) }}
 		observer.slot.NeutralShortAttempt = r.cacheAttempt(key)
+		observer.slot.TrialID = trialID
 		observer.recordTrialEvidence(true)
 		if stage == "RELAY" {
 			return observer, actual, nil
@@ -587,6 +604,7 @@ func (c *Controller) openYoutubeLadder(ctx context.Context, cur profilesResult, 
 }
 
 type youtubeMeter struct {
+	trialID uint64
 	net.Conn
 	r                               *youtubeRuntime
 	id                              uint64
@@ -645,7 +663,9 @@ func (m *youtubeMeter) failure(reason string) {
 		finalized := m.trialFinalized
 		failure := m.failureEvidenceLocked(reason, time.Now())
 		m.mu.Unlock()
-		m.r.failed(m.key, m.stage, m.strategy, reason, time.Now())
+		if m.stage != "LOCAL" || !m.r.endpointFailed(m.key, m.strategy, cdnEndpoint{m.host, m.destination}, reason, time.Now()) {
+			m.r.failed(m.key, m.stage, m.strategy, reason, time.Now())
+		}
 		m.r.mu.Lock()
 		defer m.r.mu.Unlock()
 		if m.stage == "LOCAL" {
@@ -685,6 +705,9 @@ func (m *youtubeMeter) failure(reason string) {
 			m.r.records[m.id] = v
 		}
 	})
+	if m.trial {
+		m.finishObservation()
+	}
 	m.recordTrialEvidence(true)
 }
 func (m *youtubeMeter) Write(p []byte) (int, error) {

@@ -46,3 +46,9 @@ Write-Host 'PASS distinct probe/data trial counters and sibling denials/age'
 $script:lines=@();Write-YouTubeLocalEvidence ([pscustomobject]@{selection=[pscustomobject]@{PostTrialFailures=1}})
 if(($script:lines -join ' ') -notmatch 'post_trial_failures=1'){throw 'Late failure counter missing'}
 Write-Host 'PASS late hard failures remain visible after neutral finalization'
+
+$script:lines=@()
+Write-YouTubeLocalEvidence ([pscustomobject]@{selection=[pscustomobject]@{active_trial=$true;active_trial_id=2;active_record_id=9;active_host='rr5---sn-media.googlevideo.com';active_destination='74.125.8.99:443';active_record_matches=$true;active_record_result='PROBE_WAITING_DATA'}})
+$s=$script:lines -join ' '
+if($s -notmatch 'active_trial_id=2 active_record_id=9 active_host=rr5---sn-media.googlevideo.com' -or $s -notmatch 'active_record_matches=True'){throw 'Active exposure cannot be distinguished from old terminal host'}
+Write-Host 'PASS active exposure/record/host/IP identity is explicit'

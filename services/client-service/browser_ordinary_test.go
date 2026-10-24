@@ -179,3 +179,18 @@ func TestOrdinaryOriginByteForbidsReplayAndScopeStaysStrict(t *testing.T) {
 		t.Fatal("game entered browser retry")
 	}
 }
+
+func TestOrdinaryScopeDenialIsVisibleAndNotCountedAsDNSAttempt(t *testing.T) {
+	c, cur, q, p := youtubeFixture(t)
+	q.Host = "akashi.vk-portal.net"
+	q.OriginAmbiguous = true
+	p.Policy = flowpolicy.Result{Action: flowpolicy.RelayRequired, Source: "direct_timeout_cache"}
+	if c.ordinaryAddressRetry(cur, q, p) {
+		t.Fatal("ambiguous DNS retarget authorized")
+	}
+	snap := c.localProbeSnapshot()
+	rows := snap["ordinary"].([]ordinaryFlowEvidence)
+	if len(rows) != 1 || rows[0].Reason != "AMBIGUOUS_DOMAIN_NO_DNS_RETARGET" || snap["ordinary_dns_direct_attempts"].(uint64) != 0 || snap["ordinary_scope_denials"].(uint64) != 1 {
+		t.Fatal(snap)
+	}
+}

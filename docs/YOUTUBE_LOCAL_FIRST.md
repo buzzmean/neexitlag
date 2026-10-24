@@ -223,3 +223,32 @@ Max1 глобально и прежний eligible recent RELAY media<=30с пр
 Diag.15: slot_active, время/причина освобождения, neutral_short_attempt,
 neutral_short_streak, cooldown_until/wait_ms, admission и прежние bytes/data_trials.
 Нативная Windows/PS5.1/ISP экономия не подтверждается лабораторией.
+
+
+### 25.10.2026 — bulk-qualified admission и идентичность пробы (.16)
+Раньше проба выбиралась при OPEN первого нового googlevideo TCP до отправки
+ClientHello/HTTP. Его будущий объём неизвестен; rr5/rr6 не классификаторы.
+Выбрать маршрут после прикладного TLS-write нельзя: origin уже ответил,
+другой egress потребовал бы запрещённый replay/migration established TLS.
+Минимальная эвристика теперь требует >1MiB RELAY RX<=30с по тому же host либо
+распознанному sn-cluster той же сети/profile/HTTPS443. Unclassified cluster
+не переносит proof на другой host. Сохраняются прежний scoped sibling, transform
+qualification, max1, cooldown иограниченный neutral retry. Эта эвристика повышает
+вероятность сегментного потока, но не раскрывает запрос и не гарантирует его
+размер. При отсутствии нового eligible TCP LOCAL-пробы может не быть: старый H2
+не разрывается и не переносится. ISP экономия/2160p не объявляются доказанными.
+
+Каждый admission получил монотонный trial_id и отдельный record_id, host/IP,
+started_at, active_record_result/matches. Callback/Close/strong promotion
+сверяют trial_id: старое закрытие не завершает новую пробу той же группы.
+Дополнительно воспроизведено, что hard-failure callback держал слот до Read/Close;
+теперь он финализируется сразу, как уже делал neutral EOF. По данным .15 безID
+невозможно доказать, что active после старого EOF — stale либо новый trial.
+
+Реальный CDN LOCAL failure по конкретному endpoint теперь имеет negativeTTL10min
+по network/profile/subgroup/host/IP/strategy (max256). Сохраняются failures/
+failed_after_reply и >=3мин real-failure trial cooldown; не сбрасываются proof,
+Tried/общая квалификация стратегии по всей подгруппе. Новый flow плохого host/IP
+выбирает RELAY, другая IP/host той же группы может сохранять LOCAL. Этот verdict
+не доказывает DPI/IP/гео причину. Guard/capacity без отправки LOCAL по-прежнему
+может отключить LOCAL по прежнему правилу. Established поток не replay.

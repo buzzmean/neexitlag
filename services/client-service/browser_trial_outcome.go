@@ -133,7 +133,7 @@ func (m *youtubeMeter) finishObservation() {
 		rx := m.rx
 		// Finalize under the meter lock: a late hard error must be counted
 		// either in this outcome or explicitly after it, never lost/doubled.
-		m.slot = m.r.finishTrialOutcome(m.key, m.strategy, verdict, rx > 0, time.Now(), rx)
+		m.slot = m.r.finishTrialOutcomeFor(m.trialID, m.key, m.strategy, verdict, rx > 0, time.Now(), rx)
 		m.trialFinalized = true
 		m.mu.Unlock()
 	})

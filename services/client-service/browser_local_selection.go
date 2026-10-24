@@ -19,6 +19,13 @@ const youtubeTrialCooldown = 3 * time.Minute
 const youtubeTrialSuccesses = 3
 
 type youtubeSelectionSnapshot struct {
+	ActiveTrialID       uint64    `json:"active_trial_id"`
+	ActiveRecordID      uint64    `json:"active_record_id"`
+	ActiveHost          string    `json:"active_host,omitempty"`
+	ActiveDestination   string    `json:"active_destination,omitempty"`
+	ActiveRecordResult  string    `json:"active_record_result,omitempty"`
+	ActiveRecordMatches bool      `json:"active_record_matches"`
+	ActiveStartedAt     time.Time `json:"active_started_at"`
 	cdnTrialSlot
 	BackgroundAttempts, BackgroundFailures                              uint64 `json:",omitempty"`
 	Trials, TrialSuccesses, TrialFailures, FailedAfterReply             uint64
@@ -285,11 +292,15 @@ func (r *youtubeRuntime) cdnCandidate(k youtubeKey, v youtubeLearn, now time.Tim
 	return best
 }
 func (r *youtubeRuntime) takeTrial(k youtubeKey, now time.Time, peer relaySiblingEvidence) (string, bool) {
+	id, _, ok := r.takeEndpointTrial(k, now, peer, cdnEndpoint{})
+	return id, ok
+}
+func (r *youtubeRuntime) takeEndpointTrial(k youtubeKey, now time.Time, peer relaySiblingEvidence, endpoint cdnEndpoint) (string, uint64, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	v := r.cache[k]
 	if !youtubeCDN(k) {
-		return "", false
+		return "", 0, false
 	}
 	reason := "ADMITTED"
 	switch {
@@ -301,6 +312,10 @@ func (r *youtubeRuntime) takeTrial(k youtubeKey, now time.Time, peer relaySiblin
 		reason = "NO_QUALIFIED_STRATEGY"
 	case !r.qualified(k, v.Qualified, now):
 		reason = "STRATEGY_PROOF_EXPIRED"
+	case endpoint.valid() && r.endpointBlockedLocked(k, v.Qualified, endpoint, now):
+		reason = "ENDPOINT_STRATEGY_NEGATIVE_TTL"
+	case peer.MediaRequired && peer.MediaBytes <= cdnStrongBytes:
+		reason = "SCOPED_BULK_RELAY_NOT_OBSERVED"
 	case !peer.Eligible:
 		reason = "RECENT_RELAY_SIBLING_NOT_OBSERVED"
 	}
@@ -316,12 +331,15 @@ func (r *youtubeRuntime) takeTrial(k youtubeKey, now time.Time, peer relaySiblin
 		if r.room(k, now) {
 			r.cache[k] = v
 		}
-		return "", false
+		return "", 0, false
 	}
 	if v.NeutralShortStreak >= cdnNeutralShortLimit {
 		v.NeutralShortStreak = 0
 	}
 	// Retry is a BACKGROUND probe deadline; only TrialAfter gates real trials.
+	r.trialSeq++
+	r.trialID = r.trialSeq
+	r.trialEndpoint = endpoint
 	r.trialActive = true
 	r.trialKey = k
 	r.trialStrategy = v.Qualified
@@ -332,7 +350,7 @@ func (r *youtubeRuntime) takeTrial(k youtubeKey, now time.Time, peer relaySiblin
 	v.Retry = now.Add(youtubeTrialCooldown)
 	v.TrialAfter = v.Retry
 	r.cache[k] = v
-	return v.Qualified, true
+	return v.Qualified, r.trialID, true
 }
 func (r *youtubeRuntime) finishTrial(k youtubeKey, strategy string, success, afterReply bool, now time.Time, received ...uint64) {
 	n := uint64(0)
@@ -345,14 +363,17 @@ func (r *youtubeRuntime) finishTrial(k youtubeKey, strategy string, success, aft
 	}
 	r.finishTrialOutcome(k, strategy, verdict, afterReply, now, n)
 }
-func (r *youtubeRuntime) finishTrialOutcome(k youtubeKey, strategy, verdict string, afterReply bool, now time.Time, received uint64) (slot cdnTrialSlot) {
+func (r *youtubeRuntime) finishTrialOutcome(k youtubeKey, strategy, verdict string, afterReply bool, now time.Time, received uint64) cdnTrialSlot {
+	return r.finishTrialOutcomeFor(0, k, strategy, verdict, afterReply, now, received)
+}
+func (r *youtubeRuntime) finishTrialOutcomeFor(token uint64, k youtubeKey, strategy, verdict string, afterReply bool, now time.Time, received uint64) (slot cdnTrialSlot) {
 	success := verdict == "SUCCESS"
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if !r.trialActive || r.trialKey != k || r.trialStrategy != strategy {
+	if !r.trialActive || r.trialKey != k || r.trialStrategy != strategy || token != 0 && token != r.trialID {
 		return
 	}
-	slot = cdnTrialSlot{SlotReleasedAt: now, SlotReleaseReason: verdict, NeutralShortAttempt: r.cache[k].NeutralShortStreak + 1}
+	slot = cdnTrialSlot{TrialID: r.trialID, SlotReleasedAt: now, SlotReleaseReason: verdict, NeutralShortAttempt: r.cache[k].NeutralShortStreak + 1}
 	// Runs under r.mu and after the outcome has chosen its cooldown.
 	defer func() { r.releaseTrialSlotLocked(slot) }()
 	if verdict == "INCONCLUSIVE" || verdict == "CLIENT_INITIATED_CLOSE" || verdict == "REMOTE_SMALL_EOF" {
@@ -417,7 +438,7 @@ func (r *youtubeRuntime) finishTrialOutcome(k youtubeKey, strategy, verdict stri
 		if afterReply {
 			r.selection.FailedAfterReply++
 		}
-		if v.Qualified != "" {
+		if !r.trialEndpoint.valid() && v.Qualified != "" {
 			v.Failures++
 			for i, id := range r.order {
 				if id == strategy {
@@ -426,12 +447,16 @@ func (r *youtubeRuntime) finishTrialOutcome(k youtubeKey, strategy, verdict stri
 				}
 			}
 		}
-		v.Qualified = ""
-		v.Streak = 0
-		v.Stage = "RELAY"
-		v.Strategy = ""
-		v.Confirmed = false
-		v.Reason = "CDN_TRIAL_FAILED_NEXT_CONNECTION_RELAY"
+		if r.trialEndpoint.valid() {
+			v.Reason = "CDN_ENDPOINT_FAILED_QUALIFICATION_RETAINED"
+		} else {
+			v.Qualified = ""
+			v.Streak = 0
+			v.Stage = "RELAY"
+			v.Strategy = ""
+			v.Confirmed = false
+			v.Reason = "CDN_TRIAL_FAILED_NEXT_CONNECTION_RELAY"
+		}
 	}
 	pause := youtubeTrialCooldown
 	if b := youtubeBackoff(v.Failures); b > pause {

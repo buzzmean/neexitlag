@@ -137,7 +137,7 @@ func TestRunningCDNReleasesSlotBeforeCloseAndKeepsExactTLSConnection(t *testing.
 	r.completeCDNQualification(k, id, now)
 	peer := c.relayUsage().beginVideo(videoPerformance{Port: q.Port, Network: cur.network, Profile: cur.profile.ID, Domain: q.Host, Started: now})
 	c.relayUsage().mu.Lock()
-	c.relayUsage().videoIO(peer, 100, 70000, now)
+	c.relayUsage().videoIO(peer, 100, cdnStrongBytes+1, now)
 	c.relayUsage().mu.Unlock()
 	c.relayUsage().videoClosed(peer, false) // recent relay survives the handoff to its successor
 	open := func(ctx context.Context, _ browserproxy.Request, plan browserproxy.Plan) (net.Conn, error) {

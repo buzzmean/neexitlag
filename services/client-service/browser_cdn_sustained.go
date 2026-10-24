@@ -55,7 +55,7 @@ func (m *youtubeMeter) maybePromoteTrial(now time.Time) {
 	m.trialDone.Do(func() {
 		m.mu.Lock()
 		defer m.mu.Unlock()
-		if m.strongEvidenceLocked(now) && m.r.promoteRunning(m.key, m.strategy, m.rx, now) {
+		if m.strongEvidenceLocked(now) && m.r.promoteRunningFor(m.trialID, m.key, m.strategy, m.rx, now) {
 			m.promoted = true
 			promotedNow = true
 			m.r.mu.Lock()
@@ -72,7 +72,7 @@ func (m *youtubeMeter) maybePromoteTrial(now time.Time) {
 		if m.failed {
 			verdict = "FAILED"
 		}
-		m.slot = m.r.finishTrialOutcome(m.key, m.strategy, verdict, m.rx > 0, now, m.rx)
+		m.slot = m.r.finishTrialOutcomeFor(m.trialID, m.key, m.strategy, verdict, m.rx > 0, now, m.rx)
 		m.trialFinalized = true
 	})
 	if promotedNow {
@@ -80,10 +80,13 @@ func (m *youtubeMeter) maybePromoteTrial(now time.Time) {
 	}
 }
 func (r *youtubeRuntime) promoteRunning(k youtubeKey, id string, received uint64, now time.Time) bool {
+	return r.promoteRunningFor(0, k, id, received, now)
+}
+func (r *youtubeRuntime) promoteRunningFor(token uint64, k youtubeKey, id string, received uint64, now time.Time) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	v := r.cache[k]
-	if !r.trialActive || r.trialKey != k || r.trialStrategy != id || v.Qualified != id || !r.room(k, now) {
+	if !r.trialActive || token != 0 && token != r.trialID || r.trialKey != k || r.trialStrategy != id || v.Qualified != id || !r.room(k, now) {
 		return false
 	}
 	// This flow's current sustained proof supersedes its old public prerequisite;
@@ -102,7 +105,7 @@ func (r *youtubeRuntime) promoteRunning(k youtubeKey, id string, received uint64
 	v.Reason = "SUSTAINED_CDN_RUNNING_PROMOTED"
 	attempt := v.NeutralShortStreak + 1
 	v.NeutralShortStreak = 0
-	v.cdnTrialSlot = cdnTrialSlot{SlotReleasedAt: now, SlotReleaseReason: "SUCCESS_RUNNING", CooldownUntil: v.TrialAfter, NeutralShortAttempt: attempt}
+	v.cdnTrialSlot = cdnTrialSlot{TrialID: r.trialID, SlotReleasedAt: now, SlotReleaseReason: "SUCCESS_RUNNING", CooldownUntil: v.TrialAfter, NeutralShortAttempt: attempt}
 	r.releaseTrialSlotLocked(v.cdnTrialSlot)
 	r.cache[k] = v
 	return true

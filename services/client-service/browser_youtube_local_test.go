@@ -360,7 +360,7 @@ func TestGuardedCDNRealTLSHTTPThreeTrialsThenWarmLOCAL(t *testing.T) {
 	usage := c.relayUsage()
 	peer := usage.beginVideo(videoPerformance{Port: q.Port, Network: cur.network, Profile: cur.profile.ID, Domain: q.Host, Started: now})
 	usage.mu.Lock()
-	usage.videoIO(peer, 100, 70000, now)
+	usage.videoIO(peer, 100, cdnStrongBytes+1, now)
 	usage.mu.Unlock()
 	local := 0
 	open := func(ctx context.Context, _ browserproxy.Request, plan browserproxy.Plan) (net.Conn, error) {

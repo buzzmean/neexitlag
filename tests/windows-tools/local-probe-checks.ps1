@@ -40,3 +40,12 @@ Write-OrdinaryAddressEvidence ([pscustomobject]@{ordinary=@([pscustomobject]@{Ho
 $s=$script:lines -join ' '
 if($s -notmatch 'UNINSTRUMENTED' -or $s -notmatch 'NONE_RECORDED' -or $s -notmatch 'ordinary host=akashi.vk-portal.net profile=chrome stage=DIRECT' -or $s -notmatch 'ordinary address=87.240.137.208:443 stage=DIRECT first_flight=TLS_SERVER_HELLO; NOT_HTTP_PROOF tx=100 rx=2000' -or $s -match 'SECRET'){throw 'Ordinary host/address diagnostics unsafe or missing'}
 Write-Host 'PASS ordinary per-host DNS/TLS/route evidence and safe legacy/empty output'
+
+$script:lines=@()
+Write-OrdinaryAddressEvidence ([pscustomobject]@{ordinary=@();ordinary_retained=12;ordinary_omitted=12;ordinary_dns_direct_attempts=2;ordinary_scope_denials=1;ordinary_ladder=@([pscustomobject]@{id=7;domain='akashi.vk-portal.net';destination='95.213.5.12:443';stage='RELAY';reason='OPEN_FAILED';TX=0;RX=0;token='SECRET'})})
+$s=$script:lines -join ' '
+if($s -notmatch 'OMITTED_BY_IPC_BUDGET retained=12' -or $s -match 'NONE_RECORDED' -or $s -notmatch 'DNS DIRECT attempts=2 scope_denials=1' -or $s -notmatch 'ordinary ladder: record_id=7 host=akashi.vk-portal.net' -or $s -match 'SECRET'){throw 'Trimmed ordinary evidence mislabeled or unsafe'}
+Write-CdnTrialEvidence ([pscustomobject]@{trials=@([pscustomobject]@{ID=9;trial_id=2;Host='rr5---sn-media.googlevideo.com';Sibling=[pscustomobject]@{MediaBytes=2000000;MediaMatch='EXACT_HOST';MediaHost='rr5---sn-media.googlevideo.com'};slot_active=$true});cdn_endpoint_negatives=@([pscustomobject]@{Host='rr5---sn-media.googlevideo.com';Address='74.125.8.99:443';Reason='MIDSTREAM_STALL_NEW_CONNECTION_REQUIRED';Strategy='catalog-test';private='SECRET'})})
+$s=$script:lines -join ' '
+if($s -notmatch 'trial_id=2 record_id=9' -or $s -notmatch 'media_rx=2000000' -or $s -notmatch 'CDN endpoint negative: host=rr5---sn-media.googlevideo.com address=74.125.8.99:443' -or $s -match 'SECRET'){throw 'Endpoint/exposure/media metadata unsafe or missing'}
+Write-Host 'PASS IPC omission is explicit, actual ordinary ladder hosts, bulk evidence and endpoint-only failures'

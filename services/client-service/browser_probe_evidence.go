@@ -193,7 +193,29 @@ func (c *Controller) localProbeSnapshot() map[string]any {
 	if len(ordinary) > 16 {
 		ordinary = ordinary[len(ordinary)-16:]
 	}
-	result := map[string]any{"ordinary_retained": len(r.ordinary), "ordinary": ordinary, "trials": trialRows, "failures": recentFailures, "tcp_closures": closed, "probes": rows, "retained": len(r.probeEvidence), "retention_limit": 128, "scope": "bounded recent probes and closes; headers/timing only; TLS1.3 type23 is NOT HTTP content proof"}
+	endpointNegatives := []cdnEndpointFailure{}
+	for _, v := range r.endpointNegative {
+		if time.Now().Before(v.Until) {
+			endpointNegatives = append(endpointNegatives, v)
+		}
+	}
+	sort.Slice(endpointNegatives, func(i, j int) bool { return endpointNegatives[i].Until.After(endpointNegatives[j].Until) })
+	if len(endpointNegatives) > 8 {
+		endpointNegatives = endpointNegatives[:8]
+	}
+	ordinaryLadder := []youtubeRecord{}
+	for _, v := range r.records {
+		if v.Service == "ordinary" {
+			v.Inspection = nil
+			v.Failure = nil
+			ordinaryLadder = append(ordinaryLadder, v)
+		}
+	}
+	sort.Slice(ordinaryLadder, func(i, j int) bool { return ordinaryLadder[i].ID > ordinaryLadder[j].ID })
+	if len(ordinaryLadder) > 16 {
+		ordinaryLadder = ordinaryLadder[:16]
+	}
+	result := map[string]any{"ordinary_dns_direct_attempts": r.ordinaryDirectAttempts, "ordinary_scope_denials": r.ordinaryDenials, "ordinary_ladder": ordinaryLadder, "cdn_endpoint_negatives": endpointNegatives, "ordinary_retained": len(r.ordinary), "ordinary": ordinary, "trials": trialRows, "failures": recentFailures, "tcp_closures": closed, "probes": rows, "retained": len(r.probeEvidence), "retention_limit": 128, "scope": "bounded recent probes and closes; headers/timing only; TLS1.3 type23 is NOT HTTP content proof"}
 	for {
 		result["ordinary_omitted"] = len(r.ordinary) - len(ordinary)
 		result["probes"] = rows
@@ -203,15 +225,32 @@ func (c *Controller) localProbeSnapshot() map[string]any {
 		if len(raw) < 48000 {
 			return result
 		}
-		if len(ordinary) > 0 {
-			ordinary = ordinary[1:]
-			result["ordinary"] = ordinary
-		} else if len(rows) > 0 {
+		// Compact route/identity evidence outranks large packet traces. In .15
+		// ordinary was removed FIRST and the script mislabeled it NONE_RECORDED.
+		if len(rows) > 0 {
 			rows = rows[1:]
 		} else if len(closed) > 0 {
 			closed = closed[:len(closed)-1]
-		} else if len(trialRows) > 0 {
+		} else if len(ordinaryLadder) > 4 {
+			ordinaryLadder = ordinaryLadder[:len(ordinaryLadder)-1]
+			result["ordinary_ladder"] = ordinaryLadder
+		} else if len(ordinary) > 4 {
+			ordinary = ordinary[1:]
+			result["ordinary"] = ordinary
+		} else if len(trialRows) > 1 {
 			trialRows = trialRows[:len(trialRows)-1]
+			result["trials"] = trialRows
+		} else if len(endpointNegatives) > 0 {
+			endpointNegatives = endpointNegatives[:len(endpointNegatives)-1]
+			result["cdn_endpoint_negatives"] = endpointNegatives
+		} else if len(ordinaryLadder) > 0 {
+			ordinaryLadder = ordinaryLadder[:len(ordinaryLadder)-1]
+			result["ordinary_ladder"] = ordinaryLadder
+		} else if len(ordinary) > 0 {
+			ordinary = ordinary[1:]
+			result["ordinary"] = ordinary
+		} else if len(trialRows) > 0 {
+			trialRows = nil
 			result["trials"] = trialRows
 		} else {
 			return result

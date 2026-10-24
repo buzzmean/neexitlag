@@ -15,18 +15,44 @@ import (
 // only repairs failed ordinary AUTO origins; known DPI/RELAY floors, explicit
 // rules, ambiguous hints, private addresses and configured DIRECT+ stay outside.
 func (c *Controller) ordinaryAddressRetry(cur profilesResult, q browserproxy.Request, p browserproxy.Plan) bool {
-	if browserproxy.KnownDoHEndpoint(q.Host, p.Destination) || !cur.enabled || cur.routingDisabled || !browserAuto(cur.profile) || !localBrowserRequestEligible(q, p) || c.browserOriginPolicy(q.Host).Kind != "" || p.Policy.Action == flowpolicy.DirectPlus {
-		return false
+	reason := ""
+	switch {
+	case browserproxy.KnownDoHEndpoint(q.Host, p.Destination):
+		reason = "DOH_RELAY_RESERVED"
+	case !cur.enabled || cur.routingDisabled:
+		reason = "OPTIMIZATION_DISABLED"
+	case !browserAuto(cur.profile):
+		reason = "NOT_BROWSER_AUTO"
+	case q.OriginAmbiguous:
+		reason = "AMBIGUOUS_DOMAIN_NO_DNS_RETARGET"
+	case !q.Secure:
+		reason = "NOT_TLS_REQUEST"
+	case q.Port != 443:
+		reason = "NOT_HTTPS443"
+	case !p.Enabled:
+		reason = "PLAN_NOT_ENABLED"
+	case !p.Destination.Addr().Is4() || !browserproxy.PublicDNSAddress(p.Destination.Addr()):
+		reason = "NO_PUBLIC_IPV4_DESTINATION"
+	case !localBrowserRequestEligible(q, p):
+		reason = "REQUEST_OR_POLICY_SCOPE_EXCLUDED"
+	case c.browserOriginPolicy(q.Host).Kind != "":
+		reason = "KNOWN_DPI_OR_RELAY_GROUP"
+	case p.Policy.Action == flowpolicy.DirectPlus:
+		reason = "CONFIGURED_LOCAL_RETAINED"
 	}
 	if _, explicit := flowpolicy.Evaluate(cur.profile.Rules, flowpolicy.Input{Protocol: "tcp", Destination: p.Destination, Domain: q.Host, Network: cur.network}); explicit {
+		reason = "EXPLICIT_RULE_RETAINED"
+	}
+	failed := c.directAddressFailed(cur, q, p) || p.Policy.Source == "direct_timeout_cache" || p.Policy.Action == flowpolicy.RelayRequired
+	if reason != "" {
+		if failed && browserproxy.ValidPublicDNSName(q.Host) && c.browserOriginPolicy(q.Host).Kind == "" {
+			c.browser.youtube.ordinaryDenied(cur, q, p, reason)
+		}
 		return false
 	}
-	if c.directAddressFailed(cur, q, p) || p.Policy.Source == "direct_timeout_cache" || p.Policy.Action == flowpolicy.RelayRequired {
+	if failed {
 		return true
 	}
-	// Domain evidence may predate a changed DNS answer. Recheck each current IP;
-	// the existing bounded TLS/HTTP background recovery remains responsible for
-	// clearing the domain verdict, not a mere TCP connect or ServerHello.
 	_, cached := c.steerTimedOutOrigin(p, cur, q, time.Now())
 	return cached
 }
@@ -129,6 +155,11 @@ func (c *Controller) openOrdinaryAddresses(ctx context.Context, cur profilesResu
 		}
 		address := actual.Destination.String()
 		conn, e := open(work, request, actual)
+		if stage == "DIRECT" {
+			r.mu.Lock()
+			r.ordinaryDirectAttempts++
+			r.mu.Unlock()
+		}
 		r.ordinaryUpdate(id, func(v *ordinaryFlowEvidence) {
 			// Poll deadlines are not failure proof. Only the stepper's recorded
 			// negative verdict can label a prior silent first flight as failed.
@@ -243,4 +274,17 @@ func (c *ordinaryEvidenceConn) OriginAttempts() browserproxy.OriginReport {
 		return v.OriginAttempts()
 	}
 	return browserproxy.OriginReport{Selected: c.address, State: "ORDINARY_" + c.stage}
+}
+
+// Metadata only: a rejected route scope must be visible instead of silently
+// pretending that a DNS peer was tried. Never loosen ambiguous/protected policy.
+func (r *youtubeRuntime) ordinaryDenied(cur profilesResult, q browserproxy.Request, p browserproxy.Plan, reason string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ordinaryDenials++
+	r.ordinarySeq++
+	r.ordinary = append(r.ordinary, ordinaryFlowEvidence{ID: r.ordinarySeq, Host: q.Host, Profile: cur.profile.ID, Network: cur.network, Stage: string(p.Policy.Action), Reason: reason, DNS: "NO_DNS_RETARGET", Updated: time.Now(), Addresses: []ordinaryAddressEvidence{{Address: p.Destination.String(), Stage: string(p.Policy.Action), Result: "NOT_TRIED; " + reason}}})
+	if len(r.ordinary) > 32 {
+		r.ordinary = append([]ordinaryFlowEvidence(nil), r.ordinary[len(r.ordinary)-32:]...)
+	}
 }

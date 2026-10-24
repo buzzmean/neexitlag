@@ -403,3 +403,29 @@ bounded<48KB. Payload/URL/cookies/tokens не сохраняются/не выв
 Лабораторный verified TLS/HTTP с молчащим первым иработающим вторым IP прошёл,
 сохранены no-replay послеalert/первого байта иscope TTL/сеть/profile.
 Реальный Windows/ISP результат akashi ивсе прежние9хостов требуют новой diag.
+
+
+## 25.10.2026 — ordinary .15: потерянная таблица и неверно понятый счётчик
+Найдены и воспроизведены две точные причины отсутствия диагностических данных:
+1. JSON budget в browser.local.probes сначала выбрасывал ordinary rows, а уже
+   потом большие probe/packet traces. На заполненном буфере исчезали все rows.
+2. Скрипт печатал NONE_RECORDED даже при ordinary_retained>0/omitted>0.
+Теперь сначала сокращаются тяжёлые traces; отсутствие/усечение различаются.
+Есть компактный ordinary_ladder с фактическими host/IP/profile/stage/reason/
+TX/RX из существующих записей лестницы. Это список сохранённых соединений,
+не весь накопленный aggregate; после restart старую историю восстановить нельзя.
+
+ordinary_direct_fallback_attempts из .15 — alias счётчика relay capacity fallback,
+а не DNS second-address attempts! В .16 он переименован в capacity counter,
+отдельно показаны ordinary_dns_direct_attempts иscope_denials. Отрицательная
+метка DIRECT_ADDRESS_FAILED принадлежит адресу/сети/profile и включает Riot;
+она не означает, что этот host был одним из12 ordinary RELAY failures.
+При отказе admission явно пишутся AMBIGUOUS_DOMAIN_NO_DNS_RETARGET,
+NOT_TLS_REQUEST/NOT_HTTPS443, EXPLICIT_RULE_RETAINED идругие scope reasons.
+Нельзя адресовать второй DNS IP по угаданному inner-domain в ECH: scope guards
+не ослаблены ради прохождения теста. Рабочий второй адрес по точному host всё
+так же проверяется DIRECT; ни IP/subnet pin, ни особое правило дляVK не добавлены.
+TLS silence/RST не позволяют различить IP/гео/DPI без дополнительных измерений;
+их причина остаётся UNPROVEN. Агрегат12 failures сам по себе не содержит host list.
+Новая диагностическая проекция позволяет проверить фактический dispatch иотказы,
+а owner block перед обновлением печатает ещё сохранившиеся ordinary records.
