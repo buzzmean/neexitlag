@@ -45,6 +45,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - run: '& ./tests/windows-tools/resource-checkout-checks.ps1'
+        shell: powershell
+      - run: '& ./tests/windows-tools/resource-checkout-checks.ps1'
+        shell: pwsh
       - run: ./tests/windows-tools/vps-upgrade-tests.ps1
         shell: powershell
       - run: ./tests/windows-tools/vps-upgrade-tests.ps1

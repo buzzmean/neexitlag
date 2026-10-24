@@ -2,21 +2,17 @@
 
 # CURRENT
 
-## Последний итог — CDN short EOF/recent sibling,24.10.2026
-Поверхb5c506a (Riot/каталог сохранены). SmallEOF с fullSH иrx<64KiB раньше отклонял neutral при любом RTX. Fixture tx5791/rx2717,6579,7109+RTX воспроизвела FAIL до правки; теперь inconclusive, не trial_fail/failed_after_reply/negative score. RTX overlap может быть reordering; exact owner packet trace не получен. RST/alert/known timeout/noSH/EOF0 остаются отрицательными.
-EOF завершает trial/освобождает slot до позднего Close; late known hard error виден как PostTrialFailures/FailedAfterReply иFAILED вhistory, не скрывается старым healthy. Known failure не снимается поздними bytes. Strong1MiB/16records/3s иLOCAL10min сохранены; weak success теперь требует data-признак, certificate-only не success.
-Sibling: неизменяемый снимок допуска, сеть/profile/HTTPS443/googlevideo, >64KiB иlastRX<=30s, включая недавно закрытые media; предпочтение same subgroup, затем CDN class. Max1 unproven/cooldown>=3min сохранены. Age/reason/waits вcache, warm LOCAL не обнуляет аудит; недавний RX не гарантирует одновременно playable relay/буфер.
-Trials=LOCAL exposures; DataTrials=fullSH/postSH write/transform+>=64KiB completed type23 bytes. rr5 не blacklist, ожидаемый размер/redirect/segment заTLS неизвестны. Короткий EOF нейтрален и не data trial; нельзя заранее гарантировать выбор сегмента безMITM.
-Diag.14 (13занятаRiot): последние8 из32trial observations отдельно от foreground ring — exact host/tx/rx/close FIN/RST/RTX/timing/result/neutral reason/sibling age_at_admission; empty/legacy различаются, IPC budgets проверены. Нет новых RPC/manifest readers/payload capture.
-Freeze8f7103b: старый Edge restore держал journal open при reapply/save/rename. С91d78c79(18.10). Linux baseline30/30PASS, Wine Edge20/20FAIL; close до reapply ->20/20PASS, без ослабления ACL/foreign policy. Native Windows не запускался.
-Go full race/vet/build Linux+Windows/Windows vet PASS; Windows EXE CDN+freeze и pinnedDLL70filters/iSCSI/checksums PASS подWine; PS7 diagnostics/parser PASS. Native Windows/PS5.1/Chrome/ISP LOCAL после правки НЕ проверены. GUI/C#/WPF не менялись, повторно не собирались.
-Pre-push: существующие browser.local.probes/native.status routed иclub-readonly; JSON/BOM/PS5.1 syntax/quoted flags сохранены; owner block безgit switch, native exit/hash checks, tracked-only clean check. TLS/mTLS/protected/no-replay/guards/filters/VPS/CA/SSH/коды/PR8 не менялись.
-Решение: не угадывать HTTP поrrN иRTX; ограниченный recent sibling вместо мгновенного still-open. Подробности docs/YOUTUBE_LOCAL_FIRST.md иLOCAL_ENGINE_AUDIT.md. Предыдущий итог дословно вARCHIVE; реальные success/стоимость проб подтвердит владелец.
+## Последний итог — LF и хеши ресурсов,24.10.2026
+Причина воспроизведена в отдельном Git checkout с core.autocrlf=true/core.eol=crlf: GameCatalog.json 3177байт/135CR вместо3042байт/LF;9из10 старых GameCatalogTests FAIL GAME_CATALOG_INTEGRITY_FAILED. После LF210/210 C# PASS, WPF cross-target Release0errors/4прежнихCS8604.
+.gitattributes: GameCatalog.json,4assets/brand SVG сSHA изSOURCES.json, embedded LOCAL catalog/origin registry закрепленыLF; ZIP/DLL/SYS binary (WinDivert pins). Хеш GameCatalog и проверка подписей не менялись; содержимое ресурсов/игры/guards/Riot не менялись. Runtime-signed JSON сериализуется в bytes; installer hashes считаются при сборке, не hardcoded text pins.
+Новые GameCatalogIntegrityTests: embedded bytes LF/exact SHA иотказ CRLF поSHA/RSA-PSS. resource-checkout-checks.ps1 воспроизводит старый CRLF, затем проверяет7LF/3binary приautocrlf=true; добавлен вVerify Windows PS5.1+PS7. PS7PASS, branding3/3PASS втомжеcheckout. Уже извлечённый CRLF Git может не переписать после сменыattrs: owner block повторно извлекает проверенные tracked resources.
+НЕ ПРОВЕРЕНО: native Windows/PS5.1/GUI запуск наПК; Linux checkout эмулирует CRLF, WPF только cross-target. CI Windows не объявляетсяPASS. Go/routing/service не менялись — race/vet/WinDivert прогоны неприменимы.
+Pre-push: IPC/manifest defaults неприменимы(не менялись); PS5.1-compatible args/ASCII source, JSON exchange отсутствует; реальные git/dotnet версии иexit checks, tracked-only cleanliness. DIRECT/LOCAL/RELAY, подписи, TLS/mTLS, SID/ACL/profiles, VPS/CA/SSH/коды/PR8 не затронуты. Решение24.10: сохранять точные bytes через attrs, не нормализовать подписанный ввод. Предыдущий CDN итог дословно вARCHIVE.
 
 ## Таблица работ
 | Работа / дата | Файлы | Агент / ветка | Статус |
 |---|---|---|---|
-| Game catalog LF integrity /24.10.2026 | .gitattributes; tests/desktop и windows-tools; docs/handoff | Codex/codex/work | В РАБОТЕ: точные байты встроенных ресурсов при autocrlf |
+| Game catalog LF integrity /24.10.2026 | .gitattributes; tests/desktop и windows-tools; verify workflow; docs/handoff | Codex/codex/work | ОСВОБОЖДЕНО: LF/hash/CRLF fixture/C#/WPF готовы; native Windows/PS5.1 впереди |
 | CDN small EOF/sibling /24.10.2026 | services/client-service browser meter/selection/video usage/probe/native evidence + edge_transport.go/freeze fixture audit; tools/windows diag; tests/docs | Codex/codex/work | ОСВОБОЖДЕНО: код/лаборатория готовы; Windows/ISP приёмка впереди |
 | Riot launcher / 24.10.2026 | core/profiles/localstrategy; services/client-service launcher/native/origin; platform/windows discovery; tools/windows diag; tests/docs | Codex / codex/work | ОСВОБОЖДЕНО: launcher/alternate DNS/LOCAL/diag; owner acceptance впереди |
 | Game catalog / 24.10.2026 | apps/desktop-core/GameCatalog* и Resources; apps/desktop Games/MainWindow/VM integration; tests/desktop; docs | Codex / codex/work | ОСВОБОЖДЕНО: каталог/UI/тесты готовы; native Windows/club owner acceptance впереди |
@@ -88,38 +84,48 @@ Pre-push: существующие browser.local.probes/native.status routed иc
 - Video12/other4 клиентские пределы и8×48/probe reserve сохранять; деньги/ресурсы: DIRECT/LOCAL перед VPS, без искусственного page PASS.
 - CLAUDE.md20d8bd8 не откатывать/не дублировать; авто-порядок Claude относится к Claude Code.
 
-## Последние команды владельцу — служба/diag, без VPS/GUI rebuild
-PowerShell5.1 администратора под прежним owner SID, корень клона codex/work. Git/Go и pinned driver; Chrome/Edge не закрывать. Только GUI VELIQ завершает helper; затем открыть обычным ярлыком, если нужен интерфейс.
+## Последние команды владельцу — только GUI/ресурсы, без службы/VPS
+Обычный PowerShell5.1 прежнего owner (UAC-off full-admin допустим), корень существующего клона codex/work. Нужны Git/.NET8. Передpull разрешённый reset только GameCatalog.json; прочие tracked правки сохраняются и останавливают блок. Chrome/Edge не закрывать; helper закрывает только VELIQ. После установки открыть VELIQ обычным ярлыком и страницу «Игры».
 ```powershell
 & {
     $ErrorActionPreference='Stop'
-    if(-not (Get-Command go -ErrorAction SilentlyContinue)){throw 'Install Go: winget install --id GoLang.Go -e'}
     if(-not (Get-Command git -ErrorAction SilentlyContinue)){throw 'Install Git: winget install --id Git.Git -e'}
-    & go version
-    if($LASTEXITCODE){throw 'Go is unavailable'}
-    $savedPreference=$ErrorActionPreference
+    if(-not (Get-Command dotnet -ErrorAction SilentlyContinue)){throw 'Install .NET 8: winget install --id Microsoft.DotNet.SDK.8 -e'}
+    & dotnet --version
+    if($LASTEXITCODE){throw 'dotnet is unavailable'}
+    $saved=$ErrorActionPreference
     try {
         $ErrorActionPreference='Continue'
+        & git --version
+        if($LASTEXITCODE){throw 'git is unavailable'}
         $branch=(& git branch --show-current | Out-String).Trim()
         if($LASTEXITCODE -or $branch -ne 'codex/work'){throw 'Use existing codex/work checkout; no branch switched'}
+        & git checkout -- apps/desktop-core/Resources/GameCatalog.json
+        if($LASTEXITCODE){throw 'Catalog checkout failed'}
         $tracked=@(& git status --porcelain --untracked-files=no)
-        if($LASTEXITCODE -or $tracked.Count){throw 'Preserve tracked edits before update; untracked diagnostics ignored'}
+        if($LASTEXITCODE -or $tracked.Count){throw 'Preserve other tracked edits before update; untracked diagnostics ignored'}
         & git pull --ff-only origin codex/work
-        $pullExit=$LASTEXITCODE
-    } finally {$ErrorActionPreference=$savedPreference}
-    if($pullExit){throw 'git pull failed'}
-    & .\tools\windows\build-e2e.ps1 -DriverDirectory (Join-Path $env:ProgramData 'neexitlag\driver')
+        if($LASTEXITCODE){throw 'git pull failed'}
+        $resources=@(& git ls-files -- apps/desktop-core/Resources/GameCatalog.json core/localstrategy/catalog.json core/originpolicy/registry.json 'assets/brand/*.svg')
+        if($LASTEXITCODE -or $resources.Count -ne 7){throw 'Expected seven pinned tracked resources'}
+        foreach($path in $resources){Remove-Item -LiteralPath $path -ErrorAction Stop}
+        & git checkout -- @resources
+        if($LASTEXITCODE){throw 'Resource checkout failed; restore only the seven listed paths using git checkout -- <path>'}
+        & git ls-files --eol -- @resources
+        if($LASTEXITCODE){throw 'EOL check failed'}
+    } finally {$ErrorActionPreference=$saved}
+    & .\tests\windows-tools\resource-checkout-checks.ps1
+    . .\tools\windows\activation-nuget.ps1
+    Initialize-ActivationNuGetSource
+    & dotnet test tests/desktop/NeExitLag.Client.Tests.csproj --nologo
+    if($LASTEXITCODE){throw 'C# tests failed'}
+    & .\tools\windows\build-desktop.ps1
     & .\tools\windows\Close-VeliqGuiForUpdate.ps1
-    & .\tools\windows\update-service.ps1
-    $built=(Get-FileHash '.\bin\windows-e2e\neexitlag-service.exe' -Algorithm SHA256).Hash
-    $installed=(Get-FileHash "$env:ProgramData\neexitlag\neexitlag-service.exe" -Algorithm SHA256).Hash
-    if($built -ne $installed){throw 'SERVICE_HASH_MISMATCH'}
-    . .\tools\windows\common.ps1
-    Invoke-ServiceIPC 'status' | Select-Object build,connected,optimizing,capture_active
-    Read-Host 'Откройте VELIQ обычным ярлыком, при необходимости Оптимизировать; YouTube2160p >=2мин + перемотка в открытом Chrome, затем Enter. Браузеры не закрывать'
-    & .\tools\windows\diag-no-vpn.ps1 -Only browser,youtube
+    & .\tools\windows\install-desktop.ps1
+    $built=(Get-FileHash '.\bin\release\VELIQ.exe' -Algorithm SHA256).Hash
+    $installed=(Get-FileHash (Join-Path $env:LOCALAPPDATA 'Programs\VELIQ\VELIQ.exe') -Algorithm SHA256).Hash
+    if($built -ne $installed){throw 'GUI_HASH_MISMATCH'}
+    Write-Host 'GUI updated. Open VELIQ using its normal shortcut, then Games. Browsers stay open.'
 }
 ```
-Проверять: trial_result=INCONCLUSIVE_SMALL_EOF вместоfailed; data_trials отдельно отTrials/exposures; sibling_reason/age_at_admission/waits; strong_promotions иnewLOCAL RX. Двух минут не гарантирует новый TCP/обучение; cooldown>=3min остаётся.
-Недостающая packet trace не определяет, кто закрыл первым. Type23 bytes не HTTP body/playback proof; small EOF может быть encrypted alert/control/отказом приложения — неизвестно без расшифровки. Реальные known RST/alert/timeout отрицательны.
-Игры DIRECT/подготовленный PUBG UDP иprotected RELAY floors прежние. Riot/каталог остаются вветке; их owner gates иподпись/доставка внешнего game catalog не закрыты.
+Ожидается: resource fixturePASS;210C#PASS; GameCatalog.json i/lf w/lf attr/text eol=lf; «Игры» загружается без GAME_CATALOG_INTEGRITY_FAILED. Службу/driver/identity не обновляем. Старые CDN/ISP gates ивсе открытые вопросы выше сохраняются; команды предыдущей CDN приёмки — точечно вARCHIVE поe36e98c/short EOF.
