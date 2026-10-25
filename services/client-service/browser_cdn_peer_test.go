@@ -1,6 +1,9 @@
 package clientservice
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -96,4 +99,54 @@ func TestCDNPeerProofExpires(t *testing.T) {
 	if stage, _ := r.chooseEndpoint(b, cdnEndpoint{}, now.Add(youtubeLearnTTL+time.Second)); stage != "RELAY" {
 		t.Fatal("expired peer proof must not grant LOCAL")
 	}
+}
+
+func TestCDNPeerProofSurvivesRestartUntilRevoked(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "youtube-cdn-peer.json")
+	now := time.Now()
+	r := newYoutubeRuntime()
+	r.configurePeerStore(path, now)
+	id := r.order[0]
+	a := youtubeKey{Network: "net", Profile: "chrome", Domain: "googlevideo:sn-a", Port: 443}
+	b := youtubeKey{Network: "net", Profile: "chrome", Domain: "googlevideo:sn-b", Port: 443}
+	r.mu.Lock()
+	r.notePeerProofLocked(a, id, now)
+	r.mu.Unlock()
+	waitPeerFile(t, path, true)
+
+	restarted := newYoutubeRuntime()
+	restarted.configurePeerStore(path, now.Add(time.Hour))
+	if stage, strategy := restarted.chooseEndpoint(b, cdnEndpoint{}, now.Add(time.Hour)); stage != "LOCAL" || strategy != id || restarted.selection.PeerRestored != 1 {
+		t.Fatalf("restored proof: %s %s %d", stage, strategy, restarted.selection.PeerRestored)
+	}
+	restarted.failed(b, "LOCAL", id, "MIDSTREAM_STALL_NEW_CONNECTION_REQUIRED", now.Add(time.Hour))
+	waitPeerFile(t, path, false)
+
+	again := newYoutubeRuntime()
+	again.configurePeerStore(path, now.Add(2*time.Hour))
+	if again.selection.PeerRestored != 0 {
+		t.Fatal("revoked proof restored")
+	}
+	stale := newYoutubeRuntime()
+	r.mu.Lock()
+	r.notePeerProofLocked(a, id, now)
+	r.mu.Unlock()
+	waitPeerFile(t, path, true)
+	stale.configurePeerStore(path, now.Add(cdnPeerRememberTTL+time.Minute))
+	if stale.selection.PeerRestored != 0 {
+		t.Fatal("proof older than 24h restored")
+	}
+}
+
+func waitPeerFile(t *testing.T, path string, wantProof bool) {
+	t.Helper()
+	for i := 0; i < 200; i++ {
+		raw, _ := os.ReadFile(path)
+		var f cdnPeerFile
+		if json.Unmarshal(raw, &f) == nil && f.Version == 1 && (len(f.Proofs) > 0) == wantProof {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("peer file never reached proofs=%v", wantProof)
 }

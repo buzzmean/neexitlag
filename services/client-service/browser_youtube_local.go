@@ -138,6 +138,12 @@ type youtubeRuntime struct {
 	sustained      map[youtubeQualification]time.Time
 	peerProofs     map[youtubeQualification]time.Time
 	peerDenied     map[youtubeScoreKey]time.Time
+	peerSeen       map[youtubeQualification]time.Time
+	peerPath       string
+	peerWritten    time.Time
+	peerWriteSeq   uint64
+	peerWriteDone  uint64
+	peerWriteMu    sync.Mutex
 	selecting     bool
 	trialKey       youtubeKey
 	trialStrategy  string
