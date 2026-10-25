@@ -26,6 +26,7 @@ type UDPHealthEvidence struct {
 	OutboundBins        int    `json:"outbound_bins"`
 	ReplyBins           int    `json:"reply_bins"`
 	DegradedDurationMS  int64  `json:"degraded_duration_ms"`
+	FakePrelude         int    `json:"fake_prelude_datagrams,omitempty"`
 }
 
 type udpCadenceBin struct {

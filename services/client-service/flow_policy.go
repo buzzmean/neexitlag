@@ -37,6 +37,8 @@ func presetFor(p profiles.Profile) string {
 // relayFirstPreset marks applications whose services are blocked or region-locked
 // for the user: every flow goes through the relay and never falls back to DIRECT
 // (fail-closed), so the real address is not exposed and nothing silently degrades.
+const discordVoiceFakeRepeats, discordVoiceFakeCutoff = 6, 2
+
 func relayFirstPreset(preset string) bool {
 	switch preset {
 	case "openai", "openai-web", "anthropic", "telegram":
@@ -285,6 +287,12 @@ func (c *Controller) evaluateFlow(p profiles.Profile, id wp.ProcessIdentity, t w
 		}
 		d.BlockOnFailure = result.Fallback == flowpolicy.Required || result.Fallback == flowpolicy.FailBlock
 		d.ProbeDirect = result.Fallback == flowpolicy.FlowRelay
+		if d.ProbeDirect && result.Source == "preset" && presetFor(p) == "discord" && t.Protocol == "udp" {
+			// Flowseal Discord voice: fake x6 before each of the first two datagrams
+			// on the DIRECT socket; adaptive health still falls back to relay.
+			d.Flow.UDPFakePrelude, d.Flow.UDPFakeCutoff = discordVoiceFakeRepeats, discordVoiceFakeCutoff
+			d.Policy.Reason = "Discord high-port UDP: DIRECT with fake prelude; require bidirectional response, else relay"
+		}
 	} else {
 		if p.Fallback != "" {
 			d.BlockOnFailure = p.Fallback == flowpolicy.Required || p.Fallback == flowpolicy.FailBlock

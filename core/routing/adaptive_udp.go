@@ -23,6 +23,26 @@ type AdaptiveUDP struct {
 	deadline             time.Duration
 	transitioned, closed bool
 	reason               string
+	fakeSends, fakes     int
+}
+
+// udpFakePayload is the zapret/Flowseal default UDP fake: 64 zero bytes. A
+// voice server discards it; a stateful middlebox may classify the flow on it.
+var udpFakePayload = make([]byte, 64)
+
+// Caller holds mu. Fakes go only on the unconfirmed DIRECT socket, never on
+// relay, and never count toward DIRECT health (they expect no reply).
+func (d *AdaptiveUDP) sendFakePreludeLocked() {
+	if d.transitioned || d.flow.UDPFakePrelude == 0 || d.fakeSends >= int(d.flow.UDPFakeCutoff) {
+		return
+	}
+	d.fakeSends++
+	for i := 0; i < int(d.flow.UDPFakePrelude) && i < 12; i++ {
+		if d.current.Send(udpFakePayload) != nil {
+			return
+		}
+		d.fakes++
+	}
 }
 type udpHealthKey struct{ Application, Network, Destination string }
 type udpHealth struct {
@@ -127,6 +147,7 @@ func (d *AdaptiveUDP) Send(b []byte) error {
 	if err := d.checkHealthLocked(context.Background()); err != nil {
 		return err
 	}
+	d.sendFakePreludeLocked()
 	err := d.current.Send(b)
 	if err == nil && !d.transitioned {
 		d.health.observe(d.clock(), false, len(b))
@@ -227,7 +248,9 @@ func (d *AdaptiveUDP) clock() time.Time {
 func (d *AdaptiveUDP) Health() UDPHealthEvidence {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.health.snapshot(d.clock())
+	e := d.health.snapshot(d.clock())
+	e.FakePrelude = d.fakes
+	return e
 }
 func (d *AdaptiveUDP) checkHealthLocked(ctx context.Context) error {
 	if d.transitioned {

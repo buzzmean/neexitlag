@@ -39,6 +39,9 @@ type Flow struct {
 	OriginReason               string  `json:"origin_reason,omitempty"`
 	Network                    string  `json:"network_fingerprint,omitempty"`
 	PinnedPolicy               *Policy `json:"-"`
+	// UDPFakePrelude asks the adaptive DIRECT path to send this many fake
+	// datagrams before each of the first UDPFakeCutoff real ones (Discord voice).
+	UDPFakePrelude, UDPFakeCutoff uint8 `json:"-"`
 	Protocol                   string
 	Source, Destination        netip.AddrPort
 	PID                        uint32

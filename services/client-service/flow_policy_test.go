@@ -41,6 +41,9 @@ func TestDiscordHybridAndRequiredIsolation(t *testing.T) {
 	if !udp.Route.Direct() || !udp.ProbeDirect || udp.Policy.Fallback != flowpolicy.FlowRelay {
 		t.Fatal(udp)
 	}
+	if udp.Flow.UDPFakePrelude != 6 || udp.Flow.UDPFakeCutoff != 2 || tcp.Flow.UDPFakePrelude != 0 || quic.Flow.UDPFakePrelude != 0 {
+		t.Fatal("Discord voice fake prelude scope", udp.Flow, tcp.Flow, quic.Flow)
+	}
 	if quic.ProbeDirect || !quic.BlockOnFailure || quic.Route.RelayID != "VPS-01" {
 		t.Fatal("QUIC treated as voice", quic)
 	}
