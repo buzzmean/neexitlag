@@ -13,7 +13,7 @@ AppPublisher=VELIQ
 DefaultDirName={autopf}\VELIQ
 UsePreviousAppDir=no
 SetupIconFile=..\brand\icons\app-icon.ico
-UninstallDisplayIcon={localappdata}\Programs\VELIQ\VELIQ.exe
+UninstallDisplayIcon={app}\VELIQ.exe
 AppPublisherURL=https://github.com/buzzmean/neexitlag
 DisableDirPage=yes
 DisableProgramGroupPage=yes
@@ -27,7 +27,10 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 RestartIfNeededByRun=no
-CloseApplications=no
+; Interactive installs close a running VELIQ.exe; the service-driven update passes
+; /NOCLOSEAPPLICATIONS so a locked GUI is replaced at the next restart instead.
+CloseApplications=yes
+CloseApplicationsFilter=VELIQ.exe
 RestartApplications=no
 UninstallDisplayName=VELIQ
 [Languages]
@@ -39,11 +42,13 @@ Type: filesandordirs; Name: "{autopf}\VELIQ Setup"
 Name: "desktopicon"; Description: "Создать ярлык на рабочем столе"; GroupDescription: "Ярлыки:"; Check: NotClubImage
 [Files]
 Source: "{#StageRoot}\payload\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#StageRoot}\payload\gui\VELIQ.exe"; DestDir: "{app}"; Flags: ignoreversion restartreplace
 [Run]
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ""& '{app}\installer\install-package.ps1' -ClubCodeFile '{code:ClubCodeFile}' {code:ClubImageArgument}"""; Flags: runhidden waituntilterminated; StatusMsg: "Устанавливаем VELIQ…"; BeforeInstall: ClearInstallMarker; AfterInstall: CheckInstall
-Filename: "{localappdata}\Programs\VELIQ\VELIQ.exe"; Description: "Открыть VELIQ и ввести код активации"; Flags: runasoriginaluser nowait postinstall skipifsilent; Check: NotClubImage
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ""& '{app}\installer\install-package.ps1' -ClubCodeFile '{code:ClubCodeFile}' {code:ClubImageArgument} {code:UpdateArgument}"""; Flags: runhidden waituntilterminated; StatusMsg: "Устанавливаем VELIQ…"; BeforeInstall: ClearInstallMarker; AfterInstall: CheckInstall
+Filename: "{app}\VELIQ.exe"; Description: "Открыть VELIQ и ввести код активации"; Flags: runasoriginaluser nowait postinstall skipifsilent; Check: NotClubImage
 [Icons]
-Name: "{userdesktop}\VELIQ"; Filename: "{localappdata}\Programs\VELIQ\VELIQ.exe"; Tasks: desktopicon; Check: NotClubImage
+Name: "{autoprograms}\VELIQ"; Filename: "{app}\VELIQ.exe"
+Name: "{autodesktop}\VELIQ"; Filename: "{app}\VELIQ.exe"; Tasks: desktopicon; Check: NotClubImage
 [Code]
 function ClubCodeFile(Param: String): String;
 begin
@@ -54,6 +59,11 @@ function ClubImageArgument(Param: String): String;
 begin
  Result := '';
  if ExpandConstant('{param:CLUBIMAGE|0}')='1' then Result := '-ClubImage';
+end;
+function UpdateArgument(Param: String): String;
+begin
+ Result := '';
+ if ExpandConstant('{param:UPDATE|0}')='1' then Result := '-Update';
 end;
 function NotClubImage(): Boolean;
 begin

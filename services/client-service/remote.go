@@ -131,6 +131,12 @@ func (c *Controller) ConnectRemote(ctx context.Context, m Manifest) error {
 	go func() { defer c.wg.Done(); defer workers.Done(); c.runSharedLearning(remoteCtx, cp, keys) }()
 	c.wg.Add(1)
 	go func() { defer c.wg.Done(); defer workers.Done(); c.runRemoteTraffic(remoteCtx, cp, keys) }()
+	if m.StateDirectory != "" && c.updater.Load() == nil {
+		u := newUpdater(keys, filepath.Dir(m.StateDirectory), launchUpdateSetup)
+		c.updater.Store(u)
+		c.wg.Add(1)
+		go func() { defer c.wg.Done(); u.run(c.ctx) }()
+	}
 	renewer.fetch = cp.RenewCertificate
 	c.wg.Add(1)
 	go func() { defer c.wg.Done(); defer workers.Done(); renewer.run(remoteCtx) }()

@@ -23,7 +23,8 @@ $trigger=New-ScheduledTaskTrigger -AtStartup
 $principal=New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
 $settings=New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 3) -MultipleInstances IgnoreNew
 Register-ScheduledTask -TaskName 'VELIQ Club Boot' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force|Out-Null
-$gui=Join-Path $env:LOCALAPPDATA 'Programs\VELIQ\VELIQ.exe'
+# Setup installs the GUI machine-wide next to this payload ({app}\VELIQ.exe).
+$gui=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\VELIQ.exe'))
 $run='HKCU:\Software\Microsoft\Windows\CurrentVersion\Run';New-Item $run -Force|Out-Null
 Set-ItemProperty -LiteralPath $run -Name VELIQ -Value ('"'+$gui+'" --club')
 Stop-Service VELIQ -ErrorAction Stop
