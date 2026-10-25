@@ -38,6 +38,14 @@ Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 [InstallDelete]
 ; Pre-rebrand installs used "VELIQ Setup"; its payload is superseded by {app}.
 Type: filesandordirs; Name: "{autopf}\VELIQ Setup"
+; The payload is replaced as a whole: files dropped from a newer build must not stay
+; behind, or the package coverage check refuses the update.
+Type: filesandordirs; Name: "{app}\service"
+Type: filesandordirs; Name: "{app}\gui"
+Type: filesandordirs; Name: "{app}\tools"
+Type: filesandordirs; Name: "{app}\installer"
+Type: filesandordirs; Name: "{app}\public"
+Type: filesandordirs; Name: "{app}\driver"
 [Tasks]
 Name: "desktopicon"; Description: "Создать ярлык на рабочем столе"; GroupDescription: "Ярлыки:"; Check: NotClubImage
 [Files]
