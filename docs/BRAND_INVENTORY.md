@@ -18,7 +18,7 @@ runtime/истории ветки. Исходные SVG сохраняются �
 | Go module, server, mTLS | GitHub repo/module, ALPN neexitlag/*, identities/certificates/schema/VPS пути — без изменений |
 | README/технические docs | Старые имена в командах/путях описывают совместимость; не blind replace |
 | Старый branding doc | Исправлена устаревшая инструкция закрывать Chrome; браузеры не закрываются |
-| website/brand тексты Claude | Уже сохранены отдельным merge; сейчас не переписываются |
+| website/brand тексты | Уже сохранены отдельным merge; сейчас не переписываются |
 
 Импорт: veliq3-symbol.svg / symbol-reverse.svg и wordmark-dark.svg /
 wordmark-light.svg. Source metadata/geometry/цвета сохраняются. WPF-версия

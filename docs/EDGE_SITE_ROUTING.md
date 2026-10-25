@@ -182,7 +182,7 @@ Invoke-ServiceIPC 'edge.status' | ConvertTo-Json -Depth 12
 - Existing Chrome tests/workflow остаются включены. Native Edge DIRECT+ packet
   transform и пользовательский ISP не объявляются проверенными этой фикстурой.
 
-В Linux-окружении Codex .NET/Edge отсутствуют: C# локально не компилировался,
+В Linux-окружении сборки .NET/Edge отсутствуют: C# локально не компилировался,
 actual Windows acceptance здесь не выполнялся. CI должен подтвердить их отдельно.
 
 ## Исправление отказа кнопки (18.10.2026)

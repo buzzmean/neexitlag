@@ -47,7 +47,7 @@ Admin publication теперь требует версию выше bundled rele
 старым номером: anti-equivocation/rollback остаются строгими. Старый клиент,
 которому неизвестны новые поля, отвергнет update и сохранит свой reviewed LKG;
 старый config/1MiB revocations/ALPN/tickets/mTLS/activation не меняются.
-На production CP обновление данных/endpoint агентом не выполнялось; bundled
+На production CP обновление данных/endpoint не выполнялось; bundled
 client registry не требует повторного deploy VPS.
 
 ## Честные ограничения
