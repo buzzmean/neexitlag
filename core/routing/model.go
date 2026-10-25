@@ -34,20 +34,20 @@ func (r Route) Type() RouteKind {
 func (r Route) Direct() bool { return r.RelayID == "" }
 
 type Flow struct {
-	OriginDomain               string  `json:"origin_domain,omitempty"`
-	OriginService              string  `json:"origin_service,omitempty"`
-	OriginReason               string  `json:"origin_reason,omitempty"`
-	Network                    string  `json:"network_fingerprint,omitempty"`
-	PinnedPolicy               *Policy `json:"-"`
+	OriginDomain  string  `json:"origin_domain,omitempty"`
+	OriginService string  `json:"origin_service,omitempty"`
+	OriginReason  string  `json:"origin_reason,omitempty"`
+	Network       string  `json:"network_fingerprint,omitempty"`
+	PinnedPolicy  *Policy `json:"-"`
 	// UDPFakePrelude asks the adaptive DIRECT path to send this many fake
 	// datagrams before each of the first UDPFakeCutoff real ones (Discord voice).
 	UDPFakePrelude, UDPFakeCutoff uint8 `json:"-"`
-	Protocol                   string
-	Source, Destination        netip.AddrPort
-	PID                        uint32
-	ProcessPath, ApplicationID string
-	Route                      Route
-	CreatedAt, LastActivity    time.Time
+	Protocol                      string
+	Source, Destination           netip.AddrPort
+	PID                           uint32
+	ProcessPath, ApplicationID    string
+	Route                         Route
+	CreatedAt, LastActivity       time.Time
 }
 
 // Backend must identify the process before passing its flow to the routing core.

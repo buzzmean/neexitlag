@@ -44,6 +44,7 @@ func (d *AdaptiveUDP) sendFakePreludeLocked() {
 		d.fakes++
 	}
 }
+
 type udpHealthKey struct{ Application, Network, Destination string }
 type udpHealth struct {
 	relay   bool
