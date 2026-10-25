@@ -7,7 +7,7 @@ function Assert-VeliqPackage([string]$Root,[switch]$ForPackaging){
   if($name -match '(^|/)(identity\.json|device\.pem|ipc\.token|admin\.token|activation-code\.json.*)$' -or $name -match '\.(key|pfx|p12)$'){throw 'INSTALL_SECRET_FILE_REJECTED'}
  }
  $prefix=[IO.Path]::GetFullPath($Root)+[IO.Path]::DirectorySeparatorChar
- $covered=@(Get-ChildItem -LiteralPath $Root -Recurse -File | Where-Object { $_.FullName.Substring($prefix.Length) -notmatch '^(package\.json|install-(result|success)\.json|unins[0-9]{3}\.(exe|dat|msg))$' })
+ $covered=@(Get-ChildItem -LiteralPath $Root -Recurse -File | Where-Object { $_.FullName.Substring($prefix.Length) -notmatch '^(package\.json|install-(result|success)\.json|unins[0-9]{3}\.(exe|dat|msg)|VELIQ\.exe)$' })
  if(@($names|Select-Object -Unique).Count -ne $names.Count -or $covered.Count -ne $names.Count){throw 'INSTALL_PACKAGE_COVERAGE_INVALID'}
  foreach($name in $required){if($name -notin $names){throw 'INSTALL_PACKAGE_REQUIRED_FILE_MISSING'}}
  $full=[IO.Path]::GetFullPath($Root)+[IO.Path]::DirectorySeparatorChar
