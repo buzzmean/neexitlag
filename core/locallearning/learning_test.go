@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -77,7 +78,9 @@ func TestFortyPCsOnePickerPersistenceAndSafeReelection(t *testing.T) {
 		t.Fatal("personal data in shared state")
 	}
 	info, _ := os.Stat(path)
-	if info.Mode().Perm()&0077 != 0 {
+	// POSIX mode bits are meaningless on Windows (os.Stat reports 0666); the
+	// shared store runs on the Linux control plane, where this check applies.
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0077 != 0 {
 		t.Fatal("unprotected shared state", info.Mode())
 	}
 }
