@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/netip"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -169,6 +170,7 @@ func (x *browserDomainIndex) profileEvidenceFor(network, profile string, destina
 			}
 		}
 	}
+	out, _ = youtubeMediaOuterEvidence(out)
 	if len(out.Candidates) > 8 {
 		out.Candidates = out.Candidates[:8]
 	}
@@ -365,4 +367,35 @@ func (x *browserDomainIndex) observeBrowserDNS(network, profile string, rows []b
 		}
 		x.owned[k] = values
 	}
+}
+
+// Chrome sends a GREASE ECH extension in ordinary ClientHellos, so a googlevideo
+// media name is usually only visible as "outer" SNI. When that name is a classified
+// CDN subgroup and every DNS candidate for the IP is a non-protected YouTube name,
+// the shared-IP ambiguity carries no other origin: bind the flow to the outer
+// subgroup so the YouTube ladder (RELAY until a LOCAL trial proves itself) applies.
+// Protected candidates, unclassified hosts and other sites keep the ambiguity.
+func youtubeMediaOuterEvidence(e browserDomainEvidence) (browserDomainEvidence, bool) {
+	outer := strings.ToLower(strings.TrimSuffix(e.Outer, "."))
+	group := youtubeSubgroup(outer)
+	if !e.Ambiguous || !browserproxy.ValidPublicDNSName(outer) || !strings.HasPrefix(group, "googlevideo:sn-") || protectedBrowserDomain(outer) {
+		return e, false
+	}
+	listed := false
+	for _, host := range e.Candidates {
+		if protectedBrowserDomain(host) || !youtubeRelayDomain(host) {
+			return e, false
+		}
+		listed = listed || strings.EqualFold(strings.TrimSuffix(host, "."), outer)
+	}
+	if !listed {
+		return e, false
+	}
+	e.Domain = outer
+	e.Ambiguous = false
+	e.YoutubeOnly = true
+	e.YoutubeSubgroup = group
+	e.Source = "ECH_YOUTUBE_MEDIA_OUTER_IN_DNS_SET"
+	e.Confidence = "outer SNI listed in YouTube-only DNS set; inner ECH not proven"
+	return e, true
 }
