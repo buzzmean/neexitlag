@@ -35,7 +35,8 @@ type youtubeSelectionSnapshot struct {
 	ClientInitiatedTrialCloses                                          uint64
 	StrongPromotions, PostPromotionFailures, RemoteSmallEOFInconclusive uint64
 	BurstPromotions                                                     uint64
-	PeerProvisional, PeerProvisionalFailures                            uint64
+	PeerProvisional, PeerProvisionalFailures, PeerRevocations           uint64
+	PeerProofs                                                          int
 	ActiveDomain                                                       string `json:"active_domain,omitempty"`
 	ActiveAgeMS                                                         int64  `json:"active_age_ms"`
 	ActiveLastRXAgeMS                                                   int64  `json:"active_last_rx_age_ms"`

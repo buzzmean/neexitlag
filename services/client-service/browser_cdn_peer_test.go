@@ -40,6 +40,26 @@ func TestCDNPeerProofSpreadsToOtherSubgroupUntilFailure(t *testing.T) {
 	}
 }
 
+func TestCDNPeerProofIgnoresBackgroundAndNonCDNFailures(t *testing.T) {
+	r := newYoutubeRuntime()
+	now := time.Now()
+	id := r.order[0]
+	a := youtubeKey{Network: "net", Profile: "chrome", Domain: "googlevideo:sn-a", Port: 443}
+	b := youtubeKey{Network: "net", Profile: "chrome", Domain: "googlevideo:sn-b", Port: 443}
+	page := youtubeKey{Network: "net", Profile: "chrome", Domain: "www.youtube.com", Port: 443}
+	r.mu.Lock()
+	r.notePeerProofLocked(a, id, now)
+	r.mu.Unlock()
+	r.backgroundFailure(b, id, "BACKGROUND_NOT_SUSTAINED_OR_NO_TRANSFORM")
+	r.failed(page, "LOCAL", id, "MIDSTREAM_STALL_NEW_CONNECTION_REQUIRED", now)
+	if stage, strategy := r.chooseEndpoint(b, cdnEndpoint{}, now); stage != "LOCAL" || strategy != id {
+		t.Fatalf("background/non-CDN failure revoked peer proof: %s %s", stage, strategy)
+	}
+	if s := r.snapshot(); s.Selection.PeerProofs != 1 || s.Selection.PeerRevocations != 0 {
+		t.Fatalf("snapshot %+v", s.Selection)
+	}
+}
+
 func TestCDNPeerProofExpires(t *testing.T) {
 	r := newYoutubeRuntime()
 	now := time.Now()

@@ -137,6 +137,7 @@ type youtubeRuntime struct {
 	qualifications map[youtubeQualification]time.Time
 	sustained      map[youtubeQualification]time.Time
 	peerProofs     map[youtubeQualification]time.Time
+	peerDenied     map[youtubeScoreKey]time.Time
 	selecting     bool
 	trialKey       youtubeKey
 	trialStrategy  string
@@ -196,8 +197,7 @@ func (r *youtubeRuntime) failed(k youtubeKey, stage, strategy, reason string, no
 		if v.Reason == cdnPeerProvisionalReason {
 			r.selection.PeerProvisionalFailures++
 		}
-		// Any real LOCAL failure of this strategy stops spreading it to other subgroups.
-		r.revokePeerProofLocked(k, strategy)
+		r.peerFlowFailedLocked(k, strategy, reason, now)
 		r.score(k, strategy, false, now)
 		for i, id := range r.order {
 			if id == strategy {
@@ -248,6 +248,11 @@ func (r *youtubeRuntime) snapshot() youtubeSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	s := youtubeSnapshot{RecordsOmitted: r.seq - uint64(len(r.records)), CacheEntries: len(r.cache), Cache: []youtubeCacheView{}, Stages: []youtubeStage{}, Records: []youtubeRecord{}, Shared: r.shared.snapshot(), Selection: r.selection, Replays: "complete ClientHello only before ANY origin byte; established TLS pinned; transport health is not HTTP/playback PASS"}
+	for _, until := range r.peerProofs {
+		if time.Now().Before(until) {
+			s.Selection.PeerProofs++
+		}
+	}
 	if r.trialActive {
 		s.Selection.ActiveTrialID = r.trialID
 		s.Selection.ActiveRecordID = r.trialRecord

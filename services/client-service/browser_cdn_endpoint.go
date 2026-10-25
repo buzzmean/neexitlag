@@ -71,7 +71,7 @@ func (r *youtubeRuntime) chooseEndpoint(k youtubeKey, e cdnEndpoint, now time.Ti
 		r.mu.Lock()
 		defer r.mu.Unlock()
 		v := r.cache[k]
-		if peer := r.peerStrategyLocked(k, v, now); peer != "" && !r.endpointBlockedLocked(k, peer, e, now) {
+		if peer := r.peerStrategyLocked(k, now);peer != "" && !r.endpointBlockedLocked(k, peer, e, now) {
 			r.selection.PeerProvisional++
 			v.Reason = cdnPeerProvisionalReason
 			if v.Stage == "" {

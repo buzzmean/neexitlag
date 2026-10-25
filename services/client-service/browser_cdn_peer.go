@@ -1,6 +1,9 @@
 package clientservice
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 const cdnPeerProvisionalReason = "CDN_PEER_PROMOTED_PROVISIONAL"
 
@@ -9,8 +12,8 @@ const cdnPeerProvisionalReason = "CDN_PEER_PROMOTED_PROVISIONAL"
 // network/profile/hint mode open new TCP flows LOCAL with that exact strategy,
 // without waiting for their own max1 trial. It is provisional: the flow is a
 // normal LOCAL flow (first-flight fallback to RELAY before origin bytes, no
-// replay), >64KiB confirms only its own subgroup, and any real failure revokes
-// the peer proof for the whole network/profile/strategy.
+// replay), >64KiB confirms only its own subgroup, and a real CDN flow failure
+// revokes the peer proof for the whole network/profile/strategy.
 func (r *youtubeRuntime) notePeerProofLocked(k youtubeKey, strategy string, now time.Time) {
 	if !youtubeCDN(k) || k.Network == "" || strategy == "" {
 		return
@@ -29,23 +32,42 @@ func (r *youtubeRuntime) notePeerProofLocked(k youtubeKey, strategy string, now 
 	r.peerProofs[youtubeQualification{k.Network, k.Profile, strategy, k.HintOnly}] = now.Add(youtubeLearnTTL)
 }
 
-// Caller holds mu. Returns a strategy only for a CDN subgroup with no own
-// LOCAL decision, no pending backoff and that strategy not failed in this sweep.
-func (r *youtubeRuntime) peerStrategyLocked(k youtubeKey, v youtubeLearn, now time.Time) string {
-	if !youtubeCDN(k) || k.Network == "" || len(r.peerProofs) == 0 || now.Before(v.Retry) && v.Failures > 0 || !r.room(k, now) {
+// Caller holds mu. Returns a strategy only for a CDN subgroup without its own
+// LOCAL decision whose real flows have not failed with that strategy recently.
+// Background public-origin checks (www/i.ytimg GET) are not CDN flow evidence
+// and neither block nor revoke a peer proof.
+func (r *youtubeRuntime) peerStrategyLocked(k youtubeKey, now time.Time) string {
+	if !youtubeCDN(k) || k.Network == "" || len(r.peerProofs) == 0 || !r.room(k, now) {
 		return ""
 	}
-	for i, id := range r.order {
-		if v.Tried&(uint64(1)<<uint(i)) != 0 {
-			continue
-		}
-		if now.Before(r.peerProofs[youtubeQualification{k.Network, k.Profile, id, k.HintOnly}]) {
+	for _, id := range r.order {
+		if now.Before(r.peerProofs[youtubeQualification{k.Network, k.Profile, id, k.HintOnly}]) && !now.Before(r.peerDenied[youtubeScoreKey{k, id}]) {
 			return id
 		}
 	}
 	return ""
 }
 
-func (r *youtubeRuntime) revokePeerProofLocked(k youtubeKey, strategy string) {
-	delete(r.peerProofs, youtubeQualification{k.Network, k.Profile, strategy, k.HintOnly})
+// Caller holds mu. Only a real CDN flow failure counts; BACKGROUND_* reasons and
+// non-CDN hosts (www/i.ytimg/account) never revoke CDN peer evidence.
+func (r *youtubeRuntime) peerFlowFailedLocked(k youtubeKey, strategy, reason string, now time.Time) {
+	if !youtubeCDN(k) || strategy == "" || strings.HasPrefix(reason, "BACKGROUND_") {
+		return
+	}
+	q := youtubeQualification{k.Network, k.Profile, strategy, k.HintOnly}
+	if now.Before(r.peerProofs[q]) {
+		r.selection.PeerRevocations++
+	}
+	delete(r.peerProofs, q)
+	if r.peerDenied == nil {
+		r.peerDenied = map[youtubeScoreKey]time.Time{}
+	}
+	for key, until := range r.peerDenied {
+		if !now.Before(until) {
+			delete(r.peerDenied, key)
+		}
+	}
+	if len(r.peerDenied) < 256 {
+		r.peerDenied[youtubeScoreKey{k, strategy}] = now.Add(youtubeLearnTTL)
+	}
 }
