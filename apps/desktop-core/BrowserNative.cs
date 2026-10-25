@@ -55,7 +55,7 @@ public sealed partial class DesktopViewModel
     public string BrowserReadinessText {get;private set;}="Подготавливаем браузер…";
     public void ApplyNativeBrowserReadiness(NativeBrowserStatus status){
         var configured = Applications.Where(a => NativeBrowser(a.Profile) && a.Profile.Mode == "AUTO").Select(a => a.Profile.Id).ToArray();
-        var observed = configured.Length > 0 && configured.All(id => status.Profiles.Any(p => p.ProfileId == id
+        var observed = configured.Any(id => status.Profiles.Any(p => p.ProfileId == id
             && p.NativeOnly is { BidirectionalExchanges: > 0, SentBytes: > 0, ReceivedBytes: > 0 }));
         var next=!Optimizing?"Браузеры используют обычную сеть.":status.CaptureReady&&status.Optimizing&&status.State=="READY_NEW_CONNECTIONS"&&observed
           ?"Браузеры: обмен через VELIQ подтверждён."

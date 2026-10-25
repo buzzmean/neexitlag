@@ -88,7 +88,7 @@ public sealed partial class DesktopViewModel : Observable
         get => busy; private set
         {
             if (Set(ref busy, value))
-                Changed(nameof(CanControl));
+            { Changed(nameof(CanControl)); NotifyBusyHome(); }
         }
     }
     public bool CanControl => Available && !Busy;

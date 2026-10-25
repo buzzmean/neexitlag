@@ -5,7 +5,8 @@ public sealed partial class DesktopViewModel {
   [nameof(Primary)]=Primary,[nameof(ActiveApps)]=ActiveApps,[nameof(Rx)]=Rx,[nameof(Tx)]=Tx,
   [nameof(CurrentLatency)]=CurrentLatency,[nameof(DirectLatency)]=DirectLatency,[nameof(RelayLatency)]=RelayLatency,
   [nameof(Jitter)]=Jitter,[nameof(Loss)]=Loss,[nameof(CurrentBurst)]=CurrentBurst,
-  [nameof(CurrentStability)]=CurrentStability,[nameof(CurrentSamples)]=CurrentSamples};
+  [nameof(CurrentStability)]=CurrentStability,[nameof(CurrentSamples)]=CurrentSamples,
+  [nameof(HomeLead)]=HomeLead,[nameof(Server)]=Server,[nameof(ServerHint)]=ServerHint,[nameof(GoSub)]=GoSub};
  void NotifyHomeChanges(Dictionary<string,object?> old){foreach(var pair in HomeValues())if(!Equals(old[pair.Key],pair.Value))Changed(pair.Key);}
 }
 public sealed partial class ApplicationRow {
