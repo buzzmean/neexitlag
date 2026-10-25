@@ -2,7 +2,7 @@
 # executable path, credentials, process arguments or arbitrary errors in output.
 function Get-VeliqNativeFirewallSnapshot([string]$Executable) {
  $ErrorActionPreference='Stop'
- $name='neexitlag-native-tcp-v1'
+ $name='VELIQ-native-tcp-v1'
  $result=[ordered]@{state='MISSING';known=$true;rule_present=$false;program_matches=$false;effective=$false;local_rules_permitted=$true}
  $persistent=@(Get-NetFirewallRule -PolicyStore PersistentStore -Name ($name+'*') -ErrorAction Stop | Where-Object Name -eq $name)
  if($persistent.Count -eq 0){return [pscustomobject]$result}

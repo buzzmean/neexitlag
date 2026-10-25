@@ -2,7 +2,7 @@ import pathlib, unittest
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 class InstallerContract(unittest.TestCase):
  def test_browser_processes_not_closed(self):
-  iss=(ROOT/'installer/setup.iss').read_text()
+  iss=(ROOT/'installer/setup.iss').read_text(encoding='utf-8-sig')
   self.assertIn('CloseApplications=no',iss);self.assertIn('RestartApplications=no',iss)
   scripts='\n'.join(p.read_text(encoding='utf-8-sig') for p in (ROOT/'installer').glob('*.ps1'))
   for bad in ('Stop-Process','taskkill','chrome://quit','ssh ','scp ','tools/enroll','RotateCA'):self.assertNotIn(bad,scripts)
@@ -17,7 +17,7 @@ class InstallerContract(unittest.TestCase):
   build=(ROOT/'installer/build.ps1').read_text()
   self.assertIn('PUBLIC_TRUST_DIRECTORY_MUST_CONTAIN_ONLY_CA',build)
   self.assertNotIn('device.pem',build);self.assertNotIn('identity.json',build)
-  self.assertIn('RestartIfNeededByRun=no',(ROOT/'installer/setup.iss').read_text())
+  self.assertIn('RestartIfNeededByRun=no',(ROOT/'installer/setup.iss').read_text(encoding='utf-8-sig'))
 
 class ClubImageContract(unittest.TestCase):
  def test_public_payload_only_and_club_scripts_present(self):
