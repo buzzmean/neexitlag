@@ -156,8 +156,31 @@ func TestPostgresAPIIdentityTicketConfigAndRevoke(t *testing.T) {
 		t.Fatal(status)
 	}
 	signed, e := security.ValidateConfig(map[string]ed25519.PublicKey{"test": pub}, raw, time.Now())
-	if e != nil || len(signed.Relays) != 1 || len(signed.ApplicationProfiles) != 4 {
+	if e != nil || len(signed.Relays) != 1 || len(signed.ApplicationProfiles) != len(profiles.Defaults())+1 {
 		t.Fatal("signed config", e)
+	}
+	// Migrations publish all current builtin profiles plus the custom profile;
+	// verify exact content as well as count so additions are not silently omitted.
+	expected := map[string]string{}
+	for _, profile := range append(profiles.Defaults(), custom) {
+		b, err := json.Marshal(profile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected[profile.ID] = string(b)
+	}
+	for _, profile := range signed.ApplicationProfiles {
+		b, err := json.Marshal(profile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if expected[profile.ID] != string(b) {
+			t.Fatalf("published application profile mismatch: %s", profile.ID)
+		}
+		delete(expected, profile.ID)
+	}
+	if len(expected) != 0 {
+		t.Fatal("missing published profiles")
 	}
 	for _, path := range []string{"/api/v1/devices", "/api/v1/relays", "/api/v1/apps", "/api/v1/version", "/metrics", "/healthz"} {
 		if status, _ := request("GET", path, nil, true); status != 200 {
