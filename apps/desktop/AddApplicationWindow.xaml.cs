@@ -17,7 +17,7 @@ public partial class AddApplicationWindow : Window
     bool saving;
     public AddApplicationWindow(Window owner, DesktopViewModel desktop, CancellationToken ct)
     {
-        InitializeComponent();
+        InitializeComponent(); WindowTheme.UseDarkCaption(this);
         Owner = owner; Icon = owner.Icon;
         this.desktop = desktop;
         model = desktop.CreateApplicationPicker();
