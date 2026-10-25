@@ -122,8 +122,8 @@ recovery helpers, если они есть. На обычном ПК GUI зат�
 обновления сама поднимает AUTO; никаких PAC/restart диалогов этот код не добавляет.
 
 ```powershell
-git switch codex/work
-git pull --ff-only origin codex/work
+git switch main
+git pull --ff-only origin main
 $m=Get-Content -Raw "$env:ProgramData\neexitlag\service.json" | ConvertFrom-Json
 & .\tools\windows\build-e2e.ps1 -DriverDirectory $m.driver.directory
 & .\tools\windows\Close-VeliqGuiForUpdate.ps1

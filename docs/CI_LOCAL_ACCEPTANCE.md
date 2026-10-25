@@ -123,7 +123,7 @@ runner labels или удалять artifacts для этого отказа н�
 внешний VPS ещё не проверены на этих изменениях. Сначала на ПК владельца из
 корня клона — только read-only VPS snapshot:
 ```powershell
-git pull --ff-only origin codex/work
+git pull --ff-only origin main
 & .\tools\windows\verify-activation-vps.ps1 -VpsIP 2.56.177.4 -SSHUser root -SSHPort 22
 ```
 Затем локальный Windows test runner выше (не меняет VPS/установку). Mutating

@@ -100,7 +100,7 @@ Chrome и Edge оставить открытыми. Команды по одно
 (в режиме UAC-off тот же пользователь):
 
 ```powershell
-git pull --ff-only origin codex/work
+git pull --ff-only origin main
 ```
 
 ```powershell

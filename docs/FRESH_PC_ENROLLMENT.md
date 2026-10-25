@@ -165,7 +165,7 @@ python3 /etc/neexitlag.bak-<точный-UTC-random>/rollback.py rollback \
 и в CA rotation. Теперь совместимые бинарники **не заменяются** только из-за
 старого сообщения. Нужен новый отчёт.
 
-После получения актуального `codex/work` из owner PowerShell в корне repo:
+После получения актуального `main` из owner PowerShell в корне repo:
 
 ```powershell
 # 1. Только отчёт: один интерактивный SSH, без install/enroll/CA/DB/systemd writes.
@@ -278,7 +278,7 @@ PowerShell владельца (обычный при включённом UAC; �
 ```powershell
 # Клонирование и переход выполняются один раз после каждого freeze.
 $repo = Join-Path $env:USERPROFILE 'neexitlag'
-git clone --branch codex/work https://github.com/buzzmean/neexitlag.git $repo
+git clone --branch main https://github.com/buzzmean/veliq.git $repo
 Set-Location $repo
 # Единственная команда установки после подготовленной migration VPS:
 & .\tools\windows\bootstrap-fresh-pc.ps1 -VpsIP 2.56.177.4 -SSHUser root -SSHPort 22
@@ -464,8 +464,8 @@ VELIQ** через трей. Далее PowerShell (для обновления 
 же SID; при проверенном UAC-off используется текущее full-admin окно):
 
 ```powershell
-git switch codex/work
-git pull --ff-only origin codex/work
+git switch main
+git pull --ff-only origin main
 & .\tools\windows\build-e2e.ps1
 & .\tools\windows\build-desktop.ps1
 & .\tools\windows\update-service.ps1

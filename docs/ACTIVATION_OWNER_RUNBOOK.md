@@ -62,11 +62,11 @@ exit
 
 Git, Go, .NET SDK 8, Python уже установлены. Команды по одной из корня клона в
 профиле владельца, например `$HOME\neexitlag`; путь C:\neexitlag не требуется.
-Исходники — codex/work. Не выполнять bootstrap-fresh-pc: это другой, SSH-enroll
+Исходники — main. Не выполнять bootstrap-fresh-pc: это другой, SSH-enroll
 путь, он не проверяет сценарий активации кодом.
 
 ```powershell
-git pull --ff-only origin codex/work
+git pull --ff-only origin main
 ```
 
 В обычном PowerShell владельца (при UAC off — существующий full-admin под тем же
@@ -341,7 +341,7 @@ VELIQ**, Chrome/Edge не закрывать. Сначала обычный Powe
 off — текущий full-admin с тем же SID):
 
 ```powershell
-git pull --ff-only origin codex/work
+git pull --ff-only origin main
 ```
 ```powershell
 & .\tools\windows\build-e2e.ps1
@@ -429,7 +429,7 @@ ACTIVATION_REQUIRED; после успешной активации capture ра
 & .\tools\windows\update-activation-vps.ps1 -ExpectedCommit ((git rev-parse HEAD).Trim()) -ConfirmDeployment ACTIVATE-CODES-2.56.177.4
 ```
 
-Требуется чистый checkout точного проверенного коммита codex/work, а не другая
+Требуется чистый checkout точного проверенного коммита main, а не другая
 локальная сборка. Добавочная миграция **schema 2→3** расширяет kind, добавляет
 ограничение test=2 места и срок не более 14 суток. Club/personal, слоты, salt,
 nonce/revocations не изменяются. Схема 3 остаётся совместимой с чтением и обычными
@@ -623,7 +623,7 @@ GUI VELIQ, чтобы заменить его файлы/recovery helper; Chrome
 Это операция владельца обновления, не ежедневный пользовательский сценарий.
 
 ```powershell
-git pull --ff-only origin codex/work
+git pull --ff-only origin main
 ```
 ```powershell
 & .\tools\windows\build-e2e.ps1

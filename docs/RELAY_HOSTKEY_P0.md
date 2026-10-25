@@ -58,7 +58,7 @@ HTTP200 и DNS JSON response. Это не YouTube/1080p/40ПК PASS.
 
 ## Команды владельцу
 
-Из чистого checkout codex/work, PowerShell5.1 **администратор под тем же SID**, Git,
+Из чистого checkout main, PowerShell5.1 **администратор под тем же SID**, Git,
 Go, Python3, OpenSSH. Действующая activation/manifest обязательны. Root key нового
 VPS: `~/.ssh/id_ed25519`; старый VPS может запросить пароль один раз. `accept-new`
 принимает первый SSH host key, изменившийся отвергается. Fingerprint первого SSH

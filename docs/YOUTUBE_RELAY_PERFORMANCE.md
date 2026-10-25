@@ -106,7 +106,7 @@ PowerShell администратора под владельцем устано
 GUI не менялся: .NET rebuild/install-desktop не нужен. Команды по одной:
 
 ```powershell
-git pull --ff-only origin codex/work
+git pull --ff-only origin main
 ```
 
 ```powershell

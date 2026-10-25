@@ -1,7 +1,7 @@
 name: Game UDP
 on:
   push:
-    branches: [codex/work]
+    branches: [main]
     paths: ['core/gameudp/**', 'platform/windows/**', 'services/client-service/**', 'apps/**', 'tests/desktop/**', 'tests/windows-tools/game-udp-checks.ps1', 'tools/windows/*game-udp*', '.github/workflows/game-udp.yml']
   pull_request:
   workflow_dispatch:

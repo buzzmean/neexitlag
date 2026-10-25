@@ -108,11 +108,11 @@ Google hints vs shared-IP SNI failures; защищённые/explicit прави
 
 ## D. Обновление и двухминутная приёмка владельца
 
-Из клона codex/work, PowerShell администратора под владельцем установки; Chrome и
+Из клона main, PowerShell администратора под владельцем установки; Chrome и
 Edge оставить открытыми. GUI не менялся — build-desktop/install-desktop не нужны.
 
 ```powershell
-git pull --ff-only origin codex/work
+git pull --ff-only origin main
 ```
 
 ```powershell

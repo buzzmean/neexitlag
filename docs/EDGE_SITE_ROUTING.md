@@ -124,8 +124,8 @@ fail-closed, а для освобождения обычных сайтов на
 ```powershell
 git status --short
 git fetch origin
-git switch codex/work
-git pull --ff-only origin codex/work
+git switch main
+git pull --ff-only origin main
 & .\tools\windows\build-e2e.ps1
 & .\tools\windows\build-desktop.ps1
 ```
