@@ -3,7 +3,7 @@
 # uninstalls, never touches the VPS; a partly restored PC stops with an error.
 [CmdletBinding()]
 param(
- [string]$KitDirectory=(Join-Path $PSScriptRoot '..\..'),
+ [string]$KitDirectory='',
  [string]$InstallDirectory="$env:ProgramData\neexitlag",
  [switch]$NoLaunch
 )
@@ -11,6 +11,8 @@ $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 . (Join-Path $PSScriptRoot 'reinstall-state.ps1')
 Assert-Administrator
+# Windows PowerShell 5.1 can leave $PSScriptRoot empty inside param().
+if(!$KitDirectory){$KitDirectory=Join-Path $PSScriptRoot '..\..'}
 $kit=(Resolve-Path -LiteralPath $KitDirectory).Path.TrimEnd('\')
 $owner=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 # Elevation through another admin account would install for the wrong SID and
