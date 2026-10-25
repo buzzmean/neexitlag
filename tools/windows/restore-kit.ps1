@@ -5,7 +5,7 @@
 #   Unblock-File "$HOME\Downloads\restore-kit.ps1"; & "$HOME\Downloads\restore-kit.ps1"
 [CmdletBinding()]
 param(
- [string]$KitFile=(Join-Path $PSScriptRoot 'veliq-kit.bin'),
+ [string]$KitFile='',
  [switch]$NoLaunch
 )
 $ErrorActionPreference='Stop'
@@ -13,6 +13,8 @@ Set-StrictMode -Version Latest
 $principal=[Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if(!$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'Run from an elevated Windows PowerShell.'}
 $owner=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+# Windows PowerShell 5.1 can leave $PSScriptRoot empty inside param().
+if(!$KitFile){$KitFile=Join-Path $PSScriptRoot 'veliq-kit.bin'}
 $KitFile=(Resolve-Path -LiteralPath $KitFile).Path
 # Inverse of Protect-KitArchive in export-kit.ps1; the MAC is checked before
 # any byte is decrypted.
