@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/buzzmean/neexitlag/core/release"
@@ -98,7 +99,9 @@ func (u *updater) run(ctx context.Context) {
 		u.check(ctx)
 		// A throttled or stalled download resumes soon from the partial file
 		// instead of waiting for the next regular check.
-		if u.snapshot().State == "DOWNLOAD_FAILED" {
+		if s := u.snapshot(); s.State == "DOWNLOAD_FAILED" && s.Error == "UPDATE_DOWNLOAD_SLOW" {
+			timer.Reset(10 * time.Second)
+		} else if s.State == "DOWNLOAD_FAILED" {
 			timer.Reset(downloadRetry)
 		} else {
 			timer.Reset(updateInterval)
@@ -110,6 +113,10 @@ const downloadRetry = 3 * time.Minute
 
 // Abort a download that delivers nothing for this long; it resumes later.
 const downloadStall = time.Minute
+
+// A direct download slower than downloadSlowBytes per downloadSlowWindow switches to the relay.
+const downloadSlowWindow = 30 * time.Second
+const downloadSlowBytes = 3 << 20
 
 type githubRelease struct {
 	Assets []struct {
@@ -265,12 +272,39 @@ func (u *updater) download(ctx context.Context, url string, m release.Manifest) 
 	// Abort when nothing arrives for downloadStall; the next attempt resumes.
 	stall := time.AfterFunc(downloadStall, cancel)
 	defer stall.Stop()
-	body := &progressReader{r: io.LimitReader(resp.Body, m.SetupSize-have+1), onRead: func() { stall.Reset(downloadStall) }}
+	var got atomic.Int64
+	body := &progressReader{r: io.LimitReader(resp.Body, m.SetupSize-have+1), onRead: func(n int) { got.Add(int64(n)); stall.Reset(downloadStall) }}
+	slow := atomic.Bool{}
+	if !u.usingRelay() && u.relay != nil {
+		// Throttled direct path (seen at ~20 KB/s): give up early and resume via relay.
+		go func() {
+			tick := time.NewTicker(downloadSlowWindow)
+			defer tick.Stop()
+			last := int64(0)
+			for {
+				select {
+				case <-work.Done():
+					return
+				case <-tick.C:
+					now := got.Load()
+					if now-last < downloadSlowBytes {
+						slow.Store(true)
+						cancel()
+						return
+					}
+					last = now
+				}
+			}
+		}()
+	}
 	n, e := io.Copy(io.MultiWriter(f, h), body)
 	if ce := f.Close(); e == nil {
 		e = ce
 	}
 	if e != nil {
+		if slow.Load() {
+			return "", errors.New("UPDATE_DOWNLOAD_SLOW")
+		}
 		return "", errors.New("UPDATE_DOWNLOAD_INTERRUPTED")
 	}
 	if have+n != m.SetupSize || hex.EncodeToString(h.Sum(nil)) != m.SetupSHA256 {
@@ -285,13 +319,13 @@ func (u *updater) download(ctx context.Context, url string, m release.Manifest) 
 
 type progressReader struct {
 	r      io.Reader
-	onRead func()
+	onRead func(int)
 }
 
 func (p *progressReader) Read(b []byte) (int, error) {
 	n, e := p.r.Read(b)
 	if n > 0 {
-		p.onRead()
+		p.onRead(n)
 	}
 	return n, e
 }
