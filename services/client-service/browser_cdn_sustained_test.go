@@ -196,3 +196,78 @@ func TestRunningCDNReleasesSlotBeforeCloseAndKeepsExactTLSConnection(t *testing.
 		t.Fatal("socket/stream replacement", opens.Load())
 	}
 }
+func feedCompletedBurst(m *youtubeMeter, now time.Time) {
+	feedSustainedWire(m, now)
+	// The whole response arrived in under a second, then keep-alive idles.
+	m.firstApplicationRX = now.Add(-9 * time.Second)
+	m.lastReply = now.Add(-8 * time.Second)
+	m.lastClientWrite = now.Add(-9500 * time.Millisecond)
+}
+func TestCompletedFastCDNBurstPromotesAfterQuietWithoutPendingRequest(t *testing.T) {
+	m, r, k, id := trialMeterFixture(t, localstrategy.TCPTrace{ClientRetransmits: 7}, io.EOF)
+	now := time.Now()
+	feedCompletedBurst(m, now)
+	m.maybePromoteTrial(now)
+	if !m.promoted || r.trialActive || r.selection.StrongPromotions != 1 || r.selection.BurstPromotions != 1 {
+		t.Fatal(r.snapshot())
+	}
+	if v := r.cache[k]; v.Stage != "LOCAL" || v.Strategy != id || !v.Confirmed || v.Reason != "SUSTAINED_CDN_BURST_COMPLETE_PROMOTED" {
+		t.Fatal(v)
+	}
+	if r.records[1].Reason != "SUSTAINED_CDN_BURST_COMPLETE_PROMOTED" {
+		t.Fatal(r.records[1])
+	}
+	m.failure("MIDSTREAM_STALL_NEW_CONNECTION_REQUIRED")
+	if r.cache[k].Stage != "RELAY" || r.selection.PostPromotionFailures != 1 {
+		t.Fatal("late failure after burst promotion hidden", r.snapshot())
+	}
+}
+func TestCDNBurstIsNotProofWhenRequestPendingOrQuietTooShort(t *testing.T) {
+	for _, variant := range []string{"short-quiet", "pending-write", "small", "rst", "half-closed", "failed", "uncommitted"} {
+		t.Run(variant, func(t *testing.T) {
+			trace := localstrategy.TCPTrace{}
+			if variant == "rst" {
+				trace.RemoteRST = 1
+			}
+			m, r, _, _ := trialMeterFixture(t, trace, io.EOF)
+			now := time.Now()
+			feedCompletedBurst(m, now)
+			switch variant {
+			case "short-quiet":
+				m.lastReply = now.Add(-cdnBurstQuiet + time.Second)
+				m.lastClientWrite = m.lastReply.Add(-time.Second)
+			case "pending-write":
+				m.lastClientWrite = m.lastReply.Add(time.Millisecond)
+			case "small":
+				m.rx = 65000
+			case "half-closed":
+				m.halfClosed = true
+			case "failed":
+				m.failed = true
+			case "uncommitted":
+				m.applied = false
+			}
+			m.maybePromoteTrial(now)
+			if m.promoted || r.selection.TrialSuccesses != 0 || r.selection.BurstPromotions != 0 {
+				t.Fatal("false burst proof", variant)
+			}
+		})
+	}
+}
+
+type quietTimeoutError struct{}
+
+func (quietTimeoutError) Error() string   { return "i/o timeout" }
+func (quietTimeoutError) Timeout() bool   { return true }
+func (quietTimeoutError) Temporary() bool { return true }
+
+func TestQuietReadTimeoutEvaluatesCompletedBurstWithoutClosingStream(t *testing.T) {
+	m, r, k, _ := trialMeterFixture(t, localstrategy.TCPTrace{}, quietTimeoutError{})
+	feedCompletedBurst(m, time.Now())
+	if n, e := m.Read(make([]byte, 16)); n != 0 || !isYoutubeTimeout(e) {
+		t.Fatal(n, e)
+	}
+	if !m.promoted || m.closing || r.cache[k].Stage != "LOCAL" || r.trialActive {
+		t.Fatal("idle keep-alive after a completed burst kept the trial slot", r.snapshot())
+	}
+}

@@ -618,6 +618,7 @@ type youtubeMeter struct {
 	neutralCounted                  bool
 	halfClosed                      bool
 	firstClientWrite, serverHelloAt time.Time
+	lastClientWrite                 time.Time
 	transform                       func() bool
 	mu                              sync.Mutex
 	wire                            browserproxy.TLSWireObserver
@@ -718,9 +719,10 @@ func (m *youtubeMeter) Write(p []byte) (int, error) {
 	m.mu.Unlock()
 	afterHello := m.wire.Snapshot().Origin.ServerHelloComplete
 	n, e := m.Conn.Write(p)
-	if afterHello && n > 0 {
+	if n > 0 {
 		m.mu.Lock()
-		m.postHelloWrite = true
+		m.lastClientWrite = time.Now()
+		m.postHelloWrite = m.postHelloWrite || afterHello
 		m.mu.Unlock()
 	}
 	m.wire.ObserveClient(p[:n])
@@ -733,6 +735,7 @@ func (m *youtubeMeter) Read(p []byte) (int, error) {
 	m.account(0, uint64(n))
 	if n == 0 && isYoutubeTimeout(e) {
 		m.progressGap(time.Now())
+		m.maybePromoteTrial(time.Now())
 	}
 	v := m.wire.Snapshot().Origin
 	if v.AlertLevel != 0 || v.State == "NON_TLS_OR_INVALID_HEADER" {

@@ -3,11 +3,18 @@ package clientservice
 import (
 	"strings"
 	"time"
+
+	"github.com/buzzmean/neexitlag/core/localstrategy"
 )
 
 const cdnStrongBytes = 1024 * 1024
 const cdnStrongRecords = 16
 const cdnStrongSpan = 3 * time.Second
+
+// A fast LOCAL path can deliver a whole media response in under cdnStrongSpan and
+// then idle on keep-alive. Quiet must exceed the 6s midstream watch, so that an
+// unanswered client request is already a failure before the burst can count.
+const cdnBurstQuiet = 7 * time.Second
 
 type localFailureEvidence struct {
 	At                                                    time.Time
@@ -43,9 +50,32 @@ func (m *youtubeMeter) strongEvidenceLocked(now time.Time) bool {
 		wire.ApplicationRecords >= cdnStrongRecords && wire.ApplicationBytes >= cdnStrongBytes &&
 		!m.firstApplicationRX.IsZero() && m.lastReply.Sub(m.firstApplicationRX) >= cdnStrongSpan && now.Sub(m.lastReply) <= 3*time.Second
 }
+
+// Completed burst: >=1MiB/16 records answered after the last client write, then
+// cdnBurstQuiet without a write, alert, RST or failure on the same open TLS stream.
+func (m *youtubeMeter) burstCompleteLocked(now time.Time, inspection *localstrategy.Inspection) bool {
+	if inspection != nil && (inspection.TCPPackets.RemoteRST > 0 || inspection.TCPPackets.ClientRST > 0) {
+		return false
+	}
+	wire := m.wire.Snapshot().Origin
+	return m.trial && !m.failed && !m.closing && !m.halfClosed && m.healthy && m.applied && m.postHelloWrite &&
+		wire.ServerHelloComplete && wire.AlertLevel == 0 && wire.State != "NON_TLS_OR_INVALID_HEADER" && wire.ServerHelloEndBytes > 0 && m.rx >= wire.ServerHelloEndBytes+cdnStrongBytes &&
+		wire.ApplicationRecords >= cdnStrongRecords && wire.ApplicationBytes >= cdnStrongBytes &&
+		!m.firstApplicationRX.IsZero() && !m.lastReply.IsZero() && !m.lastClientWrite.After(m.lastReply) && now.Sub(m.lastReply) >= cdnBurstQuiet
+}
+func (m *youtubeMeter) promotionEvidenceLocked(now time.Time, inspection *localstrategy.Inspection) (bool, string) {
+	if m.strongEvidenceLocked(now) {
+		return true, "SUSTAINED_CDN_RUNNING_PROMOTED"
+	}
+	if m.burstCompleteLocked(now, inspection) {
+		return true, "SUSTAINED_CDN_BURST_COMPLETE_PROMOTED"
+	}
+	return false, ""
+}
 func (m *youtubeMeter) maybePromoteTrial(now time.Time) {
+	inspection := m.currentInspection()
 	m.mu.Lock()
-	eligible := m.strongEvidenceLocked(now)
+	eligible, _ := m.promotionEvidenceLocked(now, inspection)
 	m.mu.Unlock()
 	if !eligible {
 		return
@@ -55,14 +85,20 @@ func (m *youtubeMeter) maybePromoteTrial(now time.Time) {
 	m.trialDone.Do(func() {
 		m.mu.Lock()
 		defer m.mu.Unlock()
-		if m.strongEvidenceLocked(now) && m.r.promoteRunningFor(m.trialID, m.key, m.strategy, m.rx, now) {
+		if ok, reason := m.promotionEvidenceLocked(now, inspection); ok && m.r.promoteRunningFor(m.trialID, m.key, m.strategy, m.rx, now) {
 			m.promoted = true
 			promotedNow = true
 			m.r.mu.Lock()
 			m.slot = m.r.cache[m.key].cdnTrialSlot
+			if reason != "SUSTAINED_CDN_RUNNING_PROMOTED" {
+				m.r.selection.BurstPromotions++
+				v := m.r.cache[m.key]
+				v.Reason = reason
+				m.r.cache[m.key] = v
+			}
 			if v, ok := m.r.records[m.id]; ok {
 				v.TrialResult = "SUCCESS_RUNNING"
-				v.Reason = "SUSTAINED_CDN_RUNNING_PROMOTED"
+				v.Reason = reason
 				m.r.records[m.id] = v
 			}
 			m.r.mu.Unlock()
