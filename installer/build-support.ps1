@@ -14,7 +14,7 @@ function Assert-VeliqInnoCompiler([string]$Compiler) {
  $version=(Get-Item -LiteralPath $Compiler).VersionInfo.FileVersion
  if($version -notmatch '^6\.4\.3(\.|$)'){
   $uninstaller=Join-Path (Split-Path -Parent $Compiler) 'unins000.exe'
-  if(!(Test-Path -LiteralPath $uninstaller -PathType Leaf) -or (Get-Item -LiteralPath $uninstaller).VersionInfo.ProductVersion -notmatch '^6\.4\.3(\.|$)'){throw 'INNO_COMPILER_VERSION_MISMATCH; approved version is 6.4.3'}
+  if(!(Test-Path -LiteralPath $uninstaller -PathType Leaf) -or ([string](Get-Item -LiteralPath $uninstaller).VersionInfo.ProductVersion).Trim() -notmatch '^6\.4\.3(\.|$)'){throw 'INNO_COMPILER_VERSION_MISMATCH; approved version is 6.4.3'}
   $signature=Get-AuthenticodeSignature -LiteralPath $uninstaller
   if($signature.Status -ne 'Valid' -or !$signature.SignerCertificate -or $signature.SignerCertificate.Subject -notmatch 'Jordan Russell|O=Pyrsys B\.V\.'){throw 'INNO_COMPILER_SIGNATURE_INVALID'}
  }
