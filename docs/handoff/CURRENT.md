@@ -15,6 +15,7 @@ Prepush: existingRPC routed/clubreadonly; no manifestreader/default/newdeps; PSq
 ## Таблица работ
 | Работа / дата | Файлы | Агент / ветка | Статус |
 |---|---|---|---|
+| Рабочее место на любом ПК / 25.10.2026 | tools/windows/dev-pc.ps1, dev-pc-export.ps1; tests/windows-tools/dev-pc-checks.ps1; docs/DEV_PC.md | Claude Code | ГОТОВО, область освобождена: одна вставка в PowerShell ставит инструменты, сборку, службу (Hostkey, ActivationOnly), Claude Code и Remote Control; SSH-ключ и публичный CA — из зашифрованного veliq-dev.bin. Живой Windows-прогон не делался |
 | Фазы0/1: измерения relay/DNS/LOCAL /25.10.2026 | core/transport; core/localstrategy inspection; services/client-service telemetry; tools/windows diag; catalog informational fields; tests/docs | Codex/codex/work | ОСВОБОЖДЕНО: фаза0 0b505da, фаза1 metadata/design; ISP/native Windows gates открыты |
 | CDN identity/media evidence + ordinary dispatch /25.10.2026 | services/client-service browser selection/meter/native/ordinary; tools/windows diag; tests/docs | Codex/codex/work | ОСВОБОЖДЕНО: media admission/endpoint/identity иevidence готовы; native Windows/ISP впереди |
 | CDN neutral retry + ordinary DIRECT /24.10.2026 | services/client-service browser selection/meter/origin/native; core/browserproxy; tools/windows diag; tests/docs | Codex/codex/work | ОСВОБОЖДЕНО: CDN retry + ordinary DNS DIRECT/diag готовы; native Windows/ISP приёмка впереди |
