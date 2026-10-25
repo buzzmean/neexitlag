@@ -136,7 +136,8 @@ type youtubeRuntime struct {
 	order          []string
 	qualifications map[youtubeQualification]time.Time
 	sustained      map[youtubeQualification]time.Time
-	selecting      bool
+	peerProofs     map[youtubeQualification]time.Time
+	selecting     bool
 	trialKey       youtubeKey
 	trialStrategy  string
 	trialStarted   time.Time
@@ -192,6 +193,11 @@ func (r *youtubeRuntime) failed(k youtubeKey, stage, strategy, reason string, no
 	}
 	v := r.cache[k]
 	if stage == "LOCAL" {
+		if v.Reason == cdnPeerProvisionalReason {
+			r.selection.PeerProvisionalFailures++
+		}
+		// Any real LOCAL failure of this strategy stops spreading it to other subgroups.
+		r.revokePeerProofLocked(k, strategy)
 		r.score(k, strategy, false, now)
 		for i, id := range r.order {
 			if id == strategy {

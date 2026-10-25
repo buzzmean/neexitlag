@@ -65,6 +65,22 @@ func (r *youtubeRuntime) chooseEndpoint(k youtubeKey, e cdnEndpoint, now time.Ti
 		if bad {
 			return "RELAY", ""
 		}
+		return stage, id
+	}
+	if stage == "RELAY" {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		v := r.cache[k]
+		if peer := r.peerStrategyLocked(k, v, now); peer != "" && !r.endpointBlockedLocked(k, peer, e, now) {
+			r.selection.PeerProvisional++
+			v.Reason = cdnPeerProvisionalReason
+			if v.Stage == "" {
+				v.Stage = "RELAY"
+				v.Until = now.Add(youtubeLearnTTL)
+			}
+			r.cache[k] = v
+			return "LOCAL", peer
+		}
 	}
 	return stage, id
 }

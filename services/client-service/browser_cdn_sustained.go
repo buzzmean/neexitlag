@@ -144,6 +144,7 @@ func (r *youtubeRuntime) promoteRunningFor(token uint64, k youtubeKey, id string
 	v.cdnTrialSlot = cdnTrialSlot{TrialID: r.trialID, SlotReleasedAt: now, SlotReleaseReason: "SUCCESS_RUNNING", CooldownUntil: v.TrialAfter, NeutralShortAttempt: attempt}
 	r.releaseTrialSlotLocked(v.cdnTrialSlot)
 	r.cache[k] = v
+	r.notePeerProofLocked(k, id, now)
 	return true
 }
 func (m *youtubeMeter) noteSmallEOF() bool {

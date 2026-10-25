@@ -35,7 +35,8 @@ type youtubeSelectionSnapshot struct {
 	ClientInitiatedTrialCloses                                          uint64
 	StrongPromotions, PostPromotionFailures, RemoteSmallEOFInconclusive uint64
 	BurstPromotions                                                     uint64
-	ActiveDomain                                                        string `json:"active_domain,omitempty"`
+	PeerProvisional, PeerProvisionalFailures                            uint64
+	ActiveDomain                                                       string `json:"active_domain,omitempty"`
 	ActiveAgeMS                                                         int64  `json:"active_age_ms"`
 	ActiveLastRXAgeMS                                                   int64  `json:"active_last_rx_age_ms"`
 	ActiveState                                                         string `json:"active_state,omitempty"`
@@ -433,6 +434,7 @@ func (r *youtubeRuntime) finishTrialOutcomeFor(token uint64, k youtubeKey, strat
 			v.Strategy = strategy
 			v.Confirmed = true
 			v.Reason = "THREE_SUSTAINED_CDN_TRIALS"
+			r.notePeerProofLocked(k, strategy, now)
 		}
 	} else {
 		r.selection.TrialFailures++
