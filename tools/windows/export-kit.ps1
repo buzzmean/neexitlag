@@ -8,7 +8,9 @@ param(
  [string]$OutputFile=(Join-Path ([Environment]::GetFolderPath('Desktop')) 'veliq-kit.bin'),
  [string]$InstallDirectory="$env:ProgramData\neexitlag",
  [string]$GuiDirectory=(Join-Path $env:LOCALAPPDATA 'Programs\VELIQ'),
- [switch]$NoState
+ [string]$SshDirectory=(Join-Path $env:USERPROFILE '.ssh'),
+ [switch]$NoState,
+ [switch]$NoSsh
 )
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
@@ -82,6 +84,14 @@ Copy-KitFile $manifest.trust_file 'secrets\trust\trust.json'
 Copy-KitFile $manifest.ca_file 'secrets\trust\ca.pem'
 if($null -ne $manifest.PSObject.Properties['control_plane_ca_file']){Copy-KitFile $manifest.control_plane_ca_file 'secrets\trust\cp-ca.pem'}
 if($null -ne $manifest.PSObject.Properties['probe_token_file']){Copy-KitFile $manifest.probe_token_file 'secrets\probe.token'}
+if(!$NoSsh){
+ '===== SSH ====='
+ # The owner's VPS key travels only inside the encrypted kit.
+ foreach($name in @('id_ed25519','id_ed25519.pub','known_hosts')){
+  $path=Join-Path $SshDirectory $name
+  if(Test-Path -LiteralPath $path){Copy-KitFile $path "secrets\ssh\$name"}
+ }
+}
 if(!$NoState){
  '===== STATE ====='
  # Profiles, settings and learned strategies. Not carried over: the browser

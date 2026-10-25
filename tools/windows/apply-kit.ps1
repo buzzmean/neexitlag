@@ -68,6 +68,26 @@ $prefsTarget=Join-Path $env:LOCALAPPDATA 'NeExitLag\desktop.json'
 if((Test-Path -LiteralPath $prefs) -and !(Test-Path -LiteralPath $prefsTarget)){[void][IO.Directory]::CreateDirectory((Split-Path $prefsTarget));Copy-Item -LiteralPath $prefs -Destination $prefsTarget}
 $gui=Join-Path $env:LOCALAPPDATA 'Programs\VELIQ\VELIQ.exe'
 if(!(Test-Path -LiteralPath $gui) -or (Get-FileHash -LiteralPath $gui).Hash -ne (Get-FileHash -LiteralPath (Join-Path $kit 'bin\VELIQ.exe')).Hash){& (Join-Path $PSScriptRoot 'install-desktop.ps1') -SourceDirectory (Join-Path $kit 'bin')}
+$ssh=Join-Path $kit 'secrets\ssh'
+if(Test-Path -LiteralPath $ssh){
+ '===== SSH ====='
+ # A key already on this PC is never replaced; OpenSSH refuses a private key
+ # that other users can read, so it gets owner/SYSTEM/admins only.
+ $sshTarget=Join-Path $env:USERPROFILE '.ssh'
+ [void][IO.Directory]::CreateDirectory($sshTarget)
+ foreach($file in Get-ChildItem -LiteralPath $ssh -File){
+  $destination=Join-Path $sshTarget $file.Name
+  if(Test-Path -LiteralPath $destination){
+   if((Get-FileHash -LiteralPath $destination).Hash -ne (Get-FileHash -LiteralPath $file.FullName).Hash){Write-Warning "Existing $($file.Name) differs from the kit; kept"}
+   continue
+  }
+  Copy-Item -LiteralPath $file.FullName -Destination $destination
+  if($file.Name -eq 'id_ed25519'){
+   & icacls $destination /inheritance:r /grant:r "*$($owner):F" '*S-1-5-18:F' '*S-1-5-32-544:F'|Out-Null
+   if($LASTEXITCODE){throw 'Failed to restrict SSH private key permissions'}
+  }
+ }
+}
 '===== VERIFY ====='
 $same=(Get-FileHash -LiteralPath $target).Hash -eq (Get-FileHash -LiteralPath $serviceExe).Hash
 $running=(Get-Service neexitlag).Status
