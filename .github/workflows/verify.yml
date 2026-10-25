@@ -57,6 +57,10 @@ jobs:
         shell: powershell
       - run: ./tests/windows-tools/fresh-pc-checks.ps1
         shell: pwsh
+      - run: ./tests/windows-tools/dev-pc-checks.ps1
+        shell: powershell
+      - run: ./tests/windows-tools/dev-pc-checks.ps1
+        shell: pwsh
       # Fast real PS5.1/7 filesystem/shortcut/upgrade checks before long builds.
       - run: ./tests/windows-tools/desktop-upgrade-checks.ps1
         shell: powershell
