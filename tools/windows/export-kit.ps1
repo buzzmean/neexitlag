@@ -66,6 +66,11 @@ function Copy-KitFile([string]$Source,[string]$Relative){
 '===== BINARIES ====='
 Copy-KitFile (Join-Path $InstallDirectory 'neexitlag-service.exe') 'bin\neexitlag-service.exe'
 Copy-KitFile (Join-Path $GuiDirectory 'VELIQ.exe') 'bin\VELIQ.exe'
+# The GUI runs AUTO through scripts shipped beside it; install-desktop.ps1 takes
+# them from bin\tools\windows.
+$guiScripts=Join-Path $GuiDirectory 'tools\windows'
+if(!(Test-Path -LiteralPath $guiScripts)){$guiScripts=$PSScriptRoot}
+foreach($file in Get-ChildItem -LiteralPath $guiScripts -Filter '*.ps1' -File){Copy-KitFile $file.FullName "bin\tools\windows\$($file.Name)"}
 foreach($name in @('common.ps1','reinstall-state.ps1','install.ps1','install-desktop.ps1','apply-kit.ps1')){Copy-KitFile (Join-Path $PSScriptRoot $name) "tools\windows\$name"}
 '===== DRIVER ====='
 foreach($name in @('WinDivert.dll','WinDivert64.sys')){Copy-KitFile (Join-Path $manifest.driver.directory $name) "driver\$name"}
@@ -79,9 +84,10 @@ if($null -ne $manifest.PSObject.Properties['control_plane_ca_file']){Copy-KitFil
 if($null -ne $manifest.PSObject.Properties['probe_token_file']){Copy-KitFile $manifest.probe_token_file 'secrets\probe.token'}
 if(!$NoState){
  '===== STATE ====='
- # Profiles, settings and learned strategies. The browser guard and the signed
- # config cache are not carried over: the service rebuilds them.
- foreach($name in @('profiles.json','settings.json','local-strategies.json','auto-learning.json','browser-transport.json')){
+ # Profiles, settings and learned strategies. Not carried over: the browser
+ # guard, the signed config cache, and browser-transport.json, whose ready
+ # Chrome profiles would skip re-activation while the HKCU policy is gone.
+ foreach($name in @('profiles.json','settings.json','local-strategies.json','auto-learning.json')){
   $path=Join-Path $manifest.state_directory $name
   if(Test-Path -LiteralPath $path){
    try{[void](Get-Content -Raw -LiteralPath $path|ConvertFrom-Json)}catch{throw "State file is not valid JSON: $name"}
