@@ -349,7 +349,7 @@
     <value>Задержка измеряется до настроенной контрольной точки, а не до игрового сервера.</value>
   </data>
   <data name="RouteScopeHint" xml:space="preserve">
-    <value>Маршрут автооптимизации. Фактический маршрут каждого приложения показан в разделе «Приложения».</value>
+    <value>Маршрут автооптимизации. Фактический маршрут каждого приложения показан в разделе «Сервисы».</value>
   </data>
   <data name="ClearMeasurements" xml:space="preserve">
     <value>Нет свежих измерений</value>
@@ -626,4 +626,15 @@
   <data name="MetricRoute" xml:space="preserve"><value>Маршрут</value></data>
   <data name="NowViaVeliq" xml:space="preserve"><value>Сейчас через VELIQ</value></data>
   <data name="AboutService" xml:space="preserve"><value>Служба</value></data>
+  <data name="HomeOffLead" xml:space="preserve"><value>Нажмите кнопку, и VELIQ построит оптимальный маршрут для каждого соединения.</value></data>
+  <data name="HomeConnectingLead" xml:space="preserve"><value>Замеряем пути и подключаем браузер. Обычно это занимает пару секунд.</value></data>
+  <data name="HomeOnLead" xml:space="preserve"><value>Маршруты построены: заблокированное открывается, игры идут по самому быстрому пути.</value></data>
+  <data name="HomeErrorLead" xml:space="preserve"><value>Пока ошибка не исправлена, интернет работает как без VELIQ.</value></data>
+  <data name="GoSubOff" xml:space="preserve"><value>выключено</value></data>
+  <data name="GoSubConnecting" xml:space="preserve"><value>строим маршруты</value></data>
+  <data name="GoSubOn" xml:space="preserve"><value>новые соединения</value></data>
+  <data name="GoSubError" xml:space="preserve"><value>нет связи со службой</value></data>
+  <data name="MetricServer" xml:space="preserve"><value>Сервер</value></data>
+  <data name="ServerAuto" xml:space="preserve"><value>Выбран автоматически</value></data>
+  <data name="ServerPending" xml:space="preserve"><value>Выбирается автоматически</value></data>
 </root>

@@ -32,7 +32,7 @@
  <BooleanToVisibilityConverter x:Key="BoolToVisible"/>
 
  <!-- ===== Text ===== -->
- <Style TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource Text}"/></Style>
+ <!-- No implicit TextBlock style: it would override button Foreground (white text on the white Primary button). Text colour is inherited from the window. -->
  <Style x:Key="Display" TargetType="TextBlock"><Setter Property="FontSize" Value="40"/><Setter Property="FontWeight" Value="ExtraBold"/><Setter Property="Foreground" Value="{StaticResource Text}"/><Setter Property="TextWrapping" Value="Wrap"/></Style>
  <Style x:Key="H1" TargetType="TextBlock"><Setter Property="FontSize" Value="33"/><Setter Property="FontWeight" Value="Bold"/><Setter Property="Foreground" Value="{StaticResource Text}"/></Style>
  <Style x:Key="H2" TargetType="TextBlock"><Setter Property="FontSize" Value="15"/><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="Foreground" Value="{StaticResource Text}"/></Style>
@@ -170,14 +170,19 @@
   <Setter Property="Template">
    <Setter.Value>
     <ControlTemplate TargetType="Button">
-     <Grid x:Name="Root" ClipToBounds="True">
-      <Grid.RowDefinitions><RowDefinition Height="66*"/><RowDefinition Height="6*"/><RowDefinition Height="28*"/></Grid.RowDefinitions>
-      <Border x:Name="Outline" Grid.RowSpan="3" CornerRadius="89" BorderThickness="2" BorderBrush="{StaticResource LineStrong}" Background="{StaticResource BgRaised}"/>
-      <Rectangle Grid.Row="1" Fill="{StaticResource Bg}"/>
-      <Rectangle x:Name="SignalOn" Grid.Row="1" Fill="{StaticResource Accent}" Visibility="Collapsed"/>
-      <Rectangle x:Name="SignalRun" Grid.Row="1" Fill="{StaticResource Accent}" Width="87" HorizontalAlignment="Left" Visibility="Collapsed"><Rectangle.RenderTransform><TranslateTransform X="-90"/></Rectangle.RenderTransform></Rectangle>
-      <ContentPresenter Grid.RowSpan="3" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="16,0" RecognizesAccessKey="False"/>
-     </Grid>
+     <!-- As in .go: slit and signal bar live inside the outline (overflow:hidden on the padding box). -->
+     <Border x:Name="Outline" CornerRadius="89" BorderThickness="2" BorderBrush="{StaticResource LineStrong}" Background="{StaticResource BgRaised}">
+      <Grid>
+       <Grid ClipToBounds="True">
+        <Grid.OpacityMask><VisualBrush Stretch="Fill"><VisualBrush.Visual><Border Width="244" Height="244" CornerRadius="87" Background="Black"/></VisualBrush.Visual></VisualBrush></Grid.OpacityMask>
+        <Grid.RowDefinitions><RowDefinition Height="66*"/><RowDefinition Height="6*"/><RowDefinition Height="28*"/></Grid.RowDefinitions>
+        <Rectangle Grid.Row="1" Fill="{StaticResource Bg}"/>
+        <Rectangle x:Name="SignalOn" Grid.Row="1" Fill="{StaticResource Accent}" Visibility="Collapsed"/>
+        <Rectangle x:Name="SignalRun" Grid.Row="1" Fill="{StaticResource Accent}" Width="85" HorizontalAlignment="Left" Visibility="Collapsed"><Rectangle.RenderTransform><TranslateTransform X="-90"/></Rectangle.RenderTransform></Rectangle>
+       </Grid>
+       <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="16,0" RecognizesAccessKey="False"/>
+      </Grid>
+     </Border>
      <ControlTemplate.Triggers>
       <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Outline" Property="BorderBrush" Value="{StaticResource TextFaint}"/></Trigger>
       <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Outline" Property="BorderBrush" Value="{StaticResource Accent}"/></Trigger>
