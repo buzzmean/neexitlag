@@ -9,9 +9,18 @@ function Resolve-VeliqInnoCompiler([string]$Compiler='') {
 }
 function Assert-VeliqInnoCompiler([string]$Compiler) {
  if(!(Test-Path -LiteralPath $Compiler -PathType Leaf)){throw 'INNO_SETUP_6_4_3_COMPILER_REQUIRED'}
- if((Get-Item -LiteralPath $Compiler).VersionInfo.FileVersion -notmatch '^6\.4\.3(\.|$)'){throw 'INNO_COMPILER_VERSION_MISMATCH; approved version is 6.4.3'}
+ # The official 6.4.3 build carries no version resource in ISCC.exe (0.0.0.0);
+ # its signed uninstaller in the same directory reports ProductVersion 6.4.3.
+ $version=(Get-Item -LiteralPath $Compiler).VersionInfo.FileVersion
+ if($version -notmatch '^6\.4\.3(\.|$)'){
+  $uninstaller=Join-Path (Split-Path -Parent $Compiler) 'unins000.exe'
+  if(!(Test-Path -LiteralPath $uninstaller -PathType Leaf) -or (Get-Item -LiteralPath $uninstaller).VersionInfo.ProductVersion -notmatch '^6\.4\.3(\.|$)'){throw 'INNO_COMPILER_VERSION_MISMATCH; approved version is 6.4.3'}
+  $signature=Get-AuthenticodeSignature -LiteralPath $uninstaller
+  if($signature.Status -ne 'Valid' -or !$signature.SignerCertificate -or $signature.SignerCertificate.Subject -notmatch 'Jordan Russell|O=Pyrsys B\.V\.'){throw 'INNO_COMPILER_SIGNATURE_INVALID'}
+ }
+ # Inno Setup releases are signed by Jordan Russell or, since 2024, his company Pyrsys B.V.
  $signature=Get-AuthenticodeSignature -LiteralPath $Compiler
- if($signature.Status -ne 'Valid' -or !$signature.SignerCertificate -or $signature.SignerCertificate.Subject -notmatch 'Jordan Russell'){throw 'INNO_COMPILER_SIGNATURE_INVALID'}
+ if($signature.Status -ne 'Valid' -or !$signature.SignerCertificate -or $signature.SignerCertificate.Subject -notmatch 'Jordan Russell|O=Pyrsys B\.V\.'){throw 'INNO_COMPILER_SIGNATURE_INVALID'}
 }
 function Assert-VeliqPublicCA([string]$Path) {
  $text=[IO.File]::ReadAllText($Path)
