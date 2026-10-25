@@ -73,8 +73,8 @@ public sealed class ClubWindow : Window
     {
         title.Text=heading;status.Text=text;
         signal.Visibility=state=="on"?Visibility.Visible:Visibility.Collapsed;
-        badge.BorderBrush=Brush(state=="on"?"Text":state=="error"?"Danger":"LineStrong");
-        badge.Background=Brush(state=="on"?"Bg":"BgRaised");
+        badge.BorderBrush=Res(state=="on"?"Text":state=="error"?"Danger":"LineStrong");
+        badge.Background=Res(state=="on"?"Bg":"BgRaised");
         SetTray(state);
     }
     void SetTray(string state)
@@ -101,7 +101,7 @@ public sealed class ClubWindow : Window
     public void Exit(){exiting=true;timer.Stop();tray.Visible=false;tray.Dispose();trayIcon?.Dispose();Close();System.Windows.Application.Current.Shutdown();}
     public static bool IsClubInstallation()
     {
-        try{return ClubPresentation.Enabled(File.ReadAllText(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),"VELIQ","club-mode.json")));}
+        try{return ClubPresentation.Enabled(File.ReadAllText(System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),"VELIQ","club-mode.json")));}
         catch(IOException){return false;}catch(UnauthorizedAccessException){return false;}
     }
 }
