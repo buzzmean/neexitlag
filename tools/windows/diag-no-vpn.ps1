@@ -9,7 +9,7 @@ Self-contained: does not need common.ps1. -Only limits the run to some sections:
   (youtube = SNI table for www.youtube.com + status flag + stall counters + YouTube records; run: & .\tools\windows\diag-no-vpn.ps1 -Only youtube)
 #>
 param(
- [string]$VpsHost='2.56.177.4',
+ [string]$VpsHost='146.0.77.98',
  [int]$ControlPlanePort=8443,
  [int]$QuicPort=4433,
  [string]$InstallDirectory="$env:ProgramData\neexitlag",

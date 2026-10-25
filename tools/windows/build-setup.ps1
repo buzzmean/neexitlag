@@ -2,9 +2,9 @@
 [CmdletBinding()]
 param(
  [string]$PublicTrustDirectory=(Join-Path $PSScriptRoot '..\..\.e2e\activation-trust'),
- [string]$ControlPlaneUrl='https://2.56.177.4:8443',
- [string]$ProbeTarget='2.56.177.4:40000',
- [string]$TCPProbeTarget='2.56.177.4:40000',
+ [string]$ControlPlaneUrl='https://146.0.77.98:8443',
+ [string]$ProbeTarget='146.0.77.98:40000',
+ [string]$TCPProbeTarget='146.0.77.98:40000',
  [string]$Compiler='',
  [string]$ExpectedCommit='',
  [string]$Output=(Join-Path $PSScriptRoot '..\..\bin\installer')
