@@ -1,6 +1,7 @@
 package clientservice
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/buzzmean/neexitlag/core/release"
 	"github.com/buzzmean/neexitlag/core/security"
@@ -32,7 +34,7 @@ func updateFixture(t *testing.T, build uint64, signer ed25519.PrivateKey, setup 
 		case "/m":
 			w.Write(signed)
 		case "/s":
-			w.Write(setup)
+			http.ServeContent(w, r, "VELIQ-Setup.exe", time.Time{}, bytes.NewReader(setup))
 		}
 	}))
 	t.Cleanup(srv.Close)
@@ -97,5 +99,21 @@ func TestUpdaterSkipsClubImageAndDeveloperBuild(t *testing.T) {
 	club.check(context.Background())
 	if len(*launched2) != 0 || club.snapshot().Error != "CLUB_IMAGE_MANAGED" {
 		t.Fatalf("club image updated: %+v", club.snapshot())
+	}
+}
+
+func TestUpdaterResumesPartialDownload(t *testing.T) {
+	pub, key, _ := ed25519.GenerateKey(rand.Reader)
+	setup := bytes.Repeat([]byte("VELIQ-setup-fixture-"), 4096)
+	u, launched := newTestUpdater(t, updateFixture(t, 130, key, setup), pub, "100")
+	dir := filepath.Join(u.dir, "updates")
+	os.MkdirAll(dir, 0o700)
+	os.WriteFile(filepath.Join(dir, "VELIQ-Setup-130.exe.part"), setup[:len(setup)/2], 0o600)
+	u.check(context.Background())
+	if len(*launched) != 1 {
+		t.Fatalf("resume failed: %+v", u.snapshot())
+	}
+	if raw, _ := os.ReadFile((*launched)[0]); !bytes.Equal(raw, setup) {
+		t.Fatal("resumed file differs")
 	}
 }

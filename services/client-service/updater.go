@@ -33,18 +33,21 @@ type UpdateStatus struct {
 	Available uint64    `json:"available_build,omitempty"`
 	Version   string    `json:"available_version,omitempty"`
 	Error     string    `json:"error,omitempty"`
+	Via       string    `json:"via,omitempty"`
 	Checked   time.Time `json:"checked_at,omitempty"`
 }
 
 type updater struct {
-	mu      sync.Mutex
-	status  UpdateStatus
-	http    *http.Client
-	keys    map[string]ed25519.PublicKey
-	dir     string // service install directory, e.g. %ProgramData%\VELIQ
-	api     string
-	launch  func(path string) error
-	current uint64
+	mu       sync.Mutex
+	status   UpdateStatus
+	http     *http.Client
+	relay    *http.Client // optional: same requests through the VELIQ relay
+	viaRelay bool
+	keys     map[string]ed25519.PublicKey
+	dir      string // service install directory, e.g. %ProgramData%\VELIQ
+	api      string
+	launch   func(path string) error
+	current  uint64
 }
 
 func newUpdater(keys map[string]ed25519.PublicKey, dir string, launch func(string) error) *updater {
@@ -62,6 +65,10 @@ func (u *updater) set(state, failure string, m *release.Manifest) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	u.status.State, u.status.Error, u.status.Checked = state, failure, time.Now()
+	u.status.Via = "direct"
+	if u.viaRelay {
+		u.status.Via = "relay"
+	}
 	if m != nil {
 		u.status.Available, u.status.Version = m.Build, m.Version
 	}
@@ -80,7 +87,7 @@ func (u *updater) disabled() string {
 }
 
 func (u *updater) run(ctx context.Context) {
-	timer := time.NewTimer(10 * time.Minute)
+	timer := time.NewTimer(time.Minute)
 	defer timer.Stop()
 	for {
 		select {
@@ -89,9 +96,20 @@ func (u *updater) run(ctx context.Context) {
 		case <-timer.C:
 		}
 		u.check(ctx)
-		timer.Reset(updateInterval)
+		// A throttled or stalled download resumes soon from the partial file
+		// instead of waiting for the next regular check.
+		if u.snapshot().State == "DOWNLOAD_FAILED" {
+			timer.Reset(downloadRetry)
+		} else {
+			timer.Reset(updateInterval)
+		}
 	}
 }
+
+const downloadRetry = 3 * time.Minute
+
+// Abort a download that delivers nothing for this long; it resumes later.
+const downloadStall = time.Minute
 
 type githubRelease struct {
 	Assets []struct {
@@ -122,6 +140,10 @@ func (u *updater) check(ctx context.Context) {
 	u.set("DOWNLOADING", "", &m)
 	path, e := u.download(ctx, setupURL, m)
 	if e != nil {
+		// Throttled or blocked direct path: the next attempt alternates to the relay.
+		u.mu.Lock()
+		u.viaRelay = u.relay != nil && !u.viaRelay
+		u.mu.Unlock()
 		u.set("DOWNLOAD_FAILED", e.Error(), &m)
 		return
 	}
@@ -140,7 +162,13 @@ func (u *updater) get(ctx context.Context, url string, limit int64) ([]byte, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "VELIQ-updater")
-	resp, e := u.http.Do(req)
+	resp, e := u.client().Do(req)
+	if e != nil && u.relay != nil && !u.usingRelay() {
+		// Metadata is small: retry once through the relay right away.
+		req2, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		req2.Header = req.Header.Clone()
+		resp, e = u.relay.Do(req2)
+	}
 	if e != nil {
 		return nil, errors.New("UPDATE_SOURCE_UNREACHABLE")
 	}
@@ -192,30 +220,60 @@ func (u *updater) download(ctx context.Context, url string, m release.Manifest) 
 	if ok, _ := fileMatches(path, m); ok {
 		return path, nil
 	}
-	req, e := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	// Resume a partial download: hash what is already on disk, request the rest.
+	tmp := path + ".part"
+	h := sha256.New()
+	have := int64(0)
+	if f, e := os.Open(tmp); e == nil {
+		have, _ = io.Copy(h, f)
+		f.Close()
+	}
+	if have > m.SetupSize {
+		os.Remove(tmp)
+		h.Reset()
+		have = 0
+	}
+	work, cancel := context.WithCancel(ctx)
+	defer cancel()
+	req, e := http.NewRequestWithContext(work, http.MethodGet, url, nil)
 	if e != nil {
 		return "", e
 	}
 	req.Header.Set("User-Agent", "VELIQ-updater")
-	resp, e := u.http.Do(req)
+	if have > 0 {
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", have))
+	}
+	resp, e := u.client().Do(req)
 	if e != nil {
 		return "", errors.New("UPDATE_SOURCE_UNREACHABLE")
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	flags := os.O_CREATE | os.O_WRONLY | os.O_APPEND
+	switch {
+	case resp.StatusCode == http.StatusPartialContent && have > 0:
+	case resp.StatusCode == http.StatusOK:
+		flags = os.O_CREATE | os.O_WRONLY | os.O_TRUNC
+		h.Reset()
+		have = 0
+	default:
 		return "", fmt.Errorf("UPDATE_SOURCE_HTTP_%d", resp.StatusCode)
 	}
-	tmp := path + ".part"
-	f, e := os.Create(tmp)
+	f, e := os.OpenFile(tmp, flags, 0o600)
 	if e != nil {
 		return "", e
 	}
-	h := sha256.New()
-	n, e := io.Copy(io.MultiWriter(f, h), io.LimitReader(resp.Body, m.SetupSize+1))
+	// Abort when nothing arrives for downloadStall; the next attempt resumes.
+	stall := time.AfterFunc(downloadStall, cancel)
+	defer stall.Stop()
+	body := &progressReader{r: io.LimitReader(resp.Body, m.SetupSize-have+1), onRead: func() { stall.Reset(downloadStall) }}
+	n, e := io.Copy(io.MultiWriter(f, h), body)
 	if ce := f.Close(); e == nil {
 		e = ce
 	}
-	if e != nil || n != m.SetupSize || hex.EncodeToString(h.Sum(nil)) != m.SetupSHA256 {
+	if e != nil {
+		return "", errors.New("UPDATE_DOWNLOAD_INTERRUPTED")
+	}
+	if have+n != m.SetupSize || hex.EncodeToString(h.Sum(nil)) != m.SetupSHA256 {
 		os.Remove(tmp)
 		return "", errors.New("UPDATE_DOWNLOAD_MISMATCH")
 	}
@@ -223,6 +281,19 @@ func (u *updater) download(ctx context.Context, url string, m release.Manifest) 
 		return "", e
 	}
 	return path, nil
+}
+
+type progressReader struct {
+	r      io.Reader
+	onRead func()
+}
+
+func (p *progressReader) Read(b []byte) (int, error) {
+	n, e := p.r.Read(b)
+	if n > 0 {
+		p.onRead()
+	}
+	return n, e
 }
 
 func fileMatches(path string, m release.Manifest) (bool, error) {
@@ -252,4 +323,17 @@ func (u *updater) recentlyAttempted(build uint64) bool {
 func (u *updater) markAttempt(build uint64) {
 	raw, _ := json.Marshal(map[string]any{"build": build, "at": time.Now().UTC()})
 	_ = os.WriteFile(u.attemptFile(), raw, 0o600)
+}
+
+func (u *updater) usingRelay() bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.viaRelay && u.relay != nil
+}
+
+func (u *updater) client() *http.Client {
+	if u.usingRelay() {
+		return u.relay
+	}
+	return u.http
 }
