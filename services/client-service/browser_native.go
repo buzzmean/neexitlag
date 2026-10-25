@@ -219,6 +219,10 @@ func (c *Controller) nativeSnapshot() nativeBrowserSnapshot {
 		case len(s.YoutubeLocal.Records) > 0:
 			s.YoutubeLocal.Records = s.YoutubeLocal.Records[:len(s.YoutubeLocal.Records)-1]
 			s.YoutubeLocal.RecordsOmitted++
+		// LOCAL trial admission is only visible in the YouTube cache rows: keep
+		// them over the oldest native records, which stay at 16 or more.
+		case len(s.Records) > 16:
+			s.Records = s.Records[:len(s.Records)-1]
 		case len(s.YoutubeLocal.Cache) > 0:
 			s.YoutubeLocal.Cache = s.YoutubeLocal.Cache[:len(s.YoutubeLocal.Cache)-1]
 			s.YoutubeLocal.CacheOmitted++
