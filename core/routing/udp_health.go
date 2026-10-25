@@ -42,7 +42,7 @@ type udpCadence struct {
 	// voice after a fake prelude, where a quiet channel answers few datagrams.
 	// Post-confirmation liveness (DIRECT_LIVENESS_LOST -> relay) is unchanged.
 	lenientReplies uint64
-	bins                                 [16]udpCadenceBin // four seconds, fixed memory for the entire flow lifetime
+	bins           [16]udpCadenceBin // four seconds, fixed memory for the entire flow lifetime
 }
 type udpCadenceStats struct {
 	tx, rx                           int
