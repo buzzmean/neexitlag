@@ -83,6 +83,9 @@ func (e *Engine) OpenAdaptiveUDP(ctx context.Context, f Flow, relay string, dead
 		return nil, errors.New("invalid adaptive UDP bound")
 	}
 	a := &AdaptiveUDP{e: e, flow: f, relay: relay, deadline: deadline}
+	if f.UDPFakePrelude > 0 {
+		a.health.lenientReplies = 2
+	}
 	cached := e.udpCached(f, time.Now())
 	f.PinnedPolicy = &Policy{}
 	if cached {

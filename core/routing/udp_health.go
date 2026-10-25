@@ -38,6 +38,10 @@ type udpCadence struct {
 	state, reason                        string
 	started, finished, degraded, stopped time.Time
 	replies, bytes                       uint64
+	// lenientReplies>0 confirms at probation end with that many replies: Discord
+	// voice after a fake prelude, where a quiet channel answers few datagrams.
+	// Post-confirmation liveness (DIRECT_LIVENESS_LOST -> relay) is unchanged.
+	lenientReplies uint64
 	bins                                 [16]udpCadenceBin // four seconds, fixed memory for the entire flow lifetime
 }
 type udpCadenceStats struct {
@@ -130,6 +134,10 @@ func (h *udpCadence) check(now time.Time, probation time.Duration) (confirmed bo
 			return true, ""
 		}
 		if now.Sub(h.started) >= probation {
+			if h.lenientReplies > 0 && h.replies >= h.lenientReplies {
+				h.state, h.finished = DirectConfirmed, now
+				return true, ""
+			}
 			return false, DirectInsufficientReplies
 		}
 		return

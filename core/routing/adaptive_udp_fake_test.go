@@ -75,3 +75,24 @@ func TestAdaptiveUDPWithoutPreludeSendsNoFakes(t *testing.T) {
 		t.Fatalf("first datagram %q %v", buf[:n], err)
 	}
 }
+
+func TestLenientProbationConfirmsQuietDiscordVoiceOnly(t *testing.T) {
+	start := time.Now()
+	run := func(lenient uint64, replies int) (bool, string) {
+		h := udpCadence{lenientReplies: lenient}
+		h.observe(start, false, 74)
+		for i := 0; i < replies; i++ {
+			h.observe(start.Add(time.Duration(100*(i+1))*time.Millisecond), true, 74)
+		}
+		return h.check(start.Add(3*time.Second), 3*time.Second)
+	}
+	if ok, failure := run(2, 2); !ok || failure != "" {
+		t.Fatalf("lenient 2 replies: %v %q", ok, failure)
+	}
+	if ok, failure := run(2, 1); ok || failure != DirectInsufficientReplies {
+		t.Fatalf("lenient 1 reply must fall back: %v %q", ok, failure)
+	}
+	if ok, failure := run(0, 2); ok || failure != DirectInsufficientReplies {
+		t.Fatalf("default probation unchanged: %v %q", ok, failure)
+	}
+}
