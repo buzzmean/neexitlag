@@ -1,26 +1,29 @@
 # VELIQ
 
-VELIQ is an application-aware Windows DIRECT/RELAY route optimizer. It measures
-DIRECT and authenticated QUIC relay paths, ranks their RTT, jitter, loss, failures,
-load and stability, and changes the route of **new flows** only when improvement
-survives hysteresis. Better Internet latency depends on your destination and relay
-placement; this project makes no throughput or Internet improvement claim.
+VELIQ — оптимизатор маршрутов для Windows, который работает на уровне отдельных
+приложений и выбирает между прямым подключением (DIRECT) и защищённым релеем
+по QUIC (RELAY). Программа замеряет оба пути, сравнивает задержку, джиттер,
+потери, сбои, нагрузку и стабильность и переводит на лучший маршрут только
+**новые соединения**, и только если выигрыш держится достаточно долго
+(гистерезис). Насколько снизится пинг, зависит от того, куда вы подключаетесь
+и где стоит релей; обещаний по скорости и качеству интернета проект не даёт.
 
-## Нативный Windows-клиент
+## Клиент для Windows
 
-Русский WPF-клиент запускается отдельным `VELIQ.exe` без прав администратора.
-Браузер не нужен; служба продолжает выполнять перехват и маршрутизацию.
+Клиент на WPF с русским интерфейсом запускается отдельным файлом `VELIQ.exe`,
+права администратора ему не нужны. Браузер не требуется: перехватом и
+маршрутизацией трафика занимается служба.
 
 ```powershell
 .\tools\windows\build-desktop.ps1
 .\bin\release\VELIQ.exe
 ```
 
-.NET SDK 8 требуется для сборки; опубликованный EXE включает runtime.
-[Интерфейс, IPC, сборка и ограничения](apps/desktop/README.md).
-Старый web demo предназначен для разработки и тестов.
+Для сборки нужен .NET SDK 8; готовый EXE уже содержит runtime.
+Подробнее: [интерфейс, IPC, сборка и ограничения](apps/desktop/README.md).
+Старое веб-демо оставлено для разработки и тестов.
 
-## Architecture
+## Как это устроено
 
 ```text
 WPF desktop → authenticated named pipe → Windows service → routing core
@@ -29,84 +32,95 @@ Client → signed config / device proof / tickets → PostgreSQL control plane
 Client → mTLS + ticket → QUIC relay → UDP/TCP destination
 ```
 
-The control plane never forwards application packets. Existing TCP connections
-stay pinned. Unknown processes and unsupported capture traffic stay DIRECT.
-No default route, adapter or routing table is changed.
+Сервер управления (control plane) никогда не пропускает через себя трафик
+приложений. Уже открытые TCP-соединения остаются на своём маршруте. Неизвестные
+процессы и трафик, который захват не поддерживает, идут напрямую (DIRECT).
+Маршрут по умолчанию, сетевые адаптеры и таблица маршрутизации не меняются.
 
-## Current status
+## Текущее состояние
 
-Phase 0–2 checkpoint `7967f8352e810d39dea6c793b0bf8cfa20d027f8` is preserved.
-Multi-relay selection, real probing, PostgreSQL APIs, signed tickets/configs,
-profiles, service IPC, WPF source and a portable demo are implemented.
-The external WinDivert v2 integration captures **IPv4 UDP and TCP**. The owner has
-reported successful real Windows UDP E2E, simultaneous per-process routing and
-service-crash fail-open. New TCP/browser runtime acceptance remains separate and
-pending. IPv6 relay transport and the production WFP driver remain unsupported.
-See [TCP/web implementation and exact acceptance commands](docs/WINDOWS_TCP_WEB.md).
-See [status](docs/STATUS.md), [Windows acceptance](docs/BLOCKERS.md) and
-[security](docs/SECURITY.md).
+Контрольная точка фаз 0–2 `7967f8352e810d39dea6c793b0bf8cfa20d027f8` сохранена.
+Реализованы выбор между несколькими релеями, реальные замеры, API на PostgreSQL,
+подписанные билеты и конфигурации, профили, IPC службы, исходный код WPF-клиента
+и переносимое демо. Внешняя интеграция с WinDivert v2 перехватывает **IPv4 UDP
+и TCP**. Владелец подтвердил успешный сквозной тест UDP на реальной Windows,
+одновременную маршрутизацию по процессам и безопасное поведение при падении
+службы (трафик идёт напрямую). Приёмка нового TCP/браузерного режима проводится
+отдельно и ещё не завершена. Транспорт релея по IPv6 и боевой WFP-драйвер пока
+не поддерживаются.
+Подробнее: [TCP/веб — реализация и точные команды приёмки](docs/WINDOWS_TCP_WEB.md),
+[состояние](docs/STATUS.md), [приёмка на Windows](docs/BLOCKERS.md) и
+[безопасность](docs/SECURITY.md).
 
-## Real Windows / remote relay E2E
+## Сквозной тест: реальная Windows и удалённый релей
 
-The next acceptance stage is prepared, **READY FOR VPS**. No real Windows/public
-Internet capture PASS is claimed. See [exact setup and acceptance commands](docs/WINDOWS_REAL_E2E.md)
-and [official pinned WinDivert dependency](docs/WINDIVERT_DEPENDENCY.md).
-`tools/windows/setup-e2e.ps1` provisions the remote backend and Windows service;
-`acceptance.ps1` checks two actual processes, route evidence, relay failure and
-service stop/crash. A local demo or cross-build does not satisfy that acceptance.
+Следующий этап приёмки подготовлен, статус **READY FOR VPS**. Успешный захват
+на реальной Windows через публичный интернет пока не заявляется. См.
+[точные команды установки и приёмки](docs/WINDOWS_REAL_E2E.md) и
+[официальную закреплённую версию WinDivert](docs/WINDIVERT_DEPENDENCY.md).
+`tools/windows/setup-e2e.ps1` разворачивает удалённый бэкенд и службу Windows;
+`acceptance.ps1` проверяет два реальных процесса, подтверждение маршрута, отказ
+релея и остановку или падение службы. Локальное демо или кросс-сборка эту
+приёмку не заменяют.
 
-## Existing VPS relay benchmark
+## Замер на существующем VPS-релее
 
-[First real relay test](docs/FIRST_REAL_RELAY_TEST.md) documents secure relay
-install/update/uninstall on the existing VPS and a standalone Windows/Linux
-`tools/route-test` DIRECT/RELAY benchmark. GitHub Actions publishes Linux relay
-and Windows executable artifacts after successful tests. UDP/TCP and ticket
-rejection smoke use real authenticated traffic; local CI is not Internet proof.
+В документе [первый реальный тест релея](docs/FIRST_REAL_RELAY_TEST.md) описаны
+безопасная установка, обновление и удаление релея на существующем VPS, а также
+отдельная утилита `tools/route-test` для Windows и Linux, сравнивающая DIRECT и
+RELAY. После успешных тестов GitHub Actions публикует сборки релея для Linux и
+исполняемые файлы для Windows. Смоук-тесты UDP/TCP и отклонения билетов гоняют
+настоящий аутентифицированный трафик; локальный CI при этом не доказывает работу
+через интернет.
 
-## Run the local demo
+## Локальное демо
 
-Install Go 1.25+ and run:
+Установите Go 1.25+ и выполните:
 
 ```sh
 go run ./tools/demo/cmd/demo
 ```
 
-Open **http://127.0.0.1:8099**. The dark frontend has Home, Applications, Routes,
-Statistics, Diagnostics and Settings. It uses real loopback UDP traffic through
-three real ticket-authenticated QUIC relays. DIRECT has deliberately configured
-45 ms delay and one-in-five response loss; relay paths have 5/10/15 ms delays.
-Measured RTT/loss may vary with scheduling. No random or invented telemetry is
-rendered. Wait for measurements and hysteresis, add a local application profile,
-then use **Stop relay** to exercise actual relay failure and new-flow failover.
-Optimize toggles the lab application's routing; it does not capture host programs.
-The lab process identity is explicit test metadata, not Windows discovery.
+Откройте **http://127.0.0.1:8099**. В тёмном интерфейсе есть разделы «Главная»,
+«Приложения», «Маршруты», «Статистика», «Диагностика» и «Настройки». Демо гоняет
+настоящий UDP-трафик по loopback через три настоящих QUIC-релея с проверкой
+билетов. Для DIRECT специально выставлены задержка 45 мс и потеря каждого пятого
+ответа, у релеев задержка 5, 10 и 15 мс. Измеренные RTT и потери могут немного
+плавать из-за планировщика ОС. Случайные или выдуманные данные не показываются.
+Дождитесь замеров и срабатывания гистерезиса, добавьте профиль локального
+приложения, а затем нажмите **Stop relay**, чтобы проверить настоящий отказ релея
+и переключение новых соединений. Переключатель Optimize управляет маршрутизацией
+только тестового приложения и не перехватывает программы на компьютере.
+Идентификатор процесса в лаборатории задан явно как тестовые метаданные, а не
+определяется средствами Windows.
 
-`go run ./tools/lab` runs the original minimal UDP/TCP end-to-end lab.
+`go run ./tools/lab` запускает исходную минимальную лабораторию UDP/TCP.
 
-## Run the backend development environment
+## Бэкенд для разработки
 
-Install Docker with Compose v2:
+Установите Docker с Compose v2:
 
 ```sh
 docker compose up --build -d
 docker compose --profile test run --rm dev-client
 ```
 
-This starts PostgreSQL 17, the control plane, ticket-required relay and isolated
-UDP/TCP echo targets. The test client really registers, verifies signed config,
-obtains a device-bound ticket and sends both protocols through the relay.
-Health: http://127.0.0.1:8080/healthz; metrics: ports 8080 and 9090.
-Secrets are generated once into scoped Docker volumes, never source files.
-Keep these private: dev-client is a bootstrap/admin integration tool, not the
-normal least-privilege client. HTTP, private-CIDR egress and the test CA are
-**development only**. `docker compose down` preserves state; deleting volumes
-also deletes identities, keys and the database.
+Поднимутся PostgreSQL 17, сервер управления, релей с обязательной проверкой
+билетов и изолированные эхо-серверы UDP/TCP. Тестовый клиент по-настоящему
+регистрируется, проверяет подписанную конфигурацию, получает билет, привязанный
+к устройству, и отправляет трафик обоих протоколов через релей.
+Проверка здоровья: http://127.0.0.1:8080/healthz; метрики — на портах 8080 и 9090.
+Секреты генерируются один раз в отдельные тома Docker и никогда не попадают в
+исходники. Держите их в тайне: dev-client — это инструмент первичной настройки
+и администрирования, а не обычный клиент с минимальными правами. HTTP, выход в
+частные подсети и тестовый CA — **только для разработки**. `docker compose down`
+сохраняет состояние; удаление томов стирает идентификаторы, ключи и базу данных.
 
-[Deployment](DEPLOYMENT.md) includes optional Prometheus/Grafana and cloud build
-CA configuration. [Control plane](CONTROL_PLANE.md) and [relay](RELAY.md) describe
-standalone processes, endpoints and credentials.
+В [развёртывании](DEPLOYMENT.md) описаны необязательные Prometheus/Grafana и
+настройка CA для облачной сборки. [Сервер управления](CONTROL_PLANE.md) и
+[релей](RELAY.md) описывают отдельные процессы, эндпоинты и учётные данные.
 
-## Build and test
+## Сборка и тесты
 
 ```sh
 go build ./...
@@ -115,9 +129,10 @@ go vet ./...
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...
 ```
 
-Go race checks need a C compiler. Set `NEEXITLAG_TEST_DATABASE_URL` to a disposable
-PostgreSQL database to run API integration tests; otherwise that test explicitly
-skips. CI provisions PostgreSQL. Short fuzz commands:
+Для проверок `-race` нужен компилятор C. Чтобы запустить интеграционные тесты API,
+укажите в `NEEXITLAG_TEST_DATABASE_URL` одноразовую базу PostgreSQL; без неё этот
+тест явно пропускается. В CI PostgreSQL поднимается автоматически. Короткие
+команды фаззинга:
 
 ```sh
 go test ./core/protocol -run '^$' -fuzz '^FuzzDecode$' -fuzztime 5s -parallel 2
@@ -127,61 +142,73 @@ go test ./core/security -run '^$' -fuzz '^FuzzConfig$' -fuzztime 10000x -fuzzmin
 go test ./core/ipc -run '^$' -fuzz '^FuzzFrame$' -fuzztime 5s -parallel 2
 ```
 
-Browser smoke: install Python Playwright and Chromium, run the demo, then
-`python3 tests/frontend/demo_smoke.py` (override `CHROMIUM_PATH` if needed).
-It changes the local demo profile/settings and stops one real relay.
+Смоук-тест в браузере: установите Python Playwright и Chromium, запустите демо,
+затем `python3 tests/frontend/demo_smoke.py` (при необходимости укажите путь в
+`CHROMIUM_PATH`). Тест меняет профиль и настройки локального демо и
+останавливает один настоящий релей.
 
-## Windows desktop and service
+## Клиент и служба для Windows
 
-Use Windows 10/11 x64, Go 1.25+, .NET 8 SDK and trusted, signed WinDivert v2 binaries:
+Нужны Windows 10/11 x64, Go 1.25+, .NET 8 SDK и доверенные подписанные бинарники
+WinDivert v2:
 
 ```powershell
 go build -o bin/neexitlag-service.exe ./services/client-service/cmd/service
 dotnet build apps/desktop/Neexitlag.Desktop.csproj
 ```
 
-Provision a device with `go run ./tools/enroll -control-plane https://YOUR-CP
--state DEVICE-DIR -admin-token-file BOOTSTRAP-TOKEN-FILE` (one command line),
-then run [install.ps1](tools/windows/install.ps1) elevated with the service binary,
-owner SID, device/trust/driver directories, trusted DLL/SYS SHA256 pins,
-HTTPS control plane URL and literal IP:port UDP echo target. `-TCPProbeTarget`
-optionally enables the TCP diagnostic. The script installs SCM service `neexitlag`
-and protects ProgramData credentials; run the desktop without elevation.
-[Windows acceptance](docs/BLOCKERS.md) gives the remaining runtime test matrix.
+Зарегистрируйте устройство командой `go run ./tools/enroll -control-plane https://YOUR-CP
+-state DEVICE-DIR -admin-token-file BOOTSTRAP-TOKEN-FILE` (в одну строку), затем
+запустите [install.ps1](tools/windows/install.ps1) от имени администратора, передав
+бинарник службы, SID владельца, каталоги устройства, доверенных сертификатов и
+драйвера, закреплённые SHA256 для DLL/SYS, HTTPS-адрес сервера управления и
+UDP-эхо-цель в виде IP:порт. Параметр `-TCPProbeTarget` дополнительно включает
+TCP-диагностику. Скрипт устанавливает службу Windows `VELIQ` и защищает учётные
+данные в ProgramData; клиент запускайте без повышенных прав.
+Оставшаяся матрица проверок на Windows — в [приёмке на Windows](docs/BLOCKERS.md).
 
-WPF can also bind to the portable lab on Windows. Save the demo HTML's
-`const token='...'` value into a private local token file, then start:
+WPF-клиент можно подключить и к переносимой лаборатории на Windows. Сохраните
+значение `const token='...'` из HTML демо в приватный локальный файл и запустите:
 
 ```powershell
 dotnet run --project apps/desktop -- --demo-url http://127.0.0.1:8099 --demo-token-file TOKEN-FILE
 ```
 
-That token belongs only to the current local demo instance. Native desktop bindings
-were exercised on Linux by `tests/desktop-bindings` using the same C# client source;
-this is not evidence that a native WPF window or named-pipe driver session ran.
+Этот токен действует только для текущего запуска локального демо. Привязки
+клиента проверялись на Linux тестами `tests/desktop-bindings` на том же коде C#;
+это не доказывает, что настоящее окно WPF или сессия с драйвером через named pipe
+запускались.
 
-## Network quality v1
+## Качество сети v1
 
-AUTO compares 60-second rolling route history, with sustained loss and burst loss
-penalties, confirmed improvements and flow pinning. Native route/statistics views
-show available quality metrics; diagnostics distinguish observable local drops
-from unanswered probes. See [policy, metrics and validation](docs/NETWORK_QUALITY_V1.md)
-and [destination quality / disabled FEC design](docs/design/DESTINATION_QUALITY_AND_FEC.md).
+Режим AUTO сравнивает историю маршрутов за скользящие 60 секунд, штрафует за
+устойчивые и пакетные потери, учитывает только подтверждённые улучшения и
+закрепляет соединения за маршрутом. Экраны маршрутов и статистики в клиенте
+показывают доступные метрики качества; диагностика отличает видимые локальные
+потери от безответных замеров. См. [политику, метрики и проверку](docs/NETWORK_QUALITY_V1.md)
+и [качество до цели и отключённую FEC](docs/design/DESTINATION_QUALITY_AND_FEC.md).
 
-## Known limitations
+## Известные ограничения
 
-Probe quality describes the configured echo destination, not every game server.
-The capture backend supports unfragmented IPv4 UDP/TCP. IPv4 loopback and unknown
-identities remain DIRECT. IPv6 relay transport is unsupported: a network guard
-blocks attributable new relay-app IPv6 flows; existing/unattributed
-sockets fail open, so this is not a leak-proof privacy guarantee. Established TCP
-connections cannot migrate across egress IPs; failures close them and new
-connections follow policy. Profile publisher/signature requirements safely do
-not match until a verified publisher is supplied. WFP, signed application updates, updater/channel rollout,
-production identity enrollment, DDoS infrastructure, driver signing and Internet
-performance validation are future work. Update channel is a persisted preference;
-there is no implemented updater. The MTU diagnostic verifies a 1100-byte UDP echo,
-not discovered Internet path MTU. Config expiry and relay session leases bound
-operation during a control-plane outage; reconnection requires valid tickets.
+Качество замеров относится к настроенному эхо-серверу, а не к каждому игровому
+серверу. Захват поддерживает нефрагментированные IPv4 UDP/TCP. Loopback IPv4 и
+процессы без определённой идентичности остаются на DIRECT. Транспорт релея по
+IPv6 не поддерживается: сетевая защита блокирует новые IPv6-соединения
+приложений, которые идут через релей и которые удаётся сопоставить с процессом;
+уже открытые и несопоставленные сокеты пропускаются как есть, поэтому полной
+защиты от утечек это не гарантирует. Установленные TCP-соединения не могут
+переехать на другой внешний IP: при сбое они закрываются, а новые подключения
+идут по текущей политике. Требования профиля к издателю и подписи намеренно
+не срабатывают, пока не указан проверенный издатель. WFP, подписанные обновления
+приложения, механизм обновления и поэтапная раскатка по каналам, боевая
+регистрация устройств, защита от DDoS, подпись драйвера и проверка
+производительности в интернете — в планах. Канал обновлений сейчас только
+сохраняется как настройка, механизма обновления пока нет. Диагностика MTU
+проверяет UDP-эхо размером 1100 байт, а не реальный MTU пути в интернете.
+Срок действия конфигурации и аренды сессий релея ограничивают работу во время
+недоступности сервера управления; для переподключения нужны действующие билеты.
 
-User-facing brand: **VELIQ**. Compatibility and safe Windows upgrade: [VELIQ branding](docs/VELIQ_BRANDING.md). Repository/module, SCM, IPC and persisted paths intentionally retain their established identifiers.
+Название продукта для пользователей — **VELIQ**. Совместимость и безопасное
+обновление на Windows: [брендинг VELIQ](docs/VELIQ_BRANDING.md). Имя Go-модуля,
+named pipe IPC и служебные идентификаторы протокола намеренно сохраняют прежние
+названия.
