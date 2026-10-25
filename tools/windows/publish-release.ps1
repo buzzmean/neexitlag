@@ -30,7 +30,9 @@ $signer=Join-Path $work 'release-sign'
 $env:GOOS='linux';$env:GOARCH='amd64'
 try{& go build -trimpath -o $signer (Join-Path $repo 'tools\release-sign');if($LASTEXITCODE){throw 'RELEASE_SIGNER_BUILD_FAILED'}}finally{Remove-Item Env:GOOS,Env:GOARCH}
 & scp -q -o BatchMode=yes $signer ("root@${SignHost}:/opt/neexitlag/maintenance/release-sign");if($LASTEXITCODE){throw 'RELEASE_SIGNER_UPLOAD_FAILED'}
-$out=Get-Content -Raw -LiteralPath $plain | & ssh -o BatchMode=yes "root@$SignHost" 'chmod 750 /opt/neexitlag/maintenance/release-sign && /opt/neexitlag/maintenance/release-sign'
+# Copy instead of piping: Windows PowerShell 5.1 prefixes piped native input with a BOM.
+& scp -q -o BatchMode=yes $plain ("root@${SignHost}:/tmp/veliq-release-manifest.json");if($LASTEXITCODE){throw 'RELEASE_MANIFEST_UPLOAD_FAILED'}
+$out=& ssh -o BatchMode=yes "root@$SignHost" 'chmod 750 /opt/neexitlag/maintenance/release-sign && /opt/neexitlag/maintenance/release-sign < /tmp/veliq-release-manifest.json; rc=$?; rm -f /tmp/veliq-release-manifest.json; exit $rc'
 if($LASTEXITCODE -or !$out){throw 'RELEASE_SIGN_FAILED'}
 [IO.File]::WriteAllText($signed,($out -join "`n"),[Text.UTF8Encoding]::new($false))
 
