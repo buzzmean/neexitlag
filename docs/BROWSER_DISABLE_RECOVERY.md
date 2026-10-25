@@ -129,7 +129,7 @@ Browser phase/code/type пишутся в существующий ограни�
 Для обновления выйти только из VELIQ, затем:
 
 ```powershell
-git pull --ff-only origin codex/work
+git pull --ff-only origin main
 ```
 
 ```powershell

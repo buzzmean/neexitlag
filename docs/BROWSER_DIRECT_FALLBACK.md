@@ -92,11 +92,11 @@ cardinality overflow bytes. Counters обновляются во время пр
 $ErrorActionPreference='Stop'
 cd C:\neexitlag
 if (@(git status --porcelain).Count) { throw 'Есть локальные правки: сохраните их перед обновлением' }
-git fetch origin refs/heads/codex/work:refs/remotes/origin/codex/work
+git fetch origin refs/heads/main:refs/remotes/origin/main
 if ($LASTEXITCODE) { throw 'fetch failed' }
-git switch codex/work
-if ($LASTEXITCODE) { throw 'Не удалось переключить codex/work: не продолжайте' }
-git pull --ff-only origin codex/work
+git switch main
+if ($LASTEXITCODE) { throw 'Не удалось переключить main: не продолжайте' }
+git pull --ff-only origin main
 if ($LASTEXITCODE) { throw 'pull failed' }
 & .\tools\windows\build-e2e.ps1
 & .\tools\windows\build-desktop.ps1

@@ -2,13 +2,13 @@
 
 ## Сначала только read-only (на ПК владельца)
 
-PowerShell из корня клона `codex/work`. SSH проверяет host key; пароль вводится
+PowerShell из корня клона `main`. SSH проверяет host key; пароль вводится
 интерактивно. Команда не устанавливает, не мигрирует, не отзывает устройства,
 не запускает таймеры, не меняет файлы/бинарники/сертификаты и не перезапускает VPS:
 
 ```powershell
 $ErrorActionPreference='Stop'
-git pull --ff-only origin codex/work
+git pull --ff-only origin main
 if($LASTEXITCODE){throw 'GIT_PULL_FAILED'}
 & .\tools\windows\verify-activation-vps.ps1
 ```

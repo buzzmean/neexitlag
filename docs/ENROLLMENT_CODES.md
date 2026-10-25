@@ -123,10 +123,10 @@ ACL; публичный релиз его не содержит. Без этог
 после зелёного CI нужного полного commit и с разрешения владельца. Не использовать
 её как обычную установку ПК; не запускать bootstrap/CA rotation повторно.
 
-В PowerShell из клона, checkout `codex/work`, без локальных изменений:
+В PowerShell из клона, checkout `main`, без локальных изменений:
 
 ```powershell
-git pull --ff-only origin codex/work
+git pull --ff-only origin main
 $release = (git rev-parse HEAD).Trim()
 & .\tools\windows\update-activation-vps.ps1 -ExpectedCommit $release -ConfirmDeployment 'ACTIVATE-CODES-2.56.177.4'
 ```
@@ -205,7 +205,7 @@ entry guard, но давал вводящий в заблуждение `SSH_ENR
 PowerShell (обычный либо full-admin) из папки существующего репозитория:
 
 ```powershell
-git pull --ff-only origin codex/work
+git pull --ff-only origin main
 & .\tools\windows\verify-activation-vps.ps1
 ```
 
@@ -282,7 +282,7 @@ Updater использует тот же guard/диагностику; моду�
 
 Повторить только read-only проверку (PowerShell, корень клона, SSH root пароль):
 ```powershell
-git pull --ff-only origin codex/work
+git pull --ff-only origin main
 & .\tools\windows\verify-activation-vps.ps1
 ```
 Эта команда не обновляет бинарники, не вызывает enroll/миграции/rollback,

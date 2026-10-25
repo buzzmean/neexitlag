@@ -2,7 +2,7 @@ name: VELIQ Setup build
 on:
   workflow_dispatch:
   push:
-    branches: [codex/work]
+    branches: [main]
     paths: ['installer/**', '.github/workflows/installer.yml']
 permissions:
   contents: read

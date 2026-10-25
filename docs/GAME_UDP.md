@@ -1,6 +1,6 @@
 # Игровой UDP-обход VELIQ
 
-Реализация в `codex/work`; это не подтверждение загрузки PUBG с новым кодом на
+Реализация в `main`; это не подтверждение загрузки PUBG с новым кодом на
 реальном Windows или совместимости с античитом. Владелец доказал эффективность
 подобного первого UDP-полёта другим инструментом на своём провайдере. Здесь свой
 генератор и отправитель: код, бинарники и fake-файлы zapret/Flowseal не используются.
@@ -154,16 +154,16 @@ wire fake bytes, first_reply, cadence state, cache/TTL. `gameudp.set` прини
 
 ## Обновление и приёмка владельца (команды по одной)
 
-В папке клона `codex/work`, под владельцем установленной службы. Закрыть только
+В папке клона `main`, под владельцем установленной службы. Закрыть только
 GUI VELIQ через «Выход», если он мешает замене EXE; не завершать игру средствами
 VELIQ. Окно PowerShell администратора под тем же SID (UAC-off: обычный full-admin).
 Команды ниже **не ходят на VPS**:
 
 ```powershell
-git switch codex/work
+git switch main
 ```
 ```powershell
-git pull --ff-only origin codex/work
+git pull --ff-only origin main
 ```
 ```powershell
 & .\tools\windows\build-e2e.ps1
@@ -279,7 +279,7 @@ PowerShell **администратора под SID владельца уста
 Chrome/Edge/игровые процессы helper не завершает. Обновлять до следующего матча.
 
 ```powershell
-git pull --ff-only origin codex/work
+git pull --ff-only origin main
 ```
 
 ```powershell

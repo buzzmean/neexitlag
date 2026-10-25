@@ -50,9 +50,9 @@ GUI ничего не записывает в политику браузера 
 обновите только GUI (служба и VPS на этом этапе не менялись), в обычном PowerShell:
 
 ```powershell
-git switch codex/work
+git switch main
 if ($LASTEXITCODE) { throw 'Git switch failed' }
-git pull --ff-only origin codex/work
+git pull --ff-only origin main
 if ($LASTEXITCODE) { throw 'Git pull failed' }
 git merge-base --is-ancestor 84793bf HEAD
 if ($LASTEXITCODE) { throw 'Expected stage-a code/diagnostics not present' }
@@ -159,9 +159,9 @@ IPv6 data routing и UDP/443 политика не меняются. IPv6 guard 
 
 ```powershell
 $ErrorActionPreference='Stop'
-git switch codex/work
+git switch main
 if ($LASTEXITCODE) { throw 'git switch failed' }
-git pull --ff-only origin codex/work
+git pull --ff-only origin main
 if ($LASTEXITCODE) { throw 'git pull failed' }
 & .\tools\windows\build-e2e.ps1
 & .\tools\windows\build-desktop.ps1

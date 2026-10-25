@@ -1,7 +1,7 @@
 name: Activation and leaf renewal
 on:
   push:
-    branches: [codex/work]
+    branches: [main]
     paths:
       - '.github/workflows/activation.yml'
       - 'core/enrollment/**'

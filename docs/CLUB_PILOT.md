@@ -49,7 +49,7 @@ PowerShell администратора **из корня клона**, напр
 `-Compiler '<путь ISCC.exe>'`. Сборка не устанавливает VELIQ и не ходит по SSH.
 
 ```powershell
-git pull --ff-only origin codex/work
+git pull --ff-only origin main
 ```
 
 ```powershell
