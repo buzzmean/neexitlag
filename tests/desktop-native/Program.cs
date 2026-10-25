@@ -152,15 +152,15 @@ internal static class Program
         var style = (Style)Application.Current.FindResource(typeof(ComboBox));
         foreach (string name in new[] { "Mode", "RelayChoice", "ProfileFallback", "AppPreset", "LocalMechanism", "Fallback", "Channel" })
         {
-            string section = name is "Fallback" or "Channel" ? "Settings" : name == "LocalMechanism" ? "LocalStrategies" : "Applications";
-            foreach (string page in new[] { "Home", "Applications", "Routes", "Statistics", "Diagnostics", "Settings", "LocalStrategies" })
-                ((FrameworkElement)main.FindName(page)).Visibility = page == section ? Visibility.Visible : Visibility.Collapsed;
+            string section = name is "Fallback" or "Channel" ? "Settings" : name == "LocalMechanism" ? "Diagnostics" : "Applications";
+            main.ShowPage(section);
+            if (section == "Diagnostics") main.ShowDiagnosticsTab("LocalStrategies");
             if(section=="Applications"){var advanced=(Expander)main.FindName("AppAdvanced");advanced.IsExpanded=true;}
             var box = (ComboBox)main.FindName(name); box.BringIntoView(); Pump(); box.ApplyTemplate();
             Require(box.Style == style, name + " does not use shared dark style");
             Require(box.Template.FindName("Chrome", box) is Border, name + " native light template still active");
             Require(box.Template.FindName("PART_Popup", box) is Popup, name + " missing popup");
-            if (!box.IsEnabled) { Brush(box.Foreground, "#FFA3A3A3", name + " disabled foreground"); }
+            if (!box.IsEnabled) { Brush(box.Foreground, "#FF8E939C", name + " disabled foreground"); }
             SaveImage(box, "actual-" + name);
         }
         main.Close(); Pump();
@@ -171,25 +171,25 @@ internal static class Program
         host.Show(); host.Activate(); Pump();
         SetCursorPos(0, 0); Pump();
         var chrome = (Border)combo.Template.FindName("Chrome", combo);
-        Brush(chrome.Background, "#FF111111", "Normal background"); Brush(combo.Foreground, "#FFFFFFFF", "Normal text");
+        Brush(chrome.Background, "#FF131417", "Normal background"); Brush(combo.Foreground, "#FFFFFFFF", "Normal text");
         SaveImage(host, "combo-normal"); Pass("dark ComboBox normal");
-        Hover(combo); Brush(chrome.Background, "#FF242424", "Hover background");
+        Hover(combo); Brush(chrome.Background, "#FF1A1C20", "Hover background");
         SaveImage(host, "combo-hover"); Pass("dark ComboBox hover");
         combo.Focus(); Key(combo, System.Windows.Input.Key.Down); Require(combo.SelectedIndex == 1, "Arrow selection broken");
         Key(combo, System.Windows.Input.Key.F4); Require(combo.IsDropDownOpen, "F4 dropdown keyboard open broken"); Pump();
         var popup = (Popup)combo.Template.FindName("PART_Popup", combo);
         var border = (Border)combo.Template.FindName("PopupBorder", combo);
-        Brush(border.Background, "#FF111111", "Popup background");
+        Brush(border.Background, "#FF131417", "Popup background");
         var selected = (ComboBoxItem)combo.ItemContainerGenerator.ContainerFromIndex(combo.SelectedIndex);
-        selected.ApplyTemplate(); Brush(selected.Background, "#FF333333", "Selected background"); Brush(selected.Foreground, "#FFFFFFFF", "Selected text");
+        selected.ApplyTemplate(); Brush(selected.Background, "#FF22252A", "Selected background"); Brush(selected.Foreground, "#FFFFFFFF", "Selected text");
         SaveImage(border, "combo-popup-selected"); Pass("dark ComboBox selected");
         var unselected = (ComboBoxItem)combo.ItemContainerGenerator.ContainerFromIndex(2); Hover(unselected);
-        Brush(unselected.Background, "#FF242424", "Popup item hover"); SaveImage(border, "combo-popup-hover");
+        Brush(unselected.Background, "#FF1A1C20", "Popup item hover"); SaveImage(border, "combo-popup-hover");
         Key(combo, System.Windows.Input.Key.Escape); Require(!combo.IsDropDownOpen, "Escape must close popup");
         Key(combo, System.Windows.Input.Key.F4); Key(combo, System.Windows.Input.Key.Enter); Require(!combo.IsDropDownOpen, "Enter must close popup");
         combo.Focus(); combo.MoveFocus(new TraversalRequest(FocusNavigationDirection.Next)); Pump(); Require(next.IsKeyboardFocused, "Tab traversal broken");
-        combo.Focus(); Pump(); Brush(chrome.BorderBrush, "#FFFFFFFF", "Keyboard focus border");
-        combo.IsEnabled = false; Pump(); Brush(combo.Foreground, "#FFA3A3A3", "Disabled text"); Brush(chrome.Background, "#FF1A1A1A", "Disabled background");
+        combo.Focus(); Pump(); Brush(chrome.BorderBrush, "#FFF0502A", "Keyboard focus border");
+        combo.IsEnabled = false; Pump(); Brush(combo.Foreground, "#FF8E939C", "Disabled text"); Brush(chrome.Background, "#FF060607", "Disabled background");
         Require(Color(combo.Foreground) != Color(chrome.Background), "Disabled foreground equals background");
         SaveImage(host, "combo-disabled"); Pass("dark ComboBox disabled"); Pass("ComboBox keyboard arrows/F4/Enter/Escape/Tab and focus");
         host.Close(); Pump();

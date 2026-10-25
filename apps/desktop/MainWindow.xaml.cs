@@ -50,18 +50,41 @@ public partial class MainWindow : Window
         var enable = menu.Items.Add(Text.Get("TrayEnable"), null, async (_, _) => await Execute(EnableOptimizationAsync));
         var disable = menu.Items.Add(Text.Get("TrayDisable"), null, async (_, _) => await Execute(() => model.OptimizeAsync(false, lifetime.Token)));
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+        menu.Items.Add(Text.Get("TrayDiagnostics"), null, (_, _) => Dispatcher.Invoke(() => { ShowFromTray(); ShowPage("Diagnostics"); }));
+        menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         menu.Items.Add(Text.Get("Exit"), null, (_, _) => Dispatcher.Invoke(Exit));
+        TrayMenuRenderer.Apply(menu);
         menu.Opening += (_, _) => { enable.Enabled = model.Available && !model.Busy && !model.Optimizing; disable.Enabled = model.Available && !model.Busy && model.Optimizing; };
         tray.ContextMenuStrip = menu;
-        tray.DoubleClick += (_, _) => Dispatcher.Invoke(ShowFromTray);
+        tray.MouseClick += (_, args) => { if (args.Button == System.Windows.Forms.MouseButtons.Left) Dispatcher.Invoke(ShowFromTray); };
+        model.PropertyChanged += (_, _) => UpdateTrayState();
+        UpdateTrayState();
+        WindowTheme.UseDarkCaption(this);
+        AboutVersion.Text = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "";
         Loaded += async (_, _) => { ApplyStartupState(); if (background) await Refresh(); };
         timer.Tick += async (_, _) => await Refresh();
         if (background) timer.Start();
         Closing += OnClosing;
         StateChanged += (_, _) => { if (WindowState == WindowState.Minimized && preferences.MinimizeToTray) Hide(); };
-        Closed += (_, _) => { timer.Stop(); lifetime.Cancel(); chromeRecovery.Dispose(); tray.Visible = false; tray.ContextMenuStrip?.Dispose(); tray.Dispose(); trayImage.Dispose(); if (shutdownOnClose) System.Windows.Application.Current.Shutdown(); };
+        Closed += (_, _) => { timer.Stop(); lifetime.Cancel(); chromeRecovery.Dispose(); tray.Visible = false; tray.ContextMenuStrip?.Dispose(); tray.Dispose(); trayImage.Dispose(); stateIcon?.Dispose(); if (shutdownOnClose) System.Windows.Application.Current.Shutdown(); };
     }
     internal bool TrayVisible => tray.Visible;
+    System.Drawing.Icon? stateIcon; string trayState = "";
+    void UpdateTrayState()
+    {
+        tray.Text = TrayIcons.Tooltip(model.OptimizationStatus);
+        var state = TrayIcons.State(model);
+        if (state == trayState) return;
+        try
+        {
+            var next = TrayIcons.Load(state);
+            tray.Icon = next;
+            stateIcon?.Dispose();
+            stateIcon = next;
+            trayState = state;
+        }
+        catch (Exception error) when (error is IOException or ArgumentException or NullReferenceException) { tray.Icon = trayImage; }
+    }
     internal System.Windows.Forms.NotifyIcon TrayIcon => tray;
     void ApplyStartupState()
     {
@@ -153,15 +176,28 @@ public partial class MainWindow : Window
         Fallback.ItemsSource = snapshot.Backend.Capabilities.Tcp ? new[] { new Choice("DIRECT", Text.Get("Direct")), new Choice("BLOCK", Text.Get("Block")) } : new[] { new Choice("DIRECT", Text.Get("Direct")) };
         Fallback.SelectedValue = snapshot.Settings.Failover == "BLOCK" && snapshot.Backend.Capabilities.Tcp ? "BLOCK" : "DIRECT";
     }
-    void Navigate(object sender, RoutedEventArgs e)
+    void Navigate(object sender, RoutedEventArgs e) => ShowPage((string)((Button)sender).Tag);
+    internal void ShowPage(string page)
     {
-        string page = (string)((Button)sender).Tag;
-        PageTitle.Text = Text.Get(page);
+        foreach (var button in NavTop.Children.OfType<Button>().Concat(NavBottom.Children.OfType<Button>()))
+            Nav.SetIsCurrent(button, (string)button.Tag == page);
+        PageHeader.Visibility = page == "Home" ? Visibility.Collapsed : Visibility.Visible;
+        PageTitle.Text = Text.Get(page switch { "Applications" => "NavServices", "About" => "NavAbout", _ => page });
+        PageLead.Text = page switch { "Applications" => Text.Get("ServicesLead"), "Games" => Text.Get("GameCatalogHint"), "Diagnostics" => Text.Get("DiagnosticsLead"), _ => "" };
+        PageLead.Visibility = PageLead.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         if(page=="Games") _=Execute(()=>games.RefreshAsync(lifetime.Token));
-        foreach (string name in new[] { "Home", "Games", "Applications", "Routes", "Statistics", "Diagnostics", "Settings", "LocalStrategies" })
+        foreach (string name in new[] { "Home", "Games", "Applications", "Diagnostics", "Settings", "About" })
             ((FrameworkElement)FindName(name)).Visibility = name == page ? Visibility.Visible : Visibility.Collapsed;
         if (page == "Settings" && model.Snapshot is { } snapshot)
             LoadSettings(snapshot);
+    }
+    void DiagTab(object sender, RoutedEventArgs e) => ShowDiagnosticsTab((string)((Button)sender).Tag);
+    internal void ShowDiagnosticsTab(string tab)
+    {
+        foreach (var button in DiagTabs.Children.OfType<Button>())
+            Nav.SetIsCurrent(button, (string)button.Tag == tab);
+        foreach (string name in new[] { "DiagChecks", "Routes", "Statistics", "LocalStrategies" })
+            ((FrameworkElement)FindName(name)).Visibility = name == tab ? Visibility.Visible : Visibility.Collapsed;
     }
     bool localLoaded;
     LocalStrategyConfig localConfig = new();

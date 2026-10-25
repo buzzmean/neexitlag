@@ -13,7 +13,9 @@ public sealed class PromptWindow : Window
         ResizeMode = ResizeMode.NoResize;
         SizeToContent = SizeToContent.Height;
         Width = 440;
-        Background = new SolidColorBrush(Color.FromRgb(21, 28, 37));
+        Background = (Brush)FindResource("Bg");
+        FontFamily = (FontFamily)FindResource("VeliqFont");
+        WindowTheme.UseDarkCaption(this);
         ShowInTaskbar = false;
         var panel = new StackPanel { Margin = new Thickness(24) };
         panel.Children.Add(new TextBlock { Text = Text.Get(key), TextWrapping = TextWrapping.Wrap, FontSize = 15, Margin = new Thickness(0, 0, 0, 20) });
@@ -24,7 +26,7 @@ public sealed class PromptWindow : Window
             cancel.Click += (_, _) => DialogResult = false;
             buttons.Children.Add(cancel);
         }
-        var ok = new Button { Content = Text.Get(confirm ? "Remove" : "Ok"), IsDefault = true };
+        var ok = new Button { Content = Text.Get(confirm ? "Remove" : "Ok"), IsDefault = true, Style = (Style)FindResource("Primary"), Margin = new Thickness(0) };
         ok.Click += (_, _) => DialogResult = true;
         buttons.Children.Add(ok);
         panel.Children.Add(buttons);
