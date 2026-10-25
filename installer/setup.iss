@@ -32,10 +32,10 @@ WizardImageFile=assets\wizard-100.bmp,assets\wizard-125.bmp,assets\wizard-150.bm
 WizardSmallImageFile=assets\wizard-small-100.bmp,assets\wizard-small-125.bmp,assets\wizard-small-150.bmp,assets\wizard-small-175.bmp,assets\wizard-small-200.bmp,assets\wizard-small-225.bmp,assets\wizard-small-250.bmp
 WizardImageStretch=no
 RestartIfNeededByRun=no
-; Interactive installs close a running VELIQ.exe; the service-driven update passes
-; /NOCLOSEAPPLICATIONS so a locked GUI is replaced at the next restart instead.
-CloseApplications=yes
-CloseApplicationsFilter=VELIQ.exe
+; Never close or restart other applications (browsers above all). Our own GUI is asked
+; to exit through its pipe in PrepareToInstall; a still-locked VELIQ.exe is replaced at
+; the next restart (restartreplace).
+CloseApplications=no
 RestartApplications=no
 UninstallDisplayName=VELIQ
 [Languages]
@@ -75,6 +75,15 @@ function UpdateArgument(Param: String): String;
 begin
  Result := '';
  if ExpandConstant('{param:UPDATE|0}')='1' then Result := '-Update';
+end;
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var Code: Integer;
+begin
+ Result := '';
+ if ExpandConstant('{param:UPDATE|0}')='1' then Exit;
+ Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+  '-NoProfile -NonInteractive -Command "$s=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value+''-''+[Diagnostics.Process]::GetCurrentProcess().SessionId;$p=[IO.Pipes.NamedPipeClientStream]::new(''.'',''NeExitLag-activate-''+$s,[IO.Pipes.PipeDirection]::Out);try{$p.Connect(500);$p.WriteByte(2);Start-Sleep -Seconds 2}catch{}finally{$p.Dispose()}"',
+  '', SW_HIDE, ewWaitUntilTerminated, Code);
 end;
 function NotClubImage(): Boolean;
 begin
