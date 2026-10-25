@@ -296,4 +296,4 @@ git pull --ff-only origin codex/work
 повторного запуска и результатов — [ACTIVATION_DEPLOYMENT_RECOVERY.md](ACTIVATION_DEPLOYMENT_RECOVERY.md).
 Полный pg_restore/DROP не выполнять: nonce/отзывы сохраняются. Наличие старых
 бинарников со schema 2 не означает, что коды уже работают; нужен подтверждённый
-новый deployment и активный renewal timer. Агент production не меняет.
+новый deployment и активный renewal timer. Production этим не меняется.

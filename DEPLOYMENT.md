@@ -15,7 +15,7 @@ Prometheus explicitly when that host is reachable. No fake probe series is seede
 
 For a managed environment requiring a custom proxy CA, build with:
 `docker compose -f compose.yaml -f deploy/compose.managed.yaml build` and set
-`CODEX_PROXY_CERT` to the provided CA file path. BuildKit secret injection verifies
+`BUILD_PROXY_CA_CERT` to the provided CA file path. BuildKit secret injection verifies
 TLS without copying proxy credentials or CA into repository/output. Docker runtime
 internal destinations use NO_PROXY. Normal developer builds need no override.
 
