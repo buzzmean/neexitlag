@@ -306,8 +306,10 @@ func TestPoolBulkReusesAuthenticatedSessionAndMeasuresOpenPhases(t *testing.T) {
 	if len(s.RecentOpens) != 2 || s.RecentOpens[0].SessionID != s.RecentOpens[1].SessionID {
 		t.Fatal("QUIC session replaced")
 	}
+	// Loopback stream open can fall inside the Windows monotonic clock tick and
+	// read as exactly 0 ms; negative or inconsistent phases remain failures.
 	for _, v := range s.RecentOpens {
-		if v.AcquireMS < 0 || v.StreamOpenMS <= 0 || v.SessionAgeMS < 0 || v.DurationMS+0.001 < v.AcquireMS+v.StreamOpenMS || v.FailureReason != "" {
+		if v.AcquireMS < 0 || v.StreamOpenMS < 0 || v.SessionAgeMS < 0 || v.DurationMS+0.001 < v.AcquireMS+v.StreamOpenMS || v.FailureReason != "" {
 			t.Fatalf("phase timing invalid: %+v", v)
 		}
 	}
