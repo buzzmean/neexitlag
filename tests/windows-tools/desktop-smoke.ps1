@@ -28,9 +28,9 @@ try {
  }while([DateTime]::UtcNow -lt $deadline)
  if($missing.Count){throw ('Отсутствуют русские элементы окна: '+($missing -join ', '))}
  if(@($names|Where-Object {$_ -in @('Home','Applications','Routes','Statistics','Diagnostics','Settings')}).Count){throw 'Обнаружены английские элементы интерфейса'}
- $alias=Join-Path (Split-Path $Executable) 'NeExitLag.exe'
- if((Get-FileHash $alias).Hash -ne (Get-FileHash $Executable).Hash){throw 'Legacy GUI entrypoint differs from VELIQ'}
- $second=Start-Process $alias -PassThru
+ # The NeExitLag.exe alias was removed by the Windows rebrand (owner's decision).
+ if(Test-Path -LiteralPath (Join-Path (Split-Path $Executable) 'NeExitLag.exe')){throw 'Legacy NeExitLag.exe alias must not be built'}
+ $second=Start-Process $Executable -PassThru
  if(!$second.WaitForExit(10000)){throw 'Второй экземпляр не передал активацию первому'}
  $first.Refresh();if($first.HasExited){throw 'Первый экземпляр завершился при активации'}
  Write-Output 'PASS: нативное WPF-окно, русская навигация и единственный экземпляр'
