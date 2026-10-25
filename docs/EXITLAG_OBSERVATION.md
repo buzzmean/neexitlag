@@ -43,4 +43,4 @@ payload. Здесь ETW/capture не включаются. Нет reverse engine
 
 Проверено локально: pure PowerShell fixtures на фильтрацию PID, повторное
 использование PID, лимит, отсутствие выдуманных UDP remote/RTT; parse на PS7.
-Реальное наблюдение ExitLag/Windows и измерения игры агентом не выполнялись.
+Реальное наблюдение ExitLag/Windows и измерения игры не выполнялись.

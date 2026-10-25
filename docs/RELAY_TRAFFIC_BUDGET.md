@@ -32,7 +32,7 @@ boot epoch hash и boot time. Пакеты не перехватывает. Уч
 
 Relay: `-traffic-state-file <собственный-private-StateDirectory>/traffic.json`,
 опционально `-traffic-interface ens3`. CP: `-relay-traffic-file <свой-StateDirectory>/relays.json`.
-По умолчанию оба **выключены**, никаких production unit/env/path изменений агентом
+По умолчанию оба **выключены**, никаких production unit/env/path изменений
 не выполняется. Нужны отдельные writable state directories с0700/owner конкретной
 службы; не использовать общую папку с рекурсивным chown разных service users.
 Неисправный необязательный meter не должен останавливать relay; ошибка/нет отчётов
@@ -86,7 +86,7 @@ ssh -o StrictHostKeyChecking=accept-new root@146.0.77.98 'curl -fsS http://127.0
 9090/loopback — текущий Hostkey fleet template. Live TCP byte fix и monthly series
 появятся только после разрешённого будущего server update; отсутствие series не
 доказательство отсутствия трафика. UDP socket count `ss` не является количеством
-QUIC sessions. Код/команды здесь агентом на VPS не выполнялись.
+QUIC sessions. Код/команды здесь на VPS не выполнялись.
 
 До включения monthly collector можно только read-only снять текущие NIC counters
 и boot time (это **since boot**, не полный месяц; интерфейсы не суммировать):

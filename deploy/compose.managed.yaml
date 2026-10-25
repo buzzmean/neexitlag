@@ -5,4 +5,4 @@ services:
       secrets: [proxy_ca]
 secrets:
   proxy_ca:
-    file: ${CODEX_PROXY_CERT}
+    file: ${BUILD_PROXY_CA_CERT}
