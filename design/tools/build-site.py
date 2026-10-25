@@ -124,7 +124,7 @@ def footer():
       </div>
       <div>
         <h2>Продукт</h2>
-        <ul><li><a href="download.html">Скачать</a></li><li><a href="index.html#how">Как работает</a></li><li><a href="vpn.html">Отличие от VPN</a></li><li><a href="index.html#privacy">Что видит сервер</a></li><li><a href="index.html#games">Для игр</a></li><li><a href="pricing.html">Цены</a></li></ul>
+        <ul><li><a href="download.html">Скачать</a></li><li><a href="index.html#how">Как работает</a></li><li><a href="vpn.html">Отличие от VPN</a></li><li><a href="index.html#privacy">Что видит сервер</a></li><li><a href="index.html#games">Для игр</a></li><li><a href="pricing.html">Цены</a></li><li><a href="roadmap.html">План развития</a></li></ul>
       </div>
       <div>
         <h2>Клубам</h2>
@@ -826,8 +826,60 @@ nf_body = f"""
 """
 page("404.html", "Страница не найдена", "Страница не найдена.", "", nf_body)
 
+# ---------------------------------------------------------------- план развития
+# Публичная версия docs/ROADMAP.md: без адресов серверов, кодов, внутренних сроков и названий клубов.
+# Статусы менять здесь вместе с docs/ROADMAP.md и запускать генератор.
+ROADMAP_UPDATED = "25 октября 2026"
+ROADMAP = [
+    ("Готово", "tag--ok", "check", "Работает в бета-версии", [
+        "Заблокированные сервисы открываются через собственную сеть серверов VELIQ: Telegram, ChatGPT, Claude и другие",
+        "YouTube в высоком качестве, вплоть до 4K",
+        "Обычные сайты идут напрямую, без лишних задержек",
+        "Браузеры подхватывают маршруты сразу — ничего не нужно перезапускать",
+        "Собственные серверы в Европе с быстрым каналом",
+    ]),
+    ("В работе", "tag--warn", "refresh", "Делаем сейчас", [
+        "Обход блокировок прямо на компьютере, без сервера: YouTube и Discord быстрее и стабильнее",
+        "Игры: PUBG, Valorant и FACEIT — проверяем в реальных матчах",
+        "Автоматическое переключение на резервный сервер",
+        "Установщик одним файлом",
+    ]),
+    ("Дальше", "", "route", "Следующие шаги", [
+        "Версия для клубов: один код активации на все компьютеры и установка в образ",
+        "Пилот в компьютерном клубе",
+        "Тарифы и оплата",
+        "Версия для телефона",
+    ]),
+]
+roadmap_cols = "\n".join(
+    f'''      <div class="plan{' plan--main' if i == 1 else ''}">
+        <span class="tag {cls}" style="justify-self:start">{label}</span>
+        <h2 class="h3">{title}</h2>
+        <ul>{"".join(f"<li>{icon(ic)}{item}</li>" for item in items)}</ul>
+      </div>'''
+    for i, (label, cls, ic, title, items) in enumerate(ROADMAP))
+roadmap_body = f"""
+<section class="page-head">
+  <div class="wrap">
+    <div class="crumbs"><a href="index.html">Главная</a> / План развития</div>
+    <h1 class="h1">План развития</h1>
+    <p class="lede">Что VELIQ уже умеет, над чем работаем сейчас и что будет дальше.</p>
+  </div>
+</section>
+<section class="sec sec--tight">
+  <div class="wrap">
+    <div class="note" style="margin-bottom:var(--sp-6)">{icon('info')}<div>Обновлено {ROADMAP_UPDATED}. Сроки не объявляем: пункт переходит в «Готово» только после проверки на реальных компьютерах и у реальных провайдеров.</div></div>
+    <div class="plans">
+{roadmap_cols}
+    </div>
+    <div class="hero__actions" style="margin-top:32px"><a class="btn btn--lg" href="download.html">{icon('download')}Скачать бету</a><a class="btn btn--lg btn--ghost" href="clubs.html">Для компьютерных клубов</a></div>
+  </div>
+</section>
+"""
+page("roadmap.html", "План развития", "Что VELIQ уже умеет, над чем работаем сейчас и что будет дальше.", "", roadmap_body)
+
 # ---------------------------------------------------------------- служебные файлы
-pages = ["", "vpn.html", "download.html", "clubs.html", "pricing.html", "support.html", "privacy.html", "terms.html"]
+pages = ["", "vpn.html", "download.html", "clubs.html", "pricing.html", "support.html", "privacy.html", "terms.html", "roadmap.html"]
 (OUT / "sitemap.xml").write_text(
     '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
     + "".join(f"  <url><loc>{SITE['url']}/{p}</loc></url>\n" for p in pages) + "</urlset>\n", encoding="utf-8")
