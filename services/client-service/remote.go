@@ -81,11 +81,15 @@ func (c *Controller) ConnectRemote(ctx context.Context, m Manifest) error {
 	cache := security.NewConfigCache(keys, filepath.Join(m.StateDirectory, "signed-config.json"))
 	_ = cache.Load(time.Now())
 	cp := &controlclient.Client{BaseURL: m.ControlPlaneURL, Cache: cache, DeviceID: identity.ID, DeviceKey: key}
-	if m.ControlPlaneCAFile != "" {
-		cp.HTTP, e = controlclient.HTTPSClient(m.ControlPlaneCAFile)
-		if e != nil {
-			return e
-		}
+	// Installer/activation manifests may carry only ca_file: the control plane
+	// is then verified by the same private CA, never by Windows system roots.
+	cpCA := m.ControlPlaneCAFile
+	if cpCA == "" {
+		cpCA = m.CAFile
+	}
+	cp.HTTP, e = controlclient.HTTPSClient(cpCA)
+	if e != nil {
+		return e
 	}
 	target, e := netip.ParseAddrPort(m.ProbeTarget)
 	if e != nil {
