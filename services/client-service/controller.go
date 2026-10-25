@@ -87,6 +87,7 @@ type Snapshot struct {
 	ActiveApps       []string                      `json:"active_apps"`
 }
 type Controller struct {
+	updater         atomic.Pointer[updater]
 	traffic         *traffic.Client
 	remoteTraffic   remoteTrafficState
 	catalog         *clientCatalog
@@ -640,6 +641,11 @@ func (c *Controller) Handle(ctx context.Context, method string, raw json.RawMess
 		}()
 	}
 	switch method {
+	case "update.status":
+		if u := c.updater.Load(); u != nil {
+			return u.snapshot(), nil
+		}
+		return UpdateStatus{State: "NOT_STARTED", Current: BuildSequence}, nil
 	case "traffic.status":
 		return c.trafficSnapshot(), nil
 	case "local.catalog":
