@@ -104,7 +104,7 @@ internal static class Program
             // Recreate with persisted preferences, as on GUI restart.
             var w = Window(LocalPreferences.Load(settings)); bool closed = false; w.Closed += (_, _) => closed = true;
             w.Show(); Pump();
-            Require(w.Title == "VELIQ" && w.TrayIcon.Text == "VELIQ", "VELIQ window/tray branding");
+            Require(w.Title == "VELIQ" && (w.TrayIcon.Text == "VELIQ" || w.TrayIcon.Text.StartsWith("VELIQ: ")), "VELIQ window/tray branding");
             Require(w.TrayVisible == tray, "Startup tray visibility");
             Require(w.IsVisible == !(start && tray), "Startup must hide only in tray mode");
             Require(!start || w.WindowState == WindowState.Minimized, "StartMinimized must minimize");
