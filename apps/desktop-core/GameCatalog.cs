@@ -37,18 +37,18 @@ public static class GameCatalog
         return Parse(json,Convert.ToHexString(SHA256.HashData(json)));
     }
 }
-public sealed class GameCard(GameDefinition definition):Observable {
+public sealed partial class GameCard(GameDefinition definition):Observable {
     public GameDefinition Definition {get;}=definition;
     public string Id=>Definition.Id;public string Name=>Definition.Name;public string Icon=>Definition.Icon;
     public string Launcher=>Definition.Launcher;public string AntiCheat=>"Античит: "+Definition.AntiCheat;
     public bool CanRepair=>Definition.LauncherNeedsBypass;
     public string Compatibility=>Definition.AntiCheat.Contains("Vanguard")||Definition.AntiCheat.Contains("FACEIT") ? "Совместимость обхода с Vanguard/FACEIT не проверена. Автоматически игру не трогаем." : "Снижение пинга не подтверждено измерениями. По умолчанию DIRECT.";
     string mode="DIRECT",status="Обычный маршрут; изменения только по вашему выбору";
-    public string Mode {get=>mode;set=>Set(ref mode,value);}
+    public string Mode {get=>mode;set{if(Set(ref mode,value))RouteChanged();}}
     public string Status {get=>status;set=>Set(ref status,value);}
     public Profile? Profile {get;set;}
 }
-public sealed class GameCatalogViewModel(IServiceClient client):Observable {
+public sealed partial class GameCatalogViewModel(IServiceClient client):Observable {
     public event Action<Exception,string>? Failed;
     static string FailureText(Exception e)=>e is ServiceException {Message:"CLUB_ADMIN_MANAGED"}?"Настройками клуба управляет администратор":e is ServiceException {Message:"GAME_UDP_ANTICHEAT_COMPATIBILITY_UNVERIFIED"}?GameUdpMessages.Reason(e.Message):Text.Failure(e);
     readonly GameCard[] all=GameCatalog.Bundled().Games.Select(g=>new GameCard(g)).ToArray();
@@ -66,8 +66,8 @@ public sealed class GameCatalogViewModel(IServiceClient client):Observable {
             var profiles=await client.Call<Profile[]>("profiles",cancellationToken:ct);
             string riotActivity="Лаунчер: диагностика пока недоступна";try{riotActivity=GameCatalog.RiotActivity(await client.Call<JsonElement>("riot.status",cancellationToken:ct));}catch(ServiceException){}
             GameUdpStatus? udp=null;try{udp=await client.Call<GameUdpStatus>("gameudp.status",cancellationToken:ct);}catch(ServiceException){}
-            foreach(var g in all){g.Profile=profiles.FirstOrDefault(p=>p.Executables.Any(e=>g.Definition.Executables.Any(n=>ApplicationRow.Matches(n,e))));g.Mode=g.Profile?.Mode??g.Definition.DefaultMode;g.Status=g.Profile is null?"DIRECT · профиль появится при выборе режима":"Профиль: "+Text.Mode(g.Profile.Mode);var gameUdp=udp?.Profiles.FirstOrDefault(p=>p.ProfileId==g.Profile?.Id);if(gameUdp is not null){if(gameUdp.Engine.Enabled && g.Profile?.Mode is "DIRECT" or "AUTO")g.Mode="DIRECT_PLUS";g.Status+=" · "+gameUdp.Summary;}if(g.CanRepair)g.Status+=" · "+riotActivity;}
-            Filter();Notice="Игры и лаунчеры имеют разные профили. Существующие соединения сохраняют маршрут.";
+            foreach(var g in all){g.Profile=profiles.FirstOrDefault(p=>p.Executables.Any(e=>g.Definition.Executables.Any(n=>ApplicationRow.Matches(n,e))));g.Mode=g.Profile?.Mode??g.Definition.DefaultMode;g.RelayId=g.Profile?.RelayId;g.Status=g.Profile is null?"DIRECT · профиль появится при выборе режима":"Профиль: "+Text.Mode(g.Profile.Mode);var gameUdp=udp?.Profiles.FirstOrDefault(p=>p.ProfileId==g.Profile?.Id);if(gameUdp is not null){if(gameUdp.Engine.Enabled && g.Profile?.Mode is "DIRECT" or "AUTO")g.Mode="DIRECT_PLUS";g.Status+=" · "+gameUdp.Summary;}if(g.CanRepair)g.Status+=" · "+riotActivity;}
+            Filter();await LoadRelaysAsync(ct);Notice="Игры и лаунчеры имеют разные профили. Существующие соединения сохраняют маршрут.";
         }catch(Exception e){Failed?.Invoke(e,"gamecatalog.refresh");Notice="Каталог сохранён. Служба недоступна: "+FailureText(e);}finally{Busy=false;}
     }
     public async Task ApplyAsync(GameCard g,CancellationToken ct=default){
@@ -83,7 +83,7 @@ public sealed class GameCatalogViewModel(IServiceClient client):Observable {
             }
             if(g.Mode=="MANUAL"){
                 var status=await client.Call<Snapshot>("status",cancellationToken:ct);
-                var relay=status.Routes.FirstOrDefault(r=>r.Id!="DIRECT"&&r.Status is "healthy" or "degraded");
+                var relay=status.Routes.FirstOrDefault(r=>r.Id!="DIRECT"&&r.Status is "healthy" or "degraded"&&(g.RelayId is null||r.Id==g.RelayId));
                 if(relay is null){Notice="Нет доступного релея. Профиль не изменён.";return;}p.RelayId=relay.Id;
             }else p.RelayId=null;
             p.Mode=g.Mode;

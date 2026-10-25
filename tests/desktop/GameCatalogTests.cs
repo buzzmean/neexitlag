@@ -47,4 +47,13 @@ public sealed class GameCatalogTests {
  [Fact]public async Task SearchDoesNotCreateOrReplaceProfiles(){
   var s=new Service();var vm=new GameCatalogViewModel(s);await vm.RefreshAsync();vm.Search="Riot";Assert.Equal(2,vm.Games.Count);Assert.DoesNotContain(s.Calls,c=>c.method=="profile.set");
  }
+ [Fact]public async Task QBadgesUseCommunityNamesAndRealRelayRoutes(){
+  var s=new Service();var vm=new GameCatalogViewModel(s);await vm.RefreshAsync();
+  Assert.Equal("LoL",vm.Games.Single(g=>g.Id=="lol").Badge);Assert.Equal("Dota 2",vm.Games.Single(g=>g.Id=="dota2").Badge);
+  Assert.All(vm.Games,g=>Assert.False(g.Badge.Length==3&&g.Badge==g.Definition.Icon&&g.Id is not "cs2"));
+  var relay=Assert.Single(vm.Routes,o=>o.Mode=="MANUAL");Assert.Equal("VPS-PRIMARY",relay.RelayId);
+  var g=vm.Games.Single(g=>g.Id=="cs2");vm.Select(g);Assert.True(g.IsSelected);Assert.True(vm.Routes.Single(o=>o.Key=="DIRECT").IsSelected);
+  vm.ChooseRoute(relay);Assert.True(relay.IsSelected);Assert.True(g.IsCustom);await vm.ApplyAsync(g);
+  var p=Assert.IsType<Profile>(Assert.Single(s.Calls,c=>c.method=="profile.set").payload);Assert.Equal("MANUAL",p.Mode);Assert.Equal("VPS-PRIMARY",p.RelayId);
+ }
 }
