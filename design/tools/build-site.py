@@ -830,34 +830,40 @@ page("404.html", "Страница не найдена", "Страница не 
 # Публичная версия docs/ROADMAP.md: без адресов серверов, кодов, внутренних сроков и названий клубов.
 # Статусы менять здесь вместе с docs/ROADMAP.md и запускать генератор.
 ROADMAP_UPDATED = "25 октября 2026"
+# Тексты — по правилам brand/copy.md: без адресов и расположения серверов, без названий игр и сторонних систем,
+# без «образа», без непроверенных обещаний (качество видео, сроки). Сервисы — только как примеры.
 ROADMAP = [
-    ("Готово", "tag--ok", "check", "Работает в бета-версии", [
-        "Заблокированные сервисы открываются через собственную сеть серверов VELIQ: Telegram, ChatGPT, Claude и другие",
-        "YouTube в высоком качестве, вплоть до 4K",
-        "Обычные сайты идут напрямую, без лишних задержек",
-        "Браузеры подхватывают маршруты сразу — ничего не нужно перезапускать",
-        "Собственные серверы в Европе с быстрым каналом",
+    ("done", "Готово", "Работает в бета-версии", [
+        "Заблокированные сервисы снова работают через собственную сеть серверов VELIQ — например, Telegram, ChatGPT и другие",
+        "YouTube в высоком качестве",
+        "Обычные сайты идут как обычно, без лишних задержек",
+        "Ничего не нужно перезапускать: маршруты подхватываются сразу",
+        "Собственные серверы с быстрым каналом",
     ]),
-    ("В работе", "tag--warn", "refresh", "Делаем сейчас", [
-        "Обход блокировок прямо на компьютере, без сервера: YouTube и Discord быстрее и стабильнее",
-        "Игры: PUBG, Valorant и FACEIT — проверяем в реальных матчах",
+    ("now", "Сейчас", "Делаем сейчас", [
+        "Обход блокировок прямо на компьютере, без сервера — быстрее и стабильнее",
+        "Игры: оптимальный маршрут и проверка в реальных матчах",
         "Автоматическое переключение на резервный сервер",
         "Установщик одним файлом",
     ]),
-    ("Дальше", "", "route", "Следующие шаги", [
-        "Версия для клубов: один код активации на все компьютеры и установка в образ",
+    ("next", "Дальше", "Следующие шаги", [
+        "Версия для клубов: один код активации на все компьютеры клуба",
         "Пилот в компьютерном клубе",
         "Тарифы и оплата",
         "Версия для телефона",
     ]),
 ]
-roadmap_cols = "\n".join(
-    f'''      <div class="plan{' plan--main' if i == 1 else ''}">
-        <span class="tag {cls}" style="justify-self:start">{label}</span>
-        <h2 class="h3">{title}</h2>
-        <ul>{"".join(f"<li>{icon(ic)}{item}</li>" for item in items)}</ul>
-      </div>'''
-    for i, (label, cls, ic, title, items) in enumerate(ROADMAP))
+RM_ICON = {"done": "check", "now": "refresh", "next": "route"}
+roadmap_stages = "\n".join(
+    f'''      <li class="rm__stage rm__stage--{key}">
+        <div class="rm__track" aria-hidden="true"><span class="rm__node">{icon(RM_ICON[key])}</span><span class="rm__line"></span></div>
+        <div class="rm__card">
+          <span class="rm__label">{label}</span>
+          <h2 class="h3">{title}</h2>
+          <ul class="rm__list">{"".join(f"<li>{item}</li>" for item in items)}</ul>
+        </div>
+      </li>'''
+    for key, label, title, items in ROADMAP)
 roadmap_body = f"""
 <section class="page-head">
   <div class="wrap">
@@ -866,13 +872,15 @@ roadmap_body = f"""
     <p class="lede">Что VELIQ уже умеет, над чем работаем сейчас и что будет дальше.</p>
   </div>
 </section>
-<section class="sec sec--tight">
+<section class="sec">
   <div class="wrap">
-    <div class="note" style="margin-bottom:var(--sp-6)">{icon('info')}<div>Обновлено {ROADMAP_UPDATED}. Сроки не объявляем: пункт переходит в «Готово» только после проверки на реальных компьютерах и у реальных провайдеров.</div></div>
-    <div class="plans">
-{roadmap_cols}
+    <ol class="rm" data-trace aria-label="Этапы развития VELIQ">
+{roadmap_stages}
+    </ol>
+    <div class="rm__foot">
+      <p>Обновлено {ROADMAP_UPDATED}. Сроки не объявляем: пункт переходит в «Готово» только после проверки на реальных компьютерах и у реальных провайдеров.</p>
+      <div class="hero__actions"><a class="btn btn--lg" href="download.html">{icon('download')}Скачать</a><a class="btn btn--lg btn--ghost" href="clubs.html">Для компьютерных клубов</a></div>
     </div>
-    <div class="hero__actions" style="margin-top:32px"><a class="btn btn--lg" href="download.html">{icon('download')}Скачать бету</a><a class="btn btn--lg btn--ghost" href="clubs.html">Для компьютерных клубов</a></div>
   </div>
 </section>
 """

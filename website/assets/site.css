@@ -434,3 +434,59 @@
 /* Короткие строки под шагами установки */
 .install-more { margin: var(--sp-5) 0 0; color: var(--text-muted); font-size: var(--fs-sm); max-width: 60ch; }
 .install-more + .install-more { margin-top: var(--sp-2); }
+
+/* ---------- План развития: маршрут из трёх этапов ---------- */
+.rm { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: clamp(20px, 3vw, 40px); }
+.rm__stage { display: grid; gap: var(--sp-5); align-content: start; min-width: 0; }
+.rm__track { display: flex; align-items: center; gap: 0; margin-right: calc(-1 * clamp(20px, 3vw, 40px)); }
+.rm__stage:last-child .rm__track { margin-right: 0; }
+.rm__node { flex: none; width: 48px; height: 48px; border-radius: 36%; display: grid; place-items: center; border: 2px solid var(--line-strong); background: var(--bg); color: var(--text-faint); position: relative; z-index: 1; }
+.rm__node svg { width: 20px; height: 20px; }
+.rm__line { flex: 1; height: 0; border-top: 2px dashed var(--line-strong); transform-origin: left; }
+/* Готово — маршрут построен: сигнальная линия */
+.rm__stage--done .rm__node { background: var(--c-signal-500); border-color: var(--c-signal-500); color: #fff; }
+.rm__stage--done .rm__line { border-top: 3px solid var(--c-signal-500); }
+/* Сейчас — строим: узел с бегущей прорезью */
+.rm__stage--now .rm__node { border-color: var(--text); color: var(--text); overflow: hidden; }
+.rm__stage--now .rm__node::after { content: ""; position: absolute; left: 0; right: 0; top: 62%; height: 3px; background: var(--c-signal-500); animation: rm-run 1400ms var(--ease-route) infinite; }
+@keyframes rm-run { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+.rm__stage--next .rm__node { border-style: dashed; }
+.rm__stage--next .rm__line { -webkit-mask-image: linear-gradient(to right, #000, transparent); mask-image: linear-gradient(to right, #000, transparent); }
+.js .rm .rm__line { transform: scaleX(0); transition: transform var(--dur-route) var(--ease-route); }
+.js .rm .rm__stage--now .rm__line { transition-delay: 300ms; }
+.js .rm .rm__stage--next .rm__line { transition-delay: 600ms; }
+.js .rm.is-in .rm__line { transform: scaleX(1); }
+
+.rm__card { display: grid; gap: var(--sp-3); align-content: start; padding: clamp(20px, 2.6vw, 28px); border: 1px solid var(--line); border-radius: var(--r-xl); background: var(--bg-raised); }
+.rm__stage--now .rm__card { background: var(--c-ink-950); color: var(--c-white); border-color: var(--c-ink-800); --text-muted: var(--c-ink-300); --text-faint: var(--c-ink-400); --line: var(--c-ink-800); }
+.rm__stage--next .rm__card { border-style: dashed; background: transparent; }
+.rm__label { font-size: var(--fs-xs); font-weight: var(--fw-semibold); letter-spacing: .06em; text-transform: uppercase; color: var(--text-faint); }
+.rm__stage--done .rm__label { color: var(--accent-text, var(--c-signal-500)); }
+.rm__stage--now .rm__label { color: var(--c-signal-300, #FF8A66); }
+.rm__card .h3 { font-size: var(--fs-2xl); font-weight: var(--fw-bold); letter-spacing: var(--ls-heading); }
+.rm__list { list-style: none; margin: var(--sp-2) 0 0; padding: 0; display: grid; gap: 0; border-top: 1px solid var(--line); }
+.rm__list li { position: relative; padding: 12px 0 12px 24px; border-bottom: 1px solid var(--line); color: var(--text-muted); line-height: 1.45; }
+.rm__list li::before { content: ""; position: absolute; left: 0; top: 21px; width: 12px; height: 3px; background: var(--line-strong); }
+.rm__stage--done .rm__list li::before { background: var(--c-signal-500); }
+.rm__stage--now .rm__list li::before { background: var(--c-white); }
+.rm__stage--next .rm__list li::before { height: 0; border-top: 2px dashed var(--line-strong); background: none; }
+.rm__foot { margin-top: clamp(32px, 5vw, 56px); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-5); }
+.rm__foot p { margin: 0; color: var(--text-muted); max-width: 60ch; font-size: var(--fs-sm); }
+
+@media (max-width: 900px) {
+  .rm { grid-template-columns: 1fr; gap: 0; }
+  .rm__stage { grid-template-columns: 48px minmax(0, 1fr); gap: 0 var(--sp-4); padding-bottom: var(--sp-6); }
+  .rm__stage:last-child { padding-bottom: 0; }
+  .rm__track { flex-direction: column; margin: 0; align-self: stretch; margin-bottom: calc(-1 * var(--sp-6)); }
+  .rm__stage:last-child .rm__track { margin-bottom: 0; }
+  .rm__line { width: 0; height: auto; flex: 1; border-top: 0; border-left: 2px dashed var(--line-strong); transform-origin: top; }
+  .rm__stage--done .rm__line { border-left: 3px solid var(--c-signal-500); border-top: 0; }
+  .rm__stage--next .rm__line { -webkit-mask-image: linear-gradient(to bottom, #000, transparent); mask-image: linear-gradient(to bottom, #000, transparent); }
+  .js .rm .rm__line { transform: scaleY(0); }
+  .js .rm.is-in .rm__line { transform: scaleY(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rm__stage--now .rm__node::after { animation: none; transform: none; left: 20%; right: 20%; }
+  .js .rm .rm__line { transition: none; }
+}
+@media print { .js .rm .rm__line { transform: none !important; } }

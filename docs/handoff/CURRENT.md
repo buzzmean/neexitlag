@@ -43,7 +43,7 @@ Prepush: existingRPC routed/clubreadonly; no manifestreader/default/newdeps; PSq
 | Регрессия выключения A–E (6adefe5) | Детали — [ARCHIVE.md](ARCHIVE.md) | Codex / codex/work | ОСВОБОЖДЕНО; код готов, Windows/ISP gates см. ниже |
 | A1–A6, B1, C1–C2, D1–D2, E1–E2 | Детали — [ARCHIVE.md](ARCHIVE.md) | Codex / codex/work | ОСВОБОЖДЕНО; код готов, Windows/ISP gates см. ниже |
 | Закрытые работы до 21.10.2026; передачи Claude Code → Codex | [История и исходные строки](ARCHIVE.md) | Claude Code / Codex | История сохранена, активное владение не переносится |
-| Дизайн VELIQ / 25.10.2026 | `website/roadmap.html`, блок ROADMAP в `design/tools/build-site.py`, `website/assets/site.css` | Claude Code | В РАБОТЕ: оформление публичной страницы «План развития» и тексты по правилам сайта; код программы не трогаю |
+| Дизайн VELIQ / 25.10.2026 | `website/roadmap.html`, блок ROADMAP в `design/tools/build-site.py`, `website/assets/site.css` | Claude Code | ГОТОВО 25.10.2026, область освобождена: страница «План развития» оформлена маршрутом из трёх этапов; тексты приведены к правилам `brand/copy.md` (без расположения серверов, названий игр, «образа», обещания 4K). Код программы не менялся |
 
 ## Текущая очередь и открытые вопросы
 - M1–M5: собрать реальный .16 measurement revision2 snapshot/ClientHello наGoПК; ts/circular/nonbrowserDNS/новыйtransport менять только послеevidence. Старыеproxy/LOCAL/ordinary поля сохранены.
