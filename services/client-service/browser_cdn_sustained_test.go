@@ -202,6 +202,7 @@ func feedCompletedBurst(m *youtubeMeter, now time.Time) {
 	m.firstApplicationRX = now.Add(-9 * time.Second)
 	m.lastReply = now.Add(-8 * time.Second)
 	m.lastClientWrite = now.Add(-9500 * time.Millisecond)
+	m.rxAtLastWrite = 6000
 }
 func TestCompletedFastCDNBurstPromotesAfterQuietWithoutPendingRequest(t *testing.T) {
 	m, r, k, id := trialMeterFixture(t, localstrategy.TCPTrace{ClientRetransmits: 7}, io.EOF)
@@ -223,7 +224,7 @@ func TestCompletedFastCDNBurstPromotesAfterQuietWithoutPendingRequest(t *testing
 	}
 }
 func TestCDNBurstIsNotProofWhenRequestPendingOrQuietTooShort(t *testing.T) {
-	for _, variant := range []string{"short-quiet", "pending-write", "small", "rst", "half-closed", "failed", "uncommitted"} {
+	for _, variant := range []string{"short-quiet", "pending-write", "small-after-last-request", "small", "rst", "half-closed", "failed", "uncommitted"} {
 		t.Run(variant, func(t *testing.T) {
 			trace := localstrategy.TCPTrace{}
 			if variant == "rst" {
@@ -238,6 +239,9 @@ func TestCDNBurstIsNotProofWhenRequestPendingOrQuietTooShort(t *testing.T) {
 				m.lastClientWrite = m.lastReply.Add(-time.Second)
 			case "pending-write":
 				m.lastClientWrite = m.lastReply.Add(time.Millisecond)
+			case "small-after-last-request":
+				// A later request got only a short answer: earlier bytes do not count.
+				m.rxAtLastWrite = m.rx - 4096
 			case "small":
 				m.rx = 65000
 			case "half-closed":

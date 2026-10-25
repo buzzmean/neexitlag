@@ -51,7 +51,7 @@ func (m *youtubeMeter) strongEvidenceLocked(now time.Time) bool {
 		!m.firstApplicationRX.IsZero() && m.lastReply.Sub(m.firstApplicationRX) >= cdnStrongSpan && now.Sub(m.lastReply) <= 3*time.Second
 }
 
-// Completed burst: >=1MiB/16 records answered after the last client write, then
+// Completed burst: >=1MiB answered after the last client write (16 records overall), then
 // cdnBurstQuiet without a write, alert, RST or failure on the same open TLS stream.
 func (m *youtubeMeter) burstCompleteLocked(now time.Time, inspection *localstrategy.Inspection) bool {
 	if inspection != nil && (inspection.TCPPackets.RemoteRST > 0 || inspection.TCPPackets.ClientRST > 0) {
@@ -61,7 +61,7 @@ func (m *youtubeMeter) burstCompleteLocked(now time.Time, inspection *localstrat
 	return m.trial && !m.failed && !m.closing && !m.halfClosed && m.healthy && m.applied && m.postHelloWrite &&
 		wire.ServerHelloComplete && wire.AlertLevel == 0 && wire.State != "NON_TLS_OR_INVALID_HEADER" && wire.ServerHelloEndBytes > 0 && m.rx >= wire.ServerHelloEndBytes+cdnStrongBytes &&
 		wire.ApplicationRecords >= cdnStrongRecords && wire.ApplicationBytes >= cdnStrongBytes &&
-		!m.firstApplicationRX.IsZero() && !m.lastReply.IsZero() && !m.lastClientWrite.After(m.lastReply) && now.Sub(m.lastReply) >= cdnBurstQuiet
+		!m.firstApplicationRX.IsZero() && !m.lastReply.IsZero() && !m.lastClientWrite.After(m.lastReply) && m.rx >= m.rxAtLastWrite+cdnStrongBytes && now.Sub(m.lastReply) >= cdnBurstQuiet
 }
 func (m *youtubeMeter) promotionEvidenceLocked(now time.Time, inspection *localstrategy.Inspection) (bool, string) {
 	if m.strongEvidenceLocked(now) {

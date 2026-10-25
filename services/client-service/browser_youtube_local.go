@@ -619,6 +619,7 @@ type youtubeMeter struct {
 	halfClosed                      bool
 	firstClientWrite, serverHelloAt time.Time
 	lastClientWrite                 time.Time
+	rxAtLastWrite                   uint64
 	transform                       func() bool
 	mu                              sync.Mutex
 	wire                            browserproxy.TLSWireObserver
@@ -722,6 +723,7 @@ func (m *youtubeMeter) Write(p []byte) (int, error) {
 	if n > 0 {
 		m.mu.Lock()
 		m.lastClientWrite = time.Now()
+		m.rxAtLastWrite = m.rx
 		m.postHelloWrite = m.postHelloWrite || afterHello
 		m.mu.Unlock()
 	}
