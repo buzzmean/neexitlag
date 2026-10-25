@@ -1,6 +1,7 @@
 ---
 name: diag-analyst
 description: Разбирает присланные владельцем логи, файлы вывода диагностики и скриншоты VELIQ; находит причину и решает, нужен ли фикс или проверка.
+model: haiku
 tools: Bash, Read, Grep, Glob
 ---
 

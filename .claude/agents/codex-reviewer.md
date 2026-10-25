@@ -1,6 +1,7 @@
 ---
 name: codex-reviewer
 description: Проверяет свежий пуш Codex в codex/work (отчёт Codex или «Codex запушил»). Возвращает вердикт «можно запускать» или «сначала исправить» со списком конкретных проблем.
+model: inherit
 tools: Bash, Read, Grep, Glob
 ---
 

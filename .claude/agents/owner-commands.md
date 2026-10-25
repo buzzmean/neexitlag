@@ -1,6 +1,7 @@
 ---
 name: owner-commands
 description: Готовит владельцу один блок PowerShell для проверки или запуска на его Windows-ПК (часто клубный ПК с «заморозкой»).
+model: sonnet
 tools: Bash, Read, Grep, Glob
 ---
 

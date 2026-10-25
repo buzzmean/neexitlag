@@ -1,6 +1,7 @@
 ---
 name: handoff-archivist
 description: Сжимает docs/handoff/CURRENT.md, когда он длиннее ~150 строк и нет статусов «В РАБОТЕ»: переносит закрытую историю в ARCHIVE.md дословно.
+model: haiku
 tools: Bash, Read, Edit, Write, Grep
 ---
 
