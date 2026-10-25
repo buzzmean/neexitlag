@@ -19,7 +19,7 @@ public sealed class ServiceClient : IServiceClient
     readonly string tokenFile; readonly string pipeName; readonly TimeSpan timeout;
     public ServiceClient(string? tokenFile = null, string pipeName = "neexitlag-v1", TimeSpan? timeout = null)
     {
-        this.tokenFile = tokenFile ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "neexitlag", "ipc.token");
+        this.tokenFile = tokenFile ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "VELIQ", "ipc.token");
         this.pipeName = pipeName;
         this.timeout = timeout ?? TimeSpan.FromSeconds(8);
     }

@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	windowsplatform "github.com/buzzmean/neexitlag/platform/windows"
 	"golang.org/x/sys/windows/svc"
 	"time"
 )
@@ -57,7 +58,7 @@ func platformRun(ctx context.Context, path string, console bool) error {
 	if !service {
 		return run(ctx, path)
 	}
-	return svc.Run("neexitlag", handler{path, ctx})
+	return svc.Run(windowsplatform.ServiceName, handler{path, ctx})
 }
 
 func policyStopExitCode(cmd svc.Cmd) uint32 {

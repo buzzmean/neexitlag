@@ -49,8 +49,8 @@ function Complete($Client){
 }
 function Evidence($Client){return Invoke-ServiceIPC 'capture.diagnostics' @{pid=$Client.process.Id}}
 function Restart-Local {
- Restart-Service neexitlag
- (Get-Service neexitlag).WaitForStatus('Running',[TimeSpan]::FromSeconds(30))
+ Restart-Service VELIQ
+ (Get-Service VELIQ).WaitForStatus('Running',[TimeSpan]::FromSeconds(30))
 }
 function Control-Proof([string]$Label){$client=Launch $control $Label;$data=Complete $client;Ensure (@($data.observed_sources).Count -gt 0 -and $data.observed_sources -notcontains $relayEgress) 'Control source is indistinguishable from relay source';return $data}
 function Save-Diagnostics([string]$Label) {
@@ -81,8 +81,8 @@ try {
   Assert-Ssh $SSHUser $SSHPort
   $script:Bundle=(Resolve-Path $Bundle).Path;$script:Binaries=(Resolve-Path $Binaries).Path;$script:ReportDirectory=(Resolve-Path $ReportDirectory).Path
   $script:game=(Resolve-Path (Join-Path $Binaries 'test-game.exe')).Path;$script:control=(Resolve-Path (Join-Path $Binaries 'control-client.exe')).Path
-  $service=Get-Service neexitlag;Ensure ($service.Status -eq 'Running') 'Service is not running'
-  $manifestPath="$env:ProgramData\neexitlag\service.json"
+  $service=Get-Service VELIQ;Ensure ($service.Status -eq 'Running') 'Service is not running'
+  $manifestPath="$env:ProgramData\VELIQ\service.json"
   $script:originalManifest=[IO.File]::ReadAllText($manifestPath);$m=$originalManifest|ConvertFrom-Json
   Ensure ($m.probe_target -eq "${VpsPublicIP}:40000" -and $m.control_plane_url -eq "https://${VpsPublicIP}:8443") 'Installed service targets do not match the requested VPS'
   Ensure ((Get-FileHash (Join-Path $m.driver.directory 'WinDivert.dll') -Algorithm SHA256).Hash -eq $m.driver.dll_sha256) 'Driver DLL pin mismatch'
@@ -123,7 +123,7 @@ try {
   @{selected_pid=$dataA.pid;direct_pid=$dataB.pid;overlap=$true;selected_start=$dataA.measurement_started;selected_end=$dataA.measurement_finished;direct_start=$dataB.measurement_started;direct_end=$dataB.measurement_finished}
  })
  [void](Stage 'F service transport loop prevention' {
-  $servicePID=(Get-CimInstance Win32_Service -Filter "Name='neexitlag'").ProcessId
+  $servicePID=(Get-CimInstance Win32_Service -Filter "Name='VELIQ'").ProcessId
   $evidence=Invoke-ServiceIPC 'capture.diagnostics' @{pid=$servicePID}
   $transport=@($evidence.flows|Where-Object{$_.destination -eq "${VpsPublicIP}:4433"})
   Ensure ($transport.Count -gt 0) 'No service relay-transport identity evidence'
@@ -163,27 +163,27 @@ try {
  [void](Stage 'E graceful service stop DIRECT continuity' {
   $ctrl=Launch $control 'service-stop' 160
   Start-Sleep -Seconds 2
-  Stop-Service neexitlag;(Get-Service neexitlag).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(20))
+  Stop-Service VELIQ;(Get-Service VELIQ).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(20))
   $data=Complete $ctrl;Ensure ($data.observed_sources -notcontains $relayEgress) 'Control did not remain DIRECT'
   $data
  })
- Start-Service neexitlag;(Get-Service neexitlag).WaitForStatus('Running',[TimeSpan]::FromSeconds(30))
+ Start-Service VELIQ;(Get-Service VELIQ).WaitForStatus('Running',[TimeSpan]::FromSeconds(30))
  [void](Stage 'E abrupt service crash DIRECT continuity and recovery' {
   $ctrl=Launch $control 'service-crash' 160
   Start-Sleep -Seconds 2
-  $servicePID=(Get-CimInstance Win32_Service -Filter "Name='neexitlag'").ProcessId
+  $servicePID=(Get-CimInstance Win32_Service -Filter "Name='VELIQ'").ProcessId
   Ensure ($servicePID -gt 0) 'SCM did not report service PID'
   Stop-Process -Id $servicePID -Force
   $data=Complete $ctrl;Ensure ($data.observed_sources -notcontains $relayEgress) 'Ordinary networking did not remain DIRECT across crash'
-  (Get-Service neexitlag).WaitForStatus('Running',[TimeSpan]::FromSeconds(30))
+  (Get-Service VELIQ).WaitForStatus('Running',[TimeSpan]::FromSeconds(30))
   Ensure (Invoke-ServiceIPC 'status').backend.ready 'Service did not recover capture'
   $data
  })
  [void](Stage 'Driver dependency error fail-open' {
-  Stop-Service neexitlag;(Get-Service neexitlag).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(20))
+  Stop-Service VELIQ;(Get-Service VELIQ).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(20))
   $bad=$originalManifest|ConvertFrom-Json;$bad.driver.dll_sha256='0'*64
-  Save-UTF8 "$env:ProgramData\neexitlag\service.json" ($bad|ConvertTo-Json -Depth 8)
-  Start-Service neexitlag;(Get-Service neexitlag).WaitForStatus('Running',[TimeSpan]::FromSeconds(30))
+  Save-UTF8 "$env:ProgramData\VELIQ\service.json" ($bad|ConvertTo-Json -Depth 8)
+  Start-Service VELIQ;(Get-Service VELIQ).WaitForStatus('Running',[TimeSpan]::FromSeconds(30))
   $s=Invoke-ServiceIPC 'status'
   Ensure (!$s.backend.ready -and $s.backend.error -like '*SHA256 mismatch*') 'Bad dependency pin did not fail closed before capture'
   $data=Control-Proof 'driver-error-direct'
@@ -200,7 +200,7 @@ finally {
  try {
   if($remoteRelayStopped){Invoke-VpsCommand $VpsPublicIP $SSHUser $SSHPort 'sudo -n systemctl start neexitlag-relay'}
   if($remoteCPStopped){Invoke-VpsCommand $VpsPublicIP $SSHUser $SSHPort 'sudo -n systemctl start neexitlag-control-plane'}
-  if($null -ne $originalManifest){Stop-Service neexitlag -ErrorAction SilentlyContinue;(Get-Service neexitlag).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(20));Save-UTF8 "$env:ProgramData\neexitlag\service.json" $originalManifest;Start-Service neexitlag;(Get-Service neexitlag).WaitForStatus('Running',[TimeSpan]::FromSeconds(30))}
+  if($null -ne $originalManifest){Stop-Service VELIQ -ErrorAction SilentlyContinue;(Get-Service VELIQ).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(20));Save-UTF8 "$env:ProgramData\VELIQ\service.json" $originalManifest;Start-Service VELIQ;(Get-Service VELIQ).WaitForStatus('Running',[TimeSpan]::FromSeconds(30))}
   if($null -ne $originalSettings){[void](Invoke-ServiceIPC 'settings.set' $originalSettings);foreach($id in @($selectedId,$controlId)){try{[void](Invoke-ServiceIPC 'profile.delete' @{id=$id})}catch{}};[void](Invoke-ServiceIPC 'optimize' @{enabled=$originalOptimizing})}
  } catch {$results.Add([pscustomobject]@{name='Restoration';status='FAIL';error=$_.Exception.Message})}
  foreach($required in @('Prerequisites','A selected.exe RELAY','B control-client.exe DIRECT','C simultaneous selected/control','D AUTO relay failure DIRECT fallback','E graceful service stop DIRECT continuity','E abrupt service crash DIRECT continuity and recovery','F service transport loop prevention','Config outage valid LKG and ordinary networking','Driver dependency error fail-open','Default route unchanged')){

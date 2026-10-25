@@ -93,7 +93,7 @@ func runningApplications(all []windowsplatform.ProcessIdentity, interactive func
 }
 func hiddenApplication(name string) bool {
 	switch strings.ToLower(name) {
-	case "system", "idle", "system.exe", "idle.exe", "svchost.exe", "smss.exe", "csrss.exe", "wininit.exe", "services.exe", "lsass.exe", "winlogon.exe", "fontdrvhost.exe", "dwm.exe", "sihost.exe", "taskhostw.exe", "dllhost.exe", "rundll32.exe", "runtimebroker.exe", "conhost.exe", "wmiprvse.exe", "wudfhost.exe", "spoolsv.exe", "searchhost.exe", "searchindexer.exe", "startmenuexperiencehost.exe", "shellexperiencehost.exe", "securityhealthservice.exe", "securityhealthsystray.exe", "msmpeng.exe", "nissrv.exe", "explorer.exe", "neexitlag-service.exe", "neexitlag.exe", "veliq.exe":
+	case "system", "idle", "system.exe", "idle.exe", "svchost.exe", "smss.exe", "csrss.exe", "wininit.exe", "services.exe", "lsass.exe", "winlogon.exe", "fontdrvhost.exe", "dwm.exe", "sihost.exe", "taskhostw.exe", "dllhost.exe", "rundll32.exe", "runtimebroker.exe", "conhost.exe", "wmiprvse.exe", "wudfhost.exe", "spoolsv.exe", "searchhost.exe", "searchindexer.exe", "startmenuexperiencehost.exe", "shellexperiencehost.exe", "securityhealthservice.exe", "securityhealthsystray.exe", "msmpeng.exe", "nissrv.exe", "explorer.exe", "veliq-service.exe", "neexitlag-service.exe", "neexitlag.exe", "veliq.exe":
 		return true
 	}
 	return false

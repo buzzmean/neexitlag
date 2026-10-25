@@ -28,7 +28,7 @@ $backup=Join-Path $root ('backups\gui-'+[Guid]::NewGuid().ToString('N'))
 foreach($name in @('VELIQ.exe','NeExitLag.exe','veliq-install.json')){if(Test-Path -LiteralPath (Join-Path $root $name)){Copy-Item -LiteralPath (Join-Path $root $name) -Destination (Join-Path $backup $name)}}
 $changed=@();$pending=Join-Path $root ('.veliq-'+[Guid]::NewGuid().ToString('N'))
 try{
- foreach($path in @($target,$legacy)){
+ foreach($path in @($target)){
   Copy-Item -LiteralPath $source -Destination $pending
   if(Test-Path -LiteralPath $path){[IO.File]::Replace($pending,$path,[NullString]::Value)}else{[IO.File]::Move($pending,$path)}
   $changed+=,$path
@@ -39,7 +39,9 @@ try{
   $destination=Join-Path $root 'tools\windows';[void][IO.Directory]::CreateDirectory($destination)
   Copy-Item -Path (Join-Path $scripts '*.ps1') -Destination $destination -Force
  }
- @{product='VELIQ';executable='VELIQ.exe';legacy_entrypoint='NeExitLag.exe';sha256=(Get-FileHash -LiteralPath $target).Hash}|ConvertTo-Json|Set-Content -LiteralPath $stamp -Encoding UTF8
+ # The pre-rebrand NeExitLag.exe alias was a copy of the same GUI; remove it.
+ if(Test-Path -LiteralPath $legacy){Remove-Item -LiteralPath $legacy -Force}
+ @{product='VELIQ';executable='VELIQ.exe';sha256=(Get-FileHash -LiteralPath $target).Hash}|ConvertTo-Json|Set-Content -LiteralPath $stamp -Encoding UTF8
 }catch{
  foreach($path in $changed){$old=Join-Path $backup ([IO.Path]::GetFileName($path));if(Test-Path -LiteralPath $old){Copy-Item -LiteralPath $old -Destination $path -Force}else{Remove-Item -LiteralPath $path -Force}}
  throw
@@ -50,7 +52,7 @@ $runKey='HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $run=Get-ItemProperty -LiteralPath $runKey -ErrorAction SilentlyContinue
 if($null -ne $run -and $null -ne $run.PSObject.Properties['NeExitLag']){
  $old=[string]$run.NeExitLag
- if($old -ieq ('"'+$legacy+'"') -or $old -ieq ('"'+$target+'"')){Set-ItemProperty -LiteralPath $runKey -Name NeExitLag -Value ('"'+$target+'"')}
+ if($old -ieq ('"'+$legacy+'"') -or $old -ieq ('"'+$target+'"')){Set-ItemProperty -LiteralPath $runKey -Name VELIQ -Value ('"'+$target+'"');Remove-ItemProperty -LiteralPath $runKey -Name NeExitLag -ErrorAction SilentlyContinue}
 }
 [void][IO.Directory]::CreateDirectory($ShortcutDirectory)
 $shell=New-Object -ComObject WScript.Shell

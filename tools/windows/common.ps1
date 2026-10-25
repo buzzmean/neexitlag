@@ -24,7 +24,7 @@ function Read-Exact([IO.Stream]$Stream,[int]$Count,[DateTime]$Deadline) {
  }
  return ,$bytes
 }
-function Invoke-ServiceIPCOnce([string]$Method,$Payload=$null,[string]$TokenFile="$env:ProgramData\neexitlag\ipc.token") {
+function Invoke-ServiceIPCOnce([string]$Method,$Payload=$null,[string]$TokenFile="$env:ProgramData\VELIQ\ipc.token") {
  $id=[Guid]::NewGuid().ToString('N')
  $request=@{version=1;id=$id;sent_at=[DateTimeOffset]::UtcNow.ToString('o');token=[IO.File]::ReadAllText($TokenFile).Trim();method=$Method;payload=$Payload}|ConvertTo-Json -Depth 8 -Compress
  $bytes=[Text.Encoding]::UTF8.GetBytes($request)
@@ -45,7 +45,7 @@ function Invoke-ServiceIPCOnce([string]$Method,$Payload=$null,[string]$TokenFile
 }
 # The service opens its pipe before slow initialization and answers "service is
 # starting" until it finishes; wait for that state instead of failing the caller.
-function Invoke-ServiceIPC([string]$Method,$Payload=$null,[string]$TokenFile="$env:ProgramData\neexitlag\ipc.token") {
+function Invoke-ServiceIPC([string]$Method,$Payload=$null,[string]$TokenFile="$env:ProgramData\VELIQ\ipc.token") {
  $deadline=[DateTime]::UtcNow.AddSeconds(30)
  while($true){
   try{return Invoke-ServiceIPCOnce $Method $Payload $TokenFile}

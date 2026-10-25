@@ -15,7 +15,7 @@ public partial class MainWindow
         if(model.Optimizing && model.Snapshot?.Settings.Automatic==true && model.Snapshot?.Connected==true)await PrepareNativeBrowsersAsync();
         if (ReferenceEquals(savedBrowserStartup, model.BrowserStartup) || model.BrowserStartup is null) return;
         // Bounded, owner-user report; no policy, tokens, certificates or payloads.
-        var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NeExitLag");
+        var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VELIQ");
         Directory.CreateDirectory(folder);
         var report = Path.Combine(folder, "browser-startup.json");
         var pending = report + ".pending";

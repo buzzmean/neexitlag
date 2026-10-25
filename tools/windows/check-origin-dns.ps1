@@ -5,7 +5,7 @@ param(
  [Parameter(Mandatory=$true)][string]$HostName,
  [Parameter(Mandatory=$true)][ValidateCount(1,3)][string[]]$Candidates,
  [string]$RelayId='VPS-01',
- [string]$TokenFile="$env:ProgramData\neexitlag\ipc.token",
+ [string]$TokenFile="$env:ProgramData\VELIQ\ipc.token",
  [string]$ReportFile=''
 )
 $ErrorActionPreference='Stop'

@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
  [string]$ChromePath="$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
- [string]$TokenFile="$env:ProgramData\neexitlag\ipc.token",
+ [string]$TokenFile="$env:ProgramData\VELIQ\ipc.token",
  [ValidateRange(15,60)][int]$ObserveSeconds=30,
  [switch]$RestartService,
  [string]$ReportDirectory=(Join-Path $PSScriptRoot '..\..\bin\chrome-sites')
@@ -63,12 +63,12 @@ function Drain-Capture($State,[int]$Stage){
  throw 'Capture did not drain: no complete/no-leak claim allowed'
 }
 function Recovery-Snapshot {
- $file=Join-Path $env:LOCALAPPDATA 'NeExitLag\chrome-recovery.json'
+ $file=Join-Path $env:LOCALAPPDATA 'VELIQ\chrome-recovery.json'
  if(!(Test-Path -LiteralPath $file)){return $null}
  if((Get-Item -LiteralPath $file).Length -gt 262144){throw 'Recovery state exceeds bound'}
  try{$saved=Get-Content -Raw -LiteralPath $file|ConvertFrom-Json}catch{throw 'Recovery state is invalid'}
  $helper=Get-Process -Id $saved.process_id -ErrorAction Stop
- $expected=Join-Path $env:ProgramData 'neexitlag\neexitlag-service.exe'
+ $expected=Join-Path $env:ProgramData 'VELIQ\veliq-service.exe'
  if($helper.Path -ine $expected -or $helper.StartTime.ToUniversalTime().ToFileTimeUtc() -ne $saved.creation_time -or $saved.metadata_token -notmatch '^[0-9a-f]{64}$'){throw 'Recovery helper identity mismatch'}
  $endpoint=[Uri]('http://'+$saved.address)
  if($endpoint.Host -ne '127.0.0.1' -or $endpoint.Port -le 0){throw 'Recovery endpoint is not IPv4 loopback'}
@@ -101,7 +101,7 @@ try{
  $stages=if($RestartService){2}else{1}
  for($stage=1;$stage -le $stages;$stage++){
   if($stage -gt 1){
-   Restart-Service neexitlag
+   Restart-Service VELIQ
    $deadline=[DateTime]::UtcNow.AddSeconds(25)
    do{Start-Sleep -Milliseconds 300;$browser=Service 'browser.status';$live=Service 'status'}while((!$browser.listening -or !(Get-SimValue $browser 'policy_ready' $false) -or !$live.optimizing) -and [DateTime]::UtcNow -lt $deadline)
    if(!$browser.listening -or !(Get-SimValue $browser 'policy_ready' $false) -or !$live.optimizing){throw 'Chrome online policy/capture did not return after service restart'}

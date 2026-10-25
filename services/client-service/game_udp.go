@@ -151,7 +151,7 @@ func gameProfileSafe(p profiles.Profile) bool {
 		base := strings.ToLower(strings.ReplaceAll(path, `\`, "/"))
 		base = base[strings.LastIndex(base, "/")+1:]
 		switch base {
-		case "chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe", "browser.exe", "discord.exe", "chatgpt.exe", "codex.exe", "claude.exe", "telegram.exe", "steam.exe", "neexitlag-service.exe", "veliq.exe":
+		case "chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe", "browser.exe", "discord.exe", "chatgpt.exe", "codex.exe", "claude.exe", "telegram.exe", "steam.exe", "veliq-service.exe", "neexitlag-service.exe", "veliq.exe":
 			return false
 		}
 	}

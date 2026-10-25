@@ -1,7 +1,7 @@
 ﻿# One private interactive code input on a clean ActivationOnly image. Never enroll,
 # clone a private device key, print the code, or write a credential into the repo.
 [CmdletBinding()]
-param([string]$InstallDirectory="$env:ProgramData\neexitlag",[string]$ProtectedCodeFile="")
+param([string]$InstallDirectory="$env:ProgramData\VELIQ",[string]$ProtectedCodeFile="")
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 Assert-Administrator

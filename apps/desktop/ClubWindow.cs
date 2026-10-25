@@ -15,7 +15,7 @@ public sealed class ClubWindow : Window
     public ClubWindow()
     {
         Title="VELIQ";Width=440;Height=250;Background=Brushes.Black;Foreground=Brushes.White;Content=status;
-        var stream=System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/Assets/NeExitLag.ico"));
+        var stream=System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/Assets/VELIQ.ico"));
         if(stream is not null)tray.Icon=new System.Drawing.Icon(stream.Stream);
         tray.Text="VELIQ · клуб";tray.Visible=true;
         var menu=new System.Windows.Forms.ContextMenuStrip();menu.Items.Add("Состояние VELIQ",null,(_,_)=>Dispatcher.Invoke(ShowFromTray));tray.ContextMenuStrip=menu;
@@ -38,7 +38,7 @@ public sealed class ClubWindow : Window
     public void Exit(){exiting=true;timer.Stop();tray.Visible=false;tray.Dispose();Close();System.Windows.Application.Current.Shutdown();}
     public static bool IsClubInstallation()
     {
-        try{return ClubPresentation.Enabled(File.ReadAllText(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),"neexitlag","club-mode.json")));}
+        try{return ClubPresentation.Enabled(File.ReadAllText(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),"VELIQ","club-mode.json")));}
         catch(IOException){return false;}catch(UnauthorizedAccessException){return false;}
     }
 }

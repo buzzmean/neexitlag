@@ -8,7 +8,7 @@ $Executable=(Resolve-Path $Executable).Path
 $first=$null;$second=$null
 # Published-process smoke explicitly exercises ordinary close, independent of
 # the user's persisted tray preference. Restore the original bytes in finally.
-$preferencesPath=Join-Path $env:LOCALAPPDATA 'NeExitLag\desktop.json'
+$preferencesPath=Join-Path $env:LOCALAPPDATA 'VELIQ\desktop.json'
 $hadPreferences=Test-Path -LiteralPath $preferencesPath
 $previousPreferences=$null
 if($hadPreferences){$previousPreferences=[IO.File]::ReadAllBytes($preferencesPath)}
@@ -34,7 +34,7 @@ try {
  if(!$second.WaitForExit(10000)){throw 'Второй экземпляр не передал активацию первому'}
  $first.Refresh();if($first.HasExited){throw 'Первый экземпляр завершился при активации'}
  Write-Output 'PASS: нативное WPF-окно, русская навигация и единственный экземпляр'
- if(!(Get-Service neexitlag -ErrorAction SilentlyContinue)) {
+ if(!(Get-Service VELIQ -ErrorAction SilentlyContinue)) {
   $deadline=[DateTime]::UtcNow.AddSeconds(15)
   do {$names=@($window.FindAll([Windows.Automation.TreeScope]::Descendants,[Windows.Automation.Condition]::TrueCondition)|ForEach-Object {$_.Current.Name});if('Служба VELIQ не установлена' -in $names){break};Start-Sleep -Milliseconds 200}while([DateTime]::UtcNow -lt $deadline)
   if('Служба VELIQ не установлена' -notin $names){throw 'Отсутствующая служба не отображена по-русски'}

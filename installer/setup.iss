@@ -10,7 +10,11 @@ AppId={{E18D91DB-2E64-4405-A05E-AB15A4192318}
 AppName=VELIQ
 AppVersion={#AppVersion}
 AppPublisher=VELIQ
-DefaultDirName={autopf}\VELIQ Setup
+DefaultDirName={autopf}\VELIQ
+UsePreviousAppDir=no
+SetupIconFile=..\brand\icons\app-icon.ico
+UninstallDisplayIcon={localappdata}\Programs\VELIQ\VELIQ.exe
+AppPublisherURL=https://github.com/buzzmean/neexitlag
 DisableDirPage=yes
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
@@ -28,11 +32,18 @@ RestartApplications=no
 UninstallDisplayName=VELIQ
 [Languages]
 Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
+[InstallDelete]
+; Pre-rebrand installs used "VELIQ Setup"; its payload is superseded by {app}.
+Type: filesandordirs; Name: "{autopf}\VELIQ Setup"
+[Tasks]
+Name: "desktopicon"; Description: "Создать ярлык на рабочем столе"; GroupDescription: "Ярлыки:"; Check: NotClubImage
 [Files]
 Source: "{#StageRoot}\payload\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 [Run]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ""& '{app}\installer\install-package.ps1' -ClubCodeFile '{code:ClubCodeFile}' {code:ClubImageArgument}"""; Flags: runhidden waituntilterminated; StatusMsg: "Устанавливаем VELIQ…"; BeforeInstall: ClearInstallMarker; AfterInstall: CheckInstall
 Filename: "{localappdata}\Programs\VELIQ\VELIQ.exe"; Description: "Открыть VELIQ и ввести код активации"; Flags: runasoriginaluser nowait postinstall skipifsilent; Check: NotClubImage
+[Icons]
+Name: "{userdesktop}\VELIQ"; Filename: "{localappdata}\Programs\VELIQ\VELIQ.exe"; Tasks: desktopicon; Check: NotClubImage
 [Code]
 function ClubCodeFile(Param: String): String;
 begin

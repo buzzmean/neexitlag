@@ -3,10 +3,10 @@ param([ValidateRange(1,30)][int]$EventMinutes=10)
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 # Read-only local diagnostics; command lines are CLASSIFIED, never printed.
-$service=Get-CimInstance Win32_Service -Filter "Name='neexitlag'" -ErrorAction SilentlyContinue
+$service=Get-CimInstance Win32_Service -Filter "Name='VELIQ'" -ErrorAction SilentlyContinue
 $scmPID=if($service){[uint32]$service.ProcessId}else{[uint32]0}
 [pscustomobject]@{kind='SCM';state=$(if($service){$service.State}else{'NOT_INSTALLED'});process_id=$scmPID;start_mode=$(if($service){$service.StartMode}else{''});exit_code=$(if($service){$service.ExitCode}else{0})}|Format-List
-$processes=@(Get-CimInstance Win32_Process -Filter "Name='neexitlag-service.exe'" -ErrorAction SilentlyContinue|Select-Object -First 32)
+$processes=@(Get-CimInstance Win32_Process -Filter "Name='veliq-service.exe'" -ErrorAction SilentlyContinue|Select-Object -First 32)
 $processIDs=@($processes | ForEach-Object {[uint32]$_.ProcessId})
 $listeners=@(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue|Where-Object {$_.LocalAddress -in @('127.0.0.1','::1') -and ($_.LocalPort -in @(50165,50166) -or $_.OwningProcess -in $processIDs)}|Select-Object -First 128)
 foreach($process in $processes){

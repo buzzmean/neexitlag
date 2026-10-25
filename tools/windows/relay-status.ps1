@@ -1,6 +1,6 @@
 ﻿#requires -Version 5.1
 [CmdletBinding()]
-param([string]$Manifest=(Join-Path $env:ProgramData 'neexitlag\service.json'))
+param([string]$Manifest=(Join-Path $env:ProgramData 'VELIQ\service.json'))
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'common.ps1')
 
@@ -30,7 +30,7 @@ function Get-RelayStatusRows($Before,$After,[double]$Seconds) {
 }
 # Kept for command-line compatibility. This command describes the live SCM service,
 # never mistakes an offline manifest/signed-cache helper for actual traffic proof.
-$liveManifest=Join-Path $env:ProgramData 'neexitlag\service.json'
+$liveManifest=Join-Path $env:ProgramData 'VELIQ\service.json'
 if([IO.Path]::GetFullPath($Manifest) -ne [IO.Path]::GetFullPath($liveManifest)){throw 'LIVE_SERVICE_STATUS_ONLY: -Manifest must name the installed service manifest'}
 $before=Invoke-ServiceIPC 'relay.primary.status'
 $timer=[Diagnostics.Stopwatch]::StartNew()

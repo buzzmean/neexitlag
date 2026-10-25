@@ -5,7 +5,7 @@ namespace Neexitlag.Desktop;
 internal static class ChromePolicy {
  const string Key=@"Software\Policies\Google\Chrome";
  internal static string? TestStatePath;
- static string State=>TestStatePath??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"NeExitLag","chrome-proxy-policy.json");
+ static string State=>TestStatePath??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"VELIQ","chrome-proxy-policy.json");
  internal static string CreateValue(string[] args){
   var pac=args.Single(p=>p.StartsWith("--proxy-pac-url=",StringComparison.Ordinal)).Substring("--proxy-pac-url=".Length);
   return JsonSerializer.Serialize(new{ProxyMode="pac_script",ProxyPacUrl=pac,ProxyPacMandatory=true});

@@ -30,9 +30,9 @@ VPS — последняя ступень, только когда DIRECT/лок
 - Добавлять зависимости или менять версию WinDivert (бинарники закреплены по SHA256).
 
 ## НЕ переименовывать (совместимость с установленными машинами и VPS)
-Служба SCM `neexitlag`; `neexitlag-service.exe`; `%ProgramData%\neexitlag`; `%LOCALAPPDATA%\NeExitLag`;
-pipe `neexitlag-v1`; ALPN `neexitlag/*`; Go module `github.com/buzzmean/neexitlag`; mutex; HKCU Run; wire-идентичности.
-Бренд VELIQ меняется только в UI, установщике и EXE (`VELIQ.exe`, alias `NeExitLag.exe` оставить).
+С 25.10.2026 (решение владельца) всё, что видно в Windows, называется VELIQ: служба SCM `VELIQ`, `veliq-service.exe`, `%ProgramData%\VELIQ`, `%LOCALAPPDATA%\VELIQ`, HKCU Run `VELIQ`, `%ProgramFiles%\VELIQ`, правило брандмауэра `VELIQ-native-tcp-v1`. Старые установки (`neexitlag`) переносит `tools/windows/migrate-legacy-install.ps1` при установке/обновлении; GUI переносит `%LOCALAPPDATA%\NeExitLag` при старте.
+Не менять (невидимы пользователю, нужны для совместимости): pipe `neexitlag-v1`; ALPN `neexitlag/*`; подписи `neexitlag:*`; служебные .invalid-хосты и заголовки браузерного прокси; Go module `github.com/buzzmean/neexitlag`; mutex/activation pipe GUI; серверные пути `/etc/neexitlag`, `/opt/neexitlag` и systemd-юниты на VPS.
+
 
 ## Инварианты (ломать нельзя)
 - Protected-домены (OpenAI и др.) fail-closed: никакого DIRECT-fallback и утечек.

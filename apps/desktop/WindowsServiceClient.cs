@@ -25,7 +25,7 @@ public sealed class WindowsServiceClient : IServiceClient
             return null;
         try
         {
-            var service = OpenService(scm, "neexitlag", 4);
+            var service = OpenService(scm, "VELIQ", 4);
             if (service == IntPtr.Zero)
                 return Marshal.GetLastWin32Error() == 1060 ? ServiceFailure.NotInstalled : null;
             try

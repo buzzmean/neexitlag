@@ -4,7 +4,7 @@ $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 if(!$ProfileIds.Count){throw 'Specify existing profile IDs after reviewing profiles. No profile is migrated implicitly.'}
 $status=Invoke-ServiceIPC 'status'
-$backup=Join-Path $env:LOCALAPPDATA ('NeExitLag\migration-'+[DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss'))
+$backup=Join-Path $env:LOCALAPPDATA ('VELIQ\migration-'+[DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss'))
 if(!$WhatIfPreference){[void](New-Item -ItemType Directory -Path $backup -Force)}
 # IPC status contains configuration/metadata, never device private keys/tickets.
 if(!$WhatIfPreference){$status|ConvertTo-Json -Depth 20|Set-Content (Join-Path $backup 'before.json') -Encoding UTF8}

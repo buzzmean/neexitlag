@@ -9,12 +9,12 @@ namespace Neexitlag.Desktop;
 internal sealed class ChromeRecovery : IDisposable {
  sealed class Saved { public string Program {get;set;}="";public string MetadataToken {get;set;}="";public int ProcessId {get;set;}public long CreationTime {get;set;} public string Address {get;set;}="";public BrowserRecoverySettings Settings {get;set;}=new(); }
  static readonly JsonSerializerOptions Json=new(){PropertyNamingPolicy=JsonNamingPolicy.SnakeCaseLower,PropertyNameCaseInsensitive=true};
- static string State=>Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"NeExitLag","chrome-recovery.json");
+ static string State=>Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"VELIQ","chrome-recovery.json");
  Process? process;Task? stderr;Saved? saved;string metadataToken="";
  readonly SemaphoreSlim startGate=new(1,1),protocolGate=new(1,1);
  public string Address {get;private set;}="";
  public bool Running=>process is {} p&&!p.HasExited;
- static string InstalledProgram=>Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),"neexitlag","neexitlag-service.exe");
+ static string InstalledProgram=>Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),"VELIQ","veliq-service.exe");
  public async Task StartAsync(CancellationToken ct){await startGate.WaitAsync(ct);try{await StartCoreAsync(ct);}finally{startGate.Release();}}
  async Task StartCoreAsync(CancellationToken ct){
   if(Running)return;

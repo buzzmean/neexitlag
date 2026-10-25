@@ -14,7 +14,7 @@ try{
  foreach($shell in @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" | Where-Object {$_.SessionId -eq $session})){
   if((Invoke-CimMethod -InputObject $shell -MethodName GetOwnerSid).Sid -ne $owner){throw 'INSTALL_SAME_OWNER_ELEVATION_REQUIRED'}
  }
- $installed=Join-Path $env:ProgramData 'neexitlag';$manifest=Join-Path $installed 'service.json'
+ $installed=Join-Path $env:ProgramData 'VELIQ';$manifest=Join-Path $installed 'service.json'
  if($ClubImage){if(!$ClubCodeFile -or $Remove){throw 'CLUB_IMAGE_CODE_FILE_REQUIRED'};. (Join-Path $root 'tools\windows\club-image-common.ps1');Assert-ClubImageClean $installed;Protect-ClubPackageTree -Root $root -OwnerSid $owner}
  if(Test-Path $manifest){$existing=Get-Content -Raw -LiteralPath $manifest|ConvertFrom-Json;if($existing.owner_sid -ne $owner){throw 'INSTALL_OWNER_MISMATCH'}}
  # Ask only our same-owner GUI to exit; never stop/kill a browser or another process.
@@ -40,22 +40,24 @@ try{
   if(Test-Path $link){$shell=New-Object -ComObject WScript.Shell;if($shell.CreateShortcut($link).TargetPath -ieq $gui){Remove-Item -LiteralPath $link}}
   $run='HKCU:\Software\Microsoft\Windows\CurrentVersion\Run';$v=Get-ItemProperty -LiteralPath $run -ErrorAction SilentlyContinue
   if($v -and $v.PSObject.Properties['NeExitLag'] -and $v.NeExitLag -in @(('"'+$gui+'"'),('"'+$gui+'" --club'),('"'+(Join-Path $guiRoot 'NeExitLag.exe')+'"'))){Remove-ItemProperty -LiteralPath $run -Name NeExitLag}
+  if($v -and $v.PSObject.Properties['VELIQ'] -and $v.VELIQ -in @(('"'+$gui+'"'),('"'+$gui+'" --club'))){Remove-ItemProperty -LiteralPath $run -Name VELIQ}
  }
  else{
   $step='SERVICE_INSTALL';$config=Get-Content -Raw -LiteralPath (Join-Path $root 'public\release.json')|ConvertFrom-Json
   $pins=Get-Content -Raw -LiteralPath (Join-Path $root 'driver\pins.json')|ConvertFrom-Json
-  if(Get-Service neexitlag -ErrorAction SilentlyContinue){
-   & (Join-Path $scripts 'update-service.ps1') -ServiceExecutable (Join-Path $root 'service\neexitlag-service.exe') -InstallDirectory $installed
+  . (Join-Path $scripts 'migrate-legacy-install.ps1');[void](Move-VeliqLegacyInstall -Start);Update-VeliqClubTaskPaths
+  if(Get-Service VELIQ -ErrorAction SilentlyContinue){
+   & (Join-Path $scripts 'update-service.ps1') -ServiceExecutable (Join-Path $root 'service\veliq-service.exe') -InstallDirectory $installed
   }else{
-   $serviceArgs=@{ServiceExecutable=(Join-Path $root 'service\neexitlag-service.exe');OwnerSid=$owner;ActivationOnly=$true;TrustDirectory=(Join-Path $root 'public');DriverDirectory=(Join-Path $root 'driver');DllSha256=$pins.dll_sha256;DriverSha256=$pins.driver_sha256;ControlPlaneUrl=$config.control_plane_url;ProbeTarget=$config.probe_target;TCPProbeTarget=$config.tcp_probe_target;InstallDirectory=$installed}
+   $serviceArgs=@{ServiceExecutable=(Join-Path $root 'service\veliq-service.exe');OwnerSid=$owner;ActivationOnly=$true;TrustDirectory=(Join-Path $root 'public');DriverDirectory=(Join-Path $root 'driver');DllSha256=$pins.dll_sha256;DriverSha256=$pins.driver_sha256;ControlPlaneUrl=$config.control_plane_url;ProbeTarget=$config.probe_target;TCPProbeTarget=$config.tcp_probe_target;InstallDirectory=$installed}
    if(Test-Path $manifest){$serviceArgs.Reinstall=$true}
    & (Join-Path $scripts 'install.ps1') @serviceArgs
   }
   $step='GUI_INSTALL';& (Join-Path $scripts 'install-desktop.ps1') -SourceDirectory (Join-Path $root 'gui')
   if($ClubImage){$step='CLUB_IMAGE_SEAL';& (Join-Path $scripts 'configure-club-image.ps1') -InstallDirectory $installed -ClubCodeFile $ClubCodeFile}
   elseif($ClubCodeFile -ne ''){$step='CLUB_STAGE';& (Join-Path $scripts 'stage-club-activation.ps1') -ProtectedCodeFile $ClubCodeFile -InstallDirectory $installed}
-  $step='VERIFY';$state=Get-Service neexitlag;if(($ClubImage -and $state.Status -ne 'Stopped') -or (!$ClubImage -and $state.Status -ne 'Running')){throw 'INSTALL_SERVICE_NOT_RUNNING'}
-  if((Get-FileHash (Join-Path $root 'service\neexitlag-service.exe')).Hash -ne (Get-FileHash (Join-Path $installed 'neexitlag-service.exe')).Hash){throw 'INSTALL_SERVICE_HASH_MISMATCH'}
+  $step='VERIFY';$state=Get-Service VELIQ;if(($ClubImage -and $state.Status -ne 'Stopped') -or (!$ClubImage -and $state.Status -ne 'Running')){throw 'INSTALL_SERVICE_NOT_RUNNING'}
+  if((Get-FileHash (Join-Path $root 'service\veliq-service.exe')).Hash -ne (Get-FileHash (Join-Path $installed 'veliq-service.exe')).Hash){throw 'INSTALL_SERVICE_HASH_MISMATCH'}
  }
  @{result='PASS';step=$step;reboot_required=$false;browser_processes='UNTOUCHED';credentials='PRESERVED'}|ConvertTo-Json|Set-Content -LiteralPath $success -Encoding UTF8
  Copy-Item -LiteralPath $success -Destination $result -Force

@@ -1,6 +1,6 @@
 # Pure ScheduledTasks command fixtures. No real task, browser, registry or service.
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
-function sc.exe {param($Command,$Service,$Flag)if($Command -ne 'failureflag' -or $Service -ne 'neexitlag' -or $Flag -ne '1'){throw 'unexpected SCM command'};$global:LASTEXITCODE=0}
+function sc.exe {param($Command,$Service,$Flag)if($Command -ne 'failureflag' -or $Service -ne 'VELIQ' -or $Flag -ne '1'){throw 'unexpected SCM command'};$global:LASTEXITCODE=0}
 $script:fixtureTask=$null;$script:starts=0;$script:stops=0;$script:removes=0
 function Get-ScheduledTask {param($TaskName,$ErrorAction)return $script:fixtureTask}
 function New-ScheduledTaskAction {param($Execute,$Argument)return [pscustomobject]@{Execute=$Execute;Arguments=$Argument}}

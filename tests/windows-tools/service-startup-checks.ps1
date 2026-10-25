@@ -1,6 +1,6 @@
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 $script:startup='Manual';$script:fail=$false
-function Set-Service {param($Name,$StartupType)if($Name -ne 'neexitlag'){throw 'wrong SCM name'};$script:startup=[string]$StartupType}
+function Set-Service {param($Name,$StartupType)if($Name -ne 'VELIQ'){throw 'wrong SCM name'};$script:startup=[string]$StartupType}
 function Get-CimInstance {param($ClassName,$Filter,$OperationTimeoutSec)if($script:fail){return $null};return [pscustomobject]@{StartMode=$(if($script:startup -eq 'Automatic'){'Auto'}else{$script:startup})}}
 . (Join-Path $PSScriptRoot '../../tools/windows/service-startup.ps1')
 Set-VeliqServiceAutomatic

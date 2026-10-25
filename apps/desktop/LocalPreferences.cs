@@ -8,7 +8,7 @@ public sealed class LocalPreferences
         get; set;
     }
     public bool MinimizeToTray { get; set; } = true;
-    static string PathName => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NeExitLag", "desktop.json");
+    static string PathName => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VELIQ", "desktop.json");
     public static LocalPreferences Load(string? path = null)
     {
         try
@@ -30,15 +30,38 @@ public sealed class LocalPreferences
         get
         {
             using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run");
-            return key?.GetValue("NeExitLag") != null;
+            return key?.GetValue("VELIQ") != null || key?.GetValue(LegacyRunValue) != null;
         }
     }
     public static void SetAutoStart(bool enabled)
     {
         using var key = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run");
+        key.DeleteValue(LegacyRunValue, false);
         if (enabled && Environment.ProcessPath is string path)
-            key.SetValue("NeExitLag", '"' + path + '"');
+            key.SetValue("VELIQ", '"' + path + '"');
         else
-            key.DeleteValue("NeExitLag", false);
+            key.DeleteValue("VELIQ", false);
+    }
+    const string LegacyRunValue = "NeExitLag";
+
+    // Pre-rebrand builds kept per-user state in %LOCALAPPDATA%\NeExitLag and the
+    // autostart value under that name. Move both once; never overwrite new state.
+    public static void MigrateLegacyUserData()
+    {
+        try
+        {
+            var root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var legacy = Path.Combine(root, "NeExitLag");
+            var current = Path.Combine(root, "VELIQ");
+            if (Directory.Exists(legacy) && !Directory.Exists(current))
+                Directory.Move(legacy, current);
+            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", true);
+            if (key?.GetValue(LegacyRunValue) != null && Environment.ProcessPath is string path)
+            {
+                key.SetValue("VELIQ", '"' + path + '"');
+                key.DeleteValue(LegacyRunValue, false);
+            }
+        }
+        catch (Exception) { }
     }
 }

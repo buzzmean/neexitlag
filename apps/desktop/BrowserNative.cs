@@ -25,9 +25,9 @@ public partial class MainWindow
                     // or a new browser profile, and never launch/quit a browser.
                     if (BrowserCatalog.IsEdge(p)) {
                         if (!edgeLifetimeHook) { Closed += (_,_) => edgeRecovery.Dispose(); edgeLifetimeHook=true; }
-                        if (File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NeExitLag", "edge-recovery.json")))
+                        if (File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VELIQ", "edge-recovery.json")))
                             await edgeRecovery.StartAsync(lifetime.Token);
-                    } else if (ChromePolicy.Monitored || File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NeExitLag", "chrome-recovery.json"))) await chromeRecovery.StartAsync(lifetime.Token);
+                    } else if (ChromePolicy.Monitored || File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VELIQ", "chrome-recovery.json"))) await chromeRecovery.StartAsync(lifetime.Token);
 
                 }
                 catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { throw; }

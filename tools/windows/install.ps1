@@ -13,7 +13,7 @@ param(
  [Parameter(Mandatory=$true)][string]$ProbeTarget,
  [string]$TCPProbeTarget="",
  [string]$ProbeTokenFile="",
- [string]$InstallDirectory="$env:ProgramData\neexitlag",
+ [string]$InstallDirectory="$env:ProgramData\VELIQ",
  [switch]$Reinstall,
  [switch]$NativeTcpFirewall=$true
 )
@@ -24,7 +24,7 @@ $ErrorActionPreference="Stop"
 . (Join-Path $PSScriptRoot "reinstall-state.ps1")
 $current=[Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if(!$current.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw "Administrator access is required to install the service."}
-if(Get-Service neexitlag -ErrorAction SilentlyContinue){throw "Service already installed. Run uninstall.ps1 to stop/remove SCM while preserving files, then install/setup-e2e with -Reinstall."}
+if(Get-Service VELIQ -ErrorAction SilentlyContinue){throw "Service already installed. Run uninstall.ps1 to stop/remove SCM while preserving files, then install/setup-e2e with -Reinstall."}
 [void][Security.Principal.SecurityIdentifier]::new($OwnerSid)
 $ServiceExecutable=(Resolve-Path $ServiceExecutable).Path
 $DriverDirectory=(Resolve-Path $DriverDirectory).Path
@@ -47,7 +47,7 @@ if(Test-Path -LiteralPath $tokenFile){
 }
 New-Item -ItemType Directory -Force -Path $InstallDirectory -ErrorAction Stop | Out-Null
 Protect-ServiceDirectory $InstallDirectory $OwnerSid
-Copy-Item $ServiceExecutable (Join-Path $InstallDirectory "neexitlag-service.exe")
+Copy-Item $ServiceExecutable (Join-Path $InstallDirectory "veliq-service.exe")
 New-Item -ItemType Directory -Force -Path (Join-Path $InstallDirectory "driver") | Out-Null
 Copy-Item (Join-Path $DriverDirectory "WinDivert.dll") (Join-Path $InstallDirectory "driver")
 Copy-Item (Join-Path $DriverDirectory "WinDivert64.sys") (Join-Path $InstallDirectory "driver")
@@ -72,16 +72,16 @@ $caHash=[Security.Cryptography.SHA256]::Create();try{$manifest.activation_ca_sha
 $manifestPath=Join-Path $InstallDirectory "service.json"
 [IO.File]::WriteAllText($manifestPath,($manifest|ConvertTo-Json -Depth 4),[Text.UTF8Encoding]::new($false))
 Protect-ServiceDirectory $InstallDirectory $OwnerSid
-$binary='"'+(Join-Path $InstallDirectory "neexitlag-service.exe")+'" -config "'+$manifestPath+'"'
-New-Service -Name neexitlag -BinaryPathName $binary -DisplayName "VELIQ Routing Service" -StartupType Automatic | Out-Null
+$binary='"'+(Join-Path $InstallDirectory "veliq-service.exe")+'" -config "'+$manifestPath+'"'
+New-Service -Name VELIQ -BinaryPathName $binary -DisplayName "VELIQ Routing Service" -StartupType Automatic | Out-Null
 Set-VeliqServiceAutomatic
-& sc.exe failure neexitlag reset= 86400 actions= restart/5000/restart/5000/restart/5000 | Out-Null
+& sc.exe failure VELIQ reset= 86400 actions= restart/5000/restart/5000/restart/5000 | Out-Null
 if($LASTEXITCODE){throw "Failed to configure service recovery"}
 # Owner-authorized native browser TCP requires this app-scoped inbound reflection rule.
 # Installing a rule does not load WinDivert or activate traffic before enrollment.
-if($NativeTcpFirewall){[void](Add-NativeTcpFirewallAdmission (Join-Path $InstallDirectory 'neexitlag-service.exe'))}
-Start-Service neexitlag
-(Get-Service neexitlag).WaitForStatus('Running',[TimeSpan]::FromSeconds(30))
+if($NativeTcpFirewall){[void](Add-NativeTcpFirewallAdmission (Join-Path $InstallDirectory 'veliq-service.exe'))}
+Start-Service VELIQ
+(Get-Service VELIQ).WaitForStatus('Running',[TimeSpan]::FromSeconds(30))
 Write-Host "VELIQ service installed. Run the desktop GUI without elevation."
 
 . (Join-Path $PSScriptRoot 'browser-policy-watchdog.ps1')

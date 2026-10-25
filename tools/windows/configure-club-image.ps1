@@ -1,6 +1,6 @@
 # Called only by Setup /CLUBIMAGE=1 after a clean ActivationOnly installation.
 [CmdletBinding()]
-param([string]$InstallDirectory="$env:ProgramData\neexitlag",[Parameter(Mandatory=$true)][string]$ClubCodeFile)
+param([string]$InstallDirectory="$env:ProgramData\VELIQ",[Parameter(Mandatory=$true)][string]$ClubCodeFile)
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'common.ps1');Assert-Administrator
 . (Join-Path $PSScriptRoot 'club-image-common.ps1')
@@ -25,8 +25,8 @@ $settings=New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (
 Register-ScheduledTask -TaskName 'VELIQ Club Boot' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force|Out-Null
 $gui=Join-Path $env:LOCALAPPDATA 'Programs\VELIQ\VELIQ.exe'
 $run='HKCU:\Software\Microsoft\Windows\CurrentVersion\Run';New-Item $run -Force|Out-Null
-Set-ItemProperty -LiteralPath $run -Name NeExitLag -Value ('"'+$gui+'" --club')
-Stop-Service neexitlag -ErrorAction Stop
-(Get-Service neexitlag).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(30))
+Set-ItemProperty -LiteralPath $run -Name VELIQ -Value ('"'+$gui+'" --club')
+Stop-Service VELIQ -ErrorAction Stop
+(Get-Service VELIQ).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(30))
 Assert-ClubImageClean $InstallDirectory
 Write-Output 'CLUB_IMAGE_SEALED; service stopped/automatic, code staged, no device identity; commit image now; per-PC writable overlays REQUIRED'

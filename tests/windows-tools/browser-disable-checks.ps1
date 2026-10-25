@@ -5,7 +5,7 @@ $global:VeliqDisableFixtureEmpty=$true
 function Get-CimInstance {param($ClassName,$Filter,$ErrorAction)
  if($ClassName -eq 'Win32_Service'){return [pscustomobject]@{State='Stopped';ProcessId=0;StartMode='Auto';ExitCode=0}}
  if($global:VeliqDisableFixtureEmpty){return @()}
- @([pscustomobject]@{ProcessId=10;ParentProcessId=1;CreationDate=(Get-Date);ExecutablePath='C:\fixture\neexitlag-service.exe';CommandLine='C:\fixture\neexitlag-service.exe --chrome-recovery --recovery-port=50165 secret-marker'},[pscustomobject]@{ProcessId=11;ParentProcessId=1;CreationDate=(Get-Date);ExecutablePath='C:\fixture\neexitlag-service.exe';CommandLine='C:\fixture\neexitlag-service.exe -browser-policy-watchdog secret-marker'})
+ @([pscustomobject]@{ProcessId=10;ParentProcessId=1;CreationDate=(Get-Date);ExecutablePath='C:\fixture\veliq-service.exe';CommandLine='C:\fixture\veliq-service.exe --chrome-recovery --recovery-port=50165 secret-marker'},[pscustomobject]@{ProcessId=11;ParentProcessId=1;CreationDate=(Get-Date);ExecutablePath='C:\fixture\veliq-service.exe';CommandLine='C:\fixture\veliq-service.exe -browser-policy-watchdog secret-marker'})
 }
 function Get-NetTCPConnection {param($State,$ErrorAction);@()}
 function Get-WinEvent {param($FilterHashtable,$MaxEvents,$ErrorAction);throw 'empty fixture log'}

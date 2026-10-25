@@ -11,13 +11,13 @@ function New-NetFirewallRule {param($PolicyStore,$Name,$DisplayName,$Group,$Desc
  if($PolicyStore -ne 'PersistentStore' -or $Protocol -ne 'TCP'){throw 'wrong scope'}
  $script:created++;$script:rule=[pscustomobject]@{Name=$Name;Group=$Group;Description=$Description;Program=$Program;Direction=$Direction;Action=$Action;Enabled=$Enabled;Profile=$Profile;EdgeTraversalPolicy=$EdgeTraversalPolicy}
 }
-function Remove-NetFirewallRule {param($PolicyStore,$Name,$ErrorAction) if($Name -ne 'neexitlag-native-tcp-v1' -or $PolicyStore -ne 'PersistentStore'){throw 'foreign removal'};$script:removed++;$script:rule=$null}
+function Remove-NetFirewallRule {param($PolicyStore,$Name,$ErrorAction) if($Name -ne 'VELIQ-native-tcp-v1' -or $PolicyStore -ne 'PersistentStore'){throw 'foreign removal'};$script:removed++;$script:rule=$null}
 function Assert-Check([bool]$Value,[string]$Message){if(!$Value){throw $Message}}
 function Reject-Check([scriptblock]$Action,[string]$Pattern){try{& $Action;throw 'UNEXPECTED_SUCCESS'}catch{if($_.Exception.Message -notlike $Pattern){throw}}}
 $root=Join-Path ([IO.Path]::GetTempPath()) ('veliq-fw-'+[Guid]::NewGuid().ToString('N'))
 try{
  New-Item -ItemType Directory -Path $root|Out-Null
- $binary=Join-Path $root 'neexitlag-service.exe';[IO.File]::WriteAllText($binary,'fixture, never executed')
+ $binary=Join-Path $root 'veliq-service.exe';[IO.File]::WriteAllText($binary,'fixture, never executed')
  Assert-Check ((Get-VeliqNativeFirewallSnapshot $binary).state -eq 'MISSING') 'missing rule not observed'
  Assert-Check (Add-NativeTcpFirewallAdmission $binary) 'fresh rule not created'
  $snapshot=Get-VeliqNativeFirewallSnapshot $binary

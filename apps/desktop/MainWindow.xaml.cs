@@ -36,7 +36,7 @@ public partial class MainWindow : Window
         Channel.SelectedValue = "stable";
         Fallback.ItemsSource = new[] { new Choice("DIRECT", Text.Get("Direct")) };
         Fallback.SelectedValue = "DIRECT";
-        using var iconStream = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/VELIQ;component/Assets/NeExitLag.ico"))!.Stream;
+        using var iconStream = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/VELIQ;component/Assets/VELIQ.ico"))!.Stream;
         using var loadedIcon = new System.Drawing.Icon(iconStream);
         trayImage = (System.Drawing.Icon)loadedIcon.Clone();
         tray = new()
@@ -251,7 +251,7 @@ public partial class MainWindow : Window
             var script=Path.Combine(AppContext.BaseDirectory,"tools","windows","auto-optimize.ps1");
             if(!File.Exists(script)) { script=Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,"../../../../../tools/windows/auto-optimize.ps1")); }
             if(!File.Exists(script))throw new InvalidOperationException(Text.Get("AutoToolsMissing"));
-            var output=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"NeExitLag","auto-output");Directory.CreateDirectory(output);
+            var output=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"VELIQ","auto-output");Directory.CreateDirectory(output);
             var start=new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"WindowsPowerShell","v1.0","powershell.exe")){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};
             foreach(var value in new[]{"-NoProfile","-ExecutionPolicy","Bypass","-File",script,"-ProfileId",row.Profile.Id})start.ArgumentList.Add(value);
             using var process=System.Diagnostics.Process.Start(start) ?? throw new InvalidOperationException(Text.Get("AutoStartFailed"));

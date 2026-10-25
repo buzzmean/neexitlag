@@ -5,7 +5,7 @@
 # listener traffic and accept requires an exact per-flow mapping.
 function Get-NativeTcpFirewallPath([string]$Executable) {
  $item=Get-Item -LiteralPath $Executable -Force -ErrorAction Stop
- if($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $item.Name -ine 'neexitlag-service.exe'){throw 'NATIVE_FIREWALL_EXECUTABLE_INVALID'}
+ if($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $item.Name -ine 'veliq-service.exe'){throw 'NATIVE_FIREWALL_EXECUTABLE_INVALID'}
  $path=[IO.Path]::GetFullPath($item.FullName)
  if($path.StartsWith('\\')){throw 'NATIVE_FIREWALL_LOCAL_EXECUTABLE_REQUIRED'}
  return $path
@@ -18,7 +18,7 @@ function Assert-NativeTcpFirewallRule($Rule,[string]$Path) {
 }
 function Add-NativeTcpFirewallAdmission([string]$Executable) {
  $path=Get-NativeTcpFirewallPath $Executable
- $name='neexitlag-native-tcp-v1'
+ $name='VELIQ-native-tcp-v1'
  $existing=@(Get-NetFirewallRule -PolicyStore PersistentStore -Name ($name+'*') -ErrorAction Stop | Where-Object Name -eq $name)
  if($existing.Count -gt 1){throw 'NATIVE_FIREWALL_AMBIGUOUS_RULE'}
  if($existing.Count -eq 1){Assert-NativeTcpFirewallRule $existing[0] $path}
@@ -43,9 +43,9 @@ function Add-NativeTcpFirewallAdmission([string]$Executable) {
 }
 function Remove-NativeTcpFirewallAdmission([string]$Executable) {
  $path=Get-NativeTcpFirewallPath $Executable
- $rules=@(Get-NetFirewallRule -PolicyStore PersistentStore -Name 'neexitlag-native-tcp-v1*' -ErrorAction Stop | Where-Object Name -eq 'neexitlag-native-tcp-v1')
+ $rules=@(Get-NetFirewallRule -PolicyStore PersistentStore -Name 'VELIQ-native-tcp-v1*' -ErrorAction Stop | Where-Object Name -eq 'VELIQ-native-tcp-v1')
  if($rules.Count -eq 0){return}
  if($rules.Count -ne 1){throw 'NATIVE_FIREWALL_AMBIGUOUS_RULE'}
  Assert-NativeTcpFirewallRule $rules[0] $path
- Remove-NetFirewallRule -PolicyStore PersistentStore -Name 'neexitlag-native-tcp-v1' -ErrorAction Stop
+ Remove-NetFirewallRule -PolicyStore PersistentStore -Name 'VELIQ-native-tcp-v1' -ErrorAction Stop
 }

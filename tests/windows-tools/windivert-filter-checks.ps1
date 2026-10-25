@@ -46,7 +46,7 @@ try{
  $output=Join-Path $temp 'bin\windows-e2e';New-Item -ItemType Directory -Force (Join-Path $output 'linux')|Out-Null
  foreach($phase in @('early','late')){
   $global:VeliqBuildFailureFixture=$phase
-  foreach($name in @('neexitlag-service.exe','tcp-selected.exe','capture-acceptance.exe')){Set-Content (Join-Path $output $name) 'OLD'}
+  foreach($name in @('veliq-service.exe','tcp-selected.exe','capture-acceptance.exe')){Set-Content (Join-Path $output $name) 'OLD'}
   Set-Content (Join-Path $output 'linux\relay') 'OLD'
   Set-Content (Join-Path $output 'unrelated.txt') 'PRESERVE'
   $failed=$false;try{& (Join-Path $scripts 'build-e2e.ps1') -Output $output}catch{$failed=$true}
@@ -55,9 +55,9 @@ try{
   if((Get-Content (Join-Path $output 'unrelated.txt')) -ne 'PRESERVE'){throw 'Unrelated output deleted'}
  }
  Set-Content (Join-Path $output 'service.json') '{}'
- Set-Content (Join-Path $output 'neexitlag-service.exe') 'INSTALLED_SENTINEL'
+ Set-Content (Join-Path $output 'veliq-service.exe') 'INSTALLED_SENTINEL'
  $failed=$false;try{& (Join-Path $scripts 'build-e2e.ps1') -Output $output}catch{$failed=$_.Exception.Message -like 'BUILD_OUTPUT_LOOKS_INSTALLED*'}
- if(!$failed -or (Get-Content (Join-Path $output 'neexitlag-service.exe')) -ne 'INSTALLED_SENTINEL'){throw 'Installed state cleanup guard failed'}
+ if(!$failed -or (Get-Content (Join-Path $output 'veliq-service.exe')) -ne 'INSTALLED_SENTINEL'){throw 'Installed state cleanup guard failed'}
 }finally{
  Remove-Item Function:\go
  Remove-Variable VeliqBuildFailureFixture -Scope Global -ErrorAction SilentlyContinue

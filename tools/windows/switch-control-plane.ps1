@@ -2,7 +2,7 @@
 param(
  [Parameter(Mandatory=$true)][string]$ControlPlaneUrl,
  [Parameter(Mandatory=$true)][string]$ProbeTarget,
- [string]$InstallDirectory="$env:ProgramData\neexitlag"
+ [string]$InstallDirectory="$env:ProgramData\VELIQ"
 )
 # Moves an installed client to another control plane host that serves a leaf
 # certificate from the SAME pinned CA (cp-ca.pem is not touched). Identity,
@@ -33,6 +33,6 @@ $tmp="$path.tmp"
 [IO.File]::WriteAllText($tmp,($manifest|ConvertTo-Json -Depth 8),(New-Object Text.UTF8Encoding $false))
 Set-Acl -LiteralPath $tmp -AclObject $acl
 Move-Item -LiteralPath $tmp -Destination $path -Force
-Restart-Service neexitlag
+Restart-Service VELIQ
 Write-Host "control plane: $old -> $ControlPlaneUrl / $($probe.ToString())"
 Write-Host "backup: $backup"

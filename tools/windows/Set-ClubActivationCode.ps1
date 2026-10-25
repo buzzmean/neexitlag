@@ -1,6 +1,6 @@
 # Admin-only replacement of one protected file. Does not call SSH/CP or print a code.
 [CmdletBinding()]
-param([Parameter(Mandatory=$true)][string]$CodeFile,[string]$InstallDirectory="$env:ProgramData\neexitlag",[switch]$Image)
+param([Parameter(Mandatory=$true)][string]$CodeFile,[string]$InstallDirectory="$env:ProgramData\VELIQ",[switch]$Image)
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'common.ps1');Assert-Administrator
 . (Join-Path $PSScriptRoot 'club-image-common.ps1')

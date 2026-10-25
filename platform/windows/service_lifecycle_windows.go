@@ -14,7 +14,7 @@ func BrowserRecoveryServiceState() string {
 		return "UNKNOWN"
 	}
 	defer windows.CloseServiceHandle(manager)
-	name, _ := windows.UTF16PtrFromString("neexitlag")
+	name, _ := windows.UTF16PtrFromString(ServiceName)
 	service, e := windows.OpenService(manager, name, windows.SERVICE_QUERY_STATUS)
 	if e == windows.ERROR_SERVICE_DOES_NOT_EXIST {
 		return "NOT_INSTALLED"

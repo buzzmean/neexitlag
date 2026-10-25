@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"github.com/Microsoft/go-winio"
+	windowsplatform "github.com/buzzmean/neexitlag/platform/windows"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 	"net"
@@ -26,7 +27,7 @@ func recoverPolicyWatchdog(m Manifest, path string, r *policyWatchdogRecovery) e
 		return err
 	}
 	defer manager.Disconnect()
-	service, err := manager.OpenService("neexitlag")
+	service, err := manager.OpenService(windowsplatform.ServiceName)
 	if err != nil {
 		return err
 	}
@@ -35,7 +36,7 @@ func recoverPolicyWatchdog(m Manifest, path string, r *policyWatchdogRecovery) e
 	if err != nil {
 		return err
 	}
-	binary := filepath.Join(filepath.Dir(path), "neexitlag-service.exe")
+	binary := filepath.Join(filepath.Dir(path), "veliq-service.exe")
 	expected := `"` + binary + `" -config "` + path + `"`
 	if !strings.EqualFold(cfg.BinaryPathName, expected) {
 		return errors.New("WATCHDOG_SCM_PATH_MISMATCH")

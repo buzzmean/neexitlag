@@ -27,6 +27,7 @@ public partial class App : System.Windows.Application
             Shutdown();
             return;
         }
+        LocalPreferences.MigrateLegacyUserData();
         if (ClubWindow.IsClubInstallation() || e.Args.Any(arg => arg.Equals("--club", StringComparison.OrdinalIgnoreCase)))
         {
             MainWindow = new ClubWindow(); // Starts in tray, no end-user prompts.

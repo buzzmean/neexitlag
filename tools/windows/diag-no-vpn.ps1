@@ -12,7 +12,7 @@ param(
  [string]$VpsHost='146.0.77.98',
  [int]$ControlPlanePort=8443,
  [int]$QuicPort=4433,
- [string]$InstallDirectory="$env:ProgramData\neexitlag",
+ [string]$InstallDirectory="$env:ProgramData\VELIQ",
  [string]$BuildDirectory='',
  [string[]]$Only=@(),
  [string]$ProxyAddress='',   # host:port of the local browser proxy; default: taken from browser.status
@@ -320,10 +320,10 @@ Step 'env' {
 if(Want 'service'){
 Section '1a. Service and binary'
 Step 'service' {
- $svc=Get-Service neexitlag -ErrorAction Stop
- Say "Service neexitlag: $($svc.Status), start type $($svc.StartType)"
+ $svc=Get-Service VELIQ -ErrorAction Stop
+ Say "Service VELIQ: $($svc.Status), start type $($svc.StartType)"
  $hashes=@{}
- foreach($pair in @(@('installed',(Join-Path $InstallDirectory 'neexitlag-service.exe')),@('built',(Join-Path $BuildDirectory 'neexitlag-service.exe')))){
+ foreach($pair in @(@('installed',(Join-Path $InstallDirectory 'veliq-service.exe')),@('built',(Join-Path $BuildDirectory 'veliq-service.exe')))){
   if(Test-Path $pair[1]){$h=(Get-FileHash $pair[1] -Algorithm SHA256).Hash;$hashes[$pair[0]]=$h;Say "SHA256 $($pair[0]): $h (modified $((Get-Item $pair[1]).LastWriteTime.ToString('yyyy-MM-dd HH:mm')))"}
   else{Say "SHA256 $($pair[0]): file not found ($($pair[1]))"}
  }
@@ -931,7 +931,7 @@ Step 'native_browser' {
  Say ("shared relay TCP: active="+(Prop $usage 'active_tcp_tunnels')+" opened="+(Prop $usage 'tcp_tunnels_opened')+" scope="+(Prop $usage 'scope'))
  foreach($m in @(Prop $usage 'minutes' @())){Say ("relay minute: "+(Json $m))}
  foreach($o in @(Prop $usage 'active_origins' @())){Say ("relay active: "+(Json $o))}
- $refresh=Join-Path $env:LOCALAPPDATA 'NeExitLag\browser-native-policy-refresh.txt'
+ $refresh=Join-Path $env:LOCALAPPDATA 'VELIQ\browser-native-policy-refresh.txt'
  if(Test-Path $refresh){Say ('Historical refresh request (not live evidence): '+(Get-Content $refresh -TotalCount 1))}
  Say 'Native mode does not require PAC. Registry/refresh/tunnel bytes are NOT live-policy/site PASS. Existing HTTP/2 may be reused on reload; no connection egress migration. Opaque ECH without protected evidence defaults DIRECT; encrypted inner domain is NOT guaranteed; native QUIC is rejected to TCP; domain cannot be inferred.'
 }
@@ -944,7 +944,7 @@ Step 'startup_profiles' {
   Say ("$browserName profiles: "+$matches.Count)
   foreach($profile in $matches){Say (Json ([ordered]@{id=(Prop $profile 'id');mode=(Prop $profile 'mode');preset=(Prop $profile 'app_preset');transport=(Prop $profile 'browser_transport');exe=(Prop $profile 'executables')}))}
  }
- $report=Join-Path $env:LOCALAPPDATA 'NeExitLag\browser-startup.json'
+ $report=Join-Path $env:LOCALAPPDATA 'VELIQ\browser-startup.json'
  if((Test-Path -LiteralPath $report) -and (Get-Item -LiteralPath $report).Length -le 65536){
   $data=Get-Content -LiteralPath $report -Raw|ConvertFrom-Json
   Say ("GUI startup report: started=$(Prop $data 'started') completed=$(Prop $data 'completed') elapsed_ms=$(Prop $data 'elapsed_ms')")

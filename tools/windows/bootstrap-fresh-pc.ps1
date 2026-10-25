@@ -161,16 +161,16 @@ function Install-FreshService([string]$InstallationOwnerSid) {
  }finally{$who.Dispose()}
  $bin=Join-Path $root 'bin\windows-e2e';$driver=Join-Path $root '.e2e\windivert'
   $pins=Get-Content (Join-Path $driver 'pins.json') -Raw|ConvertFrom-Json
-  & (Join-Path $PSScriptRoot 'install.ps1') -ServiceExecutable (Join-Path $bin 'neexitlag-service.exe') -OwnerSid $InstallationOwnerSid -DeviceDirectory (Join-Path $state 'device') -TrustDirectory (Join-Path $state 'trust') -DriverDirectory $driver -DllSha256 $pins.dll_sha256 -DriverSha256 $pins.driver_sha256 -ControlPlaneUrl "https://${VpsIP}:8443" -ProbeTarget "${VpsIP}:40000" -TCPProbeTarget "${VpsIP}:40000" -ProbeTokenFile (Join-Path $state 'echo.token')
+  & (Join-Path $PSScriptRoot 'install.ps1') -ServiceExecutable (Join-Path $bin 'veliq-service.exe') -OwnerSid $InstallationOwnerSid -DeviceDirectory (Join-Path $state 'device') -TrustDirectory (Join-Path $state 'trust') -DriverDirectory $driver -DllSha256 $pins.dll_sha256 -DriverSha256 $pins.driver_sha256 -ControlPlaneUrl "https://${VpsIP}:8443" -ProbeTarget "${VpsIP}:40000" -TCPProbeTarget "${VpsIP}:40000" -ProbeTokenFile (Join-Path $state 'echo.token')
   . (Join-Path $PSScriptRoot 'native-tcp-firewall.ps1')
-  [void](Add-NativeTcpFirewallAdmission (Join-Path $env:ProgramData 'neexitlag\neexitlag-service.exe'))
-  $installed=Join-Path $env:ProgramData 'neexitlag'
+  [void](Add-NativeTcpFirewallAdmission (Join-Path $env:ProgramData 'VELIQ\veliq-service.exe'))
+  $installed=Join-Path $env:ProgramData 'VELIQ'
   $manifest=Get-Content (Join-Path $installed 'service.json') -Raw|ConvertFrom-Json
   if($manifest.owner_sid -cne $InstallationOwnerSid){throw 'INSTALLED_OWNER_MISMATCH'}
   foreach($pair in @(@('device\identity.json','identity.json'),@('device\device.pem','device.pem'),@('trust\ca.pem','ca.pem'),@('trust\trust.json','trust.json'),@('echo.token','probe.token'))){
    if((Get-FileHash (Join-Path $state $pair[0])).Hash -ne (Get-FileHash (Join-Path $installed $pair[1])).Hash){throw 'INSTALLED_CREDENTIAL_MISMATCH'}
   }
-  $proof=@{owner_sid=$InstallationOwnerSid;sha256=(Get-FileHash (Join-Path $installed 'neexitlag-service.exe')).Hash}
+  $proof=@{owner_sid=$InstallationOwnerSid;sha256=(Get-FileHash (Join-Path $installed 'veliq-service.exe')).Hash}
   [IO.File]::WriteAllText((Join-Path $state 'service-install-proof.json'),($proof|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
 }
 function Invoke-FreshPC {
@@ -196,7 +196,7 @@ function Invoke-FreshPC {
  }
  if($RepairBrowserReadiness){
   $script:FreshStage='browser_repair_preflight'
-  $manifest=Get-Content (Join-Path $env:ProgramData 'neexitlag\service.json') -Raw | ConvertFrom-Json
+  $manifest=Get-Content (Join-Path $env:ProgramData 'VELIQ\service.json') -Raw | ConvertFrom-Json
   if((Fresh-Property $manifest 'owner_sid') -cne $sid){throw 'INSTALLED_OWNER_MISMATCH'}
   Assert-FreshSummary (Invoke-ServiceIPC 'status')
   foreach($directory in @($root,(Join-Path $root '.e2e'),$state)){
@@ -209,8 +209,8 @@ function Invoke-FreshPC {
   Write-Host 'PASS: local owned browser PAC readiness. No SSH, enroll, CA rotation or service reinstall performed.'
   return
  }
- if(!$PreflightVps -and (Get-Service neexitlag -ErrorAction SilentlyContinue)){throw 'EXISTING_INSTALLATION_PRESERVED: use the normal updater; fresh bootstrap does not rotate an installed identity'}
- if(!$PreflightVps -and (Test-Path (Join-Path $env:ProgramData 'neexitlag'))){throw 'PRESERVED_INSTALLATION_FOUND: do not delete credentials; use explicit reinstall/update'}
+ if(!$PreflightVps -and (Get-Service VELIQ -ErrorAction SilentlyContinue)){throw 'EXISTING_INSTALLATION_PRESERVED: use the normal updater; fresh bootstrap does not rotate an installed identity'}
+ if(!$PreflightVps -and (Test-Path (Join-Path $env:ProgramData 'VELIQ'))){throw 'PRESERVED_INSTALLATION_FOUND: do not delete credentials; use explicit reinstall/update'}
  Assert-FreshVpsPreparation ([bool]$PreflightVps) ([bool]$UpgradeVpsBinaries) ([bool]$RotateCA) $ConfirmVpsUpgrade
  if($RotateCA -and $CaFingerprint -ne ''){throw 'Use ExpectedCurrentCAFingerprint for rotation; the new CA pin is generated on the VPS'}
  if($RotateCA -and $ConfirmCARotation -cne "ROTATE-CA-$VpsIP"){throw 'Explicit -ConfirmCARotation ROTATE-CA-2.56.177.4 required'}
@@ -311,8 +311,8 @@ function Invoke-FreshPC {
   $child.WaitForExit();$child.Refresh();if($child.ExitCode -ne 0){throw 'SERVICE_INSTALL_FAILED; inspect preserved state, do not delete credentials'}
  }
  $proof=Get-Content (Join-Path $state 'service-install-proof.json') -Raw|ConvertFrom-Json
- if((Fresh-Property $proof 'owner_sid') -cne $sid -or (Fresh-Property $proof 'sha256') -ne (Get-FileHash (Join-Path $bin 'neexitlag-service.exe')).Hash){throw 'INSTALLED_SERVICE_PROOF_MISMATCH'}
- if((Get-FileHash (Join-Path $bin 'neexitlag-service.exe')).Hash -ne (Get-FileHash (Join-Path $env:ProgramData 'neexitlag\neexitlag-service.exe')).Hash){throw 'INSTALLED_SERVICE_HASH_MISMATCH'}
+ if((Fresh-Property $proof 'owner_sid') -cne $sid -or (Fresh-Property $proof 'sha256') -ne (Get-FileHash (Join-Path $bin 'veliq-service.exe')).Hash){throw 'INSTALLED_SERVICE_PROOF_MISMATCH'}
+ if((Get-FileHash (Join-Path $bin 'veliq-service.exe')).Hash -ne (Get-FileHash (Join-Path $env:ProgramData 'VELIQ\veliq-service.exe')).Hash){throw 'INSTALLED_SERVICE_HASH_MISMATCH'}
  # Installed private credentials are now SYSTEM/admin-only. Remove the owner's
  # enrollment staging copies; nothing from this boot is needed after freeze.
  Remove-Item -LiteralPath (Join-Path $state 'device\identity.json'),(Join-Path $state 'echo.token') -Force -ErrorAction Stop

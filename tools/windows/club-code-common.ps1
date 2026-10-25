@@ -15,15 +15,15 @@ function New-ClubPendingRecord([string]$Code){
 function Invoke-ClubCodeReplacement([string]$Directory,$Record,[switch]$Image){
  # Offline image edits must NEVER touch the admin PC SCM.
  if($Image){Write-ClubJson (Join-Path $Directory 'activation-code.json.pending') $Record;return}
- $service=Get-Service neexitlag -ErrorAction SilentlyContinue
+ $service=Get-Service VELIQ -ErrorAction SilentlyContinue
  if(!$Image -and !$service){throw 'CLUB_SERVICE_NOT_FOUND'}
  $wasRunning=$service -and $service.Status -ne 'Stopped'
  try{
-  if($wasRunning){Stop-Service neexitlag;(Get-Service neexitlag).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(30))}
+  if($wasRunning){Stop-Service VELIQ;(Get-Service VELIQ).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(30))}
   Write-ClubJson (Join-Path $Directory 'activation-code.json.pending') $Record
-  if(!$Image){Start-Service neexitlag;(Get-Service neexitlag).WaitForStatus('Running',[TimeSpan]::FromSeconds(45))}
+  if(!$Image){Start-Service VELIQ;(Get-Service VELIQ).WaitForStatus('Running',[TimeSpan]::FromSeconds(45))}
  }catch{
-  if(!$Image -and $wasRunning){try{Start-Service neexitlag}catch{throw 'CLUB_CODE_REPLACEMENT_FAILED_SERVICE_RESTORE_FAILED'}}
+  if(!$Image -and $wasRunning){try{Start-Service VELIQ}catch{throw 'CLUB_CODE_REPLACEMENT_FAILED_SERVICE_RESTORE_FAILED'}}
   throw 'CLUB_CODE_REPLACEMENT_FAILED; private records preserved; check service and activation.status'
  }
 }

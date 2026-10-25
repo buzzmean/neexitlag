@@ -7,7 +7,7 @@ $proof=Join-Path $repo 'bin\diagnostics\browser-disable-baseline.json'
 $ownerSession=(Get-Process -Id $PID).SessionId
 function Field($o,[string]$name){if($null -ne $o){$p=$o.PSObject.Properties[$name];if($p){return $p.Value}};return $null}
 function ProcessBirth($p){if($p -and $p.CreationDate){return $p.CreationDate.ToUniversalTime().Ticks.ToString([System.Globalization.CultureInfo]::InvariantCulture)};return ''}
-function ServiceView {Get-CimInstance Win32_Service -Filter "Name='neexitlag'" -ErrorAction Stop}
+function ServiceView {Get-CimInstance Win32_Service -Filter "Name='VELIQ'" -ErrorAction Stop}
 function BrowserView {@(Get-CimInstance Win32_Process -Filter ("(Name='chrome.exe' OR Name='msedge.exe') AND SessionId="+$ownerSession) -ErrorAction Stop|Where-Object {$_.CommandLine -and $_.CommandLine -notmatch '--type='}|Select-Object -First 16|ForEach-Object {[pscustomobject]@{pid=[uint32]$_.ProcessId;birth=(ProcessBirth $_);path=[string]$_.ExecutablePath}})}
 function PolicyView {
  foreach($lane in @(@('Chrome','Google\Chrome'),@('Edge','Microsoft\Edge'))){

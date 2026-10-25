@@ -46,7 +46,7 @@ function Protect-ServiceDirectory([string]$Directory,[string]$OwnerSid) {
   }
   $rights=$null
   if($item.FullName -eq $fullRoot){$rights=[Security.AccessControl.FileSystemRights]::ReadAndExecute}
-  elseif($item.FullName -eq (Join-Path $fullRoot 'neexitlag-service.exe')){$rights=[Security.AccessControl.FileSystemRights]::ReadAndExecute}
+  elseif($item.FullName -eq (Join-Path $fullRoot 'veliq-service.exe')){$rights=[Security.AccessControl.FileSystemRights]::ReadAndExecute}
   elseif($item.FullName -eq (Join-Path (Join-Path $fullRoot 'state') 'browser-recovery-guard.json')){$rights=[Security.AccessControl.FileSystemRights]::Read}
   elseif($item.FullName -eq (Join-Path $fullRoot 'ipc.token')){$rights=[Security.AccessControl.FileSystemRights]::Read}
   if($null -ne $rights){[void]$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($OwnerSid),$rights,[Security.AccessControl.InheritanceFlags]::None,[Security.AccessControl.PropagationFlags]::None,[Security.AccessControl.AccessControlType]::Allow))}

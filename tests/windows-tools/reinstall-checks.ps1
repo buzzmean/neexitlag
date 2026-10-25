@@ -40,10 +40,10 @@ try {
   $global:neexitlagReinstallFixture.mockService=[pscustomobject]@{Status='Running';Disposed=$false}
   $global:neexitlagReinstallFixture.mockService|Add-Member ScriptMethod WaitForStatus {param($status,$timeout) $this.Status=$status}
   $global:neexitlagReinstallFixture.mockService|Add-Member ScriptMethod Dispose {$this.Disposed=$true}
-  function Get-Service {param([string]$Name) if($Name -ne 'neexitlag'){throw 'Unexpected SCM name'};if($global:neexitlagReinstallFixture.serviceCreated){return $global:neexitlagReinstallFixture.mockService}}
-  function New-Service {param($Name,$BinaryPathName,$DisplayName,$StartupType) if($Name -ne 'neexitlag' -or $DisplayName -ne 'VELIQ Routing Service'){throw 'SCM compatibility/display-name mismatch'};$global:neexitlagReinstallFixture.creates++;$global:neexitlagReinstallFixture.serviceCreated=$true;$global:neexitlagReinstallFixture.mockService.Status='Running'}
-  function Start-Service {param($Name) if($Name -ne 'neexitlag'){throw 'Unexpected SCM start'}}
-  function Stop-Service {param($Name) if($Name -ne 'neexitlag'){throw 'Unexpected SCM stop'};$global:neexitlagReinstallFixture.mockService.Status='Stopped'}
+  function Get-Service {param([string]$Name) if($Name -ne 'VELIQ'){throw 'Unexpected SCM name'};if($global:neexitlagReinstallFixture.serviceCreated){return $global:neexitlagReinstallFixture.mockService}}
+  function New-Service {param($Name,$BinaryPathName,$DisplayName,$StartupType) if($Name -ne 'VELIQ' -or $DisplayName -ne 'VELIQ Routing Service'){throw 'SCM compatibility/display-name mismatch'};$global:neexitlagReinstallFixture.creates++;$global:neexitlagReinstallFixture.serviceCreated=$true;$global:neexitlagReinstallFixture.mockService.Status='Running'}
+  function Start-Service {param($Name) if($Name -ne 'VELIQ'){throw 'Unexpected SCM start'}}
+  function Stop-Service {param($Name) if($Name -ne 'VELIQ'){throw 'Unexpected SCM stop'};$global:neexitlagReinstallFixture.mockService.Status='Stopped'}
   function sc.exe {if($args[0] -eq 'delete'){$global:neexitlagReinstallFixture.deletes++;$global:neexitlagReinstallFixture.serviceCreated=$false};$global:LASTEXITCODE=0}
   $target=Join-Path $temp 'actual install';$driver=Join-Path $temp 'driver'
   New-Item $driver -ItemType Directory|Out-Null
@@ -60,7 +60,7 @@ try {
   Reject-Install {& $installScript @params} '*explicitly use -Reinstall*'
   [IO.File]::WriteAllText($exe,'upgraded executable')
   & $installScript @params -Reinstall
-  if($global:neexitlagReinstallFixture.creates -ne 2 -or [IO.File]::ReadAllText((Join-Path $target 'neexitlag-service.exe')) -ne 'upgraded executable'){throw 'Explicit upgrade did not install new executable'}
+  if($global:neexitlagReinstallFixture.creates -ne 2 -or [IO.File]::ReadAllText((Join-Path $target 'veliq-service.exe')) -ne 'upgraded executable'){throw 'Explicit upgrade did not install new executable'}
   foreach($name in $protected){if((Get-FileHash (Join-Path $target $name)).Hash -ne $hashes[$name]){throw "Reinstall changed preserved $name"}}
   foreach($item in @((Get-Item $target)) + @(Get-ChildItem $target -Recurse -Force)) {
    $acl=Get-Acl $item.FullName
@@ -69,7 +69,7 @@ try {
     $sid=$rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
     if($sid -notin @('S-1-5-18','S-1-5-32-544',$owner)){throw "Unexpected access grant $sid"}
     if($sid -eq $owner) {
-     if($item.FullName -ne $target -and $item.FullName -ne (Join-Path $target 'ipc.token') -and $item.FullName -ne (Join-Path $target 'neexitlag-service.exe') -and $item.FullName -ne (Join-Path (Join-Path $target 'state') 'browser-recovery-guard.json')){throw 'GUI owner gained credential/state access'}
+     if($item.FullName -ne $target -and $item.FullName -ne (Join-Path $target 'ipc.token') -and $item.FullName -ne (Join-Path $target 'veliq-service.exe') -and $item.FullName -ne (Join-Path (Join-Path $target 'state') 'browser-recovery-guard.json')){throw 'GUI owner gained credential/state access'}
      if($rule.InheritanceFlags -ne 'None' -or ($rule.FileSystemRights -band [Security.AccessControl.FileSystemRights]::Write)){throw 'GUI access became writable/inheritable'}
     }
    }
@@ -84,7 +84,7 @@ try {
    if($null -eq $definition){throw "Missing updater validator: $name"}
    . ([scriptblock]::Create($definition.Extent.Text))
   }
-  $binary=Join-Path $target 'neexitlag-service.exe'
+  $binary=Join-Path $target 'veliq-service.exe'
   Assert-ServiceUpdateScmTarget ('"'+$binary+'" -config "'+(Join-Path $target 'service.json')+'"') $binary
   Reject-Install {Assert-ServiceUpdateScmTarget '"C:\Wrong\service.exe"' $binary} '*SCM executable does not match*'
   Reject-Install {Assert-ServiceUpdateScmTarget $binary $binary} '*SCM executable does not match*'

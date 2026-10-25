@@ -23,7 +23,7 @@ function Assert-DNSBrowserIdentity {
  }
 }
 Assert-DNSBrowserIdentity
-$serviceBefore=Get-CimInstance Win32_Service -Filter "Name='neexitlag'"
+$serviceBefore=Get-CimInstance Win32_Service -Filter "Name='VELIQ'"
 $serviceProcessBefore=Get-CimInstance Win32_Process -Filter ('ProcessId='+[uint32]$serviceBefore.ProcessId)
 if(!$serviceProcessBefore -or !$serviceProcessBefore.CreationDate){throw 'SERVICE_BASELINE_UNAVAILABLE'}
 $initial=Invoke-ServiceIPC 'browser.native.status'
@@ -52,7 +52,7 @@ do {
  Start-Sleep -Milliseconds 500
 }while([DateTime]::UtcNow -lt $until)
 Assert-DNSBrowserIdentity
-$serviceAfter=Get-CimInstance Win32_Service -Filter "Name='neexitlag'"
+$serviceAfter=Get-CimInstance Win32_Service -Filter "Name='VELIQ'"
 $serviceProcessAfter=Get-CimInstance Win32_Process -Filter ('ProcessId='+[uint32]$serviceAfter.ProcessId)
 if($serviceAfter.ProcessId -ne $serviceBefore.ProcessId -or !$serviceProcessAfter -or !$serviceProcessAfter.CreationDate -or $serviceProcessAfter.CreationDate -ne $serviceProcessBefore.CreationDate){throw 'SERVICE_RESTARTED_DURING_OBSERVATION'}
 $rows=@($seen.Values)

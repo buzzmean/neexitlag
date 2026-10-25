@@ -10,7 +10,7 @@ if($LASTEXITCODE){throw 'VELIQ desktop build failed.'}
 if(!(Test-Path (Join-Path $Output 'VELIQ.exe'))){throw 'VELIQ executable was not created.'}
 Write-Host "Ready: $(Join-Path $Output 'VELIQ.exe')"
 # Identical compatibility entry point for existing shortcuts and HKCU Run values.
-Copy-Item -LiteralPath (Join-Path $Output 'VELIQ.exe') -Destination (Join-Path $Output 'NeExitLag.exe') -Force
+Remove-Item -LiteralPath (Join-Path $Output 'NeExitLag.exe') -Force -ErrorAction SilentlyContinue
 Write-Host 'Run the desktop app as a standard user authorized to access the service.'
 
 $scripts=Join-Path $Output 'tools\windows'
