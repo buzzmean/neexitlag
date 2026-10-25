@@ -23,6 +23,6 @@ try {
  Copy-Item (Join-Path $source 'WinDivert64.sys') $Destination
  Copy-Item (Join-Path $PSScriptRoot '..\..\third_party\licenses\WinDivert-LICENSE.txt') (Join-Path $Destination 'WinDivert-LICENSE.txt')
  'Unmodified WinDivert 2.2.2. LGPLv3 distribution; replaceable DLL. Corresponding source/build: https://github.com/basil00/WinDivert/tree/v2.2.2' | Set-Content (Join-Path $Destination 'SOURCE.txt') -Encoding UTF8
- @{version='2.2.2-A';source=$uri;archive_sha256=$archiveHash;dll_sha256=$dllHash;driver_sha256=$sysHash}|ConvertTo-Json|Set-Content (Join-Path $Destination 'pins.json') -Encoding UTF8
+ @{version='2.2.2-A';source=$uri;archive_sha256=$archiveHash;dll_sha256=$dllHash;driver_sha256=$sysHash}|ConvertTo-Json|ForEach-Object {[IO.File]::WriteAllText((Join-Path $Destination 'pins.json'),$_,(New-Object Text.UTF8Encoding $false))} # no BOM: Go tests decode pins.json with encoding/json
  Write-Host 'WinDivert 2.2.2-A x64 ready. DLL is unsigned and SHA256-pinned; SYS is signed and pinned.'
 } finally {Remove-Item $temp -Recurse -Force}
