@@ -28,7 +28,7 @@
     <value>Настройки</value>
   </data>
   <data name="AppSubtitle" xml:space="preserve">
-    <value>Оптимизация соединения</value>
+    <value>Оптимальный маршрут для каждого соединения</value>
   </data>
   <data name="Connected" xml:space="preserve">
     <value>Подключено</value>
@@ -43,16 +43,16 @@
     <value>Напрямую</value>
   </data>
   <data name="OptimizationOn" xml:space="preserve">
-    <value>Оптимизация включена</value>
+    <value>Работает</value>
   </data>
   <data name="OptimizationOff" xml:space="preserve">
-    <value>Оптимизация выключена</value>
+    <value>Выключено</value>
   </data>
   <data name="EnableOptimization" xml:space="preserve">
-    <value>ВКЛЮЧИТЬ ОПТИМИЗАЦИЮ</value>
+    <value>Оптимизировать</value>
   </data>
   <data name="DisableOptimization" xml:space="preserve">
-    <value>ВЫКЛЮЧИТЬ ОПТИМИЗАЦИЮ</value>
+    <value>Выключить</value>
   </data>
   <data name="CurrentRoute" xml:space="preserve">
     <value>Текущий маршрут</value>
@@ -328,13 +328,13 @@
     <value>Открыть VELIQ</value>
   </data>
   <data name="TrayEnable" xml:space="preserve">
-    <value>Включить оптимизацию</value>
+    <value>Оптимизировать</value>
   </data>
   <data name="TrayDisable" xml:space="preserve">
-    <value>Выключить оптимизацию</value>
+    <value>Выключить</value>
   </data>
   <data name="Exit" xml:space="preserve">
-    <value>Выход</value>
+    <value>Выйти из VELIQ</value>
   </data>
   <data name="TrayHint" xml:space="preserve">
     <value>VELIQ работает в области уведомлений</value>
@@ -609,4 +609,21 @@
   <data name="GameCatalogSearch" xml:space="preserve"><value>Поиск игры или лаунчера</value></data>
   <data name="GameCatalogApply" xml:space="preserve"><value>Применить</value></data>
   <data name="GameCatalogRepair" xml:space="preserve"><value>Исправить лаунчер</value></data>
+  <data name="NavServices" xml:space="preserve"><value>Сервисы</value></data>
+  <data name="NavAbout" xml:space="preserve"><value>О программе</value></data>
+  <data name="ServicesLead" xml:space="preserve"><value>Приложения и сайты, для которых VELIQ строит маршрут. Остальные соединения VELIQ ведёт по самому быстрому пути сам.</value></data>
+  <data name="DiagnosticsLead" xml:space="preserve"><value>Проверка всех частей VELIQ: служба, перехват трафика, серверы и браузеры.</value></data>
+  <data name="AboutLead" xml:space="preserve"><value>Оптимальный маршрут для каждого соединения.</value></data>
+  <data name="DiagChecksTab" xml:space="preserve"><value>Проверка</value></data>
+  <data name="SetActivation" xml:space="preserve"><value>Активация</value></data>
+  <data name="SetStart" xml:space="preserve"><value>Запуск</value></data>
+  <data name="SetNetwork" xml:space="preserve"><value>Сеть</value></data>
+  <data name="SetUpdates" xml:space="preserve"><value>Обновления</value></data>
+  <data name="AboutVersion" xml:space="preserve"><value>Версия</value></data>
+  <data name="AboutFont" xml:space="preserve"><value>Шрифт Onest распространяется по лицензии SIL Open Font License 1.1.</value></data>
+  <data name="ActivationLead" xml:space="preserve"><value>Код выдаётся после заявки для клуба или отдельно для игрока.</value></data>
+  <data name="TrayDiagnostics" xml:space="preserve"><value>Диагностика</value></data>
+  <data name="MetricRoute" xml:space="preserve"><value>Маршрут</value></data>
+  <data name="NowViaVeliq" xml:space="preserve"><value>Сейчас через VELIQ</value></data>
+  <data name="AboutService" xml:space="preserve"><value>Служба</value></data>
 </root>

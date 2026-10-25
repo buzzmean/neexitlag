@@ -19,4 +19,30 @@
    </DrawingGroup>
   </DrawingImage.Drawing>
  </DrawingImage>
+ <!-- Exact wordmark geometry from approved app-ui/assets/img/veliq-wordmark-dark.svg (viewBox -10 -45 438 200). -->
+ <DrawingImage x:Key="VeliqWordmark">
+  <DrawingImage.Drawing>
+   <DrawingGroup>
+    <GeometryDrawing Brush="Transparent" Geometry="M -10,-45 H428 V155 H-10 Z"/>
+    <DrawingGroup ClipGeometry="F0 M -20,-60 H460 V180 H-20 Z M -20,66 H460 V72 H-20 Z">
+     <GeometryDrawing Brush="#FFFFFF" Geometry="M0 0H22L52 70L82 0H104L63 100H41Z"/>
+     <DrawingGroup>
+      <DrawingGroup.Transform><TranslateTransform X="116"/></DrawingGroup.Transform>
+      <GeometryDrawing Brush="#FFFFFF" Geometry="M0 0H66V18H18V41H58V59H18V82H66V100H0Z"/>
+     </DrawingGroup>
+     <DrawingGroup>
+      <DrawingGroup.Transform><TranslateTransform X="198"/></DrawingGroup.Transform>
+      <GeometryDrawing Brush="#FFFFFF" Geometry="M0 0H18V82H62V100H0Z"/>
+     </DrawingGroup>
+     <GeometryDrawing Brush="#FFFFFF" Geometry="M276,0 H294 V100 H276 Z"/>
+     <GeometryDrawing Brush="#FFFFFF" Geometry="F0 M348 0H376A36 36 0 0 1 412 36V64A36 36 0 0 1 376 100H348A36 36 0 0 1 312 64V36A36 36 0 0 1 348 0Z M352 18H372A22 22 0 0 1 394 40V60A22 22 0 0 1 372 82H352A22 22 0 0 1 330 60V40A22 22 0 0 1 352 18Z"/>
+     <DrawingGroup>
+      <DrawingGroup.Transform><TransformGroup><RotateTransform Angle="45"/><TranslateTransform X="362" Y="50"/></TransformGroup></DrawingGroup.Transform>
+      <GeometryDrawing Brush="#FFFFFF" Geometry="M44,-9 H72 V9 H44 Z"/>
+     </DrawingGroup>
+    </DrawingGroup>
+    <GeometryDrawing Brush="#F0502A" Geometry="M312,66 H412 V72 H312 Z"/>
+   </DrawingGroup>
+  </DrawingImage.Drawing>
+ </DrawingImage>
 </ResourceDictionary>
