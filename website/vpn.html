@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Чем VELIQ отличается от VPN — VELIQ</title>
+  <meta name="description" content="VPN отправляет весь трафик через один сервер. VELIQ выбирает путь для каждого соединения: заблокированное открывается, игры получают самый быстрый маршрут, остальное работает как обычно.">
+  <link rel="canonical" href="https://veliq.app/vpn.html">
+  <meta name="theme-color" content="#0A0A0B">
+  <meta name="color-scheme" content="light dark">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="VELIQ">
+  <meta property="og:locale" content="ru_RU">
+  <meta property="og:title" content="Чем VELIQ отличается от VPN — VELIQ">
+  <meta property="og:description" content="VPN отправляет весь трафик через один сервер. VELIQ выбирает путь для каждого соединения: заблокированное открывается, игры получают самый быстрый маршрут, остальное работает как обычно.">
+  <meta property="og:url" content="https://veliq.app/vpn.html">
+  <meta property="og:image" content="https://veliq.app/assets/img/og-vpn.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Не VPN: VELIQ строит свой путь для каждого соединения.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="https://veliq.app/assets/img/og-vpn.png">
+  <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="assets/img/favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="assets/img/app-icon-180.png">
+  <link rel="manifest" href="site.webmanifest">
+  <link rel="preload" href="assets/fonts/Onest-var.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="assets/tokens.css">
+  <link rel="stylesheet" href="assets/components.css">
+  <link rel="stylesheet" href="assets/site.css">
+  <script>document.documentElement.classList.add('js');try{var t=localStorage.getItem('veliq-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+</head>
+<body>
+<script src="assets/icons.js"></script>
+<a class="skip" href="#main">Перейти к содержанию</a>
+<header class="top">
+  <div class="wrap top__in">
+    <a class="logo" href="index.html" aria-label="VELIQ — на главную">
+      <img class="on-light" src="assets/img/veliq-wordmark-light.svg" alt="VELIQ" width="144" height="66">
+      <img class="on-dark" src="assets/img/veliq-wordmark-dark.svg" alt="" width="144" height="66">
+    </a>
+    <nav class="nav" id="nav" aria-label="Основное меню">
+      <a href="vpn.html" aria-current="page">Как работает</a>
+      <a href="index.html#games">Игры</a>
+      <a href="clubs.html">Клубам</a>
+      <a href="pricing.html">Цены</a>
+      <a href="support.html">Помощь</a>
+    </nav>
+    <div class="top__tools">
+      <button class="btn btn--quiet btn--icon btn--sm theme-btn" type="button" data-theme-toggle aria-label="Сменить тему">
+        <svg class="i i-sun-use" aria-hidden="true"><use href="#i-sun"/></svg><svg class="i i-moon-use" aria-hidden="true"><use href="#i-moon"/></svg>
+      </button>
+      <a class="btn btn--sm top__cta" href="download.html">Скачать</a>
+      <button class="btn btn--quiet btn--icon btn--sm menu-btn" type="button" data-menu aria-expanded="false" aria-controls="nav" aria-label="Меню"><svg class="i" aria-hidden="true"><use href="#i-menu"/></svg></button>
+    </div>
+  </div>
+</header>
+<main id="main">
+
+<section class="page-head">
+  <div class="wrap">
+    <div class="crumbs"><a href="index.html">Главная</a> / Отличие от VPN</div>
+    <h1 class="h1" style="max-width:16ch">Чем VELIQ отличается от VPN</h1>
+    <p class="lede">VPN отправляет весь трафик через один сервер. VELIQ выбирает путь для каждого соединения отдельно — поэтому открывается заблокированное, а остальное не замедляется.</p>
+  </div>
+</section>
+
+<section class="sec">
+  <div class="wrap">
+    <div class="flows">
+      <figure class="flows__panel">
+        <figcaption><h2 class="h3">Обычный VPN</h2><span class="faint">один путь для всего</span></figcaption>
+        <div class="flow flow--vpn" data-trace>
+<div class="flow__src">Вы</div><div class="flow__hub">Сервер VPN</div>
+<span class="flow__a" style="grid-row:1"></span><span class="flow__b" style="grid-row:1"></span><span class="flow__dst" style="grid-row:1">YouTube</span>
+<span class="flow__a" style="grid-row:2"></span><span class="flow__b" style="grid-row:2"></span><span class="flow__dst" style="grid-row:2">Онлайн-игра</span>
+<span class="flow__a" style="grid-row:3"></span><span class="flow__b" style="grid-row:3"></span><span class="flow__dst" style="grid-row:3">Обычный сайт</span>
+<span class="flow__a" style="grid-row:4"></span><span class="flow__b" style="grid-row:4"></span><span class="flow__dst" style="grid-row:4">Банк</span>
+</div>
+<p class="flow__cap">Весь трафик идёт через один сервер — и заблокированное, и то, что прекрасно работало без него.</p>
+      </figure>
+      <figure class="flows__panel flows__panel--main">
+        <figcaption><h2 class="h3">VELIQ</h2><span class="faint">свой путь для каждого соединения</span></figcaption>
+        <div class="flow flow--veliq" data-trace>
+<div class="flow__src">Вы</div>
+<span class="flow__a is-sig" style="grid-row:1"></span><span class="flow__node" style="grid-row:1">VELIQ</span><span class="flow__b is-sig" style="grid-row:1"></span><span class="flow__dst" style="grid-row:1">YouTube</span>
+<span class="flow__a is-sig" style="grid-row:2"></span><span class="flow__node" style="grid-row:2">лучший путь</span><span class="flow__b is-sig" style="grid-row:2"></span><span class="flow__dst" style="grid-row:2">Онлайн-игра</span>
+<span class="flow__plain" style="grid-row:3"><em>как обычно</em></span><span class="flow__dst is-plain" style="grid-row:3">Обычный сайт</span>
+<span class="flow__plain" style="grid-row:4"><em>как обычно</em></span><span class="flow__dst is-plain" style="grid-row:4">Банк</span>
+</div>
+<p class="flow__cap">Каждое соединение получает свой путь: заблокированное — через сеть VELIQ, игры — самый быстрый маршрут, остальное — как обычно.</p>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="sec band--sunken">
+  <div class="wrap">
+    <div class="sec__head"><h2 class="h2">По пунктам</h2><p>Как это ощущается в обычный день: в браузере, в игре, когда сервер перестал отвечать.</p></div>
+    <div class="vs-wrap">
+      <table class="vs">
+        <thead><tr><th scope="col"><span class="sr-only">Что сравниваем</span></th><th scope="col">Обычный VPN</th><th scope="col" class="vs__us">VELIQ</th></tr></thead>
+        <tbody>
+<tr><th scope="row">Какой трафик идёт через сервер</th><td data-l="Обычный VPN">Весь</td><td data-l="VELIQ" class="vs__us">Только тот, которому это нужно</td></tr>
+<tr><th scope="row">Сайты и приложения, которые и так работают</th><td data-l="Обычный VPN">Тоже идут через сервер и могут замедлиться</td><td data-l="VELIQ" class="vs__us">Работают как обычно</td></tr>
+<tr><th scope="row">Онлайн-игры</th><td data-l="Обычный VPN">Путь через выбранный сервер, даже если он дольше</td><td data-l="VELIQ" class="vs__us">Самый быстрый путь до игрового сервера</td></tr>
+<tr><th scope="row">Выбор сервера</th><td data-l="Обычный VPN">Обычно вручную</td><td data-l="VELIQ" class="vs__us">Сам, для каждого соединения</td></tr>
+<tr><th scope="row">Если сервер перестал отвечать</th><td data-l="Обычный VPN">Пропадает всё или нужно переключаться</td><td data-l="VELIQ" class="vs__us">Перестраивает маршрут через другой</td></tr>
+<tr><th scope="row">Что нужно сделать</th><td data-l="Обычный VPN">Выбрать сервер, иногда перезапустить приложения</td><td data-l="VELIQ" class="vs__us">Нажать одну кнопку</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="faint" style="font-size:var(--fs-sm);margin:var(--sp-4) 0 0">Сравнение с типичным VPN-приложением. Некоторые VPN умеют исключать отдельные приложения, но это настраивается вручную.</p>
+  </div>
+</section>
+
+<section class="sec">
+  <div class="wrap">
+    <div class="sec__head"><h2 class="h2">Что видит сервер</h2><p>Сервер VELIQ пересылает трафик, но не может его прочитать: соединения с сайтами и приложениями зашифрованы от начала до конца.</p></div>
+    <div class="seen">
+      <div class="seen__path" data-trace aria-label="Путь соединения: ваше устройство, сервер VELIQ, сервис. На всём пути данные зашифрованы.">
+        <span class="seen__end">Ваше устройство</span>
+        <span class="seen__wire"><svg class="i i--sm" aria-hidden="true"><use href="#i-lock"/></svg><em>зашифровано</em></span>
+        <span class="seen__mid">Сервер VELIQ</span>
+        <span class="seen__wire"><svg class="i i--sm" aria-hidden="true"><use href="#i-lock"/></svg><em>зашифровано</em></span>
+        <span class="seen__end">Сервис</span>
+      </div>
+      <div class="seen__cols">
+        <div>
+          <h3 class="h3">Видит</h3>
+          <ul class="seen__list">
+            <li><svg class="i i--sm" aria-hidden="true"><use href="#i-check"/></svg><span><strong>Куда</strong> идёт соединение — адрес сервиса, например youtube.com</span></li>
+            <li><svg class="i i--sm" aria-hidden="true"><use href="#i-check"/></svg><span><strong>Сколько</strong> данных передано</span></li>
+            <li><svg class="i i--sm" aria-hidden="true"><use href="#i-check"/></svg><span><strong>Ваше устройство</strong> — по ключу устройства, чтобы пускать только своих</span></li>
+          </ul>
+        </div>
+        <div>
+          <h3 class="h3">Не видит</h3>
+          <ul class="seen__list seen__list--no">
+            <li><svg class="i i--sm" aria-hidden="true"><use href="#i-close"/></svg><span>Что вы смотрите и открываете на странице</span></li>
+            <li><svg class="i i--sm" aria-hidden="true"><use href="#i-close"/></svg><span>Пароли, переписку и сообщения</span></li>
+            <li><svg class="i i--sm" aria-hidden="true"><use href="#i-close"/></svg><span>Файлы, платёжные данные и содержимое игр</span></li>
+          </ul>
+        </div>
+      </div>
+      <p class="seen__note">VELIQ не расшифровывает и не подменяет HTTPS. Почти все сайты и приложения сейчас работают по HTTPS; это и даёт защиту на всём пути.</p>
+    </div>
+  </div>
+</section>
+
+<section class="sec band--ink">
+  <div class="wrap club-band">
+    <div>
+      <h2 class="h2">Нажал — работает.</h2>
+      <p class="lede" style="margin-top:20px">Никаких серверов на выбор и настроек. VELIQ строит маршруты сам.</p>
+      <div class="hero__actions" style="margin-top:32px"><a class="btn btn--lg" href="download.html"><svg class="i" aria-hidden="true"><use href="#i-download"/></svg>Скачать</a><a class="btn btn--lg btn--ghost" href="support.html">Вопросы и ответы</a></div>
+    </div>
+  </div>
+</section>
+
+</main>
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot__grid">
+      <div>
+        <a class="logo" href="index.html" aria-label="VELIQ — на главную">
+          <img class="on-light" src="assets/img/veliq-wordmark-light.svg" alt="VELIQ" width="144" height="66">
+          <img class="on-dark" src="assets/img/veliq-wordmark-dark.svg" alt="" width="144" height="66">
+        </a>
+        <p class="muted" style="max-width:34ch;margin:16px 0 0">Оптимальный маршрут для каждого соединения.</p>
+      </div>
+      <div>
+        <h2>Продукт</h2>
+        <ul><li><a href="download.html">Скачать</a></li><li><a href="index.html#how">Как работает</a></li><li><a href="vpn.html">Отличие от VPN</a></li><li><a href="index.html#privacy">Что видит сервер</a></li><li><a href="index.html#games">Для игр</a></li><li><a href="pricing.html">Цены</a></li><li><a href="roadmap.html">План развития</a></li></ul>
+      </div>
+      <div>
+        <h2>Клубам</h2>
+        <ul><li><a href="clubs.html">VELIQ для клубов</a></li><li><a href="clubs.html#calc">Расчёт выгоды</a></li><li><a href="clubs.html#setup">Установка в клубе</a></li></ul>
+      </div>
+      <div>
+        <h2>Помощь</h2>
+        <ul><li><a href="support.html">Вопросы и ответы</a></li><li><a href="support.html#errors">Ошибки и решения</a></li><li><a href="mailto:support@veliq.app">support@veliq.app</a></li></ul>
+      </div>
+    </div>
+    <div class="foot__bottom">
+      <span>© 2026 VELIQ</span>
+      <span><a href="privacy.html">Конфиденциальность</a>&nbsp;&nbsp;&nbsp;<a href="terms.html">Условия</a></span>
+    </div>
+  </div>
+</footer>
+<script src="assets/charts.js"></script>
+<script src="assets/site.js"></script>
+</body>
+</html>
