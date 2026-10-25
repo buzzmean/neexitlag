@@ -37,7 +37,7 @@ if($LASTEXITCODE -or !$out){throw 'RELEASE_SIGN_FAILED'}
 [IO.File]::WriteAllText($signed,($out -join "`n"),[Text.UTF8Encoding]::new($false))
 
 # GitHub release with the git credential already stored for this repository.
-$cred=@('protocol=https','host=github.com','') | & git credential fill
+$cred=& cmd.exe /d /c "(echo protocol=https& echo host=github.com& echo.) | git credential fill"
 $token=(($cred | Where-Object {$_ -like 'password=*'}) -replace '^password=','')
 if(!$token){throw 'GITHUB_CREDENTIAL_REQUIRED; run git credential-manager github login'}
 $headers=@{Authorization="Bearer $token";Accept='application/vnd.github+json';'User-Agent'='VELIQ-release'}
