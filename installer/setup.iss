@@ -26,6 +26,11 @@ OutputBaseFilename=VELIQ-Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+; Brand images: dark side panel like app-ui/installer.html; regenerate with installer/make-wizard-images.py.
+DisableWelcomePage=no
+WizardImageFile=assets\wizard-100.bmp,assets\wizard-125.bmp,assets\wizard-150.bmp,assets\wizard-175.bmp,assets\wizard-200.bmp,assets\wizard-225.bmp,assets\wizard-250.bmp
+WizardSmallImageFile=assets\wizard-small-100.bmp,assets\wizard-small-125.bmp,assets\wizard-small-150.bmp,assets\wizard-small-175.bmp,assets\wizard-small-200.bmp,assets\wizard-small-225.bmp,assets\wizard-small-250.bmp
+WizardImageStretch=no
 RestartIfNeededByRun=no
 ; Interactive installs close a running VELIQ.exe; the service-driven update passes
 ; /NOCLOSEAPPLICATIONS so a locked GUI is replaced at the next restart instead.
@@ -35,6 +40,12 @@ RestartApplications=no
 UninstallDisplayName=VELIQ
 [Languages]
 Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
+[Messages]
+WelcomeLabel1=Установка VELIQ
+WelcomeLabel2=VELIQ строит оптимальный маршрут для каждого соединения: заблокированное открывается, игры получают самый быстрый путь.%n%nWindows один раз попросит права администратора — для службы, которая строит маршруты.
+FinishedHeadingLabel=Готово
+FinishedLabelNoIcons=VELIQ установлен. Откройте программу, введите код активации и нажмите «Оптимизировать».
+FinishedLabel=VELIQ установлен. Откройте программу, введите код активации и нажмите «Оптимизировать».
 [InstallDelete]
 ; Pre-rebrand installs used "VELIQ Setup"; its payload is superseded by {app}.
 Type: filesandordirs; Name: "{autopf}\VELIQ Setup"
