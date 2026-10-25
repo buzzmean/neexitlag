@@ -236,6 +236,7 @@ func (r *youtubeRuntime) confirmed(k youtubeKey, stage, strategy string, now tim
 	}
 	if stage == "LOCAL" {
 		r.score(k, strategy, true, now)
+		r.renewPeerProofLocked(k, strategy, now)
 	}
 	streak := uint32(0)
 	if old := r.cache[k]; old.Confirmed && old.Stage == stage && old.Strategy == strategy && now.Before(old.Until) {

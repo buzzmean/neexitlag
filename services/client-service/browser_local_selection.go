@@ -36,6 +36,7 @@ type youtubeSelectionSnapshot struct {
 	StrongPromotions, PostPromotionFailures, RemoteSmallEOFInconclusive uint64
 	BurstPromotions                                                     uint64
 	PeerProvisional, PeerProvisionalFailures, PeerRevocations           uint64
+	PeerRenewals                                                        uint64
 	PeerProofs                                                          int
 	ActiveDomain                                                       string `json:"active_domain,omitempty"`
 	ActiveAgeMS                                                         int64  `json:"active_age_ms"`

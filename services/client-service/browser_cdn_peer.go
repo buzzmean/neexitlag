@@ -26,10 +26,26 @@ func (r *youtubeRuntime) notePeerProofLocked(k youtubeKey, strategy string, now 
 			delete(r.peerProofs, q)
 		}
 	}
-	if len(r.peerProofs) >= 64 {
+	q := youtubeQualification{k.Network, k.Profile, strategy, k.HintOnly}
+	if _, exists := r.peerProofs[q]; !exists && len(r.peerProofs) >= 64 {
 		return
 	}
-	r.peerProofs[youtubeQualification{k.Network, k.Profile, strategy, k.HintOnly}] = now.Add(youtubeLearnTTL)
+	r.peerProofs[q] = now.Add(youtubeLearnTTL)
+}
+
+// Caller holds mu. Each confirmed (>64KiB, post-hello write, transform) real
+// googlevideo LOCAL flow with a live peer strategy keeps that proof alive, so a
+// long session does not fall back to RELAY 10 minutes after the first promotion.
+// An expired proof is never revived here; it needs a new promotion.
+func (r *youtubeRuntime) renewPeerProofLocked(k youtubeKey, strategy string, now time.Time) {
+	if !youtubeCDN(k) || k.Network == "" {
+		return
+	}
+	q := youtubeQualification{k.Network, k.Profile, strategy, k.HintOnly}
+	if until, ok := r.peerProofs[q]; ok && now.Before(until) {
+		r.peerProofs[q] = now.Add(youtubeLearnTTL)
+		r.selection.PeerRenewals++
+	}
 }
 
 // Caller holds mu. Returns a strategy only for a CDN subgroup without its own

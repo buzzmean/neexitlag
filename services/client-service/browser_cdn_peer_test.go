@@ -60,6 +60,31 @@ func TestCDNPeerProofIgnoresBackgroundAndNonCDNFailures(t *testing.T) {
 	}
 }
 
+func TestCDNPeerProofRenewedByConfirmedLocalFlow(t *testing.T) {
+	r := newYoutubeRuntime()
+	now := time.Now()
+	id := r.order[0]
+	a := youtubeKey{Network: "net", Profile: "chrome", Domain: "googlevideo:sn-a", Port: 443}
+	b := youtubeKey{Network: "net", Profile: "chrome", Domain: "googlevideo:sn-b", Port: 443}
+	c := youtubeKey{Network: "net", Profile: "chrome", Domain: "googlevideo:sn-c", Port: 443}
+	r.mu.Lock()
+	r.notePeerProofLocked(a, id, now)
+	r.mu.Unlock()
+	later := now.Add(youtubeLearnTTL - time.Minute)
+	r.confirmed(b, "LOCAL", id, later)
+	if stage, _ := r.chooseEndpoint(c, cdnEndpoint{}, now.Add(youtubeLearnTTL+time.Minute)); stage != "LOCAL" {
+		t.Fatal("confirmed LOCAL flow must keep the peer proof alive")
+	}
+	if r.selection.PeerRenewals != 1 {
+		t.Fatalf("renewals %d", r.selection.PeerRenewals)
+	}
+	// An expired proof is not revived by a late confirmation.
+	r.confirmed(b, "LOCAL", id, later.Add(3*youtubeLearnTTL))
+	if stage, _ := r.chooseEndpoint(c, cdnEndpoint{}, later.Add(3*youtubeLearnTTL+time.Second)); stage != "RELAY" {
+		t.Fatal("expired proof revived")
+	}
+}
+
 func TestCDNPeerProofExpires(t *testing.T) {
 	r := newYoutubeRuntime()
 	now := time.Now()
