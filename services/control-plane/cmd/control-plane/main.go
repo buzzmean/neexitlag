@@ -62,6 +62,13 @@ func main() {
 	localLearningFile := flag.String("local-learning-file", "", "optional persistent advisory network learning; no hardware identifiers")
 	localCatalogFile := flag.String("local-catalog-file", "", "optional writable reviewed catalog data file; no executable strategies")
 	publish := flag.Bool("publish-config-on-start", false, "publish a complete signed configuration after additive migrations; requires upgraded config consumers")
+	accountOrigin := flag.String("account-origin", "", "web cabinet origin, e.g. https://veliq.app; empty keeps the account API off")
+	plansFile := flag.String("plans-file", "", "tariff JSON file (see deploy/vps/plans.example.json)")
+	smtpAddr := flag.String("smtp-addr", "", "SMTP server host:port for login codes (465 = implicit TLS, otherwise STARTTLS)")
+	smtpFrom := flag.String("smtp-from", "", "sender address for login codes")
+	smtpUser := flag.String("smtp-user", "", "SMTP login (defaults to -smtp-from)")
+	smtpPasswordFile := flag.String("smtp-password-file", "", "SMTP password file")
+	enforce := flag.Bool("enforce-subscription", false, "stop relay access for devices whose subscription or code period ended (review GET /api/v1/admin/subscriptions/cutoff first)")
 	flag.Parse()
 	if *version {
 		if err := releaseinfo.Write(os.Stdout, "control-plane", nil, security.MaxConfigDocument, 0); err != nil {
@@ -155,7 +162,29 @@ func main() {
 			fail(fmt.Errorf("invalid enrollment measurement credential"))
 		}
 	}
-	api, e := controlplane.New(store, controlplane.Settings{LocalCatalogFile: *localCatalogFile, LocalLearningFile: *localLearningFile, RelayTrafficFile: *relayTrafficFile, EnrollmentProbeToken: enrollProbeToken, AdminToken: adminToken, KeyID: *kid, SigningKey: key, CA: cert, CAKey: cak, ServerCertificate: serverLeaf})
+	var plans []controlplane.Plan
+	if *plansFile != "" {
+		if plans, e = controlplane.LoadPlans(*plansFile); e != nil {
+			fail(fmt.Errorf("plans file: %w", e))
+		}
+	}
+	var mailer controlplane.Mailer
+	if *smtpAddr != "" {
+		password := ""
+		if *smtpPasswordFile != "" {
+			raw, err := os.ReadFile(*smtpPasswordFile)
+			if err != nil {
+				fail(fmt.Errorf("SMTP password unavailable"))
+			}
+			password = strings.TrimSpace(string(raw))
+		}
+		mailer = controlplane.SMTPMailer{Addr: *smtpAddr, From: *smtpFrom, Username: *smtpUser, Password: password}
+	}
+	if *accountOrigin != "" && (!strings.HasPrefix(*accountOrigin, "https://") || strings.Count(*accountOrigin, "/") != 2) {
+		fail(fmt.Errorf("account origin must look like https://host"))
+	}
+	api, e := controlplane.New(store, controlplane.Settings{LocalCatalogFile: *localCatalogFile, LocalLearningFile: *localLearningFile, RelayTrafficFile: *relayTrafficFile, EnrollmentProbeToken: enrollProbeToken, AdminToken: adminToken, KeyID: *kid, SigningKey: key, CA: cert, CAKey: cak, ServerCertificate: serverLeaf,
+		AccountOrigin: *accountOrigin, Mailer: mailer, Plans: plans, EnforceSubscription: *enforce})
 	if e != nil {
 		fail(e)
 	}
