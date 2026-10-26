@@ -149,6 +149,7 @@ internal static class Program
     static void Dropdowns()
     {
         var main = Window(new() { MinimizeToTray = false }); main.Show(); Pump();
+        ((DesktopViewModel)main.DataContext).ShowTechnical = true; Pump(); // fallback/server choices live under «Технические детали»
         var style = (Style)Application.Current.FindResource(typeof(ComboBox));
         foreach (string name in new[] { "Mode", "RelayChoice", "ProfileFallback", "AppPreset", "LocalMechanism", "Fallback", "Channel" })
         {
