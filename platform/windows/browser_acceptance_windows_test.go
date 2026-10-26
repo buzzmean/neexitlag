@@ -230,6 +230,8 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	pre := startBrowserEvidencePoll(ctx, c)
+	var post *browserEvidencePoll
 	recoverySettings := result.(map[string]any)["recovery_settings"].(browserproxy.RecoverySettings)
 	recoverySettings.Executable = chrome
 	if err = json.NewEncoder(stdin).Encode(recoverySettings); err != nil {
@@ -449,30 +451,9 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 			}
 		}
 	}
-	earlier := []browserproxy.Record{}
-	sample := func() error {
-		view, e := c.Handle(ctx, "browser.status", nil)
-		if e != nil {
-			return e
-		}
-		// Exercise the public IPC JSON contract, not the controller's private Go
-		// wrapper type (status now also contains bounded cache/usage diagnostics).
-		raw, err := json.Marshal(view)
-		if err != nil {
-			return err
-		}
-		var snapshot browserproxy.Snapshot
-		if err := json.Unmarshal(raw, &snapshot); err != nil {
-			return err
-		}
-		if snapshot.Truncated || snapshot.Lost != 0 {
-			return errors.New("incomplete browser evidence before restart")
-		}
-		earlier = append(earlier, snapshot.Records...)
-		return nil
-	}
+	var earlier []browserproxy.Record
 	out, err := f.RunChrome(ctx, chrome, args, func() error {
-		if e := sample(); e != nil {
+		if e := pre.check(); e != nil {
 			return e
 		}
 		// The REAL Chrome is already serving HTTP/2 here. Arm native new-flow
@@ -500,10 +481,10 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		if _, err = c.Handle(ctx, "browser.native.enable", enable); err != nil {
 			return err
 		}
-		for _, id := range before {
-			if !wp.IsCurrent(id) {
-				return errors.New("Chrome PID/creation changed during native enable")
-			}
+		// Renderer and utility processes come and go on their own; only the
+		// browser main process proves Chrome was not restarted.
+		if !wp.IsCurrent(nativeMain) {
+			return errors.New("Chrome PID/creation changed during native enable")
 		}
 		t.Log("NATIVE_ENABLE_RUNNING_CHROME: PID/creation unchanged; owned PAC retained; native worker independently covered by TCP burst")
 
@@ -514,7 +495,8 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		}
 		return nil
 	}, func() error {
-		if e := sample(); e != nil {
+		var e error
+		if earlier, e = pre.finish(); e != nil {
 			return e
 		}
 		// PAC stays unchanged; recovery listener is independent of controller.
@@ -546,6 +528,7 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 		if err = c.RestoreBrowserTransport(); err != nil {
 			return err
 		}
+		post = startBrowserEvidencePoll(ctx, c)
 		fresh, e := c.Handle(ctx, "browser.prepare", raw)
 		if e != nil {
 			return e
@@ -598,11 +581,12 @@ func TestChromeSitesNativeAcceptance(t *testing.T) {
 	if f.ProtectedDirectAttempts.Load() != 0 {
 		t.Fatal("protected TLS attempted DIRECT during activation/outage/restart", f.ProtectedDirectAttempts.Load())
 	}
-	if snap.Lost != 0 || snap.Truncated {
-		t.Fatal("incomplete browser proof", snap.Lost, snap.Truncated)
+	later, err := post.finish()
+	if err != nil {
+		t.Fatal("incomplete browser proof", err)
 	}
 	found := map[string]bool{}
-	for _, r := range append(earlier, snap.Records...) {
+	for _, r := range append(earlier, later...) {
 		switch r.Domain {
 		case "web.telegram.org":
 			if r.Plan.Policy.Action != flowpolicy.RelayRequired || r.Plan.Policy.Fallback != flowpolicy.Required || r.Plan.Probe != "DNS_RELAY_HTTP_VERIFIED" || r.Plan.DNSRecovery == nil || !r.Plan.DNSRecovery.Verified || r.Plan.Destination != f.Destination() || r.Sent == 0 || r.Received == 0 {
@@ -735,4 +719,110 @@ func restrictedRecoveryToken(t *testing.T) windows.Token {
 		t.Fatal("restricted owner token", callErr)
 	}
 	return restricted
+}
+
+// browser.status stays below 64 KiB and drops the oldest records first, so
+// unrelated Chrome background requests can push controlled evidence out of any
+// single snapshot. The poll reads the public IPC continuously and requires an
+// unbroken record ID sequence instead of one untruncated snapshot.
+type browserEvidencePoll struct {
+	ctx     context.Context
+	c       *cs.Controller
+	mu      sync.Mutex
+	records map[uint64]browserproxy.Record
+	newest  uint64
+	err     error
+	stop    chan struct{}
+	done    chan struct{}
+}
+
+func startBrowserEvidencePoll(ctx context.Context, c *cs.Controller) *browserEvidencePoll {
+	p := &browserEvidencePoll{ctx: ctx, c: c, records: map[uint64]browserproxy.Record{}, stop: make(chan struct{}), done: make(chan struct{})}
+	go func() {
+		defer close(p.done)
+		for p.collect() == nil {
+			select {
+			case <-p.stop:
+				return
+			case <-ctx.Done():
+				return
+			case <-time.After(100 * time.Millisecond):
+			}
+		}
+	}()
+	return p
+}
+
+func (p *browserEvidencePoll) collect() error {
+	view, e := p.c.Handle(p.ctx, "browser.status", nil)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.err != nil {
+		return p.err
+	}
+	if e == nil {
+		e = p.mergeLocked(view)
+	}
+	p.err = e
+	return e
+}
+
+func (p *browserEvidencePoll) mergeLocked(view any) error {
+	// Exercise the public IPC JSON contract, not the controller's private Go
+	// wrapper type (status now also contains bounded cache/usage diagnostics).
+	raw, err := json.Marshal(view)
+	if err != nil {
+		return err
+	}
+	var snapshot browserproxy.Snapshot
+	if err = json.Unmarshal(raw, &snapshot); err != nil {
+		return err
+	}
+	if snapshot.Lost != 0 {
+		return fmt.Errorf("browser evidence evicted: lost=%d", snapshot.Lost)
+	}
+	oldest := uint64(0)
+	for _, r := range snapshot.Records {
+		if oldest == 0 || r.ID < oldest {
+			oldest = r.ID
+		}
+	}
+	if oldest > p.newest+1 {
+		return fmt.Errorf("browser evidence gap: records %d..%d never observed", p.newest+1, oldest-1)
+	}
+	for _, r := range snapshot.Records {
+		p.records[r.ID] = r
+		if r.ID > p.newest {
+			p.newest = r.ID
+		}
+	}
+	return nil
+}
+
+// check reports the first gap or loss without stopping the poll.
+func (p *browserEvidencePoll) check() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.err
+}
+
+// finish stops polling, merges one final snapshot and returns the latest state
+// of every record observed.
+func (p *browserEvidencePoll) finish() ([]browserproxy.Record, error) {
+	select {
+	case <-p.stop:
+	default:
+		close(p.stop)
+	}
+	<-p.done
+	if e := p.collect(); e != nil {
+		return nil, e
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]browserproxy.Record, 0, len(p.records))
+	for _, r := range p.records {
+		out = append(out, r)
+	}
+	return out, nil
 }

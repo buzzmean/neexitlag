@@ -41,7 +41,7 @@ func TestWindowsNativeBrowserDriverHotAttach(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		child := filepath.Join(directory, "neexitlag-service.exe")
+		child := filepath.Join(directory, "veliq-service.exe")
 		if err = os.WriteFile(child, raw, 0700); err != nil {
 			t.Fatal(err)
 		}

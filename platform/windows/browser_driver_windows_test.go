@@ -58,7 +58,7 @@ func TestNativeBrowserDriverHandshake(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		child := filepath.Join(stage, "neexitlag-service.exe")
+		child := filepath.Join(stage, "veliq-service.exe")
 		if err = os.WriteFile(child, binary, 0700); err != nil {
 			t.Fatal(err)
 		}

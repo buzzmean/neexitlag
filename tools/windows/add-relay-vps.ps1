@@ -61,9 +61,10 @@ if(!$Inspect -and !$Rollback){
  # Closing only the same owner's GUI through its existing activation pipe frees
  # legacy recovery helper handles. Never terminate Chrome/Edge/game processes.
  $needsGuiClose=$false
- $installedService=Join-Path (Split-Path -Parent $Manifest) 'neexitlag-service.exe'
- foreach($helper in @(Get-CimInstance Win32_Process -Filter "Name='neexitlag-service.exe'")){
-  if([string]$helper.ExecutablePath -ieq $installedService -and [string]$helper.CommandLine -like '*--chrome-recovery*'){
+ # Before migrate-legacy-install.ps1 the installed binary still has its old name.
+ $installedService=@('veliq-service.exe','neexitlag-service.exe'|ForEach-Object{Join-Path (Split-Path -Parent $Manifest) $_})
+ foreach($helper in @(Get-CimInstance Win32_Process -Filter "Name='veliq-service.exe' OR Name='neexitlag-service.exe'")){
+  if($installedService -icontains [string]$helper.ExecutablePath -and [string]$helper.CommandLine -like '*--chrome-recovery*'){
    $principal=Invoke-CimMethod -InputObject $helper -MethodName GetOwnerSid
    if($principal.ReturnValue -eq 0 -and $principal.Sid -eq $sid){$needsGuiClose=$true}
   }
