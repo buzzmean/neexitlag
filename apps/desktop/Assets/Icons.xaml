@@ -24,7 +24,7 @@
  <Geometry x:Key="IconLock">M 5 11 h 14 v 10 H 5 z M 8 11 V 8 a 4 4 0 0 1 8 0 v 3</Geometry>
  <Geometry x:Key="IconExternal">M 14 4 h 6 v 6 M 20 4 l -9 9 M 18 14 v 6 H 4 V 6 h 6</Geometry>
  <Geometry x:Key="IconCopy">M 8 8 h 12 v 12 H 8 z M 16 8 V 4 H 4 v 12 h 4</Geometry>
- <Geometry x:Key="IconSearch">M 4 10.5 a 6.5 6.5 0 1 0 13 0 a 6.5 6.5 0 1 0 -13 0 z m 15.5 15.5 5 5</Geometry>
+ <Geometry x:Key="IconSearch">M 4 10.5 a 6.5 6.5 0 1 0 13 0 a 6.5 6.5 0 1 0 -13 0 z M 15.1 15.1 L 20 20</Geometry>
  <Geometry x:Key="IconPlus">M 12 5 v 14 M 5 12 h 14</Geometry>
  <Geometry x:Key="IconShield">M 12 3 4 6 v 6 c 0 4.6 3.4 8 8 9 4.6 -1 8 -4.4 8 -9 V 6 z</Geometry>
  <Geometry x:Key="IconLogs">M 5 3 h 10 l 4 4 v 14 H 5 z M 8.5 11 h 7 M 8.5 14.5 h 7 M 8.5 18 h 4</Geometry>

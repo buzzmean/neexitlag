@@ -28,7 +28,11 @@ public sealed partial class GameCatalogViewModel
     GameCard? selected;
     public GameCard? Selected {get=>selected;private set{if(Set(ref selected,value))Changed(nameof(HasSelection));}}
     public bool HasSelection=>Selected is not null;
-    public void Select(GameCard g){if(Selected is {} old){old.IsSelected=false;old.RouteKeyChanged=null;}g.IsSelected=true;g.RouteKeyChanged=MarkRoute;Selected=g;MarkRoute();}
+    (string Mode,string? RelayId) savedRoute;
+    // A second click on the open game closes the strip.
+    public void Select(GameCard g){if(Selected==g){Close();return;}Close();g.IsSelected=true;g.RouteKeyChanged=MarkRoute;savedRoute=(g.Mode,g.RelayId);Selected=g;MarkRoute();}
+    // Closing without «Применить» drops the unsaved choice so the badge keeps showing the saved route.
+    public void Close(bool keepChoice=false){if(Selected is not {} g)return;if(!keepChoice){g.Mode=savedRoute.Mode;g.RelayId=savedRoute.RelayId;}g.IsSelected=false;g.RouteKeyChanged=null;Selected=null;}
     public void ChooseRoute(RouteOption o){if(Selected is not {} g)return;g.RelayId=o.RelayId;g.Mode=o.Mode;MarkRoute();}
     void MarkRoute(){foreach(var o in Routes)o.IsSelected=Selected?.RouteKey==o.Key;}
     // Only relays the service reports right now; nothing invented.
