@@ -251,8 +251,11 @@ jobs:
       - name: Publish the failing step output as annotations
         env: {GH_TOKEN: '${{ github.token }}', REPO: '${{ github.repository }}', RUN: '${{ github.run_id }}'}
         run: |
+          gh api "repos/$REPO/actions/runs/$RUN/jobs" --jq '.jobs[]|[.id,.name,.conclusion]|@tsv'
           for id in $(gh api "repos/$REPO/actions/runs/$RUN/jobs" --jq '.jobs[]|select(.conclusion=="failure")|.id'); do
-            gh api "repos/$REPO/actions/jobs/$id/logs" > "log-$id.txt" || continue
+            curl -sSL -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/$REPO/actions/jobs/$id/logs" -o "log-$id.txt"
+            wc -c "log-$id.txt"; grep -c '##\[error\]' "log-$id.txt" || true
+            echo "::error title=relay $id::size $(wc -c < log-$id.txt)"
             python3 - "log-$id.txt" <<'PY'
           import re,sys
           lines=[re.sub(r'^\S+Z ','',l) for l in open(sys.argv[1],encoding='utf-8',errors='replace').read().splitlines()]
