@@ -60,7 +60,7 @@ RELEASE = {
 }
 
 NAV = [
-    ("vpn.html", "Как работает", "how"),
+    ("how.html", "Как работает", "how"),
     ("index.html#games", "Игры", "games"),
     ("clubs.html", "Клубам", "clubs"),
     ("pricing.html", "Цены", "pricing"),
@@ -155,7 +155,7 @@ def footer():
       </div>
       <div>
         <h2>Продукт</h2>
-        <ul><li><a href="download.html">Скачать</a></li><li><a href="index.html#how">Как работает</a></li><li><a href="vpn.html">Отличие от VPN</a></li><li><a href="index.html#privacy">Что видит сервер</a></li><li><a href="index.html#games">Для игр</a></li><li><a href="pricing.html">Цены</a></li><li><a href="roadmap.html">План развития</a></li></ul>
+        <ul><li><a href="download.html">Скачать</a></li><li><a href="how.html">Как работает</a></li><li><a href="index.html#privacy">Что видит сервер</a></li><li><a href="index.html#games">Для игр</a></li><li><a href="pricing.html">Цены</a></li><li><a href="roadmap.html">План развития</a></li></ul>
       </div>
       <div>
         <h2>Клубам</h2>
@@ -194,16 +194,16 @@ def faq(items):
 # ---------------------------------------------------------------- тексты FAQ (общие)
 
 def flow(kind):
-    """Схема: устройство → (сервер) → назначения. kind = 'vpn' | 'veliq'. HTML/CSS, без картинок."""
+    """Схема: устройство → (сервер) → назначения. kind = 'plain' (без VELIQ) | 'veliq'. HTML/CSS, без картинок."""
     rows = [("Онлайн-игра", "нужен низкий пинг"), ("Голосовой чат", "нужна стабильность"), ("Обычный сайт", "и так работает"), ("Банк", "и так работает")]
     out = []
-    if kind == "vpn":
+    if kind == "plain":
         out.append('<div class="flow flow--vpn" data-trace>')
-        out.append('<div class="flow__src">Вы</div><div class="flow__hub">Сервер VPN</div>')
+        out.append('<div class="flow__src">Вы</div><div class="flow__hub">Провайдер</div>')
         for i, (name, _) in enumerate(rows):
             out.append(f'<span class="flow__a" style="grid-row:{i+1}"></span><span class="flow__b" style="grid-row:{i+1}"></span><span class="flow__dst" style="grid-row:{i+1}">{name}</span>')
         out.append('</div>')
-        out.append('<p class="flow__cap">Весь трафик идёт через один сервер — даже то, что прекрасно работало без него.</p>')
+        out.append('<p class="flow__cap">Все соединения идут одним путём, который выбрал провайдер, — даже если до игрового сервера есть путь короче.</p>')
     else:
         mids = [("relay", "быстрый путь"), ("relay", "стабильный путь"), ("plain", "как обычно"), ("plain", "как обычно")]
         out.append('<div class="flow flow--veliq" data-trace>')
@@ -252,7 +252,7 @@ def privacy_block(head_tag="h2"):
 
 
 FAQ_MAIN = [
-    ("Это VPN?", "<p>Нет. VPN отправляет весь трафик через один сервер, и всё становится медленнее. VELIQ выбирает путь для каждого соединения отдельно: через свою сеть — когда так быстрее или стабильнее, обычным путём — когда так лучше. <a href=\"vpn.html\">Подробнее о разнице</a>.</p>"),
+    ("Как VELIQ выбирает путь?", "<p>Программа замеряет задержку и потери до сервера игры или сервиса и выбирает лучший путь: обычный — через провайдера, или через собственные серверы VELIQ, если так быстрее или стабильнее. Всё, что и так работает хорошо, не трогает. <a href=\"how.html\">Как работает VELIQ</a>.</p>"),
     ("Нужно ли что-то перезапускать?", "<p>Нет. Маршруты работают сразу после нажатия «Оптимизировать» — ничего закрывать и перезапускать не нужно.</p>"),
     ("Как VELIQ влияет на пинг в играх?", "<p>VELIQ сравнивает пути до игрового сервера и выбирает самый быстрый. Если путь через сеть VELIQ не быстрее обычного, маршрут не меняется. Замеры видно в программе.</p>"),
     ("Вы видите, что я открываю?", "<p>Нет. Мы не расшифровываем и не подменяем HTTPS. Сервер видит адрес назначения и объём данных — этого достаточно, чтобы переслать трафик. <a href=\"index.html#privacy\">Что видит сервер</a>. Подробности — в <a href=\"privacy.html\">политике конфиденциальности</a>.</p>"),
@@ -344,7 +344,7 @@ index_body = f"""
         <p class="split__note">VELIQ замеряет задержку и выбирает путь, на котором она меньше.</p>
       </div>
     </div>
-    <a class="more" href="vpn.html">Чем это отличается от VPN {icon('chevron-right','i i--sm')}</a>
+    <a class="more" href="how.html">Как работает VELIQ {icon('chevron-right','i i--sm')}</a>
   </div>
 </section>
 
@@ -432,22 +432,21 @@ page("index.html", "VELIQ — нажал, и работает",
      "VELIQ сам строит оптимальный маршрут: игры получают самый быстрый путь, голосовые чаты и стримы — стабильную связь. Для Windows 10 и 11.",
      "", index_body, [LD_APP, LD_FAQ])
 
-# ---------------------------------------------------------------- отличие от VPN
-VPN_ROWS = [
-    ("Какой трафик идёт через сервер", "Весь", "Только тот, которому это нужно"),
-    ("Сайты и приложения, которые и так работают", "Тоже идут через сервер и могут замедлиться", "Работают как обычно"),
-    ("Онлайн-игры", "Путь через выбранный сервер, даже если он дольше", "Самый быстрый путь до игрового сервера"),
-    ("Выбор сервера", "Обычно вручную", "Сам, для каждого соединения"),
-    ("Если сервер перестал отвечать", "Пропадает всё или нужно переключаться", "Перестраивает маршрут через другой"),
-    ("Что нужно сделать", "Выбрать сервер, иногда перезапустить приложения", "Нажать одну кнопку"),
+# ---------------------------------------------------------------- как работает
+HOW_ROWS = [
+    ("Онлайн-игры", "Путь выбирает провайдер, даже если он длиннее", "Самый быстрый путь до игрового сервера"),
+    ("Голосовые чаты и стримы", "Обрывы и подвисания на загруженных участках сети", "Стабильный путь, в том числе через собственные серверы"),
+    ("Сайты, которые и так работают", "Как обычно", "Как обычно — VELIQ их не трогает"),
+    ("Если путь стал хуже", "Ничего не меняется", "Маршрут перестраивается сам"),
+    ("Что нужно сделать", "—", "Нажать одну кнопку"),
 ]
-vpn_table = "\n".join(f'<tr><th scope="row">{a}</th><td data-l="Обычный VPN">{b}</td><td data-l="VELIQ" class="vs__us">{c}</td></tr>' for a, b, c in VPN_ROWS)
-vpn_body = f"""
+how_table = "\n".join(f'<tr><th scope="row">{a}</th><td data-l="Без VELIQ">{b}</td><td data-l="С VELIQ" class="vs__us">{c}</td></tr>' for a, b, c in HOW_ROWS)
+how_body = f"""
 <section class="page-head">
   <div class="wrap">
-    <div class="crumbs"><a href="index.html">Главная</a> / Отличие от VPN</div>
-    <h1 class="h1" style="max-width:16ch">Чем VELIQ отличается от VPN</h1>
-    <p class="lede">VPN отправляет весь трафик через один сервер. VELIQ выбирает путь для каждого соединения отдельно — поэтому игры и голосовые чаты получают лучший путь, а остальное не замедляется.</p>
+    <div class="crumbs"><a href="index.html">Главная</a> / Как работает</div>
+    <h1 class="h1" style="max-width:16ch">Как работает VELIQ</h1>
+    <p class="lede">Обычно все соединения компьютера идут одним путём, который выбрал провайдер. VELIQ замеряет пути и для каждого соединения выбирает лучший — поэтому игры получают быстрый путь, голосовые чаты и стримы — стабильный, а остальное не замедляется.</p>
   </div>
 </section>
 
@@ -455,11 +454,11 @@ vpn_body = f"""
   <div class="wrap">
     <div class="flows">
       <figure class="flows__panel">
-        <figcaption><h2 class="h3">Обычный VPN</h2><span class="faint">один путь для всего</span></figcaption>
-        {flow('vpn')}
+        <figcaption><h2 class="h3">Без VELIQ</h2><span class="faint">один путь для всего</span></figcaption>
+        {flow('plain')}
       </figure>
       <figure class="flows__panel flows__panel--main">
-        <figcaption><h2 class="h3">VELIQ</h2><span class="faint">свой путь для каждого соединения</span></figcaption>
+        <figcaption><h2 class="h3">С VELIQ</h2><span class="faint">свой путь для каждого соединения</span></figcaption>
         {flow('veliq')}
       </figure>
     </div>
@@ -468,16 +467,15 @@ vpn_body = f"""
 
 <section class="sec band--sunken">
   <div class="wrap">
-    <div class="sec__head"><h2 class="h2">По пунктам</h2><p>Как это ощущается в обычный день: в браузере, в игре, когда сервер перестал отвечать.</p></div>
+    <div class="sec__head"><h2 class="h2">По пунктам</h2><p>Как это ощущается в обычный день: в игре, в голосовом чате, когда путь стал хуже.</p></div>
     <div class="vs-wrap">
       <table class="vs">
-        <thead><tr><th scope="col"><span class="sr-only">Что сравниваем</span></th><th scope="col">Обычный VPN</th><th scope="col" class="vs__us">VELIQ</th></tr></thead>
+        <thead><tr><th scope="col"><span class="sr-only">Что сравниваем</span></th><th scope="col">Без VELIQ</th><th scope="col" class="vs__us">С VELIQ</th></tr></thead>
         <tbody>
-{vpn_table}
+{how_table}
         </tbody>
       </table>
     </div>
-    <p class="faint" style="font-size:var(--fs-sm);margin:var(--sp-4) 0 0">Сравнение с типичным VPN-приложением. Некоторые VPN умеют исключать отдельные приложения, но это настраивается вручную.</p>
   </div>
 </section>
 
@@ -497,9 +495,9 @@ vpn_body = f"""
   </div>
 </section>
 """
-page("vpn.html", "Чем VELIQ отличается от VPN",
-     "VPN отправляет весь трафик через один сервер. VELIQ выбирает путь для каждого соединения: игры получают самый быстрый маршрут, голосовые чаты — стабильный, остальное работает как обычно.",
-     "how", vpn_body, og="og-vpn.png", og_alt="Не VPN: VELIQ строит свой путь для каждого соединения.")
+page("how.html", "Как работает VELIQ",
+     "VELIQ замеряет пути и для каждого соединения выбирает лучший: игры получают самый быстрый маршрут, голосовые чаты — стабильный, остальное работает как обычно.",
+     "how", how_body)
 
 # ---------------------------------------------------------------- скачать
 download_body = f"""
@@ -1020,7 +1018,7 @@ roadmap_body = f"""
 page("roadmap.html", "План развития", "Что VELIQ уже умеет, над чем работаем сейчас и что будет дальше.", "", roadmap_body)
 
 # ---------------------------------------------------------------- служебные файлы
-pages = ["", "vpn.html", "download.html", "clubs.html", "pricing.html", "support.html", "privacy.html", "terms.html", "contacts.html", "roadmap.html"]
+pages = ["", "how.html", "download.html", "clubs.html", "pricing.html", "support.html", "privacy.html", "terms.html", "contacts.html", "roadmap.html"]
 (OUT / "sitemap.xml").write_text(
     '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
     + "".join(f"  <url><loc>{SITE['url']}/{p}</loc></url>\n" for p in pages) + "</urlset>\n", encoding="utf-8")
