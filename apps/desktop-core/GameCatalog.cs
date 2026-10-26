@@ -42,10 +42,9 @@ public sealed partial class GameCard(GameDefinition definition):Observable {
     public string Id=>Definition.Id;public string Name=>Definition.Name;public string Icon=>Definition.Icon;
     public string Launcher=>Definition.Launcher;public string AntiCheat=>"Античит: "+Definition.AntiCheat;
     public bool CanRepair=>Definition.LauncherNeedsBypass;
-    public string Compatibility=>Definition.AntiCheat.Contains("Vanguard")||Definition.AntiCheat.Contains("FACEIT") ? "Совместимость обхода с Vanguard/FACEIT не проверена. Автоматически игру не трогаем." : "Снижение пинга не подтверждено измерениями. По умолчанию DIRECT.";
-    string mode="DIRECT",status="Обычный маршрут; изменения только по вашему выбору";
+    public string Compatibility=>Definition.AntiCheat.Contains("Vanguard")||Definition.AntiCheat.Contains("FACEIT") ? "У игры строгий античит, поэтому VELIQ меняет её маршрут только по вашему выбору." : "";
+    string mode="DIRECT";
     public string Mode {get=>mode;set{if(Set(ref mode,value))RouteChanged();}}
-    public string Status {get=>status;set=>Set(ref status,value);}
     public Profile? Profile {get;set;}
 }
 public sealed partial class GameCatalogViewModel(IServiceClient client):Observable {
@@ -54,7 +53,7 @@ public sealed partial class GameCatalogViewModel(IServiceClient client):Observab
     readonly GameCard[] all=GameCatalog.Bundled().Games.Select(g=>new GameCard(g)).ToArray();
     public ObservableCollection<GameCard> Games {get;}=[];
     public Choice[] Modes {get;}=[new("AUTO","AUTO"),new("DIRECT","DIRECT"),new("DIRECT_PLUS","DIRECT+"),new("MANUAL","RELAY")];
-    string search="",notice="Каталог не обещает снижение пинга. RELAY может его увеличить.";bool busy;
+    string search="",notice="";bool busy;
     public string Search {get=>search;set{if(Set(ref search,value))Filter();}}
     public string Notice {get=>notice;private set=>Set(ref notice,value);}
     public bool Busy {get=>busy;private set{if(Set(ref busy,value))Changed(nameof(CanInteract));}}
@@ -64,11 +63,10 @@ public sealed partial class GameCatalogViewModel(IServiceClient client):Observab
         if(Busy)return;Busy=true;
         try {
             var profiles=await client.Call<Profile[]>("profiles",cancellationToken:ct);
-            string riotActivity="Лаунчер: диагностика пока недоступна";try{riotActivity=GameCatalog.RiotActivity(await client.Call<JsonElement>("riot.status",cancellationToken:ct));}catch(ServiceException){}
             GameUdpStatus? udp=null;try{udp=await client.Call<GameUdpStatus>("gameudp.status",cancellationToken:ct);}catch(ServiceException){}
-            foreach(var g in all){g.Profile=profiles.FirstOrDefault(p=>p.Executables.Any(e=>g.Definition.Executables.Any(n=>ApplicationRow.Matches(n,e))));g.Mode=g.Profile?.Mode??g.Definition.DefaultMode;g.RelayId=g.Profile?.RelayId;g.Status=g.Profile is null?"DIRECT · профиль появится при выборе режима":"Профиль: "+Text.Mode(g.Profile.Mode);var gameUdp=udp?.Profiles.FirstOrDefault(p=>p.ProfileId==g.Profile?.Id);if(gameUdp is not null){if(gameUdp.Engine.Enabled && g.Profile?.Mode is "DIRECT" or "AUTO")g.Mode="DIRECT_PLUS";g.Status+=" · "+gameUdp.Summary;}if(g.CanRepair)g.Status+=" · "+riotActivity;}
-            Filter();await LoadRelaysAsync(ct);Notice="Игры и лаунчеры имеют разные профили. Существующие соединения сохраняют маршрут.";
-        }catch(Exception e){Failed?.Invoke(e,"gamecatalog.refresh");Notice="Каталог сохранён. Служба недоступна: "+FailureText(e);}finally{Busy=false;}
+            foreach(var g in all){g.Profile=profiles.FirstOrDefault(p=>p.Executables.Any(e=>g.Definition.Executables.Any(n=>ApplicationRow.Matches(n,e))));g.Mode=g.Profile?.Mode??g.Definition.DefaultMode;g.RelayId=g.Profile?.RelayId;var gameUdp=udp?.Profiles.FirstOrDefault(p=>p.ProfileId==g.Profile?.Id);if(gameUdp is not null){if(gameUdp.Engine.Enabled && g.Profile?.Mode is "DIRECT" or "AUTO")g.Mode="DIRECT_PLUS";}}
+            Filter();await LoadRelaysAsync(ct);Notice="";
+        }catch(Exception e){Failed?.Invoke(e,"gamecatalog.refresh");Notice="Служба VELIQ недоступна: "+FailureText(e);}finally{Busy=false;}
     }
     public async Task ApplyAsync(GameCard g,CancellationToken ct=default){
         if(Busy)return;Busy=true;
@@ -76,24 +74,24 @@ public sealed partial class GameCatalogViewModel(IServiceClient client):Observab
             if(!Modes.Any(m=>m.Value==g.Mode))throw new InvalidOperationException("Неизвестный режим");
             var p=g.Profile?.Copy()??new Profile{Id="game-"+g.Id,Name=g.Name,Executables=[..g.Definition.Executables],Custom=true};
             if(g.Mode=="DIRECT_PLUS"){
-                if(g.Definition.UdpPreset.Length==0||p.Executables.Length!=1||!p.Executables[0].Contains('\\')){Notice="Для DIRECT+ нужен обнаруженный игровой UDP-профиль с полным путём. Совместимость и локальная стратегия должны быть проверены.";return;}
-                if(p.Mode is not ("DIRECT" or "AUTO")){Notice="Сначала сохраните DIRECT или AUTO; текущий маршрут не изменён.";return;}
+                if(g.Definition.UdpPreset.Length==0||p.Executables.Length!=1||!p.Executables[0].Contains('\\')){Notice="Локальный обход для этой игры пока не проверен, маршрут не изменён.";return;}
+                if(p.Mode is not ("DIRECT" or "AUTO")){Notice="Сначала сохраните «Напрямую» или «Авто», потом включите «Локально».";return;}
                 await client.Call<GameUdpStatus>("gameudp.set",new{profile_id=p.Id,enabled=true},ct);
-                g.Status="Игровой UDP-обход включён; маршрут приложения сохранён. Загрузка матча ещё не проверена.";return;
+                Notice="Локальный обход включён и сработает при следующем запуске игры.";Close(true);return;
             }
             if(g.Mode=="MANUAL"){
                 var status=await client.Call<Snapshot>("status",cancellationToken:ct);
                 var relay=status.Routes.FirstOrDefault(r=>r.Id!="DIRECT"&&r.Status is "healthy" or "degraded"&&(g.RelayId is null||r.Id==g.RelayId));
-                if(relay is null){Notice="Нет доступного релея. Профиль не изменён.";return;}p.RelayId=relay.Id;
+                if(relay is null){Notice="Сервер VELIQ сейчас недоступен, маршрут не изменён.";return;}p.RelayId=relay.Id;
             }else p.RelayId=null;
             p.Mode=g.Mode;
             await client.Call<Profile[]>("profile.set",p,ct);
             if(g.Mode=="DIRECT"&&g.Definition.UdpPreset.Length>0&&g.Profile is not null)await client.Call<GameUdpStatus>("gameudp.set",new{profile_id=p.Id,enabled=false},ct);
-            g.Profile=p;g.Status="Сохранено: "+Text.Mode(p.Mode);Notice=p.Mode=="MANUAL"?"RELAY выбран явно. Для доступных напрямую серверов это может увеличить пинг.":"Маршрут сохранён для новых соединений; AUTO игр остаётся DIRECT.";
-        }catch(Exception e){Failed?.Invoke(e,"gamecatalog.apply");Notice="Режим не подтверждён: "+FailureText(e);}finally{Busy=false;}
+            g.Profile=p;Notice=p.Mode=="MANUAL"?"Игра пойдёт через сервер VELIQ. Если её серверы доступны напрямую, пинг может вырасти.":"Маршрут сохранён и сработает при следующем запуске игры.";Close(true);
+        }catch(Exception e){Failed?.Invoke(e,"gamecatalog.apply");Notice="Маршрут не сохранён: "+FailureText(e);}finally{Busy=false;}
     }
     public async Task RepairLauncherAsync(GameCard g,CancellationToken ct=default){
         if(!g.CanRepair||Busy)return;Busy=true;
-        try {var profiles=await client.Call<Profile[]>("profiles",cancellationToken:ct);var p=profiles.FirstOrDefault(p=>p.Id=="riot-client")?.Copy();if(p is null){Notice="Нужна обновлённая служба с профилем Riot Client.";return;}p.Mode="AUTO";p.RelayId=null;await client.Call<Profile[]>("profile.set",p,ct);g.Status="Riot Client: AUTO включён; DIRECT → рабочий DNS-адрес → LOCAL/RELAY. Проверка запуска ещё нужна.";Notice="Профиль игры и античит не изменены.";}catch(Exception e){Failed?.Invoke(e,"gamecatalog.launcher");Notice="Не удалось настроить лаунчер: "+FailureText(e);}finally{Busy=false;}
+        try {var profiles=await client.Call<Profile[]>("profiles",cancellationToken:ct);var p=profiles.FirstOrDefault(p=>p.Id=="riot-client")?.Copy();if(p is null){Notice="Обновите VELIQ, чтобы починить запуск Riot Client.";return;}p.Mode="AUTO";p.RelayId=null;await client.Call<Profile[]>("profile.set",p,ct);Notice="Riot Client теперь подключается через VELIQ. Настройки игры и античит не тронуты.";}catch(Exception e){Failed?.Invoke(e,"gamecatalog.launcher");Notice="Не удалось настроить лаунчер: "+FailureText(e);}finally{Busy=false;}
     }
 }

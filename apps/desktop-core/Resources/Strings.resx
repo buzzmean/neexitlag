@@ -605,8 +605,8 @@
   <data name="EnterActivationCode" xml:space="preserve"><value>Введите код активации</value></data>
   <data name="ActivateCode" xml:space="preserve"><value>Активировать</value></data>
   <data name="Games" xml:space="preserve"><value>Игры</value></data>
-  <data name="GameCatalogHint" xml:space="preserve"><value>Нажмите на игру, чтобы выбрать маршрут. Полоса в значке значит, что у игры свой маршрут. Снижение пинга пока не измерено.</value></data>
-  <data name="GameCatalogSearch" xml:space="preserve"><value>Поиск игры или лаунчера</value></data>
+  <data name="GameCatalogHint" xml:space="preserve"><value>Нажмите на игру, чтобы выбрать маршрут. Полоса в значке значит, что у игры свой маршрут.</value></data>
+  <data name="GameCatalogSearch" xml:space="preserve"><value>Поиск игры</value></data>
   <data name="GameCatalogApply" xml:space="preserve"><value>Применить</value></data>
   <data name="GameCatalogRepair" xml:space="preserve"><value>Исправить лаунчер</value></data>
   <data name="NavServices" xml:space="preserve"><value>Сервисы</value></data>

@@ -26,14 +26,14 @@ public sealed class GameCatalogTests {
  }
  [Fact]public async Task AutoGameIsExplicitProfileAndNeverRequestsUdpOrRelay(){
   var s=new Service();var vm=new GameCatalogViewModel(s);await vm.RefreshAsync();var g=vm.Games.Single(g=>g.Id=="valorant");g.Mode="AUTO";await vm.ApplyAsync(g);
-  var p=Assert.IsType<Profile>(Assert.Single(s.Calls,c=>c.method=="profile.set").payload);Assert.Equal("AUTO",p.Mode);Assert.Null(p.RelayId);Assert.Equal("game-valorant",p.Id);Assert.Contains("не проверена",g.Compatibility);Assert.DoesNotContain(s.Calls,c=>c.method=="gameudp.set");
+  var p=Assert.IsType<Profile>(Assert.Single(s.Calls,c=>c.method=="profile.set").payload);Assert.Equal("AUTO",p.Mode);Assert.Null(p.RelayId);Assert.Equal("game-valorant",p.Id);Assert.Contains("античит",g.Compatibility);Assert.DoesNotContain(s.Calls,c=>c.method=="gameudp.set");
  }
  [Fact]public async Task UnsupportedDirectPlusDoesNotMutateGame(){
-  var s=new Service();var vm=new GameCatalogViewModel(s);await vm.RefreshAsync();var g=vm.Games.Single(g=>g.Id=="valorant");g.Mode="DIRECT_PLUS";await vm.ApplyAsync(g);Assert.DoesNotContain(s.Calls,c=>c.method=="profile.set"||c.method=="gameudp.set");Assert.Contains("проверены",vm.Notice);
+  var s=new Service();var vm=new GameCatalogViewModel(s);await vm.RefreshAsync();var g=vm.Games.Single(g=>g.Id=="valorant");g.Mode="DIRECT_PLUS";await vm.ApplyAsync(g);Assert.DoesNotContain(s.Calls,c=>c.method=="profile.set"||c.method=="gameudp.set");Assert.Contains("не проверен",vm.Notice);
  }
  [Fact]public async Task RelayNeedsHealthyRouteAndExplicitApply(){
-  var s=new Service{RelayHealthy=false};var vm=new GameCatalogViewModel(s);await vm.RefreshAsync();var g=vm.Games.Single(g=>g.Id=="valorant");g.Mode="MANUAL";await vm.ApplyAsync(g);Assert.DoesNotContain(s.Calls,c=>c.method=="profile.set");Assert.Contains("Профиль не изменён",vm.Notice);
-  s.RelayHealthy=true;await vm.ApplyAsync(g);var p=Assert.IsType<Profile>(Assert.Single(s.Calls,c=>c.method=="profile.set").payload);Assert.Equal("MANUAL",p.Mode);Assert.Equal("VPS-PRIMARY",p.RelayId);Assert.Contains("увеличить пинг",vm.Notice);
+  var s=new Service{RelayHealthy=false};var vm=new GameCatalogViewModel(s);await vm.RefreshAsync();var g=vm.Games.Single(g=>g.Id=="valorant");g.Mode="MANUAL";await vm.ApplyAsync(g);Assert.DoesNotContain(s.Calls,c=>c.method=="profile.set");Assert.Contains("маршрут не изменён",vm.Notice);
+  s.RelayHealthy=true;await vm.ApplyAsync(g);var p=Assert.IsType<Profile>(Assert.Single(s.Calls,c=>c.method=="profile.set").payload);Assert.Equal("MANUAL",p.Mode);Assert.Equal("VPS-PRIMARY",p.RelayId);Assert.Contains("пинг может вырасти",vm.Notice);
  }
  [Fact]public async Task ExistingGameIdentityAndExtensionDataSurviveModeChange(){
   var s=new Service{Profiles=[new(){Id="custom-game",Name="Existing",Executables=[@"D:\Games\VALORANT-Win64-Shipping.exe"],Publisher="Fixture",Mode="AUTO",Custom=true,PolicyData=new(){["identity"]=JsonSerializer.SerializeToElement(new{fixture=true})}}]};var vm=new GameCatalogViewModel(s);await vm.RefreshAsync();var g=vm.Games.Single(g=>g.Id=="valorant");g.Mode="DIRECT";await vm.ApplyAsync(g);var p=Assert.IsType<Profile>(Assert.Single(s.Calls,c=>c.method=="profile.set").payload);Assert.Equal("custom-game",p.Id);Assert.True(p.Custom);Assert.Equal("Fixture",p.Publisher);Assert.True(p.PolicyData!["identity"].GetProperty("fixture").GetBoolean());
@@ -55,5 +55,11 @@ public sealed class GameCatalogTests {
   var g=vm.Games.Single(g=>g.Id=="cs2");vm.Select(g);Assert.True(g.IsSelected);Assert.True(vm.Routes.Single(o=>o.Key=="DIRECT").IsSelected);
   vm.ChooseRoute(relay);Assert.True(relay.IsSelected);Assert.True(g.IsCustom);await vm.ApplyAsync(g);
   var p=Assert.IsType<Profile>(Assert.Single(s.Calls,c=>c.method=="profile.set").payload);Assert.Equal("MANUAL",p.Mode);Assert.Equal("VPS-PRIMARY",p.RelayId);
+ }
+ [Fact]public async Task RouteStripClosesOnApplySecondClickAndDropsUnsavedChoice(){
+  var s=new Service();var vm=new GameCatalogViewModel(s);await vm.RefreshAsync();var g=vm.Games.Single(g=>g.Id=="cs2");
+  vm.Select(g);vm.ChooseRoute(vm.Routes.Single(o=>o.Key=="AUTO"));vm.Select(g);Assert.False(vm.HasSelection);Assert.False(g.IsSelected);Assert.Equal("DIRECT",g.Mode);
+  vm.Select(g);vm.ChooseRoute(vm.Routes.Single(o=>o.Key=="AUTO"));vm.Close();Assert.False(vm.HasSelection);Assert.Equal("DIRECT",g.Mode);
+  vm.Select(g);vm.ChooseRoute(vm.Routes.Single(o=>o.Key=="AUTO"));await vm.ApplyAsync(g);Assert.False(vm.HasSelection);Assert.Equal("AUTO",g.Mode);Assert.DoesNotContain("DIRECT",vm.Notice);
  }
 }

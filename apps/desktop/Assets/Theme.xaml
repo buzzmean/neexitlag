@@ -173,8 +173,9 @@
      <!-- As in .go: slit and signal bar live inside the outline (overflow:hidden on the padding box). -->
      <Border x:Name="Outline" CornerRadius="89" BorderThickness="2" BorderBrush="{StaticResource LineStrong}" Background="{StaticResource BgRaised}">
       <Grid>
-       <Grid ClipToBounds="True">
-        <Grid.OpacityMask><VisualBrush Stretch="Fill"><VisualBrush.Visual><Border Width="244" Height="244" CornerRadius="87" Background="Black"/></VisualBrush.Visual></VisualBrush></Grid.OpacityMask>
+       <!-- Geometry clip, not an OpacityMask: a VisualBrush mask is stretched over the drawn content (only the slit row), which squeezed the rounded mask into a lens across the button. -->
+       <Grid>
+        <Grid.Clip><RectangleGeometry Rect="0,0,244,244" RadiusX="87" RadiusY="87"/></Grid.Clip>
         <Grid.RowDefinitions><RowDefinition Height="66*"/><RowDefinition Height="6*"/><RowDefinition Height="28*"/></Grid.RowDefinitions>
         <Rectangle Grid.Row="1" Fill="{StaticResource Bg}"/>
         <Rectangle x:Name="SignalOn" Grid.Row="1" Fill="{StaticResource Accent}" Visibility="Collapsed"/>
