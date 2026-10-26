@@ -85,3 +85,27 @@ jobs:
             silent-policy.log
             browser-disable.log
             native-hot-attach.log
+  ci-log-relay:
+    needs: [edge-policy]
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions: {actions: read, contents: read}
+    steps:
+      - name: Publish the failing step output as annotations
+        env: {GH_TOKEN: '${{ github.token }}', REPO: '${{ github.repository }}', RUN: '${{ github.run_id }}'}
+        run: |
+          for id in $(gh api "repos/$REPO/actions/runs/$RUN/jobs" --jq '.jobs[]|select(.conclusion=="failure")|.id'); do
+            gh api "repos/$REPO/actions/jobs/$id/logs" > "log-$id.txt" || continue
+            python3 - "log-$id.txt" <<'PY'
+          import re,sys
+          lines=[re.sub(r'^\S+Z ','',l) for l in open(sys.argv[1],encoding='utf-8',errors='replace').read().splitlines()]
+          first=next((i for i,l in enumerate(lines) if l.startswith('##[error]')),len(lines))
+          start=max(0,first-150)
+          for j in range(first,-1,-1):
+              if j<len(lines) and lines[j].startswith('##[group]Run '): start=max(start,j);break
+          text='\n'.join(lines[start:first+3])[-28000:]
+          for n in range(0,len(text),3500):
+              chunk=text[n:n+3500].replace('%','%25').replace('\r','').replace('\n','%0A')
+              print(f'::error title=log {n//3500}::{chunk}')
+          PY
+          done
