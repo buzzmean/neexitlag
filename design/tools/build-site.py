@@ -18,6 +18,37 @@ SITE = {
     "email": "support@veliq.app",        # ДОПУЩЕНИЕ: адрес поддержки не выбран
     "name": "VELIQ",
 }
+# Продавец и цены. Пока поле пустое, на страницах оплаты и правовых документах показывается пометка «Черновик».
+SELLER = {
+    "name": "",                          # ФИО полностью, как в «Мой налог»
+    "inn": "",                           # ИНН (12 цифр)
+    "status": "плательщик налога на профессиональный доход (самозанятый)",
+    "email": SITE["email"],
+    "phone": "",                         # необязательно
+}
+PRICES = {                               # рубли; None — цена ещё не утверждена
+    "player_month": None,                # «Игрок», 1 компьютер, месяц
+    "club_pc_month": None,               # «Клуб», за компьютер в месяц
+}
+OFFER_DATE = "1 ноября 2026"             # дата редакции оферты и политики
+ACCOUNT_URL = None                       # адрес личного кабинета, например "account.html"; None — кабинет ещё не запущен
+PAYMENT_AGENT = "ЮKassa (ООО НКО «ЮМани»)"  # платёжный сервис для карт и СБП
+LOG_RETENTION = None                     # срок хранения журналов соединений на серверах, например "30 дней"
+
+
+def rub(v):
+    return "— ₽" if v is None else f"{v:,} ₽".replace(",", "\u00a0")
+
+
+def seller_line():
+    """Реквизиты одной строкой: ФИО, статус, ИНН."""
+    if not SELLER["name"]:
+        return ""
+    return f'{SELLER["name"]}, {SELLER["status"]}, ИНН {SELLER["inn"]}'
+
+
+SELLER_READY = bool(SELLER["name"] and SELLER["inn"])
+PRICES_READY = all(v is not None for v in PRICES.values())
 RELEASE = {
     "version": "1.0 beta",               # ДОПУЩЕНИЕ: номер версии подставить при выпуске
     "date": "20 октября 2026",
@@ -132,12 +163,12 @@ def footer():
       </div>
       <div>
         <h2>Помощь</h2>
-        <ul><li><a href="support.html">Вопросы и ответы</a></li><li><a href="support.html#errors">Ошибки и решения</a></li><li><a href="mailto:{SITE['email']}">{SITE['email']}</a></li></ul>
+        <ul><li><a href="support.html">Вопросы и ответы</a></li><li><a href="support.html#errors">Ошибки и решения</a></li><li><a href="contacts.html">Контакты и реквизиты</a></li><li><a href="mailto:{SITE['email']}">{SITE['email']}</a></li></ul>
       </div>
     </div>
     <div class="foot__bottom">
-      <span>© 2026 VELIQ</span>
-      <span><a href="privacy.html">Конфиденциальность</a>&nbsp;&nbsp;&nbsp;<a href="terms.html">Условия</a></span>
+      <span>© 2026 VELIQ{" · " + seller_line() if seller_line() else ""}</span>
+      <span><a href="privacy.html">Конфиденциальность</a>&nbsp;&nbsp;&nbsp;<a href="terms.html">Оферта</a>&nbsp;&nbsp;&nbsp;<a href="contacts.html">Контакты</a></span>
     </div>
   </div>
 </footer>
@@ -164,7 +195,7 @@ def faq(items):
 
 def flow(kind):
     """Схема: устройство → (сервер) → назначения. kind = 'vpn' | 'veliq'. HTML/CSS, без картинок."""
-    rows = [("YouTube", "заблокирован"), ("Онлайн-игра", "нужен низкий пинг"), ("Обычный сайт", "и так работает"), ("Банк", "и так работает")]
+    rows = [("Онлайн-игра", "нужен низкий пинг"), ("Голосовой чат", "нужна стабильность"), ("Обычный сайт", "и так работает"), ("Банк", "и так работает")]
     out = []
     if kind == "vpn":
         out.append('<div class="flow flow--vpn" data-trace>')
@@ -172,9 +203,9 @@ def flow(kind):
         for i, (name, _) in enumerate(rows):
             out.append(f'<span class="flow__a" style="grid-row:{i+1}"></span><span class="flow__b" style="grid-row:{i+1}"></span><span class="flow__dst" style="grid-row:{i+1}">{name}</span>')
         out.append('</div>')
-        out.append('<p class="flow__cap">Весь трафик идёт через один сервер — и заблокированное, и то, что прекрасно работало без него.</p>')
+        out.append('<p class="flow__cap">Весь трафик идёт через один сервер — даже то, что прекрасно работало без него.</p>')
     else:
-        mids = [("relay", "VELIQ"), ("relay", "лучший путь"), ("plain", "как обычно"), ("plain", "как обычно")]
+        mids = [("relay", "быстрый путь"), ("relay", "стабильный путь"), ("plain", "как обычно"), ("plain", "как обычно")]
         out.append('<div class="flow flow--veliq" data-trace>')
         out.append('<div class="flow__src">Вы</div>')
         for i, ((name, _), (mode, label)) in enumerate(zip(rows, mids)):
@@ -184,7 +215,7 @@ def flow(kind):
             else:
                 out.append(f'<span class="flow__plain" style="{g}"><em>{label}</em></span><span class="flow__dst is-plain" style="{g}">{name}</span>')
         out.append('</div>')
-        out.append('<p class="flow__cap">Каждое соединение получает свой путь: заблокированное — через сеть VELIQ, игры — самый быстрый маршрут, остальное — как обычно.</p>')
+        out.append('<p class="flow__cap">Каждое соединение получает свой путь: игры — самый быстрый маршрут, голосовые чаты — самый стабильный, остальное — как обычно.</p>')
     return "\n".join(out)
 
 
@@ -202,7 +233,7 @@ def privacy_block(head_tag="h2"):
         <div>
           <h3 class="h3">Видит</h3>
           <ul class="seen__list">
-            <li>{icon('check','i i--sm')}<span><strong>Куда</strong> идёт соединение — адрес сервиса, например youtube.com</span></li>
+            <li>{icon('check','i i--sm')}<span><strong>Куда</strong> идёт соединение — адрес игрового сервера или сайта</span></li>
             <li>{icon('check','i i--sm')}<span><strong>Сколько</strong> данных передано</span></li>
             <li>{icon('check','i i--sm')}<span><strong>Ваше устройство</strong> — по ключу устройства, чтобы пускать только своих</span></li>
           </ul>
@@ -221,11 +252,12 @@ def privacy_block(head_tag="h2"):
 
 
 FAQ_MAIN = [
-    ("Это VPN?", "<p>Нет. VPN отправляет весь трафик через один сервер, и всё становится медленнее. VELIQ выбирает путь для каждого соединения отдельно: через свою сеть — когда так открывается доступ или выходит быстрее, обычным путём — когда так лучше. <a href=\"vpn.html\">Подробнее о разнице</a>.</p>"),
+    ("Это VPN?", "<p>Нет. VPN отправляет весь трафик через один сервер, и всё становится медленнее. VELIQ выбирает путь для каждого соединения отдельно: через свою сеть — когда так быстрее или стабильнее, обычным путём — когда так лучше. <a href=\"vpn.html\">Подробнее о разнице</a>.</p>"),
     ("Нужно ли что-то перезапускать?", "<p>Нет. Маршруты работают сразу после нажатия «Оптимизировать» — ничего закрывать и перезапускать не нужно.</p>"),
     ("Как VELIQ влияет на пинг в играх?", "<p>VELIQ сравнивает пути до игрового сервера и выбирает самый быстрый. Если путь через сеть VELIQ не быстрее обычного, маршрут не меняется. Замеры видно в программе.</p>"),
     ("Вы видите, что я открываю?", "<p>Нет. Мы не расшифровываем и не подменяем HTTPS. Сервер видит адрес назначения и объём данных — этого достаточно, чтобы переслать трафик. <a href=\"index.html#privacy\">Что видит сервер</a>. Подробности — в <a href=\"privacy.html\">политике конфиденциальности</a>.</p>"),
     ("Какие системы поддерживаются?", "<p>Сейчас VELIQ работает на компьютерах с Windows. Версия для телефона готовится.</p>"),
+    ("Сколько стоит и как оплатить?", "<p>Тарифы — на странице <a href=\"pricing.html\">«Цены»</a>. Оплатить можно картой или через СБП в личном кабинете, клубы могут платить по счёту.</p>"),
     ("Подходит ли VELIQ для клубов?", "<p>Да. Для клубов есть отдельный код активации и инструкция, они выдаются после заявки. <a href=\"clubs.html\">VELIQ для клубов</a>.</p>"),
 ]
 
@@ -243,7 +275,7 @@ index_body = f"""
         <span class="slit-line"><span class="slit">Нажал —</span></span>
         <span class="slit-line"><span class="slit">работает.</span><span class="slit-bar" aria-hidden="true"></span></span>
       </h1>
-      <p class="lede">VELIQ сам выстраивает оптимальный маршрут для каждого соединения. Заблокированные сервисы снова работают, игры получают самый быстрый путь до сервера.</p>
+      <p class="lede">VELIQ сам выстраивает оптимальный маршрут для каждого соединения: игры получают самый быстрый путь до сервера, голосовые чаты и стримы — стабильную связь.</p>
       <div class="hero__actions">
         <a class="btn btn--lg" href="download.html">{icon('download')}Скачать</a>
         <a class="btn btn--lg btn--ghost" href="clubs.html">Для компьютерных клубов</a>
@@ -260,30 +292,13 @@ index_body = f"""
         <span class="go__label"><span data-go-label>Оптимизировать</span><small data-go-sub>выключено</small></span>
       </button>
       <div class="route" aria-label="Маршруты">
-        <div class="route__row route__row--relay"><span class="route__name">YouTube</span><span class="route__line"></span><span class="route__via" data-on="работает">—</span></div>
-        <div class="route__row route__row--relay"><span class="route__name">Discord</span><span class="route__line"></span><span class="route__via" data-on="работает">—</span></div>
-        <div class="route__row route__row--relay"><span class="route__name">ChatGPT</span><span class="route__line"></span><span class="route__via" data-on="работает">—</span></div>
         <div class="route__row route__row--relay"><span class="route__name">Игры</span><span class="route__line"></span><span class="route__via" data-on="лучший маршрут">—</span></div>
+        <div class="route__row route__row--relay"><span class="route__name">Голосовой чат</span><span class="route__line"></span><span class="route__via" data-on="стабильно">—</span></div>
+        <div class="route__row route__row--relay"><span class="route__name">Стримы</span><span class="route__line"></span><span class="route__via" data-on="без подвисаний">—</span></div>
+        <div class="route__row route__row--relay"><span class="route__name">Сайты</span><span class="route__line"></span><span class="route__via" data-on="как обычно">—</span></div>
       </div>
       <p class="demo__hint" id="demo-hint">Нажмите кнопку — так выглядит запуск в программе.</p>
       <span class="sr-only" aria-live="polite" data-demo-live></span>
-    </div>
-  </div>
-</section>
-
-<section class="sec sec--tight band--sunken" id="check" data-access-check hidden>
-  <div class="wrap check">
-    <div>
-      <h2 class="h2">Что у вас открывается прямо сейчас</h2>
-      <p class="check__lead" data-check-lead>Проверяем несколько сервисов для примера…</p>
-      <p class="check__note">Проверка приблизительная: браузер просто пробует достучаться до сайтов. Блокировщики рекламы и рабочие сети могут влиять на результат. Данные никуда не отправляются.</p>
-    </div>
-    <div class="check__list" aria-live="polite">
-      <div class="check__row" data-check-url="https://www.youtube.com/favicon.ico"><span class="check__name">YouTube</span><span class="check__line"></span><span class="check__st">проверяем</span></div>
-      <div class="check__row" data-check-url="https://discord.com/favicon.ico"><span class="check__name">Discord</span><span class="check__line"></span><span class="check__st">проверяем</span></div>
-      <div class="check__row" data-check-url="https://web.telegram.org/favicon.ico"><span class="check__name">Telegram</span><span class="check__line"></span><span class="check__st">проверяем</span></div>
-      <div class="check__row" data-check-url="https://chatgpt.com/favicon.ico"><span class="check__name">ChatGPT</span><span class="check__line"></span><span class="check__st">проверяем</span></div>
-      <a class="btn btn--sm btn--ghost check__again" href="#check" data-check-again hidden>{icon('refresh','i i--sm')}Проверить ещё раз</a>
     </div>
   </div>
 </section>
@@ -306,25 +321,24 @@ index_body = f"""
   <div class="wrap">
     <div class="sec__head">
       <h2 class="h2">Свой путь для каждого соединения</h2>
-      <p>Одним сервисам нужен доступ, играм — скорость. VELIQ понимает разницу и подбирает маршрут сам, без списков и настроек.</p>
+      <p>Играм нужна скорость, голосовым чатам и стримам — стабильность. VELIQ понимает разницу и подбирает маршрут сам, без списков и настроек.</p>
     </div>
     <div class="split">
       <div class="split__col">
-        <h3 class="h3">Открывает доступ</h3>
+        <h3 class="h3">Стабилизирует</h3>
         <ul class="split__list">
-          <li><span class="mono">YT</span><span>YouTube</span><span>через сеть VELIQ</span></li>
-          <li><span class="mono">DS</span><span>Discord</span><span>через сеть VELIQ</span></li>
-          <li><span class="mono">TG</span><span>Telegram</span><span>через сеть VELIQ</span></li>
-          <li><span class="mono">AI</span><span>ChatGPT, Claude и другие нейросети</span><span>через сеть VELIQ</span></li>
+          <li><span class="mono">{icon('ping','i i--sm')}</span><span>Голосовые чаты</span><span>связь без обрывов</span></li>
+          <li><span class="mono">{icon('diagnostics','i i--sm')}</span><span>Стримы и видео</span><span>без подвисаний</span></li>
+          <li><span class="mono">{icon('download','i i--sm')}</span><span>Лаунчеры и обновления игр</span><span>стабильная загрузка</span></li>
+          <li><span class="mono">{icon('route','i i--sm')}</span><span>Другие онлайн-сервисы</span><span>лучший из путей</span></li>
         </ul>
-        <p class="split__note">Это примеры. Список сервисов пополняется, свой сайт или приложение можно добавить в программе.</p>
+        <p class="split__note">Свой сайт или приложение можно добавить в программе — VELIQ подберёт для него маршрут.</p>
       </div>
       <div class="split__col">
         <h3 class="h3">Ускоряет</h3>
         <ul class="split__list">
           <li><span class="mono">{icon('games','i i--sm')}</span><span>Онлайн-игры</span><span>самый быстрый путь</span></li>
-          <li><span class="mono">{icon('globe','i i--sm')}</span><span>Игровые серверы в Европе</span><span>доступ и низкий пинг</span></li>
-          <li><span class="mono">{icon('ping','i i--sm')}</span><span>Голосовые чаты и стримы</span><span>стабильный канал</span></li>
+          <li><span class="mono">{icon('globe','i i--sm')}</span><span>Игровые серверы в Европе</span><span>низкий пинг</span></li>
           <li><span class="mono">{icon('check','i i--sm')}</span><span>То, что и так работает быстро</span><span>не трогаем</span></li>
         </ul>
         <p class="split__note">VELIQ замеряет задержку и выбирает путь, на котором она меньше.</p>
@@ -358,7 +372,7 @@ index_body = f"""
       <h2 class="h2">Оптимальный маршрут для игр</h2>
       <p class="lede" style="margin-top:20px">VELIQ сравнивает пути до игрового сервера и выбирает самый быстрый. Если лучше обычного пути нет, ничего не меняется.</p>
       <ul class="ticks">
-        <li>{icon('check')}<span>Доступ к игровым серверам, закрытым для вашего региона</span></li>
+        <li>{icon('check')}<span>Стабильное подключение к игровым серверам в других регионах</span></li>
         <li>{icon('check')}<span>Меньший пинг, если через сеть VELIQ путь короче, чем у провайдера</span></li>
         <li>{icon('check')}<span>Маршрут перестраивается сам, если какой-то путь стал хуже</span></li>
       </ul>
@@ -375,7 +389,7 @@ index_body = f"""
   <div class="wrap club-band">
     <div>
       <h2 class="h2">VELIQ для компьютерных клубов</h2>
-      <p class="lede" style="margin-top:20px">Заблокированные сервисы и быстрый путь для игр на всех компьютерах клуба. Гостю ничего настраивать не нужно.</p>
+      <p class="lede" style="margin-top:20px">Быстрый путь для игр и стабильная связь на всех компьютерах клуба. Гостю ничего настраивать не нужно.</p>
       <div class="hero__actions" style="margin-top:32px"><a class="btn btn--lg" href="clubs.html">VELIQ для клубов</a><a class="btn btn--lg btn--ghost" href="clubs.html#calc">Посчитать выгоду</a></div>
     </div>
     <div class="club-band__pcs" aria-hidden="true">{''.join('<i></i>' for _ in range(27))}</div>
@@ -408,14 +422,14 @@ index_body = f"""
 LD_APP = {
     "@context": "https://schema.org", "@type": "SoftwareApplication", "name": "VELIQ",
     "operatingSystem": "Windows 10, Windows 11", "applicationCategory": "UtilitiesApplication",
-    "description": "VELIQ строит оптимальный маршрут для каждого соединения: заблокированные сервисы открываются, игры получают самый быстрый путь.",
+    "description": "VELIQ строит оптимальный маршрут для каждого соединения: игры получают самый быстрый путь, голосовые чаты и стримы — стабильную связь.",
     "softwareVersion": RELEASE["version"], "url": SITE["url"],
 }
 LD_FAQ = {"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [
     {"@type": "Question", "name": q, "acceptedAnswer": {"@type": "Answer", "text": html.unescape(a.replace("<p>", "").replace("</p>", ""))}} for q, a in FAQ_MAIN]}
 
 page("index.html", "VELIQ — нажал, и работает",
-     "VELIQ сам строит оптимальный маршрут: заблокированные сервисы снова работают, игры получают самый быстрый путь. Для Windows 10 и 11.",
+     "VELIQ сам строит оптимальный маршрут: игры получают самый быстрый путь, голосовые чаты и стримы — стабильную связь. Для Windows 10 и 11.",
      "", index_body, [LD_APP, LD_FAQ])
 
 # ---------------------------------------------------------------- отличие от VPN
@@ -433,7 +447,7 @@ vpn_body = f"""
   <div class="wrap">
     <div class="crumbs"><a href="index.html">Главная</a> / Отличие от VPN</div>
     <h1 class="h1" style="max-width:16ch">Чем VELIQ отличается от VPN</h1>
-    <p class="lede">VPN отправляет весь трафик через один сервер. VELIQ выбирает путь для каждого соединения отдельно — поэтому открывается заблокированное, а остальное не замедляется.</p>
+    <p class="lede">VPN отправляет весь трафик через один сервер. VELIQ выбирает путь для каждого соединения отдельно — поэтому игры и голосовые чаты получают лучший путь, а остальное не замедляется.</p>
   </div>
 </section>
 
@@ -484,7 +498,7 @@ vpn_body = f"""
 </section>
 """
 page("vpn.html", "Чем VELIQ отличается от VPN",
-     "VPN отправляет весь трафик через один сервер. VELIQ выбирает путь для каждого соединения: заблокированное открывается, игры получают самый быстрый маршрут, остальное работает как обычно.",
+     "VPN отправляет весь трафик через один сервер. VELIQ выбирает путь для каждого соединения: игры получают самый быстрый маршрут, голосовые чаты — стабильный, остальное работает как обычно.",
      "how", vpn_body, og="og-vpn.png", og_alt="Не VPN: VELIQ строит свой путь для каждого соединения.")
 
 # ---------------------------------------------------------------- скачать
@@ -557,17 +571,17 @@ CLUB_FAQ = [
     ("Нужно ли что-то делать гостю?", "<p>Нет. Гостю ничего настраивать не нужно.</p>"),
     ("Как VELIQ влияет на пинг в играх?", "<p>VELIQ выбирает самый быстрый путь до игрового сервера. Если обычный путь быстрее, маршрут не меняется.</p>"),
     ("Подходит ли VELIQ для моей системы управления клубом?", "<p>Напишите нам, подскажем.</p>"),
-    ("Сколько это стоит?", "<p>Тариф для клубов считается за компьютер в месяц. Цена появится к релизу — оставьте заявку, и мы сообщим первыми. Пока можно прикинуть выгоду <a href=\"#calc\">в калькуляторе</a>.</p>"),
+    ("Сколько это стоит?", "<p>Тариф «Клуб» считается за компьютер в месяц — цена на странице <a href=\"pricing.html\">«Цены»</a>. Оплатить можно картой в личном кабинете или по счёту. Выгоду можно прикинуть <a href=\"#calc\">в калькуляторе</a>.</p>"),
 ]
-club_calc = """
+club_calc = f"""
 <div class="calc" data-calc>
   <div class="calc__in">
     <div class="calc__row"><label for="c-pcs">Компьютеров в клубе</label><input class="input" id="c-pcs" data-k="pcs" inputmode="numeric" value="20"><input type="range" data-k="pcs" min="5" max="200" step="1" value="20" aria-label="Компьютеров в клубе"></div>
     <div class="calc__row"><label for="c-hours">Часов работы в сутки</label><input class="input" id="c-hours" data-k="hours" inputmode="numeric" value="24"><input type="range" data-k="hours" min="6" max="24" step="1" value="24" aria-label="Часов работы в сутки"></div>
     <div class="calc__row"><label for="c-load">Средняя загрузка, %</label><input class="input" id="c-load" data-k="load" inputmode="numeric" value="50"><input type="range" data-k="load" min="5" max="100" step="1" value="50" aria-label="Средняя загрузка"></div>
     <div class="calc__row"><label for="c-price">Цена часа, ₽</label><input class="input" id="c-price" data-k="price" inputmode="numeric" value="150"><input type="range" data-k="price" min="40" max="500" step="10" value="150" aria-label="Цена часа"></div>
-    <div class="calc__row"><label for="c-lost">Часов теряете из-за блокировок, %</label><input class="input" id="c-lost" data-k="lost" inputmode="decimal" value="3"><input type="range" data-k="lost" min="0" max="20" step="0.5" value="3" aria-label="Потерянные часы"><small>Гости, которые ушли или не пришли из-за недоступных сервисов или высокого пинга.</small></div>
-    <div class="calc__row"><label for="c-cost">VELIQ за ПК в месяц, ₽</label><input class="input" id="c-cost" data-k="cost" inputmode="numeric" value="0"><input type="range" data-k="cost" min="0" max="1000" step="10" value="0" aria-label="Стоимость VELIQ"><small>Цена тарифа ещё не объявлена — подставьте свою оценку.</small></div>
+    <div class="calc__row"><label for="c-lost">Часов теряете из-за лагов и обрывов, %</label><input class="input" id="c-lost" data-k="lost" inputmode="decimal" value="3"><input type="range" data-k="lost" min="0" max="20" step="0.5" value="3" aria-label="Потерянные часы"><small>Гости, которые ушли или не пришли из-за лагов, высокого пинга или нестабильной связи.</small></div>
+    <div class="calc__row"><label for="c-cost">VELIQ за ПК в месяц, ₽</label><input class="input" id="c-cost" data-k="cost" inputmode="numeric" value="{PRICES['club_pc_month'] or 0}"><input type="range" data-k="cost" min="0" max="1000" step="10" value="{PRICES['club_pc_month'] or 0}" aria-label="Стоимость VELIQ"><small>{'Цена тарифа «Клуб».' if PRICES['club_pc_month'] else 'Цена тарифа ещё не объявлена — подставьте свою оценку.'}</small></div>
   </div>
   <div class="calc__out" aria-live="polite">
     <div><div style="color:var(--c-ink-300);margin-bottom:10px">Возвращённая выручка в месяц</div><div class="calc__big" data-out="net">—</div></div>
@@ -586,7 +600,7 @@ clubs_body = f"""
   <div class="wrap">
     <div class="crumbs"><a href="index.html">Главная</a> / Клубам</div>
     <h1 class="h1" style="max-width:15ch">VELIQ для компьютерных клубов</h1>
-    <p class="lede">Гости приходят играть, а заодно смотреть стримы, сидеть в голосовых чатах и пользоваться нейросетями. Когда это не работает или игра лагает, они уходят туда, где всё в порядке.</p>
+    <p class="lede">Гости приходят играть, общаться в голосовых чатах и смотреть стримы между матчами. Когда игра лагает или связь рвётся, они уходят туда, где всё в порядке.</p>
     <div class="hero__actions" style="margin-top:32px"><a class="btn btn--lg" href="#apply">Оставить заявку</a><a class="btn btn--lg btn--ghost" href="#calc">Посчитать выгоду</a></div>
   </div>
 </section>
@@ -595,8 +609,8 @@ clubs_body = f"""
   <div class="wrap">
     <div class="sec__head"><h2 class="h2">Что теряет клуб</h2><p>Каждая такая ситуация — гость, который сегодня ушёл раньше, а завтра выбрал другой клуб.</p></div>
     <ol class="pains">
-      <li><span class="pains__n">01</span><h3 class="h3">Сервисы не открываются</h3><p>YouTube, Discord, Telegram, нейросети — гостю нечем заняться между матчами и не с кем говорить в голосовом чате.</p></li>
-      <li><span class="pains__n">02</span><h3 class="h3">Игры лагают</h3><p>Высокий пинг или закрытые игровые серверы — команда доигрывает и уходит туда, где играется лучше.</p></li>
+      <li><span class="pains__n">01</span><h3 class="h3">Связь рвётся</h3><p>Голосовой чат прерывается, стрим подвисает, обновление игры качается часами — команде неуютно.</p></li>
+      <li><span class="pains__n">02</span><h3 class="h3">Игры лагают</h3><p>Высокий пинг и потери до игрового сервера — команда доигрывает и уходит туда, где играется лучше.</p></li>
       <li><span class="pains__n">03</span><h3 class="h3">Администратор занят не тем</h3><p>Смена уходит на «почему не работает», а не на гостей.</p></li>
     </ol>
   </div>
@@ -608,8 +622,8 @@ clubs_body = f"""
     <div class="facts">
       <div class="fact"><h3>Гостю ничего не нужно делать</h3><p>VELIQ настраивается один раз, дальше гость просто садится и играет.</p></div>
       <div class="fact fact--r"><h3>Надёжно в клубе</h3><p>Гость не может изменить настройки или навредить программе.</p></div>
-      <div class="fact"><h3>Лучший путь для игр</h3><p>VELIQ выбирает самый быстрый маршрут до игрового сервера и открывает доступ к закрытым.</p></div>
-      <div class="fact fact--r"><h3>Заблокированное снова работает</h3><p>Стримы, голосовые чаты и нейросети открываются у гостя сразу, без настроек.</p></div>
+      <div class="fact"><h3>Лучший путь для игр</h3><p>VELIQ выбирает самый быстрый маршрут до игрового сервера и перестраивает его, если путь стал хуже.</p></div>
+      <div class="fact fact--r"><h3>Стабильная связь</h3><p>Голосовые чаты и стримы работают без обрывов — у гостя ничего не нужно настраивать.</p></div>
     </div>
   </div>
 </section>
@@ -680,34 +694,36 @@ clubs_body = f"""
 </section>
 """
 page("clubs.html", "VELIQ для компьютерных клубов",
-     "Заблокированные сервисы и быстрый путь для игр на всех ПК клуба. Калькулятор выгоды.",
+     "Быстрый путь для игр и стабильная связь на всех ПК клуба. Калькулятор выгоды.",
      "clubs", clubs_body, og="og-clubs.png", og_alt="VELIQ для компьютерных клубов: каждый ПК — работает.")
 
 # ---------------------------------------------------------------- цены
+BUY_URL = ACCOUNT_URL or f"mailto:{SITE['email']}?subject=Подписка%20VELIQ"
+PRICE_NOTE = "" if PRICES_READY and SELLER_READY else f'<div class="note note--draft" style="margin-bottom:var(--sp-6)">{icon('info')}<div><strong>Цены готовятся.</strong> Числа появятся здесь перед началом продаж.</div></div>'
 pricing_body = f"""
 <section class="page-head">
   <div class="wrap">
     <div class="crumbs"><a href="index.html">Главная</a> / Цены</div>
     <h1 class="h1">Цены</h1>
-    <p class="lede">Тарифы готовятся к релизу. Пока VELIQ в бета-версии, здесь — какими они будут по составу.</p>
+    <p class="lede">Подписка на месяц. Платите за число компьютеров, на которых работает VELIQ.</p>
   </div>
 </section>
 <section class="sec sec--tight">
   <div class="wrap">
-    <div class="note note--draft" style="margin-bottom:var(--sp-6)">{icon('info')}<div><strong>Заготовка страницы.</strong> Цены и сроки не объявлены. Числа появятся здесь, когда будут утверждены.</div></div>
+    {PRICE_NOTE}
     <div class="plans">
       <div class="plan">
         <h2 class="h3">Игрок</h2>
-        <div class="plan__price">— ₽ <small>в месяц</small></div>
+        <div class="plan__price">{rub(PRICES['player_month'])} <small>в месяц</small></div>
         <p class="muted" style="margin:0">Один компьютер дома.</p>
-        <ul><li>{icon('check')}Доступ к заблокированным сервисам</li><li>{icon('check')}Собственная сеть серверов</li><li>{icon('check')}Оптимальный маршрут для игр</li></ul>
-        <a class="btn btn--ghost" href="download.html">Скачать бету</a>
+        <ul><li>{icon('check')}Самый быстрый путь для игр</li><li>{icon('check')}Стабильная связь для голосовых чатов и стримов</li><li>{icon('check')}Собственная сеть серверов</li><li>{icon('check')}Автопродление, отключается в один клик</li></ul>
+        <a class="btn btn--ghost" href="{BUY_URL}">Оформить подписку</a>
       </div>
       <div class="plan plan--main">
         <h2 class="h3">Клуб</h2>
-        <div class="plan__price">— ₽ <small>за ПК в месяц</small></div>
+        <div class="plan__price">{rub(PRICES['club_pc_month'])} <small>за ПК в месяц</small></div>
         <p class="muted" style="margin:0">Для компьютерных клубов.</p>
-        <ul><li>{icon('check')}Всё из тарифа «Игрок»</li><li>{icon('check')}Код активации для всех ПК клуба</li><li>{icon('check')}Гость не может изменить настройки</li><li>{icon('check')}Помощь с установкой и кодом активации</li></ul>
+        <ul><li>{icon('check')}Всё из тарифа «Игрок»</li><li>{icon('check')}Один код активации на все ПК клуба</li><li>{icon('check')}Гость не может изменить настройки</li><li>{icon('check')}Оплата картой или по счёту</li><li>{icon('check')}Помощь с установкой</li></ul>
         <a class="btn" href="mailto:{SITE['email']}?subject=Тариф%20Клуб">Оставить заявку</a>
       </div>
       <div class="plan">
@@ -718,10 +734,32 @@ pricing_body = f"""
         <a class="btn btn--ghost" href="mailto:{SITE['email']}?subject=Сеть%20клубов">Написать нам</a>
       </div>
     </div>
+    <p class="faint" style="font-size:var(--fs-sm);margin:var(--sp-4) 0 0">Цены в рублях, НДС не облагается.{" Продавец: " + seller_line() + "." if seller_line() else ""} Полные условия — в <a href="terms.html">публичной оферте</a>.</p>
+  </div>
+</section>
+<section class="sec band--sunken" id="pay">
+  <div class="wrap cols">
+    <div class="prose">
+      <h2 style="margin-top:0">Как оплатить</h2>
+      <ol>
+        <li>Войдите в личный кабинет по адресу электронной почты — пароль не нужен, придёт код.</li>
+        <li>Выберите тариф и число компьютеров.</li>
+        <li>Оплатите банковской картой (Мир, Visa, Mastercard) или через СБП. Чек придёт на почту.</li>
+        <li>Скопируйте код активации из кабинета и введите его в программе.</li>
+      </ol>
+      <p>Клубам выставляем счёт: оплата с расчётного счёта организации или ИП, закрывающие документы — по запросу.</p>
+      <h2 id="renew">Автопродление</h2>
+      <p>Подписка продлевается в последний день оплаченного периода по цене тарифа. За день до списания пришлём письмо. Отключить автопродление можно в личном кабинете в любой момент — доступ сохранится до конца оплаченного периода.</p>
+      <h2 id="refund">Возврат</h2>
+      <p>Если VELIQ не заработал на вашем компьютере, вернём деньги полностью в течение 14 дней после первой оплаты. Позже — за неиспользованные полные дни, если вы отказываетесь от подписки. Напишите на <a href="mailto:{SITE['email']}">{SITE['email']}</a>; деньги вернутся тем же способом, которым вы платили, обычно в течение 10 дней.</p>
+    </div>
+    <aside class="aside">
+      <div class="note">{icon('lock')}<div><strong>Безопасная оплата.</strong> Платёж проходит на защищённой странице платёжного сервиса {PAYMENT_AGENT}. Данные карты VELIQ не получает и не хранит.</div></div>
+    </aside>
   </div>
 </section>
 """
-page("pricing.html", "Цены", "Тарифы VELIQ для игроков и компьютерных клубов: что входит в каждый.", "pricing", pricing_body)
+page("pricing.html", "Цены", "Тарифы VELIQ для игроков и компьютерных клубов, оплата, автопродление и возврат.", "pricing", pricing_body)
 
 # ---------------------------------------------------------------- поддержка
 ERRORS = [
@@ -773,49 +811,144 @@ page("support.html", "Помощь и частые вопросы", "Ответ�
          {"@type": "Question", "name": q, "acceptedAnswer": {"@type": "Answer", "text": a.replace("<p>", "").replace("</p>", "")}} for q, a in SUPPORT_FAQ]})
 
 # ---------------------------------------------------------------- правовые
-DRAFT = f'<div class="note note--draft" style="margin-bottom:var(--sp-6)">{icon("alert")}<div><strong>Черновик.</strong> Текст подготовлен как основа и должен быть проверен юристом до публикации. Реквизиты владельца сервиса не указаны.</div></div>'
+DRAFT = "" if SELLER_READY and LOG_RETENTION else f'<div class="note note--draft" style="margin-bottom:var(--sp-6)">{icon("alert")}<div><strong>Черновик.</strong> Реквизиты продавца и сроки хранения данных будут указаны перед началом продаж.</div></div>'
+RETENTION = LOG_RETENTION or "[срок будет указан]"
+SELLER_BLOCK = f"""<ul>
+<li>Продавец: {SELLER['name'] or '[ФИО будет указано]'}</li>
+<li>Статус: {SELLER['status']}</li>
+<li>ИНН: {SELLER['inn'] or '[будет указан]'}</li>
+<li>Электронная почта: <a href="mailto:{SELLER['email']}">{SELLER['email']}</a></li>
+{f"<li>Телефон: {SELLER['phone']}</li>" if SELLER['phone'] else ""}
+</ul>"""
+
 privacy_body = f"""
-<section class="page-head"><div class="wrap"><div class="crumbs"><a href="index.html">Главная</a> / Конфиденциальность</div><h1 class="h1">Политика конфиденциальности</h1><p class="lede">Какие данные получает VELIQ, зачем и сколько их хранит.</p></div></section>
+<section class="page-head"><div class="wrap"><div class="crumbs"><a href="index.html">Главная</a> / Конфиденциальность</div><h1 class="h1">Политика конфиденциальности</h1><p class="lede">Какие данные получает VELIQ, зачем и сколько их хранит. Редакция от {OFFER_DATE}.</p></div></section>
 <section class="sec sec--tight"><div class="wrap prose">
 {DRAFT}
 <h2>Коротко</h2>
-<p>VELIQ направляет часть соединений через свои серверы, когда так открывается доступ или выходит быстрее. <strong>Мы не расшифровываем и не подменяем HTTPS</strong>: содержимое страниц, пароли и переписка серверу не видны.</p>
-<h2>Что видит сервер-релей</h2>
-<ul><li>Адрес и порт назначения, имя сайта из начала соединения (SNI).</li><li>Объём переданных данных и время соединения.</li><li>Ключ вашего устройства — чтобы пускать на сервер только установленные копии VELIQ.</li></ul>
-<p>Эти данные нужны, чтобы переслать трафик и защитить серверы от злоупотреблений. Срок хранения журналов соединений: [указать до публикации].</p>
-<h2>Что остаётся на компьютере</h2>
-<p>Настройки, список сервисов и журнал диагностики хранятся только на вашем компьютере. Отчёт диагностики отправляется нам, только если вы сами его пришлёте.</p>
-<h2>Что мы не делаем</h2>
-<ul><li>Не продаём и не передаём данные рекламным сетям.</li><li>Не показываем рекламу и не встраиваем её в страницы.</li></ul>
-<h2>Сайт</h2>
-<p>Сайт не использует счётчики и рекламные cookie. Выбор темы сохраняется только в вашем браузере. Проверка «Что у вас открывается» на главной отправляет пустые запросы к сайтам сервисов прямо из вашего браузера; её результат никуда не передаётся.</p>
-<h2>Связь</h2>
-<p>Вопросы о данных — на <a href="mailto:{SITE['email']}">{SITE['email']}</a>.</p>
+<p>VELIQ направляет часть соединений через свои серверы, когда так быстрее или стабильнее. <strong>Мы не расшифровываем и не подменяем HTTPS</strong>: содержимое страниц, пароли и переписка серверу не видны. Мы собираем только то, без чего сервис не работает, и не продаём данные.</p>
+<h2>1. Кто обрабатывает данные</h2>
+<p>Оператор персональных данных — продавец сервиса VELIQ:</p>
+{SELLER_BLOCK}
+<p>Политика составлена в соответствии с Федеральным законом от 27.07.2006 № 152-ФЗ «О персональных данных».</p>
+<h2>2. Какие данные и зачем</h2>
+<ul>
+<li><strong>Адрес электронной почты</strong> — чтобы вы могли войти в личный кабинет, получать чеки и письма о подписке.</li>
+<li><strong>Данные о подписке и платежах</strong>: тариф, число компьютеров, срок, сумма и статус платежа — чтобы предоставлять оплаченный доступ и выполнять требования налогового учёта.</li>
+<li><strong>Данные устройства</strong>: ключ устройства, обезличенный идентификатор компьютера (необратимый хеш), версия программы, время последнего подключения — чтобы пускать на серверы только активированные копии VELIQ и считать занятые места.</li>
+<li><strong>Технические данные соединений</strong>, которые проходят через серверы VELIQ: адрес и порт назначения, имя сайта из начала соединения, объём данных и время — чтобы переслать трафик и защитить серверы от злоупотреблений.</li>
+<li><strong>Обращения в поддержку</strong> и отчёты диагностики, если вы сами их прислали.</li>
+</ul>
+<p>Данные банковской карты получает и обрабатывает платёжный сервис {PAYMENT_AGENT}. VELIQ их не получает и не хранит.</p>
+<h2>3. Основания</h2>
+<p>Данные обрабатываются для заключения и исполнения договора, в котором вы — сторона (п. 5 ч. 1 ст. 6 152-ФЗ), и для исполнения требований закона (налоговый учёт, чеки).</p>
+<h2>4. Сроки хранения</h2>
+<ul>
+<li>Аккаунт и данные подписки — пока аккаунт существует и ещё 3 года после его удаления (налоговый учёт).</li>
+<li>Журналы соединений на серверах — {RETENTION}.</li>
+<li>Обращения в поддержку — 1 год.</li>
+</ul>
+<h2>5. Кому передаём</h2>
+<p>Только тем, без кого сервис не работает: платёжному сервису — для приёма оплаты, почтовому сервису — для отправки писем, хостинг-провайдерам — на их оборудовании работают серверы VELIQ. Часть серверов может находиться за пределами России. Мы не продаём данные и не передаём их рекламным сетям. Данные раскрываются государственным органам только в случаях, прямо предусмотренных законом.</p>
+<h2>6. Ваши права</h2>
+<p>Вы можете узнать, какие ваши данные мы храним, исправить их или потребовать удалить аккаунт — напишите на <a href="mailto:{SITE['email']}">{SITE['email']}</a> с адреса, к которому привязан аккаунт. Ответим в течение 10 рабочих дней. Удаление аккаунта прекращает подписку.</p>
+<h2>7. Что остаётся на компьютере</h2>
+<p>Настройки, список сервисов и журнал диагностики хранятся только на вашем компьютере. Отчёт диагностики мы получаем, только если вы сами его пришлёте.</p>
+<h2>8. Сайт и cookie</h2>
+<p>Сайт не использует счётчики и рекламные cookie. Выбор темы сохраняется только в вашем браузере. Личный кабинет использует одну служебную cookie, чтобы вы оставались в нём после входа.</p>
+<h2>9. Изменения</h2>
+<p>Новая редакция публикуется на этой странице с датой. Если изменения существенные, сообщим письмом.</p>
 </div></section>
 """
-page("privacy.html", "Политика конфиденциальности", "Какие данные получает VELIQ: HTTPS не расшифровывается, содержимое страниц серверу не видно.", "", privacy_body)
+page("privacy.html", "Политика конфиденциальности", "Какие данные получает VELIQ, зачем и сколько хранит. HTTPS не расшифровывается, данные не продаются.", "", privacy_body)
 
 terms_body = f"""
-<section class="page-head"><div class="wrap"><div class="crumbs"><a href="index.html">Главная</a> / Условия</div><h1 class="h1">Условия использования</h1><p class="lede">Правила, на которых предоставляется VELIQ.</p></div></section>
+<section class="page-head"><div class="wrap"><div class="crumbs"><a href="index.html">Главная</a> / Оферта</div><h1 class="h1">Публичная оферта</h1><p class="lede">Договор на предоставление доступа к сервису VELIQ. Редакция от {OFFER_DATE}.</p></div></section>
 <section class="sec sec--tight"><div class="wrap prose">
 {DRAFT}
-<h2>1. Что такое VELIQ</h2>
-<p>VELIQ — программа для Windows, которая выбирает маршрут для соединений компьютера: через серверы VELIQ или обычным путём, в зависимости от того, что обеспечивает доступ и меньшую задержку.</p>
-<h2>2. Бета-версия</h2>
-<p>Сейчас программа в бета-версии. Она может работать с перебоями, а функции — меняться. Мы предупреждаем об изменениях в программе и на сайте.</p>
-<h2>3. Допустимое использование</h2>
-<p>Запрещено использовать VELIQ для рассылки спама, атак на чужие сети и сервисы, распространения вредоносных программ и любых действий, нарушающих закон. При нарушении доступ устройства к серверам может быть закрыт.</p>
-<h2>4. Ответственность</h2>
-<p>Мы стараемся, чтобы серверы работали без перерывов, но не гарантируем доступность сторонних сервисов: их работа от нас не зависит.</p>
-<h2>5. Оплата</h2>
-<p>Условия оплаты появятся вместе с тарифами на странице <a href="pricing.html">«Цены»</a>.</p>
-<h2>6. Изменения условий</h2>
-<p>Новая редакция публикуется на этой странице с датой вступления в силу.</p>
-<h2>7. Связь</h2>
-<p><a href="mailto:{SITE['email']}">{SITE['email']}</a></p>
+<p>{SELLER['name'] or '[ФИО продавца]'}, {SELLER['status']}, ИНН {SELLER['inn'] or '[ИНН]'} (далее — Исполнитель), предлагает любому лицу (далее — Пользователь) заключить договор на условиях ниже. Это публичная оферта по ст. 437 Гражданского кодекса РФ.</p>
+<h2>1. Термины</h2>
+<ul>
+<li><strong>Сервис</strong> — программа VELIQ для Windows и серверы Исполнителя. Программа выбирает маршрут для сетевых соединений компьютера — через серверы Исполнителя или обычным путём — чтобы снизить задержку и повысить стабильность соединений в онлайн-играх и других онлайн-сервисах.</li>
+<li><strong>Подписка</strong> — оплаченный доступ к Сервису на определённый срок для определённого числа компьютеров (мест).</li>
+<li><strong>Личный кабинет</strong> — раздел сайта {SITE['url']}, где Пользователь управляет подпиской, местами и оплатой.</li>
+<li><strong>Код активации</strong> — код, который связывает компьютер с подпиской.</li>
+</ul>
+<h2>2. Предмет договора</h2>
+<p>Исполнитель предоставляет Пользователю доступ к Сервису на срок Подписки и для числа компьютеров, указанных в выбранном тарифе, а Пользователь оплачивает его. Программа предоставляется по простой неисключительной лицензии на срок Подписки.</p>
+<h2>3. Акцепт</h2>
+<p>Оплата Подписки означает полное и безоговорочное принятие этой оферты (п. 3 ст. 438 ГК РФ). Договор действует до окончания оплаченного периода и продлевается при каждой следующей оплате.</p>
+<h2>4. Стоимость и оплата</h2>
+<ul>
+<li>Цены указаны на странице <a href="pricing.html">«Цены»</a> в рублях. НДС не облагается: Исполнитель применяет налог на профессиональный доход.</li>
+<li>Оплата — банковской картой или через СБП на платёжной странице {PAYMENT_AGENT}, либо по счёту для организаций и ИП.</li>
+<li>После оплаты Исполнитель формирует чек в приложении «Мой налог» и направляет его на электронную почту Пользователя.</li>
+<li>Изменение цен не затрагивает уже оплаченный период. О новой цене для автопродления сообщим письмом не позднее чем за 7 дней.</li>
+</ul>
+<h2>5. Автопродление</h2>
+<ul>
+<li>Если при оплате Пользователь включил автопродление, Подписка продлевается на следующий период списанием с сохранённого способа оплаты в последний день оплаченного периода.</li>
+<li>За 1 день до списания Исполнитель направляет письмо с суммой и датой.</li>
+<li>Автопродление отключается в Личном кабинете в любой момент; доступ сохраняется до конца оплаченного периода.</li>
+<li>Если списание не прошло, Исполнитель может повторить его в течение 3 дней. После этого доступ приостанавливается до оплаты.</li>
+</ul>
+<h2>6. Как предоставляется доступ</h2>
+<ul>
+<li>Доступ открывается сразу после поступления оплаты: в Личном кабинете появляется Код активации.</li>
+<li>Пользователь сам освобождает места в Личном кабинете, если меняет компьютер.</li>
+<li>Когда Подписка закончилась, программа перестаёт использовать серверы Исполнителя и оптимизировать соединения. Интернет на компьютере продолжает работать как без программы.</li>
+<li>Исполнитель может проводить плановые работы на серверах, по возможности заранее предупреждая о них.</li>
+</ul>
+<h2>7. Возврат</h2>
+<ul>
+<li>Если Сервис не заработал на компьютере Пользователя, Исполнитель возвращает оплату полностью по заявке, направленной в течение 14 дней после первой оплаты.</li>
+<li>Пользователь может отказаться от Подписки в любой момент; Исполнитель возвращает оплату за неиспользованные полные дни (ст. 32 Закона РФ «О защите прав потребителей»).</li>
+<li>Заявка — на <a href="mailto:{SITE['email']}">{SITE['email']}</a> с адреса, к которому привязан аккаунт. Деньги возвращаются тем же способом, которым была оплата, в течение 10 рабочих дней.</li>
+</ul>
+<h2>8. Правила использования</h2>
+<ul>
+<li>Пользователь обязуется соблюдать законодательство РФ и не использовать Сервис для рассылки спама, атак на сети и сервисы, распространения вредоносных программ, мошенничества и иных противоправных действий.</li>
+<li>Нельзя передавать Код активации третьим лицам сверх оплаченного числа мест, перепродавать доступ, изучать или изменять программу в обход её защиты.</li>
+<li>При нарушении Исполнитель вправе приостановить доступ, предварительно уведомив Пользователя по электронной почте, если нарушение не требует немедленной остановки.</li>
+</ul>
+<h2>9. Ответственность</h2>
+<ul>
+<li>Исполнитель отвечает за работу своих серверов и программы. Работа сторонних сайтов, игр, игровых серверов и интернет-провайдера от Исполнителя не зависит.</li>
+<li>Снижение задержки зависит от провайдера и расположения игрового сервера; Исполнитель не гарантирует конкретное значение пинга.</li>
+<li>Если доступ к Сервису отсутствовал по вине Исполнителя более 24 часов подряд, срок Подписки продлевается на это время по заявке Пользователя.</li>
+<li>Ответственность Исполнителя ограничена суммой, уплаченной за текущий период, кроме случаев, когда ограничение запрещено законом.</li>
+</ul>
+<h2>10. Персональные данные</h2>
+<p>Исполнитель обрабатывает данные Пользователя по <a href="privacy.html">политике конфиденциальности</a>. Принимая оферту, Пользователь соглашается с ней.</p>
+<h2>11. Изменение оферты и споры</h2>
+<p>Новая редакция публикуется на этой странице и действует для новых оплат. Споры решаются переговорами; претензию нужно направить на электронную почту, ответ — в течение 10 рабочих дней. Если договориться не удалось — в суде по законодательству РФ.</p>
+<h2>12. Реквизиты Исполнителя</h2>
+{SELLER_BLOCK}
 </div></section>
 """
-page("terms.html", "Условия использования", "Условия использования программы VELIQ.", "", terms_body)
+page("terms.html", "Публичная оферта", "Условия предоставления доступа к VELIQ: оплата, автопродление, возврат, ответственность.", "", terms_body)
+
+contacts_body = f"""
+<section class="page-head"><div class="wrap"><div class="crumbs"><a href="index.html">Главная</a> / Контакты</div><h1 class="h1">Контакты и реквизиты</h1><p class="lede">Как с нами связаться и кто продаёт VELIQ.</p></div></section>
+<section class="sec sec--tight"><div class="wrap cols">
+  <div class="prose">
+    {DRAFT if not SELLER_READY else ""}
+    <h2>Связь</h2>
+    <p>Поддержка, вопросы об оплате и возврате, заявки клубов — <a href="mailto:{SITE['email']}">{SITE['email']}</a>{f", {SELLER['phone']}" if SELLER['phone'] else ""}. Отвечаем в течение рабочего дня.</p>
+    <h2>Реквизиты</h2>
+    {SELLER_BLOCK}
+    <p>Документы: <a href="terms.html">публичная оферта</a>, <a href="privacy.html">политика конфиденциальности</a>, <a href="pricing.html#refund">условия возврата</a>.</p>
+  </div>
+  <aside class="aside">
+    <div class="card">
+      <h2 class="h3" style="margin-bottom:10px">Нужна помощь с программой?</h2>
+      <p class="muted" style="margin:0 0 16px;font-size:var(--fs-sm)">Ответы на частые вопросы и решения ошибок — на странице помощи.</p>
+      <a class="btn btn--sm btn--ghost" href="support.html">Помощь</a>
+    </div>
+  </aside>
+</div></section>
+"""
+page("contacts.html", "Контакты и реквизиты", "Контакты поддержки VELIQ и реквизиты продавца.", "", contacts_body)
 
 nf_body = f"""
 <section class="center-stack"><div class="wrap">
@@ -834,14 +967,14 @@ ROADMAP_UPDATED = "25 октября 2026"
 # без «образа», без непроверенных обещаний (качество видео, сроки). Сервисы — только как примеры.
 ROADMAP = [
     ("done", "Готово", "Работает в бета-версии", [
-        "Заблокированные сервисы снова работают через собственную сеть серверов VELIQ — например, Telegram, ChatGPT и другие",
-        "YouTube в высоком качестве",
+        "Стабильная связь для онлайн-сервисов через собственную сеть серверов VELIQ",
+        "Стримы и видео в высоком качестве без подвисаний",
         "Обычные сайты идут как обычно, без лишних задержек",
         "Ничего не нужно перезапускать: маршруты подхватываются сразу",
         "Собственные серверы с быстрым каналом",
     ]),
     ("now", "Сейчас", "Делаем сейчас", [
-        "Обход блокировок прямо на компьютере, без сервера — быстрее и стабильнее",
+        "Оптимизация соединений прямо на компьютере, без сервера — быстрее и стабильнее",
         "Игры: оптимальный маршрут и проверка в реальных матчах",
         "Автоматическое переключение на резервный сервер",
         "Установщик одним файлом",
@@ -849,7 +982,7 @@ ROADMAP = [
     ("next", "Дальше", "Следующие шаги", [
         "Версия для клубов: один код активации на все компьютеры клуба",
         "Пилот в компьютерном клубе",
-        "Тарифы и оплата",
+        "Личный кабинет и оплата онлайн",
         "Версия для телефона",
     ]),
 ]
@@ -887,7 +1020,7 @@ roadmap_body = f"""
 page("roadmap.html", "План развития", "Что VELIQ уже умеет, над чем работаем сейчас и что будет дальше.", "", roadmap_body)
 
 # ---------------------------------------------------------------- служебные файлы
-pages = ["", "vpn.html", "download.html", "clubs.html", "pricing.html", "support.html", "privacy.html", "terms.html", "roadmap.html"]
+pages = ["", "vpn.html", "download.html", "clubs.html", "pricing.html", "support.html", "privacy.html", "terms.html", "contacts.html", "roadmap.html"]
 (OUT / "sitemap.xml").write_text(
     '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
     + "".join(f"  <url><loc>{SITE['url']}/{p}</loc></url>\n" for p in pages) + "</urlset>\n", encoding="utf-8")
