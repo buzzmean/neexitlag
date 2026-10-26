@@ -3,23 +3,23 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Чем VELIQ отличается от VPN — VELIQ</title>
-  <meta name="description" content="VPN отправляет весь трафик через один сервер. VELIQ выбирает путь для каждого соединения: игры получают самый быстрый маршрут, голосовые чаты — стабильный, остальное работает как обычно.">
-  <link rel="canonical" href="https://veliq.app/vpn.html">
+  <title>Как работает VELIQ — VELIQ</title>
+  <meta name="description" content="VELIQ замеряет пути и для каждого соединения выбирает лучший: игры получают самый быстрый маршрут, голосовые чаты — стабильный, остальное работает как обычно.">
+  <link rel="canonical" href="https://veliq.app/how.html">
   <meta name="theme-color" content="#0A0A0B">
   <meta name="color-scheme" content="light dark">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="VELIQ">
   <meta property="og:locale" content="ru_RU">
-  <meta property="og:title" content="Чем VELIQ отличается от VPN — VELIQ">
-  <meta property="og:description" content="VPN отправляет весь трафик через один сервер. VELIQ выбирает путь для каждого соединения: игры получают самый быстрый маршрут, голосовые чаты — стабильный, остальное работает как обычно.">
-  <meta property="og:url" content="https://veliq.app/vpn.html">
-  <meta property="og:image" content="https://veliq.app/assets/img/og-vpn.png">
+  <meta property="og:title" content="Как работает VELIQ — VELIQ">
+  <meta property="og:description" content="VELIQ замеряет пути и для каждого соединения выбирает лучший: игры получают самый быстрый маршрут, голосовые чаты — стабильный, остальное работает как обычно.">
+  <meta property="og:url" content="https://veliq.app/how.html">
+  <meta property="og:image" content="https://veliq.app/assets/img/og-image.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
-  <meta property="og:image:alt" content="Не VPN: VELIQ строит свой путь для каждого соединения.">
+  <meta property="og:image:alt" content="VELIQ: нажал — работает.">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:image" content="https://veliq.app/assets/img/og-vpn.png">
+  <meta name="twitter:image" content="https://veliq.app/assets/img/og-image.png">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
   <link rel="icon" href="assets/img/favicon.ico" sizes="any">
   <link rel="apple-touch-icon" href="assets/img/app-icon-180.png">
@@ -40,7 +40,7 @@
       <img class="on-dark" src="assets/img/veliq-wordmark-dark.svg" alt="" width="144" height="66">
     </a>
     <nav class="nav" id="nav" aria-label="Основное меню">
-      <a href="vpn.html" aria-current="page">Как работает</a>
+      <a href="how.html" aria-current="page">Как работает</a>
       <a href="index.html#games">Игры</a>
       <a href="clubs.html">Клубам</a>
       <a href="pricing.html">Цены</a>
@@ -59,9 +59,9 @@
 
 <section class="page-head">
   <div class="wrap">
-    <div class="crumbs"><a href="index.html">Главная</a> / Отличие от VPN</div>
-    <h1 class="h1" style="max-width:16ch">Чем VELIQ отличается от VPN</h1>
-    <p class="lede">VPN отправляет весь трафик через один сервер. VELIQ выбирает путь для каждого соединения отдельно — поэтому игры и голосовые чаты получают лучший путь, а остальное не замедляется.</p>
+    <div class="crumbs"><a href="index.html">Главная</a> / Как работает</div>
+    <h1 class="h1" style="max-width:16ch">Как работает VELIQ</h1>
+    <p class="lede">Обычно все соединения компьютера идут одним путём, который выбрал провайдер. VELIQ замеряет пути и для каждого соединения выбирает лучший — поэтому игры получают быстрый путь, голосовые чаты и стримы — стабильный, а остальное не замедляется.</p>
   </div>
 </section>
 
@@ -69,18 +69,18 @@
   <div class="wrap">
     <div class="flows">
       <figure class="flows__panel">
-        <figcaption><h2 class="h3">Обычный VPN</h2><span class="faint">один путь для всего</span></figcaption>
+        <figcaption><h2 class="h3">Без VELIQ</h2><span class="faint">один путь для всего</span></figcaption>
         <div class="flow flow--vpn" data-trace>
-<div class="flow__src">Вы</div><div class="flow__hub">Сервер VPN</div>
+<div class="flow__src">Вы</div><div class="flow__hub">Провайдер</div>
 <span class="flow__a" style="grid-row:1"></span><span class="flow__b" style="grid-row:1"></span><span class="flow__dst" style="grid-row:1">Онлайн-игра</span>
 <span class="flow__a" style="grid-row:2"></span><span class="flow__b" style="grid-row:2"></span><span class="flow__dst" style="grid-row:2">Голосовой чат</span>
 <span class="flow__a" style="grid-row:3"></span><span class="flow__b" style="grid-row:3"></span><span class="flow__dst" style="grid-row:3">Обычный сайт</span>
 <span class="flow__a" style="grid-row:4"></span><span class="flow__b" style="grid-row:4"></span><span class="flow__dst" style="grid-row:4">Банк</span>
 </div>
-<p class="flow__cap">Весь трафик идёт через один сервер — даже то, что прекрасно работало без него.</p>
+<p class="flow__cap">Все соединения идут одним путём, который выбрал провайдер, — даже если до игрового сервера есть путь короче.</p>
       </figure>
       <figure class="flows__panel flows__panel--main">
-        <figcaption><h2 class="h3">VELIQ</h2><span class="faint">свой путь для каждого соединения</span></figcaption>
+        <figcaption><h2 class="h3">С VELIQ</h2><span class="faint">свой путь для каждого соединения</span></figcaption>
         <div class="flow flow--veliq" data-trace>
 <div class="flow__src">Вы</div>
 <span class="flow__a is-sig" style="grid-row:1"></span><span class="flow__node" style="grid-row:1">быстрый путь</span><span class="flow__b is-sig" style="grid-row:1"></span><span class="flow__dst" style="grid-row:1">Онлайн-игра</span>
@@ -96,21 +96,19 @@
 
 <section class="sec band--sunken">
   <div class="wrap">
-    <div class="sec__head"><h2 class="h2">По пунктам</h2><p>Как это ощущается в обычный день: в браузере, в игре, когда сервер перестал отвечать.</p></div>
+    <div class="sec__head"><h2 class="h2">По пунктам</h2><p>Как это ощущается в обычный день: в игре, в голосовом чате, когда путь стал хуже.</p></div>
     <div class="vs-wrap">
       <table class="vs">
-        <thead><tr><th scope="col"><span class="sr-only">Что сравниваем</span></th><th scope="col">Обычный VPN</th><th scope="col" class="vs__us">VELIQ</th></tr></thead>
+        <thead><tr><th scope="col"><span class="sr-only">Что сравниваем</span></th><th scope="col">Без VELIQ</th><th scope="col" class="vs__us">С VELIQ</th></tr></thead>
         <tbody>
-<tr><th scope="row">Какой трафик идёт через сервер</th><td data-l="Обычный VPN">Весь</td><td data-l="VELIQ" class="vs__us">Только тот, которому это нужно</td></tr>
-<tr><th scope="row">Сайты и приложения, которые и так работают</th><td data-l="Обычный VPN">Тоже идут через сервер и могут замедлиться</td><td data-l="VELIQ" class="vs__us">Работают как обычно</td></tr>
-<tr><th scope="row">Онлайн-игры</th><td data-l="Обычный VPN">Путь через выбранный сервер, даже если он дольше</td><td data-l="VELIQ" class="vs__us">Самый быстрый путь до игрового сервера</td></tr>
-<tr><th scope="row">Выбор сервера</th><td data-l="Обычный VPN">Обычно вручную</td><td data-l="VELIQ" class="vs__us">Сам, для каждого соединения</td></tr>
-<tr><th scope="row">Если сервер перестал отвечать</th><td data-l="Обычный VPN">Пропадает всё или нужно переключаться</td><td data-l="VELIQ" class="vs__us">Перестраивает маршрут через другой</td></tr>
-<tr><th scope="row">Что нужно сделать</th><td data-l="Обычный VPN">Выбрать сервер, иногда перезапустить приложения</td><td data-l="VELIQ" class="vs__us">Нажать одну кнопку</td></tr>
+<tr><th scope="row">Онлайн-игры</th><td data-l="Без VELIQ">Путь выбирает провайдер, даже если он длиннее</td><td data-l="С VELIQ" class="vs__us">Самый быстрый путь до игрового сервера</td></tr>
+<tr><th scope="row">Голосовые чаты и стримы</th><td data-l="Без VELIQ">Обрывы и подвисания на загруженных участках сети</td><td data-l="С VELIQ" class="vs__us">Стабильный путь, в том числе через собственные серверы</td></tr>
+<tr><th scope="row">Сайты, которые и так работают</th><td data-l="Без VELIQ">Как обычно</td><td data-l="С VELIQ" class="vs__us">Как обычно — VELIQ их не трогает</td></tr>
+<tr><th scope="row">Если путь стал хуже</th><td data-l="Без VELIQ">Ничего не меняется</td><td data-l="С VELIQ" class="vs__us">Маршрут перестраивается сам</td></tr>
+<tr><th scope="row">Что нужно сделать</th><td data-l="Без VELIQ">—</td><td data-l="С VELIQ" class="vs__us">Нажать одну кнопку</td></tr>
         </tbody>
       </table>
     </div>
-    <p class="faint" style="font-size:var(--fs-sm);margin:var(--sp-4) 0 0">Сравнение с типичным VPN-приложением. Некоторые VPN умеют исключать отдельные приложения, но это настраивается вручную.</p>
   </div>
 </section>
 
@@ -171,7 +169,7 @@
       </div>
       <div>
         <h2>Продукт</h2>
-        <ul><li><a href="download.html">Скачать</a></li><li><a href="index.html#how">Как работает</a></li><li><a href="vpn.html">Отличие от VPN</a></li><li><a href="index.html#privacy">Что видит сервер</a></li><li><a href="index.html#games">Для игр</a></li><li><a href="pricing.html">Цены</a></li><li><a href="roadmap.html">План развития</a></li></ul>
+        <ul><li><a href="download.html">Скачать</a></li><li><a href="how.html">Как работает</a></li><li><a href="index.html#privacy">Что видит сервер</a></li><li><a href="index.html#games">Для игр</a></li><li><a href="pricing.html">Цены</a></li><li><a href="roadmap.html">План развития</a></li></ul>
       </div>
       <div>
         <h2>Клубам</h2>
