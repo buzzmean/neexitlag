@@ -72,15 +72,16 @@ public sealed partial class DesktopViewModel : Observable
 {
     readonly IServiceClient client; readonly SemaphoreSlim gate = new(1, 1); public Snapshot? Snapshot
     {
-        get; private set;
+        get => snapshot; private set { snapshot = value; HealthChanged(); }
     }
+    Snapshot? snapshot;
     bool available, busy; string connection = Text.Get("Connecting"), error = "", notice = "";
     public bool Available
     {
         get => available; private set
         {
             if (Set(ref available, value))
-                Changed(nameof(CanControl));
+            { Changed(nameof(CanControl)); HealthChanged(); }
         }
     }
     public bool Busy

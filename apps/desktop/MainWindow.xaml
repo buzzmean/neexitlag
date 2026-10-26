@@ -53,7 +53,6 @@
         <TextBlock Text="{ui:Tr NowViaVeliq}" Style="{StaticResource Caption}"/>
         <TextBlock Text="{Binding ActiveApps}" TextWrapping="Wrap" FontWeight="Medium" Margin="0,6,0,0"/>
         <TextBlock Text="{Binding BrowserReadinessText}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,6,0,0" Visibility="{Binding Optimizing, Converter={StaticResource BoolToVisible}}"/>
-        <TextBlock Text="{ui:Tr MeasurementsHint}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,10,0,0"/>
        </StackPanel>
       </Border>
       <Button Style="{StaticResource GoButton}" Click="ToggleOptimize" IsEnabled="{Binding CanControl}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,20" AutomationProperties.Name="{Binding OptimizeLabel}">
@@ -81,29 +80,30 @@
      <StackPanel DockPanel.Dock="Top">
       <WrapPanel>
        <Button Style="{StaticResource Primary}" Click="AddApplication" IsEnabled="{Binding CanControl}"><StackPanel Orientation="Horizontal"><Path Data="{StaticResource IconPlus}" Width="16" Height="16" Stretch="Uniform" Stroke="{StaticResource OnControl}" StrokeThickness="1.75" Margin="0,0,8,0"/><TextBlock Text="{ui:Tr AddApplication}" Foreground="{StaticResource OnControl}"/></StackPanel></Button>
-       <Button Content="{ui:Tr AutoOptimize}" Click="UseAuto" IsEnabled="{Binding CanControl}"/>
-       <Button Content="{ui:Tr GameUdpEnable}" Click="EnableSelectedGameUdp" IsEnabled="{Binding CanControl}"/>
+       <Button Content="{ui:Tr AutoOptimize}" Click="UseAuto" IsEnabled="{Binding CanControl}" Visibility="{Binding ShowTechnical, Converter={StaticResource BoolToVisible}}"/>
+       <Button Content="{ui:Tr GameUdpEnable}" Click="EnableSelectedGameUdp" IsEnabled="{Binding CanControl}" Visibility="{Binding ShowTechnical, Converter={StaticResource BoolToVisible}}"/>
        <Button Content="{ui:Tr RemoveApplication}" Click="DeleteApplication" IsEnabled="{Binding CanControl}"/>
       </WrapPanel>
-      <Expander x:Name="AppAdvanced" Header="{ui:Tr AdvancedDiagnostics}"><StackPanel>
+      <!-- Route for the selected row; fallback and a fixed server are technical choices. -->
+      <WrapPanel>
+       <ComboBox x:Name="Mode" ItemsSource="{Binding Modes}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedIndex="0" SelectionChanged="ModeChanged" MinWidth="180"/>
+       <ComboBox x:Name="ProfileFallback" ItemsSource="{Binding ProfileFallbacks}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedIndex="0" Visibility="{Binding ShowTechnical, Converter={StaticResource BoolToVisible}}"/>
+       <ComboBox x:Name="RelayChoice" ItemsSource="{Binding Relays}" DisplayMemberPath="Label" SelectedValuePath="Value" MinWidth="190" IsEnabled="False" Visibility="{Binding ShowTechnical, Converter={StaticResource BoolToVisible}}"/>
+       <Button Content="{ui:Tr Apply}" Click="ApplyMode" IsEnabled="{Binding CanControl}" VerticalAlignment="Center"/>
+      </WrapPanel>
+      <Expander x:Name="AppAdvanced" Header="{ui:Tr AdvancedDiagnostics}" Visibility="{Binding ShowTechnical, Converter={StaticResource BoolToVisible}}"><StackPanel>
        <WrapPanel>
         <Button Content="{ui:Tr ChromeSites}" Click="OpenChromeSites" IsEnabled="{Binding CanControl}"/>
         <Button Content="{ui:Tr DisableChromeSites}" Click="DisableChromeSites"/>
         <Button Content="{ui:Tr EdgeSites}" Click="OpenEdgeSites" IsEnabled="{Binding CanControl}"/>
         <Button Content="{ui:Tr DisableEdgeSites}" Click="DisableEdgeSites" IsEnabled="{Binding CanControl}"/>
        </WrapPanel>
-       <WrapPanel>
-        <ComboBox x:Name="Mode" ItemsSource="{Binding Modes}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedIndex="0" SelectionChanged="ModeChanged"/>
-        <ComboBox x:Name="ProfileFallback" ItemsSource="{Binding ProfileFallbacks}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedIndex="0"/>
-        <ComboBox x:Name="RelayChoice" ItemsSource="{Binding Relays}" DisplayMemberPath="Label" SelectedValuePath="Value" MinWidth="190" IsEnabled="False"/>
-        <Button Content="{ui:Tr Apply}" Click="ApplyMode" IsEnabled="{Binding CanControl}" VerticalAlignment="Center"/>
-       </WrapPanel>
        <WrapPanel><ComboBox x:Name="AppPreset" DisplayMemberPath="Label" SelectedValuePath="Id" MinWidth="180"/><CheckBox x:Name="AppQuic" IsChecked="True" Content="{ui:Tr QuicFallback}" VerticalAlignment="Center"/><Button Content="{ui:Tr ApplyPreset}" Click="ApplyPreset" IsEnabled="{Binding CanControl}" VerticalAlignment="Center"/></WrapPanel>
        <TextBlock Text="{ui:Tr ApplicationSelectionHint}" Style="{StaticResource Hint}"/>
        <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto"><ItemsControl ItemsSource="{Binding Applications}"><ItemsControl.ItemTemplate><DataTemplate><StackPanel Margin="4"><TextBlock Text="{Binding Name}" FontWeight="SemiBold"/><TextBlock Text="{Binding LocalDetails}" TextWrapping="Wrap" Style="{StaticResource Hint}"/></StackPanel></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></ScrollViewer>
       </StackPanel></Expander>
      </StackPanel>
-     <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+     <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0" Visibility="{Binding ShowTechnical, Converter={StaticResource BoolToVisible}}">
       <Expander Header="{ui:Tr GameUdpTitle}"><StackPanel><TextBlock Text="{ui:Tr GameUdpHint}" TextWrapping="Wrap" Style="{StaticResource Hint}"/>
        <ScrollViewer MaxHeight="200"><ItemsControl ItemsSource="{Binding GameUdpProfiles}"><ItemsControl.ItemTemplate><DataTemplate><Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="{Binding Name}" FontWeight="SemiBold"/><TextBlock Text="{Binding Summary}" TextWrapping="Wrap" Style="{StaticResource Small}" Margin="0,4,0,8"/><Button Content="{Binding ButtonLabel}" Click="ToggleGameUdp" HorizontalAlignment="Left" Margin="0"/></StackPanel></Border></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></ScrollViewer>
       </StackPanel></Expander>
@@ -119,7 +119,7 @@
       <DataGridTextColumn Header="{ui:Tr Executable}" Binding="{Binding Path}" Width="2*"/>
       <DataGridTextColumn Header="{ui:Tr Mode}" Binding="{Binding Mode}" Width="120"/>
       <DataGridTextColumn Header="{ui:Tr ProcessStatus}" Binding="{Binding ProcessStatus}" Width="130"/>
-      <DataGridTextColumn Header="{ui:Tr CurrentRoute}" Binding="{Binding UserStatus}" Width="250"/>
+      <DataGridTextColumn Header="{ui:Tr CurrentRoute}" Binding="{Binding UserStatus}" Width="*"/>
       <DataGridTextColumn Header="{ui:Tr UdpTraffic}" Binding="{Binding Udp}" Width="130" Visibility="Collapsed"/>
       <DataGridTextColumn Header="{ui:Tr TcpTraffic}" Binding="{Binding Tcp}" Width="130" Visibility="Collapsed"/>
       <DataGridTextColumn Header="{ui:Tr IPv4Label}" Binding="{Binding Ipv4}" Width="130" Visibility="Collapsed"/>
@@ -130,7 +130,21 @@
 
     <!-- ============ Диагностика: проверка, маршруты, статистика, локальные стратегии ============ -->
     <DockPanel x:Name="Diagnostics" Visibility="Collapsed">
-     <DockPanel DockPanel.Dock="Top" Margin="0,0,0,16" LastChildFill="False">
+     <!-- Plain verdict for everyone; the technical tabs below appear only with «Технические детали» on. -->
+     <ScrollViewer DockPanel.Dock="Top" VerticalScrollBarVisibility="Auto" Visibility="{Binding ShowTechnical, Converter={StaticResource BoolToCollapsed}}"><StackPanel MaxWidth="640" HorizontalAlignment="Left">
+      <Border Style="{StaticResource PanelBox}" Padding="18,16" Margin="0,0,0,16"><StackPanel>
+       <StackPanel Orientation="Horizontal"><Ellipse Width="10" Height="10" VerticalAlignment="Center" Margin="0,0,10,0"><Ellipse.Style><Style TargetType="Ellipse"><Setter Property="Fill" Value="{StaticResource TextFaint}"/><Style.Triggers><DataTrigger Binding="{Binding HealthLevel}" Value="Ok"><Setter Property="Fill" Value="{StaticResource Ok}"/></DataTrigger><DataTrigger Binding="{Binding HealthLevel}" Value="Warning"><Setter Property="Fill" Value="{StaticResource Warn}"/></DataTrigger><DataTrigger Binding="{Binding HealthLevel}" Value="Problem"><Setter Property="Fill" Value="{StaticResource Danger}"/></DataTrigger></Style.Triggers></Style></Ellipse.Style></Ellipse><TextBlock Text="{Binding HealthTitle}" FontSize="20" FontWeight="SemiBold"/></StackPanel>
+       <TextBlock Text="{Binding HealthAdvice}" Style="{StaticResource Small}" Margin="20,6,0,0" Visibility="{Binding HealthAdvice, Converter={StaticResource EmptyToCollapsed}}"/>
+      </StackPanel></Border>
+      <Border Style="{StaticResource PanelBox}" Margin="0,0,0,16"><ItemsControl x:Name="HealthRows" ItemsSource="{Binding Health}"><ItemsControl.ItemTemplate><DataTemplate>
+       <Border Style="{StaticResource SetRow}"><DockPanel><StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><Ellipse Width="10" Height="10" VerticalAlignment="Center" Margin="0,0,10,0"><Ellipse.Style><Style TargetType="Ellipse"><Setter Property="Fill" Value="{StaticResource TextFaint}"/><Style.Triggers><DataTrigger Binding="{Binding Level}" Value="Ok"><Setter Property="Fill" Value="{StaticResource Ok}"/></DataTrigger><DataTrigger Binding="{Binding Level}" Value="Warning"><Setter Property="Fill" Value="{StaticResource Warn}"/></DataTrigger><DataTrigger Binding="{Binding Level}" Value="Problem"><Setter Property="Fill" Value="{StaticResource Danger}"/></DataTrigger></Style.Triggers></Style></Ellipse.Style></Ellipse><TextBlock Text="{Binding State}" Foreground="{StaticResource TextMuted}"/></StackPanel><TextBlock Text="{Binding Name}" FontWeight="Medium"/></DockPanel></Border>
+      </DataTemplate></ItemsControl.ItemTemplate></ItemsControl></Border>
+      <WrapPanel>
+       <Button Style="{StaticResource Primary}" Click="RunDiagnostics" IsEnabled="{Binding CanControl}"><StackPanel Orientation="Horizontal"><Path Data="{StaticResource IconRefresh}" Width="16" Height="16" Stretch="Uniform" Stroke="{StaticResource OnControl}" StrokeThickness="1.75" Margin="0,0,8,0"/><TextBlock Text="{ui:Tr DiagRecheck}" Foreground="{StaticResource OnControl}"/></StackPanel></Button>
+       <Button Content="{ui:Tr SupportReport}" Click="SaveSupportReport"/>
+      </WrapPanel>
+     </StackPanel></ScrollViewer>
+     <DockPanel DockPanel.Dock="Top" Margin="0,0,0,16" LastChildFill="False" Visibility="{Binding ShowTechnical, Converter={StaticResource BoolToVisible}}">
       <Border Style="{StaticResource Seg}" DockPanel.Dock="Left">
        <StackPanel x:Name="DiagTabs" Orientation="Horizontal">
         <Button Style="{StaticResource SegButton}" Content="{ui:Tr DiagChecksTab}" Tag="DiagChecks" Click="DiagTab" ui:Nav.IsCurrent="True"/>
@@ -140,7 +154,7 @@
        </StackPanel>
       </Border>
      </DockPanel>
-     <Grid>
+     <Grid Visibility="{Binding ShowTechnical, Converter={StaticResource BoolToVisible}}">
       <DockPanel x:Name="DiagChecks">
        <StackPanel DockPanel.Dock="Top">
         <Button Style="{StaticResource Primary}" HorizontalAlignment="Left" Click="RunDiagnostics" IsEnabled="{Binding CanControl}"><StackPanel Orientation="Horizontal"><Path Data="{StaticResource IconRefresh}" Width="16" Height="16" Stretch="Uniform" Stroke="{StaticResource OnControl}" StrokeThickness="1.75" Margin="0,0,8,0"/><TextBlock Text="{ui:Tr RunDiagnostics}" Foreground="{StaticResource OnControl}"/></StackPanel></Button>
@@ -225,7 +239,7 @@
     </DockPanel>
 
     <!-- ============ Настройки ============ -->
-    <ScrollViewer x:Name="Settings" Visibility="Collapsed" VerticalScrollBarVisibility="Auto"><StackPanel MaxWidth="720" HorizontalAlignment="Left">
+    <ScrollViewer x:Name="Settings" Visibility="Collapsed" VerticalScrollBarVisibility="Auto"><StackPanel Width="620" HorizontalAlignment="Left">
      <TextBlock Text="{ui:Tr SetActivation}" Style="{StaticResource GroupTitle}"/>
      <Border Style="{StaticResource PanelBox}" Margin="0,0,0,18"><DockPanel Margin="16,12">
       <Button DockPanel.Dock="Right" Content="{ui:Tr ChangeActivationCode}" Click="ChangeActivation" Margin="12,0,0,0" VerticalAlignment="Center"/>
@@ -248,9 +262,9 @@
       <ComboBox x:Name="Channel" DockPanel.Dock="Right" IsEnabled="{Binding Available}" DisplayMemberPath="Label" SelectedValuePath="Value" MinWidth="200" Margin="0"/>
       <TextBlock Text="{ui:Tr UpdateChannel}" FontWeight="Medium" VerticalAlignment="Center"/>
      </DockPanel></Border>
-     <TextBlock Text="{ui:Tr UpdatesHint}" Style="{StaticResource Hint}"/>
+     <TextBlock Text="{ui:Tr SetSupport}" Style="{StaticResource GroupTitle}"/>
+     <Border Style="{StaticResource PanelBox}" Margin="0,10,0,18"><Border Style="{StaticResource SetRow}" BorderThickness="0"><CheckBox x:Name="ShowTechnical" Content="{ui:Tr ShowTechnical}" IsChecked="{Binding ShowTechnical, Mode=OneWay}" Click="ToggleTechnical" Margin="0"/></Border></Border>
      <Button Content="{ui:Tr SaveSettings}" Style="{StaticResource Primary}" HorizontalAlignment="Left" Click="SaveSettings" Margin="0,4,0,8"/>
-     <TextBlock Text="{ui:Tr SettingsScope}" Style="{StaticResource Hint}"/>
     </StackPanel></ScrollViewer>
 
     <!-- ============ О программе ============ -->
@@ -267,8 +281,6 @@
          <DockPanel Margin="0,8,0,0"><TextBlock Text="{ui:Tr AboutService}" Style="{StaticResource Small}" Width="140"/><TextBlock Text="{Binding Connection}" TextWrapping="Wrap"/></DockPanel>
         </StackPanel>
        </Border>
-       <TextBlock Text="{ui:Tr ServiceHint}" Style="{StaticResource Small}" Margin="0,0,0,8"/>
-       <TextBlock Text="{ui:Tr CaptureHint}" Style="{StaticResource Small}" Margin="0,0,0,8"/>
        <TextBlock Text="{ui:Tr AboutFont}" Style="{StaticResource Caption}" TextWrapping="Wrap"/>
       </StackPanel>
      </Grid>

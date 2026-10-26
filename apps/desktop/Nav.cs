@@ -13,6 +13,11 @@ public static class Nav
     public static bool GetIsCurrent(DependencyObject target) => (bool)target.GetValue(IsCurrentProperty);
     public static void SetIsCurrent(DependencyObject target, bool value) => target.SetValue(IsCurrentProperty, value);
 }
+public sealed class BoolToCollapsedConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) => value is true ? Visibility.Collapsed : Visibility.Visible;
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotSupportedException();
+}
 public sealed class EmptyToCollapsedConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) => string.IsNullOrWhiteSpace(value as string) ? Visibility.Collapsed : Visibility.Visible;

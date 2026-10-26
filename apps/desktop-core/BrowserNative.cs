@@ -60,7 +60,7 @@ public sealed partial class DesktopViewModel
         var next=!Optimizing?"Браузеры используют обычную сеть.":status.CaptureReady&&status.Optimizing&&status.State=="READY_NEW_CONNECTIONS"&&observed
           ?"Браузеры: обмен через VELIQ подтверждён."
           :"Подготавливаем браузер…";
-        if(BrowserReadinessText!=next){BrowserReadinessText=next;Changed(nameof(BrowserReadinessText));}
+        if(BrowserReadinessText!=next){BrowserReadinessText=next;Changed(nameof(BrowserReadinessText));HealthChanged();}
     }
     public static bool NativeBrowser(Profile p) => p.PolicyData is { } data && data.TryGetValue("browser_transport", out var v)
         && v.ValueKind == JsonValueKind.String && v.GetString() == "native";

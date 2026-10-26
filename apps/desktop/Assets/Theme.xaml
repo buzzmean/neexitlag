@@ -30,6 +30,7 @@
 
  <ui:EmptyToCollapsedConverter x:Key="EmptyToCollapsed"/>
  <BooleanToVisibilityConverter x:Key="BoolToVisible"/>
+ <ui:BoolToCollapsedConverter x:Key="BoolToCollapsed"/>
 
  <!-- ===== Text ===== -->
  <!-- No implicit TextBlock style: it would override button Foreground (white text on the white Primary button). Text colour is inherited from the window. -->

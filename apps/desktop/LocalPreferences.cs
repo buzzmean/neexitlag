@@ -8,6 +8,7 @@ public sealed class LocalPreferences
         get; set;
     }
     public bool MinimizeToTray { get; set; } = true;
+    public bool ShowTechnical { get; set; }
     static string PathName => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VELIQ", "desktop.json");
     public static LocalPreferences Load(string? path = null)
     {

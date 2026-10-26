@@ -32,6 +32,7 @@ public partial class MainWindow : Window
         Launch.IsChecked = LocalPreferences.AutoStart;
         StartMinimized.IsChecked = preferences.StartMinimized;
         MinimizeToTray.IsChecked = preferences.MinimizeToTray;
+        ApplyTechnical(preferences.ShowTechnical);
         Channel.ItemsSource = new[] { new Choice("stable", Text.Get("Stable")), new Choice("preview", Text.Get("Preview")) };
         Channel.SelectedValue = "stable";
         Fallback.ItemsSource = new[] { new Choice("DIRECT", Text.Get("Direct")) };
@@ -96,7 +97,7 @@ public partial class MainWindow : Window
     internal void SaveLocalPreferences(bool startMinimized, bool minimizeToTray)
     {
         // Persist first: a failed save must not silently change runtime behavior.
-        new LocalPreferences { StartMinimized = startMinimized, MinimizeToTray = minimizeToTray }.Save(preferencesPath);
+        new LocalPreferences { StartMinimized = startMinimized, MinimizeToTray = minimizeToTray, ShowTechnical = preferences.ShowTechnical }.Save(preferencesPath);
         preferences.StartMinimized = startMinimized;
         preferences.MinimizeToTray = minimizeToTray;
         tray.Visible = minimizeToTray;
@@ -334,6 +335,33 @@ public partial class MainWindow : Window
             await Execute(async()=>{if(IsChrome(row.Profile))ChromePolicy.Guard(row.Profile);await model.DeleteApplicationAsync(row.Profile,lifetime.Token);});
     }
     async void RunDiagnostics(object sender, RoutedEventArgs e) => await Execute(() => model.DiagnoseAsync(lifetime.Token));
+    // Technical columns, tabs and expanders are for support only; the choice is remembered per user.
+    void ApplyTechnical(bool on)
+    {
+        model.ShowTechnical = on;
+        foreach (var column in AppGrid.Columns.Skip(1).Take(3)) column.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+    }
+    void ToggleTechnical(object sender, RoutedEventArgs e)
+    {
+        var on = ShowTechnical.IsChecked == true;
+        try { new LocalPreferences { StartMinimized = preferences.StartMinimized, MinimizeToTray = preferences.MinimizeToTray, ShowTechnical = on }.Save(preferencesPath); }
+        catch (Exception error) { model.ReportActionFailure(error); ShowTechnical.IsChecked = preferences.ShowTechnical; return; }
+        preferences.ShowTechnical = on; ApplyTechnical(on);
+    }
+    async void SaveSupportReport(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (model.CanControl) await model.DiagnoseAsync(lifetime.Token);
+            var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VELIQ", "Diagnostics");
+            Directory.CreateDirectory(folder);
+            var file = Path.Combine(folder, $"veliq-report-{DateTime.Now:yyyyMMdd-HHmmss}.txt");
+            await File.WriteAllTextAsync(file, model.SupportReport(AboutVersion.Text), lifetime.Token);
+            model.SetNotice("Отчёт сохранён. Отправьте этот файл в поддержку.");
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"/select,\"{file}\""));
+        }
+        catch (Exception error) { model.ReportActionFailure(error); }
+    }
     async void SaveSettings(object sender, RoutedEventArgs e)
     {
         try

@@ -612,7 +612,11 @@
   <data name="NavServices" xml:space="preserve"><value>Сервисы</value></data>
   <data name="NavAbout" xml:space="preserve"><value>О программе</value></data>
   <data name="ServicesLead" xml:space="preserve"><value>Приложения и сайты, для которых VELIQ строит маршрут. Остальные соединения VELIQ ведёт по самому быстрому пути сам.</value></data>
-  <data name="DiagnosticsLead" xml:space="preserve"><value>Проверка всех частей VELIQ: служба, перехват трафика, серверы и браузеры.</value></data>
+  <data name="DiagRecheck" xml:space="preserve"><value>Проверить снова</value></data>
+  <data name="SupportReport" xml:space="preserve"><value>Сохранить отчёт для поддержки</value></data>
+  <data name="SetSupport" xml:space="preserve"><value>Поддержка</value></data>
+  <data name="ShowTechnical" xml:space="preserve"><value>Технические детали</value></data>
+  <data name="DiagnosticsLead" xml:space="preserve"><value>Проверка, что VELIQ работает как надо.</value></data>
   <data name="AboutLead" xml:space="preserve"><value>Оптимальный маршрут для каждого соединения.</value></data>
   <data name="DiagChecksTab" xml:space="preserve"><value>Проверка</value></data>
   <data name="SetActivation" xml:space="preserve"><value>Активация</value></data>
