@@ -437,6 +437,67 @@ func (s *Store) RecordPayment(ctx context.Context, subscription, provider, provi
 	return until, extended, tx.Commit(ctx)
 }
 
+// RecordProviderPayment applies an authenticated provider notification to a
+// payment that was recorded as pending when the link was created. The stored
+// row is authoritative: an unknown provider id is rejected, the event amount
+// must match the pending record, and the credited sum/period come from the
+// record, not from the notification. Repeats and out-of-order deliveries are
+// harmless: the same status is a no-op, and a payment that already succeeded
+// is never reopened by a later event.
+func (s *Store) RecordProviderPayment(ctx context.Context, provider, providerID string, amount int64, status, actor string, now time.Time) (time.Time, bool, error) {
+	if provider == "" || len(provider) > 32 || providerID == "" || len(providerID) > 128 || amount < 0 || (status != "succeeded" && status != "canceled") {
+		return time.Time{}, false, errors.New("PAYMENT_INVALID")
+	}
+	tx, e := s.DB.Begin(ctx)
+	if e != nil {
+		return time.Time{}, false, e
+	}
+	defer tx.Rollback(ctx)
+	var subscription, old string
+	var storedAmount int64
+	var days int
+	e = tx.QueryRow(ctx, "SELECT subscription_id, amount_kopecks, period_days, status FROM payments WHERE provider=$1 AND provider_payment_id=$2 FOR UPDATE", provider, providerID).Scan(&subscription, &storedAmount, &days, &old)
+	if errors.Is(e, pgx.ErrNoRows) {
+		return time.Time{}, false, errors.New("PAYMENT_UNKNOWN")
+	}
+	if e != nil {
+		return time.Time{}, false, e
+	}
+	if storedAmount != amount {
+		return time.Time{}, false, errors.New("PAYMENT_MISMATCH")
+	}
+	var paid *time.Time
+	if e = tx.QueryRow(ctx, "SELECT paid_until FROM subscriptions WHERE id=$1 FOR UPDATE", subscription).Scan(&paid); e != nil {
+		return time.Time{}, false, e
+	}
+	until := time.Time{}
+	if paid != nil {
+		until = *paid
+	}
+	if old == "succeeded" || old == status {
+		return until, false, tx.Commit(ctx)
+	}
+	if _, e = tx.Exec(ctx, "UPDATE payments SET status=$3 WHERE provider=$1 AND provider_payment_id=$2", provider, providerID, status); e != nil {
+		return time.Time{}, false, e
+	}
+	extended := false
+	if status == "succeeded" {
+		if until.Before(now) {
+			until = now
+		}
+		// PostgreSQL keeps microseconds; returning the stored value keeps answers stable.
+		until = until.Add(time.Duration(days) * 24 * time.Hour).Truncate(time.Microsecond)
+		extended = true
+		if _, e = tx.Exec(ctx, "UPDATE subscriptions SET paid_until=$2 WHERE id=$1", subscription, until); e != nil {
+			return time.Time{}, false, e
+		}
+	}
+	if _, e = tx.Exec(ctx, "INSERT INTO audit_log(actor,action,entity_id) VALUES($1,$2,$3)", actor, "payment."+status, subscription); e != nil {
+		return time.Time{}, false, e
+	}
+	return until, extended, tx.Commit(ctx)
+}
+
 // DeviceEntitlement finds the latest paid-until across every slot of the device.
 func (s *Store) DeviceEntitlement(ctx context.Context, device string) (Entitlement, error) {
 	rows, e := s.DB.Query(ctx, "SELECT c.subscription_id IS NOT NULL,c.expires_at,sub.paid_until FROM activation_slots sl JOIN activation_codes c ON c.id=sl.code_id LEFT JOIN subscriptions sub ON sub.id=c.subscription_id WHERE sl.device_id=$1 AND NOT sl.disabled AND NOT c.revoked", device)

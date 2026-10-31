@@ -63,7 +63,21 @@ paid_until, grace_until}`. Никаких персональных данных.
 | `-account-origin https://veliq.app` | включает кабинет; пусто — API кабинета отвечает 503 |
 | `-plans-file /etc/neexitlag/plans.json` | тарифы, пример — `deploy/vps/plans.example.json` (цена 0 = оплата закрыта) |
 | `-smtp-addr host:465`, `-smtp-from`, `-smtp-user`, `-smtp-password-file` | отправка кодов входа (465 — TLS сразу, иначе STARTTLS обязателен) |
+| `-platega-merchant-id`, `-platega-secret-file` | онлайн-оплата через Platega; webhook — `POST /api/v1/payments/webhook`, URL задаётся в кабинете Platega |
 | `-enforce-subscription` | отказ в билетах релея (402 `SUBSCRIPTION_EXPIRED`) для неоплаченных устройств |
+
+### Платежи Platega
+
+Адаптер — `services/control-plane/platega.go`. Создание платежа:
+`POST https://app.platega.io/v2/transaction/process` (метод выбирает плательщик
+на форме Platega), авторизация заголовками `X-MerchantId`/`X-Secret`,
+`metadata.user_email` — email аккаунта, `payload` — `veliq:sub:<id подписки>`.
+Webhook проверяет те же заголовки сравнением в constant time (HMAC-SHA256 —
+только у Payout API); зачисление идемпотентно по id транзакции, повторы и
+внеочередная доставка безопасны, сумма сверяется с ожидающей записью, чужой
+платёж отклоняется. Автопродление (paymentMethod 6) выключено: запрос с
+`auto_renew` отвечает 409 `PAYMENT_AUTORENEW_UNAVAILABLE` до подтверждения
+рекуррентных СБП-подписок менеджером Platega.
 
 ## Клиент
 

@@ -26,6 +26,7 @@ type PaymentRequest struct {
 	PeriodDays    int
 	Description   string
 	Email         string
+	AccountID     string
 	ReturnURL     string
 	SaveMethod    bool
 }
@@ -318,8 +319,12 @@ func (a *API) pay(w http.ResponseWriter, r *http.Request, acc Account, id string
 	}
 	_ = body(r, &q)
 	amount := p.PricePerSeatRub * int64(sub.Seats) * 100
-	redirect, providerID, e := a.Settings.Payments.CreatePayment(r.Context(), PaymentRequest{Subscription: id, AmountKopecks: amount, PeriodDays: p.PeriodDays, Description: "Подписка VELIQ «" + p.Title + "»", Email: acc.Email, ReturnURL: a.Settings.AccountOrigin + "/account.html", SaveMethod: q.AutoRenew})
+	redirect, providerID, e := a.Settings.Payments.CreatePayment(r.Context(), PaymentRequest{Subscription: id, AmountKopecks: amount, PeriodDays: p.PeriodDays, Description: "Подписка VELIQ «" + p.Title + "»", Email: acc.Email, AccountID: acc.ID, ReturnURL: a.Settings.AccountOrigin + "/account.html", SaveMethod: q.AutoRenew})
 	if e != nil {
+		if errors.Is(e, ErrAutoRenewUnavailable) {
+			a.fail(w, 409, "PAYMENT_AUTORENEW_UNAVAILABLE")
+			return
+		}
 		a.fail(w, 502, "PAYMENT_UNAVAILABLE")
 		return
 	}
@@ -336,13 +341,28 @@ func (a *API) paymentWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ev, e := a.Settings.Payments.HandleWebhook(r)
+	if errors.Is(e, ErrPaymentEventIgnored) {
+		// Authentic but not actionable (e.g. PARTIALLY_REFUNDED): acknowledge so
+		// the provider stops retrying, record nothing.
+		respond(w, 200, map[string]string{"status": "ignored"})
+		return
+	}
 	if e != nil {
 		a.fail(w, 400, "PAYMENT_EVENT_REJECTED")
 		return
 	}
-	if _, _, e = a.Store.RecordPayment(r.Context(), ev.Subscription, a.Settings.Payments.Name(), ev.ProviderID, ev.AmountKopecks, ev.PeriodDays, ev.Status, "", "payment:"+a.Settings.Payments.Name(), time.Now()); e != nil {
-		// A retry from the provider will deliver it again.
-		a.fail(w, 503, "ACCOUNT_UNAVAILABLE")
+	// The store credits against the pending row created at payment time: an
+	// unknown provider id or an amount that differs from that row is rejected,
+	// and the row itself decides the credited sum and period.
+	_, _, e = a.Store.RecordProviderPayment(r.Context(), a.Settings.Payments.Name(), ev.ProviderID, ev.AmountKopecks, ev.Status, "payment:"+a.Settings.Payments.Name(), time.Now())
+	if e != nil {
+		switch e.Error() {
+		case "PAYMENT_UNKNOWN", "PAYMENT_MISMATCH", "PAYMENT_INVALID":
+			a.fail(w, 400, e.Error())
+		default:
+			// A retry from the provider will deliver it again.
+			a.fail(w, 503, "ACCOUNT_UNAVAILABLE")
+		}
 		return
 	}
 	respond(w, 200, map[string]string{"status": "ok"})
