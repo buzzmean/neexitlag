@@ -28,7 +28,9 @@ func subscriptionController(t *testing.T) (*Controller, *activationCaptureFixtur
 	t.Cleanup(c.Close)
 	b := &activationCaptureFixture{}
 	c.Backend = b
-	c.BrowserOwnerSID = "S-1-test"
+	// Owner SID is left empty: publishBrowserGuard would ACL the guard file with
+	// it, and a fake SID fails StringToSid on Windows. These tests do not exercise
+	// owner-bound policy, matching portable/demo controllers.
 	if err := c.SetCustomPath(filepath.Join(t.TempDir(), "profiles.json")); err != nil {
 		t.Fatal(err)
 	}
