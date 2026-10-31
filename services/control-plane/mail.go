@@ -25,6 +25,9 @@ type SMTPMailer struct {
 	From     string
 	Username string
 	Password string
+	// TLSConfig replaces the default client TLS configuration when set
+	// (tests with a local server). ServerName defaults to the dial host.
+	TLSConfig *tls.Config
 }
 
 func (m SMTPMailer) Send(ctx context.Context, to, subject, body string) error {
@@ -37,7 +40,14 @@ func (m SMTPMailer) Send(ctx context.Context, to, subject, body string) error {
 		deadline = time.Now().Add(15 * time.Second)
 	}
 	dialer := &net.Dialer{Deadline: deadline}
-	cfg := &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}
+	cfg := m.TLSConfig
+	if cfg == nil {
+		cfg = &tls.Config{MinVersion: tls.VersionTLS12}
+	}
+	cfg = cfg.Clone()
+	if cfg.ServerName == "" {
+		cfg.ServerName = host
+	}
 	var conn net.Conn
 	if port == "465" {
 		conn, e = tls.DialWithDialer(dialer, "tcp", m.Addr, cfg)
