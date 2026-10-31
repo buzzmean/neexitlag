@@ -440,11 +440,13 @@ func (s *Store) RecordPayment(ctx context.Context, subscription, provider, provi
 // RecordProviderPayment applies an authenticated provider notification to a
 // payment that was recorded as pending when the link was created. The stored
 // row is authoritative: an unknown provider id is rejected, the event amount
-// must match the pending record, and the credited sum/period come from the
-// record, not from the notification. Repeats and out-of-order deliveries are
-// harmless: the same status is a no-op, and a payment that already succeeded
-// is never reopened by a later event.
-func (s *Store) RecordProviderPayment(ctx context.Context, provider, providerID string, amount int64, status, actor string, now time.Time) (time.Time, bool, error) {
+// and subscription (when supplied by the provider) must match the saved
+// record, and the credited sum/period come from the record, not the notification.
+// Providers without subscription metadata may leave expectedSubscription empty;
+// Platega validates and supplies it from its required payload. Repeats and
+// out-of-order deliveries are harmless: the same status is a no-op, and a
+// payment that already succeeded is never reopened by a later event.
+func (s *Store) RecordProviderPayment(ctx context.Context, provider, providerID, expectedSubscription string, amount int64, status, actor string, now time.Time) (time.Time, bool, error) {
 	if provider == "" || len(provider) > 32 || providerID == "" || len(providerID) > 128 || amount < 0 || (status != "succeeded" && status != "canceled") {
 		return time.Time{}, false, errors.New("PAYMENT_INVALID")
 	}
@@ -463,7 +465,7 @@ func (s *Store) RecordProviderPayment(ctx context.Context, provider, providerID 
 	if e != nil {
 		return time.Time{}, false, e
 	}
-	if storedAmount != amount {
+	if storedAmount != amount || expectedSubscription != "" && expectedSubscription != subscription {
 		return time.Time{}, false, errors.New("PAYMENT_MISMATCH")
 	}
 	var paid *time.Time

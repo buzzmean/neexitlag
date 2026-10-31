@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // mockPlatega is a test double of the Platega API: it records the create
@@ -322,5 +323,117 @@ func TestPlategaPaymentEndToEnd(t *testing.T) {
 	}
 	if paidUntil() <= first {
 		t.Fatal("late confirm did not extend")
+	}
+}
+
+// Authentic transaction IDs and amounts must not authorize a different payload
+// subscription, even after a payment succeeded and would otherwise be a no-op.
+func TestPlategaWebhookSubscriptionBinding(t *testing.T) {
+	api, store, mailer := accountAPI(t, true)
+	mock := newMockPlatega(t)
+	api.Settings.Payments = mock.provider()
+	caller := &call{api: api}
+	login(t, caller, mailer, "payer@example.com")
+	create := func() string {
+		t.Helper()
+		status, out := caller.do(t, "POST", "/api/v1/account/subscriptions", map[string]any{"plan_id": "club-month", "seats": 2})
+		if status != 201 {
+			t.Fatal("subscription create", status, out)
+		}
+		return out["id"].(string)
+	}
+	subscription, foreign := create(), create()
+	if status, out := caller.do(t, "POST", "/api/v1/account/subscriptions/"+subscription+"/pay", map[string]any{}); status != 200 {
+		t.Fatal("pay", status, out)
+	}
+	transaction := mock.nextTx.Load().(string)
+	webhook := func(payloadSubscription, status string) (int, map[string]any) {
+		t.Helper()
+		body, _ := json.Marshal(map[string]any{"id": transaction, "amount": 400, "currency": "RUB", "status": status, "payload": plategaPayloadPrefix + payloadSubscription})
+		req := plategaWebhookRequest(mock.provider(), string(body))
+		rec := httptest.NewRecorder()
+		api.Handler().ServeHTTP(rec, req)
+		var out map[string]any
+		if e := json.Unmarshal(rec.Body.Bytes(), &out); e != nil {
+			t.Fatal(e)
+		}
+		return rec.Code, out
+	}
+	snapshot := func() string {
+		t.Helper()
+		var result string
+		e := store.DB.QueryRow(context.Background(), `SELECT jsonb_build_object(
+   'subscriptions',(SELECT jsonb_agg(to_jsonb(s) ORDER BY id) FROM subscriptions s),
+   'payments',(SELECT jsonb_agg(to_jsonb(p) ORDER BY id) FROM payments p),
+   'audit',(SELECT jsonb_agg(to_jsonb(a) ORDER BY id) FROM audit_log a))::text`).Scan(&result)
+		if e != nil {
+			t.Fatal(e)
+		}
+		return result
+	}
+	rejectForeign := func() {
+		t.Helper()
+		before := snapshot()
+		for _, status := range []string{"CONFIRMED", "CANCELED"} {
+			code, out := webhook(foreign, status)
+			if code != http.StatusBadRequest || out["error"] != "PAYMENT_MISMATCH" {
+				t.Fatalf("foreign subscription accepted for %s: HTTP %d, error=%v", status, code, out["error"])
+			}
+			if snapshot() != before {
+				t.Fatal("rejected webhook changed subscriptions, payment or audit state")
+			}
+		}
+	}
+	rejectForeign()
+	if code, out := webhook(subscription, "CONFIRMED"); code != 200 {
+		t.Fatal("correct webhook", code, out)
+	}
+	var paymentSubscription, paymentStatus string
+	var paid, foreignPaid *time.Time
+	if e := store.DB.QueryRow(context.Background(), "SELECT subscription_id,status FROM payments WHERE provider='platega' AND provider_payment_id=$1", transaction).Scan(&paymentSubscription, &paymentStatus); e != nil {
+		t.Fatal(e)
+	}
+	if e := store.DB.QueryRow(context.Background(), "SELECT paid_until FROM subscriptions WHERE id=$1", subscription).Scan(&paid); e != nil {
+		t.Fatal(e)
+	}
+	if e := store.DB.QueryRow(context.Background(), "SELECT paid_until FROM subscriptions WHERE id=$1", foreign).Scan(&foreignPaid); e != nil {
+		t.Fatal(e)
+	}
+	if paymentSubscription != subscription || paymentStatus != "succeeded" || paid == nil || !paid.After(time.Now()) || foreignPaid != nil {
+		t.Fatal("correct payment was not credited only to its saved subscription")
+	}
+	rejectForeign()
+	before := snapshot()
+	if code, out := webhook(subscription, "CONFIRMED"); code != 200 {
+		t.Fatal("duplicate correct webhook", code, out)
+	}
+	if snapshot() != before {
+		t.Fatal("duplicate payment changed credited period or audit state")
+	}
+}
+
+func TestProviderPaymentWithoutSubscriptionMetadata(t *testing.T) {
+	api, store, mailer := accountAPI(t, false)
+	caller := &call{api: api}
+	login(t, caller, mailer, "other-provider@example.com")
+	status, out := caller.do(t, "POST", "/api/v1/account/subscriptions", map[string]any{"plan_id": "player-month", "seats": 1})
+	if status != 201 {
+		t.Fatal("subscription create", status, out)
+	}
+	subscription := out["id"].(string)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	if _, _, e := store.RecordPayment(ctx, subscription, "transaction-only-test", "other-tx", 30000, 30, "pending", "", "test", now); e != nil {
+		t.Fatal(e)
+	}
+	// Other adapters may identify payments solely by authenticated transaction ID.
+	// The saved row still determines the destination subscription and period.
+	until, extended, e := store.RecordProviderPayment(ctx, "transaction-only-test", "other-tx", "", 30000, "succeeded", "test", now)
+	if e != nil || !extended || !until.Equal(now.Add(30*24*time.Hour)) {
+		t.Fatal("provider without metadata", extended, e)
+	}
+	again, extended, e := store.RecordProviderPayment(ctx, "transaction-only-test", "other-tx", "", 30000, "succeeded", "test", now)
+	if e != nil || extended || !again.Equal(until) {
+		t.Fatal("provider duplicate", extended, e)
 	}
 }

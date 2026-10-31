@@ -352,9 +352,9 @@ func (a *API) paymentWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The store credits against the pending row created at payment time: an
-	// unknown provider id or an amount that differs from that row is rejected,
+	// unknown provider id, mismatched amount or subscription is rejected,
 	// and the row itself decides the credited sum and period.
-	_, _, e = a.Store.RecordProviderPayment(r.Context(), a.Settings.Payments.Name(), ev.ProviderID, ev.AmountKopecks, ev.Status, "payment:"+a.Settings.Payments.Name(), time.Now())
+	_, _, e = a.Store.RecordProviderPayment(r.Context(), a.Settings.Payments.Name(), ev.ProviderID, ev.Subscription, ev.AmountKopecks, ev.Status, "payment:"+a.Settings.Payments.Name(), time.Now())
 	if e != nil {
 		switch e.Error() {
 		case "PAYMENT_UNKNOWN", "PAYMENT_MISMATCH", "PAYMENT_INVALID":
